@@ -1,19 +1,22 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../constants/app_constants.dart';
+import '../errors/app_exception.dart';
 
-/// HTTP client for API communication
+/// API Client with Dio for HTTP requests
 class ApiClient {
   late final Dio _dio;
-  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
+  final FlutterSecureStorage _storage;
+  final String baseUrl;
 
-  ApiClient({String? baseUrl}) {
+  ApiClient({
+    required this.baseUrl,
+    FlutterSecureStorage? storage,
+  }) : _storage = storage ?? const FlutterSecureStorage() {
     _dio = Dio(
       BaseOptions(
-        baseUrl: baseUrl ?? AppConstants.baseUrl,
-        connectTimeout: AppConstants.connectTimeout,
-        receiveTimeout: AppConstants.receiveTimeout,
-        sendTimeout: AppConstants.sendTimeout,
+        baseUrl: baseUrl,
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(seconds: 30),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -21,72 +24,97 @@ class ApiClient {
       ),
     );
 
-    _setupInterceptors();
+    // Add interceptors
+    _dio.interceptors.add(_authInterceptor());
+    _dio.interceptors.add(_errorInterceptor());
+    _dio.interceptors.add(_loggingInterceptor());
   }
 
-  void _setupInterceptors() {
-    _dio.interceptors.add(
-      InterceptorsWrapper(
-        onRequest: (options, handler) async {
-          // Add auth token to headers
-          final token = await _secureStorage.read(
-            key: AppConstants.keyAccessToken,
-          );
-          if (token != null) {
-            options.headers['Authorization'] = 'Bearer $token';
-          }
+  /// Authentication interceptor - injects Bearer token
+  Interceptor _authInterceptor() {
+    return InterceptorsWrapper(
+      onRequest: (options, handler) async {
+        // Skip auth for login/register endpoints
+        if (options.path.contains('/auth/google') ||
+            options.path.contains('/auth/guest')) {
           return handler.next(options);
-        },
-        onResponse: (response, handler) {
-          // Log response
-          print('Response [${response.statusCode}]: ${response.requestOptions.path}');
-          return handler.next(response);
-        },
-        onError: (error, handler) async {
-          // Handle 401 Unauthorized - refresh token
-          if (error.response?.statusCode == 401) {
-            try {
-              final refreshed = await _refreshToken();
-              if (refreshed) {
-                // Retry original request
-                final options = error.requestOptions;
-                final token = await _secureStorage.read(
-                  key: AppConstants.keyAccessToken,
-                );
-                options.headers['Authorization'] = 'Bearer $token';
+        }
 
-                final response = await _dio.fetch(options);
-                return handler.resolve(response);
-              }
+        // Get token from secure storage
+        final token = await _storage.read(key: 'access_token');
+        if (token != null) {
+          options.headers['Authorization'] = 'Bearer $token';
+        }
+
+        handler.next(options);
+      },
+      onError: (error, handler) async {
+        // Handle 401 Unauthorized - try to refresh token
+        if (error.response?.statusCode == 401) {
+          final refreshed = await _refreshToken();
+          if (refreshed) {
+            // Retry original request with new token
+            final options = error.requestOptions;
+            final token = await _storage.read(key: 'access_token');
+            options.headers['Authorization'] = 'Bearer $token';
+
+            try {
+              final response = await _dio.fetch(options);
+              return handler.resolve(response);
             } catch (e) {
-              // Refresh failed, clear tokens and redirect to login
-              await _clearAuth();
+              return handler.next(error);
             }
           }
-
-          return handler.next(error);
-        },
-      ),
+        }
+        handler.next(error);
+      },
     );
-
-    // Add logging interceptor in debug mode
-    if (const bool.fromEnvironment('dart.vm.product') == false) {
-      _dio.interceptors.add(LogInterceptor(
-        requestBody: true,
-        responseBody: true,
-        error: true,
-        requestHeader: true,
-        responseHeader: false,
-      ));
-    }
   }
 
+  /// Error handling interceptor
+  Interceptor _errorInterceptor() {
+    return InterceptorsWrapper(
+      onError: (error, handler) {
+        final exception = _handleError(error);
+        handler.reject(
+          DioException(
+            requestOptions: error.requestOptions,
+            error: exception,
+            response: error.response,
+            type: error.type,
+          ),
+        );
+      },
+    );
+  }
+
+  /// Logging interceptor for debugging
+  Interceptor _loggingInterceptor() {
+    return InterceptorsWrapper(
+      onRequest: (options, handler) {
+        print('🌐 REQUEST[${options.method}] => ${options.path}');
+        print('Headers: ${options.headers}');
+        print('Data: ${options.data}');
+        handler.next(options);
+      },
+      onResponse: (response, handler) {
+        print('✅ RESPONSE[${response.statusCode}] => ${response.requestOptions.path}');
+        print('Data: ${response.data}');
+        handler.next(response);
+      },
+      onError: (error, handler) {
+        print('❌ ERROR[${error.response?.statusCode}] => ${error.requestOptions.path}');
+        print('Message: ${error.message}');
+        print('Data: ${error.response?.data}');
+        handler.next(error);
+      },
+    );
+  }
+
+  /// Refresh access token using refresh token
   Future<bool> _refreshToken() async {
     try {
-      final refreshToken = await _secureStorage.read(
-        key: AppConstants.keyRefreshToken,
-      );
-
+      final refreshToken = await _storage.read(key: 'refresh_token');
       if (refreshToken == null) return false;
 
       final response = await _dio.post(
@@ -95,18 +123,11 @@ class ApiClient {
       );
 
       if (response.statusCode == 200) {
-        final accessToken = response.data['access_token'];
-        final newRefreshToken = response.data['refresh_token'];
-
-        await _secureStorage.write(
-          key: AppConstants.keyAccessToken,
-          value: accessToken,
-        );
-        await _secureStorage.write(
-          key: AppConstants.keyRefreshToken,
-          value: newRefreshToken,
-        );
-
+        final data = response.data;
+        await _storage.write(key: 'access_token', value: data['access_token']);
+        if (data['refresh_token'] != null) {
+          await _storage.write(key: 'refresh_token', value: data['refresh_token']);
+        }
         return true;
       }
       return false;
@@ -116,124 +137,236 @@ class ApiClient {
     }
   }
 
-  Future<void> _clearAuth() async {
-    await _secureStorage.delete(key: AppConstants.keyAccessToken);
-    await _secureStorage.delete(key: AppConstants.keyRefreshToken);
-    await _secureStorage.delete(key: AppConstants.keyUserId);
+  /// Handle Dio errors and convert to AppException
+  AppException _handleError(DioException error) {
+    switch (error.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return TimeoutException(
+          message: 'Connection timeout',
+          originalError: error,
+          stackTrace: error.stackTrace,
+        );
+
+      case DioExceptionType.badResponse:
+        final statusCode = error.response?.statusCode ?? 0;
+        final message = error.response?.data?['message'] ?? 
+                       error.response?.data?['detail'] ?? 
+                       'Server error';
+
+        if (statusCode == 401) {
+          return UnauthorizedException(
+            message: message,
+            originalError: error,
+            stackTrace: error.stackTrace,
+          );
+        } else if (statusCode == 403) {
+          return ForbiddenException(
+            message: message,
+            originalError: error,
+            stackTrace: error.stackTrace,
+          );
+        } else if (statusCode == 404) {
+          return NotFoundException(
+            message: message,
+            originalError: error,
+            stackTrace: error.stackTrace,
+          );
+        } else if (statusCode == 422) {
+          return ValidationException(
+            message: message,
+            errors: _parseValidationErrors(error.response?.data),
+            originalError: error,
+            stackTrace: error.stackTrace,
+          );
+        } else {
+          return ServerException(
+            message: message,
+            statusCode: statusCode,
+            originalError: error,
+            stackTrace: error.stackTrace,
+          );
+        }
+
+      case DioExceptionType.cancel:
+        return NetworkException(
+          message: 'Request cancelled',
+          originalError: error,
+          stackTrace: error.stackTrace,
+        );
+
+      case DioExceptionType.connectionError:
+      case DioExceptionType.unknown:
+      default:
+        return NetworkException(
+          message: 'Network error: ${error.message}',
+          originalError: error,
+          stackTrace: error.stackTrace,
+        );
+    }
   }
 
-  // GET request
-  Future<Response<T>> get<T>(
+  /// Parse validation errors from response
+  Map<String, List<String>>? _parseValidationErrors(dynamic data) {
+    if (data == null) return null;
+    if (data is! Map) return null;
+
+    final errors = <String, List<String>>{};
+    if (data['errors'] != null && data['errors'] is Map) {
+      (data['errors'] as Map).forEach((key, value) {
+        if (value is List) {
+          errors[key.toString()] = value.map((e) => e.toString()).toList();
+        } else {
+          errors[key.toString()] = [value.toString()];
+        }
+      });
+    }
+    return errors.isEmpty ? null : errors;
+  }
+
+  /// GET request
+  Future<Response> get(
     String path, {
     Map<String, dynamic>? queryParameters,
     Options? options,
-    CancelToken? cancelToken,
   }) async {
-    return await _dio.get<T>(
-      path,
-      queryParameters: queryParameters,
-      options: options,
-      cancelToken: cancelToken,
-    );
+    try {
+      final response = await _dio.get(
+        path,
+        queryParameters: queryParameters,
+        options: options,
+      );
+      return response;
+    } on DioException catch (e) {
+      throw e.error ?? e;
+    }
   }
 
-  // POST request
-  Future<Response<T>> post<T>(
+  /// POST request
+  Future<Response> post(
     String path, {
     dynamic data,
     Map<String, dynamic>? queryParameters,
     Options? options,
-    CancelToken? cancelToken,
   }) async {
-    return await _dio.post<T>(
-      path,
-      data: data,
-      queryParameters: queryParameters,
-      options: options,
-      cancelToken: cancelToken,
-    );
+    try {
+      final response = await _dio.post(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+        options: options,
+      );
+      return response;
+    } on DioException catch (e) {
+      throw e.error ?? e;
+    }
   }
 
-  // PUT request
-  Future<Response<T>> put<T>(
+  /// PUT request
+  Future<Response> put(
     String path, {
     dynamic data,
     Map<String, dynamic>? queryParameters,
     Options? options,
-    CancelToken? cancelToken,
   }) async {
-    return await _dio.put<T>(
-      path,
-      data: data,
-      queryParameters: queryParameters,
-      options: options,
-      cancelToken: cancelToken,
-    );
+    try {
+      final response = await _dio.put(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+        options: options,
+      );
+      return response;
+    } on DioException catch (e) {
+      throw e.error ?? e;
+    }
   }
 
-  // DELETE request
-  Future<Response<T>> delete<T>(
+  /// DELETE request
+  Future<Response> delete(
     String path, {
     dynamic data,
     Map<String, dynamic>? queryParameters,
     Options? options,
-    CancelToken? cancelToken,
   }) async {
-    return await _dio.delete<T>(
-      path,
-      data: data,
-      queryParameters: queryParameters,
-      options: options,
-      cancelToken: cancelToken,
-    );
+    try {
+      final response = await _dio.delete(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+        options: options,
+      );
+      return response;
+    } on DioException catch (e) {
+      throw e.error ?? e;
+    }
   }
 
-  // PATCH request
-  Future<Response<T>> patch<T>(
+  /// PATCH request
+  Future<Response> patch(
     String path, {
     dynamic data,
     Map<String, dynamic>? queryParameters,
     Options? options,
-    CancelToken? cancelToken,
   }) async {
-    return await _dio.patch<T>(
-      path,
-      data: data,
-      queryParameters: queryParameters,
-      options: options,
-      cancelToken: cancelToken,
-    );
+    try {
+      final response = await _dio.patch(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+        options: options,
+      );
+      return response;
+    } on DioException catch (e) {
+      throw e.error ?? e;
+    }
   }
 
-  // Upload file
-  Future<Response<T>> upload<T>(
+  /// Upload file
+  Future<Response> upload(
     String path,
-    FormData formData, {
+    String filePath, {
+    String fieldName = 'file',
+    Map<String, dynamic>? data,
     ProgressCallback? onSendProgress,
-    Options? options,
-    CancelToken? cancelToken,
   }) async {
-    return await _dio.post<T>(
-      path,
-      data: formData,
-      onSendProgress: onSendProgress,
-      options: options,
-      cancelToken: cancelToken,
-    );
+    final formData = FormData.fromMap({
+      fieldName: await MultipartFile.fromFile(filePath),
+      ...?data,
+    });
+
+    try {
+      final response = await _dio.post(
+        path,
+        data: formData,
+        onSendProgress: onSendProgress,
+      );
+      return response;
+    } on DioException catch (e) {
+      throw e.error ?? e;
+    }
   }
 
-  // Download file
-  Future<Response> download(
-    String urlPath,
-    String savePath, {
-    ProgressCallback? onReceiveProgress,
-    CancelToken? cancelToken,
-  }) async {
-    return await _dio.download(
-      urlPath,
-      savePath,
-      onReceiveProgress: onReceiveProgress,
-      cancelToken: cancelToken,
-    );
+  /// Clear stored tokens
+  Future<void> clearTokens() async {
+    await _storage.delete(key: 'access_token');
+    await _storage.delete(key: 'refresh_token');
+  }
+
+  /// Store tokens
+  Future<void> storeTokens(String accessToken, String refreshToken) async {
+    await _storage.write(key: 'access_token', value: accessToken);
+    await _storage.write(key: 'refresh_token', value: refreshToken);
+  }
+
+  /// Get access token
+  Future<String?> getAccessToken() async {
+    return await _storage.read(key: 'access_token');
+  }
+
+  /// Get refresh token
+  Future<String?> getRefreshToken() async {
+    return await _storage.read(key: 'refresh_token');
   }
 }
