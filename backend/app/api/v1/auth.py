@@ -10,10 +10,12 @@ from google_auth_oauthlib.flow import Flow
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_access_token, create_refresh_token
 from app.models.user import User
+from app.schemas import auth as schemas
 from app.schemas.auth import GoogleAuthURL, GoogleCallback, Token
 
 router = APIRouter()
@@ -138,6 +140,187 @@ async def google_callback(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Authentication failed: {str(e)}",
         )
+
+
+@router.post("/google/mobile", response_model=schemas.TokenWithUser)
+async def google_mobile_auth(
+    auth_data: schemas.GoogleMobileAuth,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """
+    Mobile Google Sign-In authentication.
+    
+    Args:
+        auth_data: Google ID token from mobile SDK
+        db: Database session
+        
+    Returns:
+        TokenWithUser: Access token, refresh token, and user info
+    """
+    try:
+        # Verify ID token from Google
+        idinfo = id_token.verify_oauth2_token(
+            auth_data.id_token,
+            requests.Request(),
+            settings.GOOGLE_CLIENT_ID,
+        )
+        
+        # Extract user info
+        google_id = idinfo["sub"]
+        email = idinfo.get("email")
+        full_name = idinfo.get("name")
+        picture = idinfo.get("picture")
+        
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email not provided by Google",
+            )
+        
+        # Find or create user
+        result = await db.execute(
+            select(User).where(User.google_id == google_id)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            # Create new user
+            user = User(
+                email=email,
+                full_name=full_name,
+                google_id=google_id,
+                google_access_token=auth_data.access_token,
+            )
+            db.add(user)
+        else:
+            # Update existing user
+            if auth_data.access_token:
+                user.google_access_token = auth_data.access_token
+        
+        await db.commit()
+        await db.refresh(user)
+        
+        # Create JWT tokens
+        access_token = create_access_token(data={"sub": str(user.id)})
+        refresh_token = create_refresh_token(data={"sub": str(user.id)})
+        
+        # Create user response
+        user_response = schemas.UserResponse(
+            id=str(user.id),
+            email=user.email,
+            name=user.full_name or "User",
+            avatarUrl=picture,
+            created_at=user.created_at.isoformat(),
+            isGuest=False,
+        )
+        
+        return schemas.TokenWithUser(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user=user_response,
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Mobile authentication failed: {str(e)}",
+        )
+
+
+@router.post("/guest", response_model=schemas.TokenWithUser)
+async def guest_auth(
+    guest_data: schemas.GuestAuth,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """
+    Guest authentication (no Google account required).
+    
+    Args:
+        guest_data: Guest device info
+        db: Database session
+        
+    Returns:
+        TokenWithUser: Access token and guest user info
+    """
+    try:
+        # Check if guest user already exists
+        email = f"guest_{guest_data.device_id}@agenthq.local"
+        
+        result = await db.execute(
+            select(User).where(User.email == email)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            # Create new guest user
+            user = User(
+                email=email,
+                full_name=guest_data.name,
+                is_active=True,
+            )
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+        
+        # Create JWT tokens
+        access_token = create_access_token(data={"sub": str(user.id)})
+        refresh_token = create_refresh_token(data={"sub": str(user.id)})
+        
+        # Create user response
+        user_response = schemas.UserResponse(
+            id=str(user.id),
+            email=user.email,
+            name=user.full_name or "Guest",
+            avatarUrl=None,
+            created_at=user.created_at.isoformat(),
+            isGuest=True,
+        )
+        
+        return schemas.TokenWithUser(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user=user_response,
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Guest authentication failed: {str(e)}",
+        )
+
+
+@router.get("/me", response_model=schemas.UserResponse)
+async def get_current_user_info(
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """
+    Get current user information.
+    
+    Args:
+        user: Current authenticated user
+        
+    Returns:
+        UserResponse: Current user information
+    """
+    return schemas.UserResponse(
+        id=str(user.id),
+        email=user.email,
+        name=user.full_name or "User",
+        avatarUrl=None,  # TODO: Add avatar URL support
+        created_at=user.created_at.isoformat(),
+        isGuest=user.email.startswith("guest_"),
+    )
+
+
+@router.post("/logout")
+async def logout():
+    """
+    Logout endpoint (client should clear tokens).
+    
+    Returns:
+        dict: Success message
+    """
+    return {"message": "Logged out successfully"}
 
 
 @router.post("/refresh", response_model=Token)
