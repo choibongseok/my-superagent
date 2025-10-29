@@ -466,7 +466,7 @@ flutter build ipa --release
 
 ## 🤝 Contributing
 
-기여를 환영합니다! 먼저 프로젝트 전반 가이드는 [CONTRIBUTING.md](CONTRIBUTING.md)를, 에이전트 워크플로와 협업 규칙은 [AGENTS.md](AGENTS.md)를 참고하세요.
+기여를 환영합니다! 먼저 프로젝트 전반 가이드는 [CONTRIBUTING.md](CONTRIBUTING.md)를, 에이전트 워크플로와 협업 규칙은 [AGENTS.md](docs/AGENTS.md)를 참고하세요.
 
 ### Development Flow
 
