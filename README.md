@@ -1,10 +1,12 @@
 # 🚀 AgentHQ - Multi-Client AI Super Agent Hub
 
-> **An intelligent agent system that creates Google Docs, Sheets, and Slides through natural language commands**
+> **세계 최고 수준의 Multi-Agent AI Platform - Google Workspace 자동화 시스템**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com/)
+[![LangChain](https://img.shields.io/badge/LangChain-0.1+-purple.svg)](https://python.langchain.com/)
+[![LangFuse](https://img.shields.io/badge/LangFuse-2.6+-teal.svg)](https://langfuse.com/)
 [![Tauri](https://img.shields.io/badge/Tauri-1.5+-orange.svg)](https://tauri.app/)
 [![Flutter](https://img.shields.io/badge/Flutter-3.16+-blue.svg)](https://flutter.dev/)
 
@@ -12,14 +14,23 @@
 
 ## 🌟 Overview
 
-**AgentHQ** is a cross-platform AI agent system that allows users to:
+**AgentHQ**는 세계 최고 수준의 Multi-Agent AI Platform입니다.
 
-- 📊 Generate data-driven **Google Sheets** from natural language
-- 📝 Create comprehensive **Google Docs** reports with citations
-- 🎨 Design professional **Google Slides** presentations
-- 🔍 Perform intelligent web research and analysis
-- 🧠 Maintain conversation memory for contextual interactions
-- 🤝 Seamless Google Workspace integration
+### 🎯 핵심 기능
+
+- 📊 **Google Sheets 자동 생성** - 자연어로 데이터 기반 스프레드시트 생성
+- 📝 **Google Docs 리포트 작성** - 인용 출처가 포함된 종합 문서 작성
+- 🎨 **Google Slides 프레젠테이션** - 전문적인 슬라이드 자동 디자인
+- 🔍 **지능형 웹 리서치** - 최신 정보 검색 및 분석
+- 🧠 **대화 컨텍스트 기억** - 다중 턴 대화를 통한 맥락 유지
+- 🤝 **Google Workspace 통합** - 완벽한 생태계 연동
+
+### 🏆 차별화 포인트
+
+- **🔗 LangChain 기반 Agent** - 구조화되고 확장 가능한 AI Agent 시스템
+- **📊 LangFuse 모니터링** - 실시간 LLM 비용 추적 및 성능 최적화
+- **🎨 Multi-Platform** - Desktop (Tauri), Mobile (Flutter), Web 지원
+- **🔒 Enterprise-Grade** - 보안, 확장성, 안정성을 고려한 설계
 
 ### Multi-Platform Support
 
@@ -79,9 +90,11 @@ AgentHQ/
 
 ### Backend
 - **API Gateway**: FastAPI (Python 3.11+)
+- **Agent Framework**: LangChain (Structured AI Agents)
+- **LLM Observability**: LangFuse (Monitoring & Analytics)
 - **Task Queue**: Celery + Redis
 - **Database**: PostgreSQL + PGVector
-- **LLM**: OpenAI GPT-4 / Anthropic Claude
+- **LLM Providers**: OpenAI GPT-4 / Anthropic Claude
 - **Google APIs**: Docs, Sheets, Slides, Drive
 
 ### Desktop (Primary)
@@ -135,7 +148,10 @@ pip install -r requirements.txt
 
 # Setup environment
 cp .env.example .env
-# Edit .env with your Google OAuth credentials
+# Edit .env with your credentials:
+# - Google OAuth (Client ID, Secret)
+# - LangFuse API Keys (Public Key, Secret Key)
+# - OpenAI/Anthropic API Keys
 
 # Run migrations
 alembic upgrade head
@@ -218,14 +234,31 @@ Scopes:
 
 ```bash
 # backend/.env
+
+# Google OAuth
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
 GOOGLE_REDIRECT_URI=http://localhost:8000/auth/callback
 
+# LLM Providers
 OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+
+# LangFuse (LLM Observability)
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_HOST=https://cloud.langfuse.com
+
+# Database & Cache
 DATABASE_URL=postgresql://user:pass@localhost:5432/agenthq
 REDIS_URL=redis://localhost:6379/0
+
+# App Settings
+DEBUG=true
+LOG_LEVEL=INFO
 ```
+
+> 💡 **LangFuse 설정 방법**: [docs/LANGFUSE_SETUP.md](docs/LANGFUSE_SETUP.md) 참조
 
 ---
 
@@ -373,42 +406,36 @@ flutter build ipa --release
 
 ---
 
-## 🎯 Roadmap
+## 🎯 Development Plan
 
-### Phase 1: MVP (Week 1-2) ✅
-- [x] Backend API foundation
-- [x] Google OAuth integration
-- [x] Tauri desktop UI
-- [x] Basic task queue
-- [x] Docs/Sheets/Slides generation
+**📋 세부 개발 계획은 다음 문서를 참고하세요:**
 
-### Phase 2: Intelligence (Week 3-4)
-- [ ] Web research agent
-- [ ] Memory & context system
-- [ ] Multi-turn conversations
-- [ ] Source citation
-- [ ] Template system
+- **[📊 PHASE_PLAN.md](docs/PHASE_PLAN.md)** - 전체 로드맵 및 페이즈별 상세 계획 (Phase 0-6)
+- **[🔧 PHASE_0_IMPLEMENTATION.md](docs/PHASE_0_IMPLEMENTATION.md)** - Phase 0 실행 가이드 (LangChain/LangFuse 통합)
+- **[🔗 LANGCHAIN_GUIDE.md](docs/LANGCHAIN_GUIDE.md)** - LangChain 완전 가이드
+- **[📊 LANGFUSE_SETUP.md](docs/LANGFUSE_SETUP.md)** - LangFuse 설정 및 활용 가이드
 
-### Phase 3: Mobile (Week 5-6)
-- [ ] Flutter UI implementation
-- [ ] Mobile OAuth flow
-- [ ] Push notifications
-- [ ] Offline mode
-- [ ] File caching
+### Current Status (2024-10-29)
 
-### Phase 4: Collaboration (Week 7-8)
-- [ ] Google Workspace integration
-- [ ] Team sharing
-- [ ] Permission management
-- [ ] Real-time sync
-- [ ] Activity logs
+**✅ Completed (Phase 1 - MVP)**
+- Backend API foundation (FastAPI)
+- Google OAuth integration
+- Tauri desktop UI structure
+- Basic task queue (Celery + Redis)
+- Database models (PostgreSQL + PGVector)
 
-### Phase 5: Scale (Week 9-10)
-- [ ] Performance optimization
-- [ ] Advanced caching
-- [ ] Rate limiting
-- [ ] Usage analytics
-- [ ] Enterprise features
+**🔄 In Progress (Phase 0 - Foundation Enhancement)**
+- LangChain integration for structured AI agents
+- LangFuse integration for LLM observability
+- Prompt management system
+- Comprehensive testing (target: 80%+ coverage)
+
+**📍 Next Steps**
+1. **Week 1-2**: Complete Phase 0 (LangChain/LangFuse integration)
+2. **Week 3-4**: Phase 1 (Core Agent implementation)
+3. **Week 5-6**: Phase 2 (Intelligence & Memory)
+
+> 💡 **자세한 내용은 [docs/PHASE_PLAN.md](docs/PHASE_PLAN.md)를 참조하세요.**
 
 ---
 
@@ -435,10 +462,31 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - [FastAPI](https://fastapi.tiangolo.com/) for the amazing Python framework
+- [LangChain](https://python.langchain.com/) for the powerful agent framework
+- [LangFuse](https://langfuse.com/) for LLM observability and analytics
 - [Tauri](https://tauri.app/) for secure desktop applications
 - [Flutter](https://flutter.dev/) for beautiful mobile UIs
 - [Google Workspace APIs](https://developers.google.com/workspace) for document integration
 - [OpenAI](https://openai.com/) / [Anthropic](https://anthropic.com/) for LLM capabilities
+
+---
+
+## 📖 Documentation
+
+### Architecture & Planning
+- **[🏗️ ARCHITECTURE.md](docs/ARCHITECTURE.md)** - 시스템 아키텍처 상세 설계
+- **[📊 PHASE_PLAN.md](docs/PHASE_PLAN.md)** - 전체 개발 로드맵 (Phase 0-6)
+- **[📝 OAUTH_SETUP.md](docs/OAUTH_SETUP.md)** - Google OAuth 설정 가이드
+
+### Implementation Guides
+- **[🔧 PHASE_0_IMPLEMENTATION.md](docs/PHASE_0_IMPLEMENTATION.md)** - Phase 0 실행 가이드
+- **[🔗 LANGCHAIN_GUIDE.md](docs/LANGCHAIN_GUIDE.md)** - LangChain 개념 및 구현 패턴
+- **[📊 LANGFUSE_SETUP.md](docs/LANGFUSE_SETUP.md)** - LangFuse 모니터링 시스템 구축
+
+### Quick References
+- **Backend API**: http://localhost:8000/docs (FastAPI Swagger UI)
+- **LangFuse Dashboard**: https://cloud.langfuse.com (LLM Observability)
+- **Architecture Diagram**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ---
 
@@ -447,7 +495,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - 📧 Email: support@agenthq.example.com
 - 💬 Discord: [Join our community](https://discord.gg/agenthq)
 - 🐛 Issues: [GitHub Issues](https://github.com/yourusername/agenthq/issues)
-- 📖 Docs: [Documentation](https://docs.agenthq.example.com)
+- 📚 Documentation: [docs/](docs/)
 
 ---
 

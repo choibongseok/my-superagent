@@ -119,3 +119,6 @@ temp/
 .terraform/
 *.tfstate
 *.tfstate.backup
+
+
+.mcp.json
