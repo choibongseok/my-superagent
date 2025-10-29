@@ -1,35 +1,81 @@
-# Phase 3 Implementation Guide: Mobile Client (Flutter)
+# Phase 3-1 Implementation Guide: Mobile Client (Flutter)
 
 > **목표**: iOS/Android 네이티브 앱 완성 및 배포
-> **기간**: 3주
+> **기간**: 3주 (Week 7-9)
 > **우선순위**: P1 (High Priority)
+> **현재 상태**: 🟡 In Progress - UI Completed, Core Features Pending
 
 ---
 
 ## 📋 Table of Contents
 
 1. [Overview](#overview)
-2. [Prerequisites](#prerequisites)
-3. [Architecture](#architecture)
-4. [Implementation](#implementation)
-5. [UI/UX Design](#uiux-design)
-6. [Testing](#testing)
-7. [Deployment](#deployment)
-8. [Success Criteria](#success-criteria)
+2. [Current Status](#current-status)
+3. [Prerequisites](#prerequisites)
+4. [Architecture](#architecture)
+5. [Implementation](#implementation)
+6. [UI/UX Design](#uiux-design)
+7. [Testing](#testing)
+8. [Deployment](#deployment)
+9. [Success Criteria](#success-criteria)
 
 ---
 
 ## Overview
 
-Phase 3는 AgentHQ의 모바일 클라이언트를 Flutter로 구현합니다.
+Phase 3-1은 AgentHQ의 모바일 클라이언트를 Flutter로 구현합니다.
+
+### Implementation Roadmap
+- **Phase 3-1.1**: Flutter UI Components (Week 7-8)
+- **Phase 3-1.2**: Mobile OAuth Integration (Week 8)
+- **Phase 3-1.3**: Offline Mode & Storage (Week 9)
 
 ### Key Features
-- ✅ **Cross-Platform**: iOS & Android 동시 지원
-- ✅ **Native Performance**: Flutter Engine 기반 60fps 렌더링
-- ✅ **Google OAuth**: Mobile-optimized 인증 흐름
-- ✅ **Offline Mode**: 로컬 캐싱 및 동기화
-- ✅ **Push Notifications**: 실시간 Task 상태 알림
-- ✅ **Responsive UI**: 다양한 화면 크기 지원
+- 🟡 **Cross-Platform**: iOS & Android 동시 지원 (UI Only)
+- 🟡 **Native Performance**: Flutter Engine 기반 60fps 렌더링 (UI Only)
+- 🔴 **Google OAuth**: Mobile-optimized 인증 흐름 (NOT IMPLEMENTED)
+- 🔴 **Offline Mode**: 로컬 캐싱 및 동기화 (NOT IMPLEMENTED)
+- 🔴 **Push Notifications**: 실시간 Task 상태 알림 (NOT IMPLEMENTED)
+- 🟢 **Responsive UI**: 다양한 화면 크기 지원 (COMPLETED)
+
+---
+
+## Current Status
+
+### ✅ Completed
+- **UI Screens**: Login, Splash, Home, TaskDetail, Profile
+- **UI Components**: SearchInput, AgentGrid, TaskCard, StatusChip
+- **Navigation**: go_router setup with routes
+- **State Management Structure**: Riverpod providers defined (but not implemented)
+- **Theme System**: Dark theme with Genspark-style design
+
+### 🔴 Not Implemented (MUST DO)
+- **Data Layer**: 
+  - ❌ AuthRepository (Google OAuth, Token management)
+  - ❌ TaskRepository (CRUD operations, polling)
+  - ❌ ApiClient (Dio setup, interceptors, token refresh)
+- **Domain Layer**:
+  - ❌ UserModel, TaskModel (JSON serialization)
+  - ❌ Use cases / Business logic
+- **OAuth Integration**:
+  - ❌ google_sign_in package integration
+  - ❌ Token storage (flutter_secure_storage)
+  - ❌ Guest mode logic
+- **Offline Mode**:
+  - ❌ Hive local storage setup
+  - ❌ Message/Task caching
+  - ❌ Sync strategy
+- **Push Notifications**:
+  - ❌ Firebase initialization
+  - ❌ FCM token registration
+  - ❌ Notification handlers
+- **Assets**:
+  - ❌ App icons (iOS/Android)
+  - ❌ Splash screen images
+  - ❌ Agent icons
+
+### 🟡 In Progress
+Currently working on implementing core features starting with Data Layer
 
 ### Design System (Genspark Style)
 **Dark Theme 기반 현대적 UI/UX**
