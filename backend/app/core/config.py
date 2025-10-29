@@ -75,11 +75,7 @@ class Settings(BaseSettings):
     GCS_BUCKET_NAME: str = Field(default="")
 
     # CORS
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://localhost:8080",
-        "tauri://localhost",
-    ]
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8080,tauri://localhost"
     CORS_ALLOW_CREDENTIALS: bool = True
 
     # Rate Limiting
@@ -99,13 +95,20 @@ class Settings(BaseSettings):
     PROMETHEUS_PORT: int = 9090
     ENABLE_METRICS: bool = True
 
-    @field_validator("CORS_ORIGINS", mode="before")
+    @field_validator("CORS_ORIGINS", mode="after")
     @classmethod
     def parse_cors_origins(cls, v):
-        """Parse CORS origins from string or list."""
+        """Parse CORS origins from string to list."""
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",")]
         return v
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Get CORS origins as list."""
+        if isinstance(self.CORS_ORIGINS, str):
+            return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
+        return self.CORS_ORIGINS
 
     @property
     def google_scopes_list(self) -> List[str]:

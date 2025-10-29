@@ -33,7 +33,7 @@
 모든 서비스를 안전하게 종료합니다.
 
 ```bash
-./scripts/stop.sh
+./stop.sh
 ```
 
 **실행 내용**:
@@ -45,10 +45,10 @@
 ### 기본 사용
 ```bash
 # 시작
-./scripts/dev.sh
+./dev.sh
 
 # 종료
-./scripts/stop.sh
+./stop.sh
 ```
 
 ### 문제 해결
@@ -61,7 +61,7 @@ docker-compose restart backend
 
 # 데이터 완전 삭제 후 재시작
 docker-compose down -v
-./scripts/dev.sh
+./dev.sh
 ```
 
 ## 📚 추가 정보
