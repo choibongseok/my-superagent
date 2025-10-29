@@ -31,6 +31,25 @@ Phase 3는 AgentHQ의 모바일 클라이언트를 Flutter로 구현합니다.
 - ✅ **Push Notifications**: 실시간 Task 상태 알림
 - ✅ **Responsive UI**: 다양한 화면 크기 지원
 
+### Design System (Genspark Style)
+**Dark Theme 기반 현대적 UI/UX**
+
+- 🎨 **Color Palette**:
+  - Background: #0F0F0F (Main), #1A1A1A (Cards), #1F1F1F (Input)
+  - Primary: #3B82F6 (Blue accent)
+  - Text: #E5E5E5 (Primary), #A0A0A0 (Secondary)
+
+- 📐 **Layout**:
+  - 중앙 큰 검색창 (Hero interaction)
+  - 아이콘 그리드 (AI 도구 선택)
+  - 카드 기반 콘텐츠 (이미지 + 메타데이터)
+
+- ✨ **Components**:
+  - Agent Selection Hub (11개 AI 도구)
+  - Multi-line Search Input (음성, 이미지, 파일 첨부)
+  - Task Cards with AI Pods badges
+  - Status chips with icons
+
 ### Target Platforms
 - **iOS**: 14.0+
 - **Android**: API 21+ (Android 5.0 Lollipop)
@@ -544,145 +563,512 @@ final createTaskProvider = Provider<Future<Task?> Function({
 
 ### Design System
 
-#### Colors
+#### Colors (Genspark Dark Theme)
 
 ```dart
 // lib/shared/themes/app_colors.dart
 class AppColors {
-  // Primary
-  static const primary = Color(0xFF6366F1);      // Indigo
-  static const primaryDark = Color(0xFF4F46E5);
-  static const primaryLight = Color(0xFF818CF8);
+  // Dark Theme Base (Genspark style)
+  static const backgroundDark = Color(0xFF0F0F0F);     // Main background
+  static const backgroundCard = Color(0xFF1A1A1A);     // Card background
+  static const backgroundInput = Color(0xFF1F1F1F);    // Input fields
+  static const backgroundSidebar = Color(0xFF161616);  // Sidebar
+
+  // Primary Blue (Accent)
+  static const primary = Color(0xFF3B82F6);            // Blue
+  static const primaryHover = Color(0xFF2563EB);
+  static const primaryLight = Color(0xFF60A5FA);
 
   // Secondary
-  static const secondary = Color(0xFF8B5CF6);    // Purple
-  static const accent = Color(0xFF06B6D4);       // Cyan
+  static const secondary = Color(0xFF8B5CF6);          // Purple
+  static const accent = Color(0xFF06B6D4);             // Cyan
+  static const accentGold = Color(0xFFD4AF37);         // Gold for premium
 
   // Status
-  static const success = Color(0xFF10B981);      // Green
-  static const warning = Color(0xFFF59E0B);      // Amber
-  static const error = Color(0xFFEF4444);        // Red
-  static const info = Color(0xFF3B82F6);         // Blue
+  static const success = Color(0xFF10B981);            // Green
+  static const warning = Color(0xFFF59E0B);            // Amber
+  static const error = Color(0xFFEF4444);              // Red
+  static const info = Color(0xFF3B82F6);               // Blue
 
-  // Neutral
-  static const background = Color(0xFFF9FAFB);
-  static const surface = Color(0xFFFFFFFF);
-  static const textPrimary = Color(0xFF111827);
-  static const textSecondary = Color(0xFF6B7280);
-  static const border = Color(0xFFE5E7EB);
+  // Text (Dark Theme)
+  static const textPrimary = Color(0xFFE5E5E5);        // Light gray
+  static const textSecondary = Color(0xFFA0A0A0);      // Medium gray
+  static const textTertiary = Color(0xFF6B7280);       // Dark gray
+  static const textDisabled = Color(0xFF4B5563);
+
+  // Borders & Dividers
+  static const border = Color(0xFF2A2A2A);
+  static const divider = Color(0xFF1F1F1F);
+
+  // Overlay & Shadow
+  static const overlay = Color(0x80000000);            // 50% black
+  static const shadowDark = Color(0xFF000000);
 }
 ```
 
-#### Typography
+#### Typography (Genspark Style)
 
 ```dart
 // lib/shared/themes/app_typography.dart
 class AppTypography {
-  static const fontFamily = 'SF Pro Text';
+  static const fontFamily = 'Inter';  // Modern, clean font
+
+  // Hero Title (Genspark 슈퍼 에이전트 style)
+  static const hero = TextStyle(
+    fontSize: 36,
+    fontWeight: FontWeight.w700,
+    letterSpacing: -1.0,
+    height: 1.2,
+    color: AppColors.textPrimary,
+  );
 
   static const h1 = TextStyle(
-    fontSize: 32,
-    fontWeight: FontWeight.bold,
-    letterSpacing: -0.5,
+    fontSize: 28,
+    fontWeight: FontWeight.w700,
+    letterSpacing: -0.8,
+    color: AppColors.textPrimary,
   );
 
   static const h2 = TextStyle(
-    fontSize: 28,
-    fontWeight: FontWeight.bold,
+    fontSize: 24,
+    fontWeight: FontWeight.w600,
     letterSpacing: -0.5,
+    color: AppColors.textPrimary,
   );
 
   static const h3 = TextStyle(
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: FontWeight.w600,
+    color: AppColors.textPrimary,
   );
 
+  // Body text
   static const body1 = TextStyle(
     fontSize: 16,
     fontWeight: FontWeight.normal,
     height: 1.5,
+    color: AppColors.textSecondary,
   );
 
   static const body2 = TextStyle(
     fontSize: 14,
     fontWeight: FontWeight.normal,
     height: 1.5,
+    color: AppColors.textSecondary,
   );
 
+  // Small text
   static const caption = TextStyle(
     fontSize: 12,
     fontWeight: FontWeight.normal,
+    color: AppColors.textTertiary,
+  );
+
+  // Button text
+  static const button = TextStyle(
+    fontSize: 15,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0.3,
+  );
+
+  // Agent card title
+  static const agentTitle = TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w500,
     color: AppColors.textSecondary,
   );
 }
 ```
 
-### Screen Designs
+### Screen Designs (Genspark Style)
 
-#### 1. Home Screen
+#### 1. Home Screen - Agent Selection Hub
 
 **File**: `lib/features/tasks/presentation/screens/home_screen.dart`
 
 ```dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../providers/task_provider.dart';
-import '../widgets/task_card.dart';
+import '../widgets/agent_grid.dart';
+import '../widgets/search_input.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tasksAsync = ref.watch(taskListProvider);
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('AgentHQ'),
-        actions: [
+      backgroundColor: AppColors.backgroundDark,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Top Navigation
+            _buildTopBar(context),
+
+            // Main Content
+            Expanded(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 60),
+
+                      // Hero Title
+                      Text(
+                        'AgentHQ 슈퍼 에이전트',
+                        style: AppTypography.hero.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+
+                      const SizedBox(height: 40),
+
+                      // Large Search Input
+                      const SearchInput(),
+
+                      const SizedBox(height: 60),
+
+                      // Agent Grid
+                      const AgentGrid(),
+
+                      const SizedBox(height: 40),
+
+                      // Recent Tasks Section
+                      _buildRecentTasks(ref),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopBar(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Logo or Menu
           IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => ref.refresh(taskListProvider),
+            icon: const Icon(Icons.menu, color: AppColors.textSecondary),
+            onPressed: () {
+              Scaffold.of(context).openDrawer();
+            },
+          ),
+
+          // Right actions
+          Row(
+            children: [
+              // Premium button
+              OutlinedButton(
+                onPressed: () {},
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.primary),
+                  foregroundColor: AppColors.primary,
+                ),
+                child: const Text('온디바이스 Free AI'),
+              ),
+              const SizedBox(width: 12),
+              // Profile
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: AppColors.backgroundCard,
+                child: const Icon(Icons.person, size: 20),
+              ),
+            ],
           ),
         ],
       ),
-      body: tasksAsync.when(
-        data: (tasks) {
-          if (tasks.isEmpty) {
-            return const Center(
-              child: Text('No tasks yet. Create your first task!'),
-            );
-          }
+    );
+  }
 
-          return RefreshIndicator(
-            onRefresh: () async => ref.refresh(taskListProvider),
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: tasks.length,
-              itemBuilder: (context, index) {
-                return TaskCard(task: tasks[index]);
-              },
+  Widget _buildRecentTasks(WidgetRef ref) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '최근',
+              style: AppTypography.h3.copyWith(
+                color: AppColors.textSecondary,
+              ),
             ),
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => Center(
-          child: Text('Error: $error'),
+            TextButton(
+              onPressed: () {},
+              child: const Text('모두 보기'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        // Recent task cards will be rendered here
+        const SizedBox(height: 40),
+      ],
+    );
+  }
+}
+```
+
+#### 2. Search Input Widget
+
+**File**: `lib/features/tasks/presentation/widgets/search_input.dart`
+
+```dart
+import 'package:flutter/material.dart';
+
+class SearchInput extends StatefulWidget {
+  const SearchInput({Key? key}) : super(key: key);
+
+  @override
+  State<SearchInput> createState() => _SearchInputState();
+}
+
+class _SearchInputState extends State<SearchInput> {
+  final _controller = TextEditingController();
+  final _focusNode = FocusNode();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.backgroundInput,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _focusNode.hasFocus
+            ? AppColors.primary
+            : AppColors.border,
+          width: 1.5,
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.pushNamed(context, '/tasks/create');
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('New Task'),
+      child: Column(
+        children: [
+          // Main input
+          TextField(
+            controller: _controller,
+            focusNode: _focusNode,
+            maxLines: null,
+            style: AppTypography.body1.copyWith(
+              color: AppColors.textPrimary,
+            ),
+            decoration: InputDecoration(
+              hintText: '무엇이든 질문하고 만들어보세요',
+              hintStyle: AppTypography.body1.copyWith(
+                color: AppColors.textTertiary,
+              ),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.all(20),
+            ),
+          ),
+
+          // Bottom action bar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              border: Border(
+                top: BorderSide(color: AppColors.border, width: 1),
+              ),
+            ),
+            child: Row(
+              children: [
+                // Left actions
+                _buildActionButton(Icons.person_outline, '채팅 대화 연결'),
+                const SizedBox(width: 12),
+                _buildActionButton(Icons.palette_outlined, '폰트'),
+                const SizedBox(width: 12),
+                _buildActionButton(Icons.attach_file, ''),
+
+                const Spacer(),
+
+                // Right actions
+                IconButton(
+                  icon: const Icon(Icons.mic, color: AppColors.textSecondary),
+                  onPressed: () {},
+                ),
+                IconButton(
+                  icon: const Icon(Icons.image_outlined, color: AppColors.textSecondary),
+                  onPressed: () {},
+                ),
+                IconButton(
+                  icon: const Icon(Icons.send, color: AppColors.primary),
+                  onPressed: () {
+                    // Send message
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButton(IconData icon, String label) {
+    return InkWell(
+      onTap: () {},
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: AppColors.textSecondary),
+          if (label.isNotEmpty) ...[
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+}
+```
+
+#### 3. Agent Grid Widget
+
+**File**: `lib/features/tasks/presentation/widgets/agent_grid.dart`
+
+```dart
+import 'package:flutter/material.dart';
+
+class AgentGrid extends StatelessWidget {
+  const AgentGrid({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Grid of agents
+        Wrap(
+          spacing: 20,
+          runSpacing: 24,
+          alignment: WrapAlignment.center,
+          children: [
+            _buildAgentCard(
+              icon: Icons.description_outlined,
+              label: 'AI 문서',
+              color: Colors.blue,
+            ),
+            _buildAgentCard(
+              icon: Icons.table_chart_outlined,
+              label: 'AI 시트',
+              color: Colors.green,
+            ),
+            _buildAgentCard(
+              icon: Icons.photo_library_outlined,
+              label: 'AI 개발자',
+              color: Colors.purple,
+            ),
+            _buildAgentCard(
+              icon: Icons.slideshow_outlined,
+              label: 'AI 슬라이드',
+              color: Colors.orange,
+            ),
+            _buildAgentCard(
+              icon: Icons.design_services_outlined,
+              label: 'AI 디자이너',
+              color: Colors.pink,
+            ),
+            _buildAgentCard(
+              icon: Icons.code_outlined,
+              label: '플랫 자바스크립트',
+              color: Colors.yellow,
+            ),
+            _buildAgentCard(
+              icon: Icons.chat_bubble_outline,
+              label: 'AI 채팅',
+              color: Colors.cyan,
+            ),
+            _buildAgentCard(
+              icon: Icons.image_outlined,
+              label: 'AI 이미지',
+              color: AppColors.accentGold,
+            ),
+            _buildAgentCard(
+              icon: Icons.videocam_outlined,
+              label: 'AI 동영상',
+              color: Colors.red,
+            ),
+            _buildAgentCard(
+              icon: Icons.dashboard_outlined,
+              label: 'AI 화이트 보드',
+              color: Colors.teal,
+            ),
+            _buildAgentCard(
+              icon: Icons.apps,
+              label: '모든 에이전트',
+              color: AppColors.textSecondary,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAgentCard({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return InkWell(
+      onTap: () {
+        // Navigate to agent
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 80,
+        child: Column(
+          children: [
+            // Icon container
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: AppColors.backgroundCard,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.border,
+                  width: 1,
+                ),
+              ),
+              child: Icon(
+                icon,
+                color: color,
+                size: 28,
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Label
+            Text(
+              label,
+              style: AppTypography.agentTitle,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 ```
 
-#### 2. Task Card Widget
+#### 4. Task Card Widget (Dark Theme)
 
 **File**: `lib/features/tasks/presentation/widgets/task_card.dart`
 
@@ -693,16 +1079,28 @@ import 'task_status_chip.dart';
 
 class TaskCard extends StatelessWidget {
   final Task task;
+  final String? imageUrl;
+  final String? label;
 
-  const TaskCard({Key? key, required this.task}) : super(key: key);
+  const TaskCard({
+    Key? key,
+    required this.task,
+    this.imageUrl,
+    this.label,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+    return Container(
+      width: 280,
+      margin: const EdgeInsets.only(right: 16),
+      decoration: BoxDecoration(
+        color: AppColors.backgroundCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.border,
+          width: 1,
+        ),
       ),
       child: InkWell(
         onTap: () {
@@ -712,69 +1110,124 @@ class TaskCard extends StatelessWidget {
             arguments: task,
           );
         },
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      task.prompt,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Image preview (if available)
+            if (imageUrl != null)
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(16),
+                ),
+                child: Image.network(
+                  imageUrl!,
+                  height: 160,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      height: 160,
+                      color: AppColors.backgroundInput,
+                      child: Icon(
+                        _getOutputIcon(task.outputType),
+                        size: 48,
+                        color: AppColors.textTertiary,
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  TaskStatusChip(status: task.status),
-                ],
+                    );
+                  },
+                ),
               ),
 
-              const SizedBox(height: 12),
-
-              // Metadata
-              Row(
+            // Content
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    _getOutputIcon(task.outputType),
-                    size: 16,
-                    color: Colors.grey[600],
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    task.outputType.toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                      fontWeight: FontWeight.w500,
+                  // Label badge (AI Pods style)
+                  if (label != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.backgroundInput,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.auto_awesome,
+                            size: 12,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            label!,
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+
+                  const SizedBox(height: 12),
+
+                  // Task title
+                  Text(
+                    task.prompt,
+                    style: AppTypography.body1.copyWith(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(width: 16),
-                  Icon(
-                    Icons.access_time,
-                    size: 16,
-                    color: Colors.grey[600],
+
+                  const SizedBox(height: 12),
+
+                  // Metadata row
+                  Row(
+                    children: [
+                      // Output type
+                      Icon(
+                        _getOutputIcon(task.outputType),
+                        size: 14,
+                        color: AppColors.textTertiary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        task.outputType.toUpperCase(),
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textTertiary,
+                        ),
+                      ),
+
+                      const Spacer(),
+
+                      // Status
+                      TaskStatusChip(status: task.status),
+                    ],
                   ),
-                  const SizedBox(width: 4),
+
+                  const SizedBox(height: 8),
+
+                  // Time
                   Text(
                     _formatTime(task.createdAt),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textTertiary,
                     ),
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -783,13 +1236,13 @@ class TaskCard extends StatelessWidget {
   IconData _getOutputIcon(String type) {
     switch (type.toLowerCase()) {
       case 'docs':
-        return Icons.description;
+        return Icons.description_outlined;
       case 'sheets':
-        return Icons.table_chart;
+        return Icons.table_chart_outlined;
       case 'slides':
-        return Icons.slideshow;
+        return Icons.slideshow_outlined;
       default:
-        return Icons.file_present;
+        return Icons.auto_awesome;
     }
   }
 
@@ -798,13 +1251,104 @@ class TaskCard extends StatelessWidget {
     final difference = now.difference(dateTime);
 
     if (difference.inMinutes < 1) {
-      return 'Just now';
+      return '방금 전';
     } else if (difference.inHours < 1) {
-      return '${difference.inMinutes}m ago';
+      return '${difference.inMinutes}분 전';
     } else if (difference.inDays < 1) {
-      return '${difference.inHours}h ago';
+      return '${difference.inHours}시간 전';
     } else {
-      return '${difference.inDays}d ago';
+      return '${difference.inDays}일 전';
+    }
+  }
+}
+```
+
+#### 5. Task Status Chip (Dark Theme)
+
+**File**: `lib/features/tasks/presentation/widgets/task_status_chip.dart`
+
+```dart
+import 'package:flutter/material.dart';
+
+class TaskStatusChip extends StatelessWidget {
+  final String status;
+
+  const TaskStatusChip({Key? key, required this.status}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final config = _getStatusConfig(status);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: config['bgColor'],
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: config['borderColor'],
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            config['icon'],
+            size: 12,
+            color: config['iconColor'],
+          ),
+          const SizedBox(width: 4),
+          Text(
+            config['label'],
+            style: AppTypography.caption.copyWith(
+              color: config['textColor'],
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Map<String, dynamic> _getStatusConfig(String status) {
+    switch (status.toLowerCase()) {
+      case 'completed':
+        return {
+          'label': '완료',
+          'icon': Icons.check_circle,
+          'iconColor': AppColors.success,
+          'textColor': AppColors.success,
+          'bgColor': AppColors.success.withOpacity(0.1),
+          'borderColor': AppColors.success.withOpacity(0.3),
+        };
+      case 'processing':
+      case 'in_progress':
+        return {
+          'label': '진행중',
+          'icon': Icons.access_time,
+          'iconColor': AppColors.primary,
+          'textColor': AppColors.primary,
+          'bgColor': AppColors.primary.withOpacity(0.1),
+          'borderColor': AppColors.primary.withOpacity(0.3),
+        };
+      case 'failed':
+        return {
+          'label': '실패',
+          'icon': Icons.error,
+          'iconColor': AppColors.error,
+          'textColor': AppColors.error,
+          'bgColor': AppColors.error.withOpacity(0.1),
+          'borderColor': AppColors.error.withOpacity(0.3),
+        };
+      default:
+        return {
+          'label': '대기중',
+          'icon': Icons.schedule,
+          'iconColor': AppColors.textTertiary,
+          'textColor': AppColors.textTertiary,
+          'bgColor': AppColors.backgroundInput,
+          'borderColor': AppColors.border,
+        };
     }
   }
 }
