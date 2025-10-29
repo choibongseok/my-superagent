@@ -137,6 +137,42 @@
 
 ---
 
+## ⚡ Quick Start (원클릭 실행)
+
+### 1. Docker Desktop 설치
+- Mac/Windows: [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+
+### 2. 실행
+```bash
+# 저장소 클론
+git clone https://github.com/choibongseok/my-superagent.git
+cd my-superagent
+
+# 개발 환경 시작 (원클릭)
+./dev.sh
+
+# 접속
+# Backend API: http://localhost:8000
+# API Docs:    http://localhost:8000/docs
+# Celery Monitor: http://localhost:5555
+```
+
+### 3. 종료
+```bash
+./stop.sh
+```
+
+**포함된 서비스**:
+- ✅ Backend API (FastAPI) with hot reload
+- ✅ PostgreSQL + pgvector
+- ✅ Redis (cache & message broker)
+- ✅ Celery Worker (agent tasks)
+- ✅ Celery Flower (monitoring)
+
+> 📚 상세 가이드: [DEV_GUIDE.md](DEV_GUIDE.md)
+
+---
+
 ## 🚀 Getting Started
 
 ### Prerequisites
