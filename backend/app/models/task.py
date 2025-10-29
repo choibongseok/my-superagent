@@ -54,8 +54,8 @@ class Task(Base, TimestampMixin):
     document_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     document_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     
-    # Metadata
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # Task metadata (renamed from 'metadata' to avoid SQLAlchemy reserved word)
+    task_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     
     # Celery task ID
     celery_task_id: Mapped[Optional[str]] = mapped_column(
