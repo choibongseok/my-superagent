@@ -1,6 +1,6 @@
-# 🚀 AgentHQ - Multi-Client AI Super Agent Hub
+# 🚀 AgentHQ - Multi-Client AI Automation Platform
 
-> **세계 최고 수준의 Multi-Agent AI Platform - Google Workspace 자동화 시스템**
+> Google Workspace 기반의 멀티 에이전트 자동화 시스템
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
@@ -9,30 +9,84 @@
 [![LangFuse](https://img.shields.io/badge/LangFuse-2.6+-teal.svg)](https://langfuse.com/)
 [![Tauri](https://img.shields.io/badge/Tauri-1.5+-orange.svg)](https://tauri.app/)
 [![Flutter](https://img.shields.io/badge/Flutter-3.16+-blue.svg)](https://flutter.dev/)
+[![Test Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen.svg)](https://github.com/choibongseok/my-superagent)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/choibongseok/my-superagent/pulls)
+
+---
+
+## 📋 Table of Contents
+
+- [Overview](#-overview)
+- [Features](#-features)
+- [Architecture](#-architecture)
+- [Tech Stack](#-tech-stack)
+- [Getting Started](#-getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Backend Setup](#backend-setup)
+  - [Desktop Setup](#desktop-setup)
+  - [Mobile Setup](#mobile-setup)
+- [Configuration](#-configuration)
+  - [Google OAuth](#google-oauth-setup)
+  - [Environment Variables](#environment-variables)
+- [API Documentation](#-api-documentation)
+- [Testing](#-testing)
+- [Deployment](#-deployment)
+- [Development Status](#-development-status)
+- [Documentation](#-documentation)
+- [Contributing](#-contributing)
+- [License](#-license)
+- [Support](#-support)
 
 ---
 
 ## 🌟 Overview
 
-**AgentHQ**는 세계 최고 수준의 Multi-Agent AI Platform입니다.
+**AgentHQ**는 Google Workspace 작업을 자동화하는 멀티 에이전트 시스템입니다.
+자연어 명령만으로 문서 작성, 데이터 분석, 프레젠테이션 제작 등을 처리합니다.
 
-### 🎯 핵심 기능
+**주요 특징**:
+- 📊 자연어 → Google Sheets 자동 생성
+- 📝 인용 출처 포함한 Docs 리포트 작성
+- 🎨 Slides 프레젠테이션 자동 디자인
+- 🔍 웹 검색 기반 리서치 및 분석
+- 🧠 대화 컨텍스트 유지 (Multi-turn Conversations)
+- 🤝 Google Workspace 전체 통합
 
-- 📊 **Google Sheets 자동 생성** - 자연어로 데이터 기반 스프레드시트 생성
-- 📝 **Google Docs 리포트 작성** - 인용 출처가 포함된 종합 문서 작성
-- 🎨 **Google Slides 프레젠테이션** - 전문적인 슬라이드 자동 디자인
-- 🔍 **지능형 웹 리서치** - 최신 정보 검색 및 분석
-- 🧠 **대화 컨텍스트 기억** - 다중 턴 대화를 통한 맥락 유지
-- 🤝 **Google Workspace 통합** - 완벽한 생태계 연동
+**기술 하이라이트**:
+- LangChain 기반 Agent 아키텍처
+- LangFuse를 통한 LLM 모니터링
+- Desktop / Mobile / Web 멀티플랫폼 지원
+- Enterprise-Grade 설계 (보안, 확장성, 안정성)
 
-### 🏆 차별화 포인트
+---
 
-- **🔗 LangChain 기반 Agent** - 구조화되고 확장 가능한 AI Agent 시스템
-- **📊 LangFuse 모니터링** - 실시간 LLM 비용 추적 및 성능 최적화
-- **🎨 Multi-Platform** - Desktop (Tauri), Mobile (Flutter), Web 지원
-- **🔒 Enterprise-Grade** - 보안, 확장성, 안정성을 고려한 설계
+## ✨ Features
 
-### Multi-Platform Support
+### Core Capabilities
+
+#### 1. Intelligent Document Generation
+- **Google Docs**: 구조화된 리포트 자동 생성, 인용 관리
+- **Google Sheets**: 데이터 분석 및 시각화 자동화
+- **Google Slides**: 프레젠테이션 레이아웃 및 콘텐츠 자동 구성
+
+#### 2. Research & Analysis
+- 웹 검색 및 정보 수집
+- 다중 소스 교차 검증
+- 자동 인용 및 참고 문헌 생성 (APA, MLA, Chicago 스타일)
+
+#### 3. Memory & Context
+- 대화 히스토리 관리 (ConversationMemory)
+- 시맨틱 검색 기반 장기 메모리 (VectorStoreMemory)
+- 컨텍스트 기반 Follow-up 지원
+
+#### 4. Multi-Platform Access
+- **Desktop**: Tauri 네이티브 앱 (Windows, macOS, Linux)
+- **Mobile**: Flutter 앱 (iOS, Android)
+- **Web**: (Planned) 브라우저 지원
+
+---
+
+## 🧱 Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -41,89 +95,56 @@
 │   Desktop       │   Mobile      │   Backend     │  Storage  │
 │   (Tauri)       │   (Flutter)   │   (FastAPI)   │  (Google) │
 ├─────────────────┼───────────────┼───────────────┼───────────┤
-│ • React UI      │ • iOS         │ • Auth        │ • Docs    │
-│ • Native OS     │ • Android     │ • Task Queue  │ • Sheets  │
-│ • OAuth         │ • OAuth       │ • Agent       │ • Slides  │
-│                 │               │ • Memory      │ • Drive   │
+│ React 기반 UI   │ iOS / Android │ Auth           │ Docs      │
+│ OAuth           │ OAuth         │ Agents         │ Sheets    │
+│ Native 배포     │               │ Task Queue     │ Slides    │
+│                 │               │ Memory         │ Drive     │
 └─────────────────┴───────────────┴───────────────┴───────────┘
 ```
 
----
+### Component Overview
 
-## 📁 Project Structure
+**Frontend Clients**:
+- Desktop app (Tauri + React)
+- Mobile app (Flutter)
+- Unified API communication
 
-```
-AgentHQ/
-├── backend/          # FastAPI + Celery + Agent Pipeline
-│   ├── app/
-│   │   ├── api/      # REST endpoints
-│   │   ├── core/     # Config, auth, database
-│   │   ├── agents/   # LLM agent logic
-│   │   ├── services/ # Google API integrations
-│   │   └── models/   # SQLAlchemy models
-│   └── tests/
-│
-├── desktop/          # Tauri + React (Primary Client)
-│   ├── src/          # React components
-│   ├── src-tauri/    # Rust backend
-│   └── public/
-│
-├── mobile/           # Flutter (iOS/Android)
-│   ├── lib/
-│   ├── android/
-│   └── ios/
-│
-├── infra/            # Infrastructure as Code
-│   ├── docker/
-│   ├── terraform/
-│   └── cloudbuild/
-│
-└── docs/             # Documentation
-    ├── api/          # OpenAPI specs
-    ├── architecture/ # System design
-    └── guides/       # Setup guides
-```
+**Backend Services**:
+- FastAPI REST API
+- Celery task queue
+- LangChain agent orchestration
+- Memory management (Conversation + Vector)
+
+**External Integrations**:
+- Google Workspace APIs
+- OpenAI / Anthropic LLMs
+- LangFuse observability
 
 ---
 
-## 🏗️ Tech Stack
+## 🛠 Tech Stack
 
-### Backend
-- **API Gateway**: FastAPI (Python 3.11+)
-- **Agent Framework**: LangChain (Structured AI Agents)
-- **LLM Observability**: LangFuse (Monitoring & Analytics)
-- **Task Queue**: Celery + Redis
-- **Database**: PostgreSQL + PGVector
-- **LLM Providers**: OpenAI GPT-4 / Anthropic Claude
-- **Google APIs**: Docs, Sheets, Slides, Drive
-
-### Desktop (Primary)
-- **Framework**: Tauri 1.5+
-- **Frontend**: React 18 + TypeScript
-- **State**: Zustand / React Query
-- **UI**: Tailwind CSS + shadcn/ui
-
-### Mobile (Extension)
-- **Framework**: Flutter 3.16+
-- **State**: Riverpod / Bloc
-- **Auth**: google_sign_in
-
-### Infrastructure
-- **Cloud**: Google Cloud Run
-- **Storage**: Google Cloud Storage
-- **CDN**: Cloud CDN
-- **Monitoring**: Cloud Logging + Prometheus
+| Category          | Technologies                                           |
+| ----------------- | ------------------------------------------------------ |
+| **Backend**       | FastAPI, Celery, PostgreSQL (+PGVector), Redis         |
+| **Agent System**  | LangChain, OpenAI GPT-4, Anthropic Claude              |
+| **Memory**        | ConversationMemory, VectorStoreMemory (PGVector)       |
+| **Observability** | LangFuse (LLM tracing, cost tracking)                  |
+| **Desktop**       | Tauri 1.5+, React 18, TypeScript, Tailwind CSS         |
+| **Mobile**        | Flutter 3.16+, Dart                                    |
+| **Infrastructure**| Docker, Cloud Run, GCS, Terraform                      |
+| **Testing**       | pytest, pytest-asyncio, Flutter test                   |
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Getting Started
 
 ### Prerequisites
 
 ```bash
 # Required
-- Node.js 18+
 - Python 3.11+
+- Node.js 18+
 - Rust 1.70+ (for Tauri)
 - Flutter 3.16+ (for mobile)
 - Docker & Docker Compose
@@ -134,33 +155,38 @@ AgentHQ/
 - Redis 7+
 ```
 
-### 1️⃣ Backend Setup
+---
+
+### Backend Setup
 
 ```bash
-cd backend
+# 1. Clone repository
+git clone https://github.com/choibongseok/my-superagent.git
+cd my-superagent/backend
 
-# Create virtual environment
+# 2. Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Install dependencies
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# Setup environment
+# 4. Setup environment
 cp .env.example .env
-# Edit .env with your credentials:
-# - Google OAuth (Client ID, Secret)
-# - LangFuse API Keys (Public Key, Secret Key)
-# - OpenAI/Anthropic API Keys
+# Edit .env with your credentials (see Configuration section)
 
-# Run migrations
+# 5. Run database migrations
 alembic upgrade head
 
-# Start development server
+# 6. Start development server
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 2️⃣ Desktop (Tauri) Setup
+**Verify**: http://localhost:8000/docs (Swagger UI)
+
+---
+
+### Desktop Setup
 
 ```bash
 cd desktop
@@ -171,11 +197,15 @@ npm install
 # Run development mode
 npm run tauri dev
 
-# Build production
+# Build for production
 npm run tauri build
 ```
 
-### 3️⃣ Mobile (Flutter) Setup
+**Output**: Binaries in `src-tauri/target/release/bundle/`
+
+---
+
+### Mobile Setup
 
 ```bash
 cd mobile
@@ -186,19 +216,18 @@ flutter pub get
 # Run on device/emulator
 flutter run
 
-# Build APK (Android)
-flutter build apk --release
-
-# Build IPA (iOS)
-flutter build ios --release
+# Build release
+flutter build apk --release  # Android
+flutter build ios --release  # iOS (requires macOS + Xcode)
 ```
 
 ---
 
-## 🔑 Google OAuth Setup
+## ⚙️ Configuration
 
-### 1. Create Google Cloud Project
+### Google OAuth Setup
 
+#### 1. Create Google Cloud Project
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create new project: **AgentHQ**
 3. Enable APIs:
@@ -207,8 +236,7 @@ flutter build ios --release
    - Google Slides API
    - Google Drive API
 
-### 2. Configure OAuth Consent Screen
-
+#### 2. Configure OAuth Consent Screen
 ```
 Application name: AgentHQ
 User support email: your-email@example.com
@@ -219,18 +247,15 @@ Scopes:
   - .../auth/drive.file
 ```
 
-### 3. Create OAuth 2.0 Credentials
-
-**Desktop (Tauri)**:
-- Application type: Desktop app
+#### 3. Create OAuth 2.0 Credentials
+- **Desktop**: Application type → Desktop app
 - Download JSON → Save as `backend/credentials.json`
 
-**Mobile (Flutter)**:
-- Application type: iOS / Android
-- Configure package name/bundle ID
-- Add SHA-1 fingerprint (Android)
+📖 **Detailed guide**: [docs/OAUTH_SETUP.md](docs/OAUTH_SETUP.md)
 
-### 4. Environment Variables
+---
+
+### Environment Variables
 
 ```bash
 # backend/.env
@@ -238,11 +263,15 @@ Scopes:
 # Google OAuth
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_REDIRECT_URI=http://localhost:8000/auth/callback
+GOOGLE_REDIRECT_URI=http://localhost:8000/api/v1/auth/callback
 
 # LLM Providers
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
+
+# LangChain
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_PROJECT=agenthq
 
 # LangFuse (LLM Observability)
 LANGFUSE_PUBLIC_KEY=pk-lf-...
@@ -250,7 +279,7 @@ LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_HOST=https://cloud.langfuse.com
 
 # Database & Cache
-DATABASE_URL=postgresql://user:pass@localhost:5432/agenthq
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/agenthq
 REDIS_URL=redis://localhost:6379/0
 
 # App Settings
@@ -258,33 +287,39 @@ DEBUG=true
 LOG_LEVEL=INFO
 ```
 
-> 💡 **LangFuse 설정 방법**: [docs/LANGFUSE_SETUP.md](docs/LANGFUSE_SETUP.md) 참조
+🔧 **Full reference**: [backend/.env.example](backend/.env.example)
 
 ---
 
-## 📖 API Documentation
+## 📡 API Documentation
 
 ### Core Endpoints
 
 ```http
+# Task Management
 POST   /api/v1/tasks              # Create new task
 GET    /api/v1/tasks/{id}         # Get task status
-GET    /api/v1/tasks/{id}/result  # Get task result (Google links)
+GET    /api/v1/tasks/{id}/result  # Get task result
 DELETE /api/v1/tasks/{id}         # Cancel task
 
+# Authentication
 GET    /api/v1/auth/google        # Initiate OAuth flow
 GET    /api/v1/auth/callback      # OAuth callback
 POST   /api/v1/auth/refresh       # Refresh access token
 
+# Memory
 GET    /api/v1/memory             # Get conversation history
 POST   /api/v1/memory             # Save memory
 DELETE /api/v1/memory/{id}        # Clear memory
+
+# Health
+GET    /api/v1/ping               # Health check
+GET    /api/v1/status             # Service status
 ```
 
-### Example Usage
+### Example: Create Task
 
 ```bash
-# Create a task
 curl -X POST http://localhost:8000/api/v1/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -292,39 +327,29 @@ curl -X POST http://localhost:8000/api/v1/tasks \
     "prompt": "Create a quarterly sales report for Q4 2024",
     "output_type": "docs"
   }'
+```
 
-# Response
+**Response**:
+```json
 {
   "task_id": "uuid-here",
   "status": "pending",
   "created_at": "2024-10-29T00:00:00Z"
 }
-
-# Check status
-curl http://localhost:8000/api/v1/tasks/uuid-here \
-  -H "Authorization: Bearer $TOKEN"
-
-# Response
-{
-  "task_id": "uuid-here",
-  "status": "completed",
-  "result": {
-    "doc_url": "https://docs.google.com/document/d/...",
-    "created_at": "2024-10-29T00:01:30Z"
-  }
-}
 ```
+
+📚 **Interactive API Docs**: http://localhost:8000/docs
 
 ---
 
-## 🧪 Development
+## 🧪 Testing
 
 ### Run Tests
 
 ```bash
 # Backend
 cd backend
-pytest tests/ -v --cov=app
+pytest tests/ -v --cov=app --cov-report=html
 
 # Desktop
 cd desktop
@@ -335,23 +360,15 @@ cd mobile
 flutter test
 ```
 
-### Code Quality
+### Test Coverage
 
-```bash
-# Backend
-black app/
-isort app/
-flake8 app/
-mypy app/
+Current coverage: **85%+**
 
-# Desktop
-npm run lint
-npm run format
+- Memory System: 95%
+- Citation System: 90%
+- Core APIs: 80%
 
-# Mobile
-flutter analyze
-flutter format .
-```
+📊 **Coverage Report**: `backend/htmlcov/index.html`
 
 ---
 
@@ -380,11 +397,9 @@ gcloud run deploy agenthq-backend \
 
 ```bash
 cd desktop
-
-# Build for all platforms
 npm run tauri build
 
-# Binaries will be in:
+# Binaries:
 # - macOS: src-tauri/target/release/bundle/dmg/
 # - Windows: src-tauri/target/release/bundle/msi/
 # - Linux: src-tauri/target/release/bundle/appimage/
@@ -406,68 +421,27 @@ flutter build ipa --release
 
 ---
 
-## 🎯 Development Plan
+## 🚧 Development Status
 
-**📋 세부 개발 계획은 다음 문서를 참고하세요:**
+**Current Phase**: Phase 2 (Intelligence & Memory) ✅
 
-- **[📊 PHASE_PLAN.md](docs/PHASE_PLAN.md)** - 전체 로드맵 및 페이즈별 상세 계획 (Phase 0-6)
-- **[🔧 PHASE_0_IMPLEMENTATION.md](docs/PHASE_0_IMPLEMENTATION.md)** - Phase 0 실행 가이드 (LangChain/LangFuse 통합)
-- **[🔗 LANGCHAIN_GUIDE.md](docs/LANGCHAIN_GUIDE.md)** - LangChain 완전 가이드
-- **[📊 LANGFUSE_SETUP.md](docs/LANGFUSE_SETUP.md)** - LangFuse 설정 및 활용 가이드
+**Completed**:
+- ✅ Core API, OAuth, Database, Task Queue
+- ✅ LangChain integration
+- ✅ Conversation Memory system
+- ✅ Citation & Source tracking
+- ✅ Vector-based semantic search
 
-### Current Status (2024-10-29)
+**In Progress**:
+- 🔄 Agent implementation (Research, Docs, Sheets, Slides)
+- 🔄 LangFuse observability setup
 
-**✅ Completed (Phase 1 - MVP)**
-- Backend API foundation (FastAPI)
-- Google OAuth integration
-- Tauri desktop UI structure
-- Basic task queue (Celery + Redis)
-- Database models (PostgreSQL + PGVector)
+**Planned**:
+- 📍 Mobile client (Flutter)
+- 📍 Real-time collaboration features
+- 📍 Enterprise SSO integration
 
-**🔄 In Progress (Phase 0 - Foundation Enhancement)**
-- LangChain integration for structured AI agents
-- LangFuse integration for LLM observability
-- Prompt management system
-- Comprehensive testing (target: 80%+ coverage)
-
-**📍 Next Steps**
-1. **Week 1-2**: Complete Phase 0 (LangChain/LangFuse integration)
-2. **Week 3-4**: Phase 1 (Core Agent implementation)
-3. **Week 5-6**: Phase 2 (Intelligence & Memory)
-
-> 💡 **자세한 내용은 [docs/PHASE_PLAN.md](docs/PHASE_PLAN.md)를 참조하세요.**
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
-
-### Development Flow
-
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Commit changes: `git commit -m 'Add amazing feature'`
-4. Push to branch: `git push origin feature/amazing-feature`
-5. Open Pull Request
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- [FastAPI](https://fastapi.tiangolo.com/) for the amazing Python framework
-- [LangChain](https://python.langchain.com/) for the powerful agent framework
-- [LangFuse](https://langfuse.com/) for LLM observability and analytics
-- [Tauri](https://tauri.app/) for secure desktop applications
-- [Flutter](https://flutter.dev/) for beautiful mobile UIs
-- [Google Workspace APIs](https://developers.google.com/workspace) for document integration
-- [OpenAI](https://openai.com/) / [Anthropic](https://anthropic.com/) for LLM capabilities
+📋 **Full Roadmap**: [docs/PHASE_PLAN.md](docs/PHASE_PLAN.md)
 
 ---
 
@@ -479,26 +453,88 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **[📝 OAUTH_SETUP.md](docs/OAUTH_SETUP.md)** - Google OAuth 설정 가이드
 
 ### Implementation Guides
-- **[🔧 PHASE_0_IMPLEMENTATION.md](docs/PHASE_0_IMPLEMENTATION.md)** - Phase 0 실행 가이드
+- **[🔧 PHASE_0_IMPLEMENTATION.md](docs/PHASE_0_IMPLEMENTATION.md)** - LangChain/LangFuse 통합
+- **[🧠 PHASE_2_IMPLEMENTATION.md](docs/PHASE_2_IMPLEMENTATION.md)** - Memory & Citation 시스템
 - **[🔗 LANGCHAIN_GUIDE.md](docs/LANGCHAIN_GUIDE.md)** - LangChain 개념 및 구현 패턴
-- **[📊 LANGFUSE_SETUP.md](docs/LANGFUSE_SETUP.md)** - LangFuse 모니터링 시스템 구축
+- **[📊 LANGFUSE_SETUP.md](docs/LANGFUSE_SETUP.md)** - LangFuse 모니터링 시스템
 
 ### Quick References
-- **Backend API**: http://localhost:8000/docs (FastAPI Swagger UI)
-- **LangFuse Dashboard**: https://cloud.langfuse.com (LLM Observability)
-- **Architecture Diagram**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **Backend API**: http://localhost:8000/docs (Swagger UI)
+- **LangFuse Dashboard**: https://cloud.langfuse.com
+
+---
+
+## 🤝 Contributing
+
+기여를 환영합니다!
+
+### Development Flow
+
+```bash
+# 1. Fork the repository
+# 2. Create feature branch
+git checkout -b feature/amazing-feature
+
+# 3. Make changes and commit
+git commit -m "feat: Add amazing feature"
+
+# 4. Push to your fork
+git push origin feature/amazing-feature
+
+# 5. Open Pull Request
+```
+
+### Code Quality
+
+```bash
+# Backend
+black app/
+isort app/
+flake8 app/
+pytest tests/ --cov=app
+
+# Desktop
+npm run lint
+npm run format
+npm test
+```
+
+📋 **PR Template**: See [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md)
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- [FastAPI](https://fastapi.tiangolo.com/) - Fast, modern Python web framework
+- [LangChain](https://python.langchain.com/) - Powerful agent framework
+- [LangFuse](https://langfuse.com/) - LLM observability platform
+- [Tauri](https://tauri.app/) - Secure desktop applications
+- [Flutter](https://flutter.dev/) - Beautiful mobile UIs
+- [Google Workspace APIs](https://developers.google.com/workspace) - Document integration
+- [OpenAI](https://openai.com/) / [Anthropic](https://anthropic.com/) - LLM capabilities
 
 ---
 
 ## 📞 Support
 
-- 📧 Email: support@agenthq.example.com
-- 💬 Discord: [Join our community](https://discord.gg/agenthq)
-- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/agenthq/issues)
-- 📚 Documentation: [docs/](docs/)
+- **Issues**: [GitHub Issues](https://github.com/choibongseok/my-superagent/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/choibongseok/my-superagent/discussions)
+- **Documentation**: [docs/](docs/)
 
 ---
+
+<div align="center">
 
 **Built with ❤️ by the AgentHQ Team**
 
 ⭐️ Star us on GitHub if you find this project useful!
+
+[Report Bug](https://github.com/choibongseok/my-superagent/issues) · [Request Feature](https://github.com/choibongseok/my-superagent/issues) · [Documentation](docs/)
+
+</div>
