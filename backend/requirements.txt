@@ -34,6 +34,22 @@ google-api-python-client==2.108.0
 openai==1.3.7
 anthropic==0.7.7
 
+# LangChain Core (Phase 0, 2)
+langchain==0.1.0
+langchain-core==0.1.0
+langchain-community==0.0.10
+
+# LangChain Providers (Phase 0)
+langchain-openai==0.0.2
+langchain-anthropic==0.1.0
+
+# LangFuse (LLM Observability - Phase 0)
+langfuse==2.6.0
+langfuse-langchain==2.6.0
+
+# Additional Tools (Phase 2)
+duckduckgo-search==4.1.0
+
 # HTTP Client
 httpx==0.25.2
 aiohttp==3.9.1
