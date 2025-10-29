@@ -228,20 +228,36 @@ class ConversationMemory:
     ) -> "ConversationMemory":
         """
         Create ConversationMemory from dictionary.
+        
+        FIXED: Properly restore summary when available (Phase 2 fix)
 
         Args:
             data: Dictionary representation
-            llm: LLM instance for summarization
+            llm: LLM instance for summarization (REQUIRED if summary exists)
 
         Returns:
             ConversationMemory instance
         """
+        has_summary = data.get("summary") is not None
+        
+        # FIXED: Require LLM if summary exists
+        if has_summary and llm is None:
+            raise ValueError(
+                "LLM instance is required to restore ConversationMemory with summary. "
+                "Pass llm parameter to from_dict()."
+            )
+        
         memory = cls(
             user_id=data["user_id"],
             session_id=data["session_id"],
-            use_summary=data.get("summary") is not None,
+            use_summary=has_summary,
             llm=llm,
         )
+
+        # FIXED: Restore summary first (before messages)
+        if has_summary and isinstance(memory.buffer, ConversationSummaryMemory):
+            # Directly set the summary in the buffer
+            memory.buffer.buffer = data["summary"]
 
         # Restore messages
         for msg_data in data.get("messages", []):
