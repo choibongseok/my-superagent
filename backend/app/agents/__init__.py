@@ -11,9 +11,11 @@ This module provides agent classes for different task types:
 from app.agents.base import BaseAgent
 from app.agents.research_agent import ResearchAgent
 from app.agents.docs_agent import DocsAgent
+from app.agents.celery_app import celery_app
 
 __all__ = [
     "BaseAgent",
     "ResearchAgent",
     "DocsAgent",
+    "celery_app",
 ]
