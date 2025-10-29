@@ -149,7 +149,7 @@ git clone https://github.com/choibongseok/my-superagent.git
 cd my-superagent
 
 # 개발 환경 시작 (원클릭)
-./dev.sh
+./scripts/dev.sh
 
 # 접속
 # Backend API: http://localhost:8000
@@ -159,7 +159,7 @@ cd my-superagent
 
 ### 3. 종료
 ```bash
-./stop.sh
+./scripts/stop.sh
 ```
 
 **포함된 서비스**:
@@ -169,7 +169,7 @@ cd my-superagent
 - ✅ Celery Worker (agent tasks)
 - ✅ Celery Flower (monitoring)
 
-> 📚 상세 가이드: [DEV_GUIDE.md](DEV_GUIDE.md)
+> 📚 상세 가이드: [DEV_GUIDE.md](docs/DEV_GUIDE.md)
 
 ---
 
