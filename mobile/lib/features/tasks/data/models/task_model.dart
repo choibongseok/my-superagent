@@ -1,23 +1,44 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:hive/hive.dart';
 
 part 'task_model.g.dart';
 
 @JsonSerializable()
-class TaskModel {
+@HiveType(typeId: 1)
+class TaskModel extends HiveObject {
+  @HiveField(0)
   final String id;
+  
+  @HiveField(1)
   @JsonKey(name: 'user_id')
   final String userId;
+  
+  @HiveField(2)
   final String prompt;
+  
+  @HiveField(3)
   @JsonKey(name: 'task_type')
   final String taskType;
+  
+  @HiveField(4)
   final String status;
+  
+  @HiveField(5)
   final Map<String, dynamic>? result;
+  
+  @HiveField(6)
   @JsonKey(name: 'error_message')
   final String? errorMessage;
+  
+  @HiveField(7)
   @JsonKey(name: 'document_url')
   final String? documentUrl;
+  
+  @HiveField(8)
   @JsonKey(name: 'created_at')
   final DateTime createdAt;
+  
+  @HiveField(9)
   @JsonKey(name: 'completed_at')
   final DateTime? completedAt;
 

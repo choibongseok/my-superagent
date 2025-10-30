@@ -1,15 +1,28 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:hive/hive.dart';
 
 part 'user_model.g.dart';
 
 @JsonSerializable()
-class UserModel {
+@HiveType(typeId: 0)
+class UserModel extends HiveObject {
+  @HiveField(0)
   final String id;
+  
+  @HiveField(1)
   final String email;
+  
+  @HiveField(2)
   final String name;
+  
+  @HiveField(3)
   final String? avatarUrl;
+  
+  @HiveField(4)
   @JsonKey(name: 'created_at')
   final DateTime createdAt;
+  
+  @HiveField(5)
   final bool isGuest;
 
   const UserModel({
