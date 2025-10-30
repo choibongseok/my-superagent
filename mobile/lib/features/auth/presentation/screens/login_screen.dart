@@ -2,46 +2,40 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../shared/themes/app_colors.dart';
-import '../../../../core/constants/app_constants.dart';
+import '../providers/auth_provider.dart';
 
-class LoginScreen extends ConsumerStatefulWidget {
+class LoginScreen extends ConsumerWidget {
   const LoginScreen({Key? key}) : super(key: key);
 
   @override
-  ConsumerState<LoginScreen> createState() => _LoginScreenState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authProvider);
 
-class _LoginScreenState extends ConsumerState<LoginScreen> {
-  bool _isLoading = false;
-
-  Future<void> _handleGoogleSignIn() async {
-    setState(() => _isLoading = true);
-
-    try {
-      // TODO: Implement Google Sign-In
-      await Future.delayed(const Duration(seconds: 1));
-
-      if (mounted) {
+    // Listen to auth state changes
+    ref.listen<AuthState>(authProvider, (previous, next) {
+      if (next.isAuthenticated) {
+        // Navigate to home on successful authentication
         context.go('/home');
       }
-    } catch (e) {
-      if (mounted) {
+
+      // Show error if any
+      if (next.error != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('로그인 실패: $e'),
+            content: Text(next.error!),
             backgroundColor: AppColors.error,
+            action: SnackBarAction(
+              label: '확인',
+              textColor: Colors.white,
+              onPressed: () {
+                ref.read(authProvider.notifier).clearError();
+              },
+            ),
           ),
         );
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
+    });
 
-  @override
-  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.backgroundDark,
       body: SafeArea(
@@ -89,7 +83,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               const SizedBox(height: 80),
 
               // Google Sign-In button
-              _buildGoogleSignInButton(),
+              _GoogleSignInButton(isLoading: authState.isLoading),
+
+              const SizedBox(height: 16),
+
+              // Guest mode button
+              _GuestModeButton(isLoading: authState.isLoading),
 
               const SizedBox(height: 24),
 
@@ -107,17 +106,28 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       ),
     );
   }
+}
 
-  Widget _buildGoogleSignInButton() {
+class _GoogleSignInButton extends ConsumerWidget {
+  final bool isLoading;
+
+  const _GoogleSignInButton({required this.isLoading});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
-        onTap: _isLoading ? null : _handleGoogleSignIn,
+        onTap: isLoading
+            ? null
+            : () async {
+                await ref.read(authProvider.notifier).signInWithGoogle();
+              },
         borderRadius: BorderRadius.circular(12),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 16),
-          child: _isLoading
+          child: isLoading
               ? const Center(
                   child: SizedBox(
                     width: 24,
@@ -134,17 +144,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     // Google logo
-                    Image.asset(
-                      'assets/images/google_logo.png',
-                      width: 24,
-                      height: 24,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Icon(
-                          Icons.g_mobiledata,
-                          size: 24,
-                          color: Colors.blue,
-                        );
-                      },
+                    const Icon(
+                      Icons.g_mobiledata,
+                      size: 28,
+                      color: Colors.blue,
                     ),
                     const SizedBox(width: 12),
                     Text(
@@ -157,6 +160,37 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ],
                 ),
         ),
+      ),
+    );
+  }
+}
+
+class _GuestModeButton extends ConsumerWidget {
+  final bool isLoading;
+
+  const _GuestModeButton({required this.isLoading});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return OutlinedButton(
+      onPressed: isLoading
+          ? null
+          : () async {
+              await ref.read(authProvider.notifier).signInAsGuest();
+            },
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        side: const BorderSide(color: AppColors.border),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+      child: Text(
+        'Continue as Guest',
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
       ),
     );
   }

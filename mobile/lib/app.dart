@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'features/auth/presentation/screens/splash_screen.dart';
 import 'features/auth/presentation/screens/login_screen.dart';
 import 'features/tasks/presentation/screens/home_screen.dart';
+import 'features/tasks/presentation/screens/task_detail_screen.dart';
+import 'features/profile/presentation/screens/profile_screen.dart';
 import 'shared/themes/app_theme.dart';
 
 class AgentHQApp extends ConsumerWidget {
@@ -38,7 +40,17 @@ class AgentHQApp extends ConsumerWidget {
           path: '/home',
           builder: (context, state) => const HomeScreen(),
         ),
-        // Add more routes as needed
+        GoRoute(
+          path: '/profile',
+          builder: (context, state) => const ProfileScreen(),
+        ),
+        GoRoute(
+          path: '/tasks/:id',
+          builder: (context, state) {
+            final taskId = state.pathParameters['id']!;
+            return TaskDetailScreen(taskId: taskId);
+          },
+        ),
       ],
     );
   }
