@@ -30,7 +30,7 @@ class User(Base, TimestampMixin):
     google_refresh_token: Mapped[Optional[str]] = mapped_column(
         String(512), nullable=True
     )
-    is_active: Mapped[bool] = mapped_column(default=True)
+    is_active: Mapped[bool] = mapped_column(default=True, index=True)
 
     # Relationships
     chats: Mapped[List["Chat"]] = relationship(
