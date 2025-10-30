@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_MAX_CONNECTIONS: int = 50
+    REDIS_DEFAULT_TTL: int = 300  # 5 minutes
 
     # Celery
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"

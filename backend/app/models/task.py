@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Enum as SQLEnum, ForeignKey, String, Text
+from sqlalchemy import JSON, Enum as SQLEnum, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -40,10 +40,10 @@ class Task(Base, TimestampMixin):
     # Task details
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     task_type: Mapped[TaskType] = mapped_column(
-        SQLEnum(TaskType, native_enum=False), nullable=False
+        SQLEnum(TaskType, native_enum=False), nullable=False, index=True
     )
     status: Mapped[TaskStatus] = mapped_column(
-        SQLEnum(TaskStatus, native_enum=False), default=TaskStatus.PENDING
+        SQLEnum(TaskStatus, native_enum=False), default=TaskStatus.PENDING, index=True
     )
     
     # Results
@@ -60,6 +60,13 @@ class Task(Base, TimestampMixin):
     # Celery task ID
     celery_task_id: Mapped[Optional[str]] = mapped_column(
         String(255), nullable=True, index=True
+    )
+
+    # Composite indexes for common queries
+    __table_args__ = (
+        Index('ix_tasks_user_status', 'user_id', 'status'),
+        Index('ix_tasks_user_type', 'user_id', 'task_type'),
+        Index('ix_tasks_status_created', 'status', 'created_at'),
     )
 
     def __repr__(self) -> str:

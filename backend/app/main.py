@@ -9,8 +9,13 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1 import api_router
+from app.core.cache import cache
 from app.core.config import settings
 from app.core.database import engine
+from app.core.metrics import init_metrics, metrics_app
+from app.middleware.cache import CacheMiddleware
+from app.middleware.metrics import MetricsMiddleware
+from app.middleware.rate_limit import RateLimitMiddleware
 from app.models.base import Base
 
 # Configure logging
@@ -25,16 +30,36 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     logger.info("Starting AgentHQ Backend...")
-    
+
+    # Initialize metrics
+    if settings.ENABLE_METRICS:
+        init_metrics()
+        logger.info("Metrics initialized")
+
     # Create database tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
+
     logger.info("Database initialized")
-    
+
+    # Connect to Redis
+    try:
+        await cache.connect()
+        logger.info("Redis cache connected")
+    except Exception as e:
+        logger.warning(f"Redis connection failed: {e}. Continuing without cache.")
+
     yield
-    
+
     logger.info("Shutting down AgentHQ Backend...")
+
+    # Disconnect from Redis
+    try:
+        await cache.disconnect()
+        logger.info("Redis cache disconnected")
+    except Exception:
+        pass
+
     await engine.dispose()
 
 
@@ -59,6 +84,23 @@ app.add_middleware(
 
 # Add Gzip compression
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Add metrics middleware (should be first to measure everything)
+if settings.ENABLE_METRICS:
+    app.add_middleware(MetricsMiddleware)
+
+# Add rate limiting middleware
+app.add_middleware(
+    RateLimitMiddleware,
+    requests_per_minute=settings.RATE_LIMIT_PER_MINUTE,
+)
+
+# Add cache middleware
+app.add_middleware(CacheMiddleware, cache_ttl=settings.REDIS_DEFAULT_TTL)
+
+# Mount metrics endpoint for Prometheus
+if settings.ENABLE_METRICS:
+    app.mount("/metrics", metrics_app)
 
 # Include API router
 app.include_router(api_router, prefix="/api/v1")
