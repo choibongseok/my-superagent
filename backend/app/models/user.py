@@ -11,6 +11,8 @@ from app.models.base import Base, TimestampMixin
 if TYPE_CHECKING:
     from app.models.chat import Chat
     from app.models.message import Message
+    from app.models.workspace import Workspace
+    from app.models.workspace_member import WorkspaceMember
 
 
 class User(Base, TimestampMixin):
@@ -38,6 +40,14 @@ class User(Base, TimestampMixin):
     )
     messages: Mapped[List["Message"]] = relationship(
         "Message", back_populates="user", cascade="all, delete-orphan"
+    )
+    
+    # Workspace relationships
+    owned_workspaces: Mapped[List["Workspace"]] = relationship(
+        "Workspace", back_populates="owner", cascade="all, delete-orphan"
+    )
+    workspace_memberships: Mapped[List["WorkspaceMember"]] = relationship(
+        "WorkspaceMember", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
