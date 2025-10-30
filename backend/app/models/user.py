@@ -1,12 +1,16 @@
 """User model."""
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING, List
 from uuid import UUID, uuid4
 
 from sqlalchemy import String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.chat import Chat
+    from app.models.message import Message
 
 
 class User(Base, TimestampMixin):
@@ -27,6 +31,14 @@ class User(Base, TimestampMixin):
         String(512), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(default=True)
+
+    # Relationships
+    chats: Mapped[List["Chat"]] = relationship(
+        "Chat", back_populates="user", cascade="all, delete-orphan"
+    )
+    messages: Mapped[List["Message"]] = relationship(
+        "Message", back_populates="user", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email})>"

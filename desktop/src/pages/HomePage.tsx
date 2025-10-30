@@ -1,78 +1,177 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
-}
-
-interface Chat {
-  id: string;
-  title: string;
-  lastMessage?: string;
-  timestamp: Date;
-  unread?: number;
-}
+import { useChatStore } from '../store/chatStore';
+import { chatsAPI, messagesAPI } from '../services/api';
+import { websocketService } from '../services/websocket';
 
 export default function HomePage() {
   const { user, isGuest, clearTokens } = useAuthStore();
+  const {
+    chats,
+    selectedChatId,
+    messages,
+    loading,
+    error,
+    setChats,
+    addChat,
+    selectChat,
+    setMessages,
+    addMessage,
+    setLoading,
+    setError,
+    clearError,
+  } = useChatStore();
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chatListCollapsed, setChatListCollapsed] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
-  const [selectedChat, setSelectedChat] = useState<string | null>('1');
   const [message, setMessage] = useState('');
+  const [pendingJoinChatId, setPendingJoinChatId] = useState<string | null>(null);
 
-  // Mock data
-  const [chats] = useState<Chat[]>([
-    {
-      id: '1',
-      title: 'Product Roadmap Discussion',
-      lastMessage: 'Let me help you create that roadmap...',
-      timestamp: new Date(),
-      unread: 2,
-    },
-    {
-      id: '2',
-      title: 'Marketing Campaign',
-      lastMessage: 'Here are some ideas for your campaign',
-      timestamp: new Date(Date.now() - 3600000),
-    },
-    {
-      id: '3',
-      title: 'Data Analysis Task',
-      lastMessage: 'Analysis complete',
-      timestamp: new Date(Date.now() - 86400000),
-    },
-  ]);
+  // Get current chat messages
+  const currentMessages = selectedChatId ? messages[selectedChatId] || [] : [];
 
-  const [messages] = useState<Message[]>([
-    {
-      id: '1',
-      role: 'user',
-      content: 'Help me create a product roadmap for Q1 2025',
-      timestamp: new Date(Date.now() - 1800000),
-    },
-    {
-      id: '2',
-      role: 'assistant',
-      content: "I'll help you create a comprehensive product roadmap for Q1 2025. Let me break this down into key phases:\n\n1. **Planning Phase** (Weeks 1-2)\n   - Market research and competitor analysis\n   - Feature prioritization\n   - Resource allocation\n\n2. **Development Phase** (Weeks 3-10)\n   - Sprint planning\n   - Feature development\n   - QA testing\n\n3. **Launch Phase** (Weeks 11-12)\n   - Beta testing\n   - Marketing preparation\n   - Production deployment\n\nWould you like me to elaborate on any of these phases?",
-      timestamp: new Date(Date.now() - 1740000),
-    },
-  ]);
+  // Get current chat details
+  const currentChat = chats.find((c) => c.id === selectedChatId);
+
+  // Initialize WebSocket and load chats on mount
+  useEffect(() => {
+    const { user, accessToken } = useAuthStore.getState();
+
+    if (user?.id && accessToken) {
+      // Connect WebSocket
+      websocketService.connect(user.id, accessToken);
+
+      // Handle WebSocket events
+      websocketService.on('new_message', (data) => {
+        console.log('New message received:', data);
+        if (data.message) {
+          addMessage(data.message);
+        }
+      });
+
+      websocketService.on('connected', () => {
+        console.log('WebSocket connected');
+
+        // Handle pending join if there was a selected chat before connection
+        if (pendingJoinChatId) {
+          websocketService.joinChat(pendingJoinChatId);
+          setPendingJoinChatId(null);
+        }
+      });
+
+      websocketService.on('disconnected', () => {
+        console.log('WebSocket disconnected');
+      });
+
+      websocketService.on('error', (data) => {
+        console.error('WebSocket error:', data);
+        setError('WebSocket connection error');
+      });
+
+      // Load chats
+      loadChats();
+
+      // Cleanup on unmount
+      return () => {
+        websocketService.disconnect();
+      };
+    }
+  }, []); // Empty dependency array - runs once on mount
+
+  // Join/leave chat rooms when selectedChatId changes
+  useEffect(() => {
+    if (selectedChatId) {
+      if (websocketService.isConnected()) {
+        websocketService.joinChat(selectedChatId);
+
+        return () => {
+          websocketService.leaveChat(selectedChatId);
+        };
+      } else {
+        // WebSocket not connected yet, save for later
+        setPendingJoinChatId(selectedChatId);
+      }
+    }
+  }, [selectedChatId]);
+
+  // Load messages when a chat is selected
+  useEffect(() => {
+    if (selectedChatId) {
+      loadMessages(selectedChatId);
+    }
+  }, [selectedChatId]);
+
+  const loadChats = async () => {
+    try {
+      setLoading(true);
+      clearError();
+      const response = await chatsAPI.list();
+      setChats(response.chats);
+    } catch (err: any) {
+      console.error('Failed to load chats:', err);
+      setError(err.response?.data?.detail || 'Failed to load chats');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadMessages = async (chatId: string) => {
+    try {
+      setLoading(true);
+      clearError();
+      const response = await messagesAPI.list(chatId);
+      setMessages(chatId, response.messages);
+    } catch (err: any) {
+      console.error('Failed to load messages:', err);
+      setError(err.response?.data?.detail || 'Failed to load messages');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateChat = async () => {
+    try {
+      setLoading(true);
+      clearError();
+      const newChat = await chatsAPI.create({
+        title: 'New Conversation',
+      });
+      addChat(newChat);
+      selectChat(newChat.id);
+    } catch (err: any) {
+      console.error('Failed to create chat:', err);
+      setError(err.response?.data?.detail || 'Failed to create chat');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLogout = () => {
     clearTokens();
     window.location.reload();
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (message.trim()) {
-      // TODO: Send message to backend
-      console.log('Sending message:', message);
-      setMessage('');
+    if (!message.trim() || !selectedChatId) return;
+
+    const messageContent = message;
+    setMessage('');
+
+    try {
+      clearError();
+      await messagesAPI.create({
+        chat_id: selectedChatId,
+        content: messageContent,
+        role: 'user',
+      });
+      // Message will be added via WebSocket event
+    } catch (err: any) {
+      console.error('Failed to send message:', err);
+      setError(err.response?.data?.detail || 'Failed to send message');
+      // Restore message on error
+      setMessage(messageContent);
     }
   };
 
@@ -209,7 +308,12 @@ export default function HomePage() {
             Conversations
           </h2>
           <div className="flex items-center gap-2">
-            <button className="p-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+            <button
+              onClick={handleCreateChat}
+              disabled={loading}
+              className="p-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+              title="New Chat"
+            >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
@@ -237,37 +341,60 @@ export default function HomePage() {
 
         {/* Chat List Items */}
         <div className="flex-1 overflow-y-auto">
-          {chats.map((chat) => (
-            <button
-              key={chat.id}
-              onClick={() => setSelectedChat(chat.id)}
-              className={`w-full px-4 py-3 text-left border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
-                selectedChat === chat.id
-                  ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-l-blue-600'
-                  : ''
-              }`}
-            >
-              <div className="flex items-start justify-between mb-1">
-                <h3 className="font-medium text-gray-900 dark:text-white text-sm truncate pr-2">
-                  {chat.title}
-                </h3>
-                {chat.unread && (
-                  <span className="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                    {chat.unread}
-                  </span>
-                )}
-              </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                {chat.lastMessage}
-              </p>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                {chat.timestamp.toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </p>
-            </button>
-          ))}
+          {loading && chats.length === 0 ? (
+            <div className="flex items-center justify-center h-32 text-gray-500 dark:text-gray-400">
+              Loading chats...
+            </div>
+          ) : chats.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-32 text-gray-500 dark:text-gray-400 px-4 text-center">
+              <p className="mb-2">No conversations yet</p>
+              <button
+                onClick={handleCreateChat}
+                className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+              >
+                Start a new chat
+              </button>
+            </div>
+          ) : (
+            chats.map((chat) => {
+              const chatMessages = messages[chat.id] || [];
+              const lastMessage = chatMessages[chatMessages.length - 1];
+
+              return (
+                <button
+                  key={chat.id}
+                  onClick={() => selectChat(chat.id)}
+                  className={`w-full px-4 py-3 text-left border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
+                    selectedChatId === chat.id
+                      ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-l-blue-600'
+                      : ''
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-1">
+                    <h3 className="font-medium text-gray-900 dark:text-white text-sm truncate pr-2">
+                      {chat.title}
+                    </h3>
+                    {chat.unread && chat.unread > 0 && (
+                      <span className="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                        {chat.unread}
+                      </span>
+                    )}
+                  </div>
+                  {lastMessage && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                      {lastMessage.content}
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                    {new Date(chat.updated_at).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -285,11 +412,26 @@ export default function HomePage() {
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col bg-white dark:bg-gray-800">
+        {/* Error Banner */}
+        {error && (
+          <div className="bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 px-6 py-3 flex items-center justify-between">
+            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <button
+              onClick={clearError}
+              className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
+
         {/* Chat Header */}
         <div className="h-16 flex items-center justify-between px-6 border-b border-gray-200 dark:border-gray-700">
           <div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Product Roadmap Discussion
+              {currentChat?.title || 'Select a conversation'}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">AI Agent Assistant</p>
           </div>
@@ -310,32 +452,51 @@ export default function HomePage() {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-3xl ${
-                  msg.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
-                } rounded-lg px-4 py-3`}
-              >
-                <p className="whitespace-pre-wrap">{msg.content}</p>
-                <p
-                  className={`text-xs mt-2 ${
-                    msg.role === 'user' ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'
-                  }`}
-                >
-                  {msg.timestamp.toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </p>
-              </div>
+          {!selectedChatId ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
+              <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                />
+              </svg>
+              <p className="text-lg">Select a conversation or start a new one</p>
             </div>
-          ))}
+          ) : currentMessages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
+              <p className="text-lg">No messages yet</p>
+              <p className="text-sm mt-2">Start the conversation below</p>
+            </div>
+          ) : (
+            currentMessages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`max-w-3xl ${
+                    msg.role === 'user'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                  } rounded-lg px-4 py-3`}
+                >
+                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                  <p
+                    className={`text-xs mt-2 ${
+                      msg.role === 'user' ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'
+                    }`}
+                  >
+                    {new Date(msg.created_at).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
         {/* Input Area */}
@@ -344,8 +505,9 @@ export default function HomePage() {
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Type your message..."
-              className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white resize-none"
+              placeholder={selectedChatId ? 'Type your message...' : 'Select a chat to start messaging'}
+              disabled={!selectedChatId || loading}
+              className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white resize-none disabled:opacity-50 disabled:cursor-not-allowed"
               rows={1}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -356,7 +518,7 @@ export default function HomePage() {
             />
             <button
               type="submit"
-              disabled={!message.trim()}
+              disabled={!message.trim() || !selectedChatId || loading}
               className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

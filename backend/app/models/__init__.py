@@ -3,6 +3,8 @@
 from app.models.base import Base, TimestampMixin
 from app.models.task import Task, TaskStatus, TaskType
 from app.models.user import User
+from app.models.chat import Chat
+from app.models.message import Message, MessageRole
 
 __all__ = [
     "Base",
@@ -11,4 +13,7 @@ __all__ = [
     "Task",
     "TaskStatus",
     "TaskType",
+    "Chat",
+    "Message",
+    "MessageRole",
 ]

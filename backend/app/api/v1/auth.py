@@ -14,7 +14,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_access_token, create_refresh_token
 from app.models.user import User
-from app.schemas.auth import GoogleAuthURL, GoogleCallback, Token
+from app.schemas.auth import GoogleAuthURL, GoogleCallback, Token, UserInfo
 
 router = APIRouter()
 
@@ -127,10 +127,11 @@ async def google_callback(
         # Create JWT tokens
         access_token = create_access_token(data={"sub": str(user.id)})
         refresh_token = create_refresh_token(data={"sub": str(user.id)})
-        
+
         return Token(
             access_token=access_token,
             refresh_token=refresh_token,
+            user=UserInfo.model_validate(user),
         )
         
     except Exception as e:
@@ -188,8 +189,9 @@ async def refresh_token(
     # Create new tokens
     access_token = create_access_token(data={"sub": user_id})
     new_refresh_token = create_refresh_token(data={"sub": user_id})
-    
+
     return Token(
         access_token=access_token,
         refresh_token=new_refresh_token,
+        user=UserInfo.model_validate(user),
     )

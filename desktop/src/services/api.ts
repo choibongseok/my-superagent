@@ -37,10 +37,14 @@ api.interceptors.response.use(
           refresh_token: refreshToken,
         });
 
-        const { access_token, refresh_token } = response.data;
-        useAuthStore.getState().setTokens(access_token, refresh_token);
+        const data = response.data;
+        useAuthStore.getState().setTokens(data.access_token, data.refresh_token, {
+          id: data.user.id,
+          email: data.user.email,
+          name: data.user.full_name || data.user.email,
+        });
 
-        originalRequest.headers.Authorization = `Bearer ${access_token}`;
+        originalRequest.headers.Authorization = `Bearer ${data.access_token}`;
         return api(originalRequest);
       } catch (refreshError) {
         useAuthStore.getState().clearTokens();
@@ -115,5 +119,88 @@ export const tasksAPI = {
 
   cancel: async (taskId: string) => {
     await api.delete(`/tasks/${taskId}`);
+  },
+};
+
+// Chat API
+export interface Chat {
+  id: string;
+  title: string;
+  user_id: string;
+  created_at: string;
+  updated_at: string;
+  messages?: Message[];
+}
+
+export interface CreateChatRequest {
+  title: string;
+}
+
+export interface UpdateChatRequest {
+  title?: string;
+}
+
+export const chatsAPI = {
+  create: async (data: CreateChatRequest) => {
+    const response = await api.post<Chat>('/chats', data);
+    return response.data;
+  },
+
+  list: async (skip = 0, limit = 50) => {
+    const response = await api.get<{
+      chats: Chat[];
+      total: number;
+    }>('/chats', {
+      params: { skip, limit },
+    });
+    return response.data;
+  },
+
+  get: async (chatId: string) => {
+    const response = await api.get<Chat>(`/chats/${chatId}`);
+    return response.data;
+  },
+
+  update: async (chatId: string, data: UpdateChatRequest) => {
+    const response = await api.patch<Chat>(`/chats/${chatId}`, data);
+    return response.data;
+  },
+
+  delete: async (chatId: string) => {
+    await api.delete(`/chats/${chatId}`);
+  },
+};
+
+// Message API
+export interface Message {
+  id: string;
+  chat_id: string;
+  user_id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateMessageRequest {
+  chat_id: string;
+  content: string;
+  role?: 'user' | 'assistant' | 'system';
+}
+
+export const messagesAPI = {
+  create: async (data: CreateMessageRequest) => {
+    const response = await api.post<Message>('/messages', data);
+    return response.data;
+  },
+
+  list: async (chatId: string, skip = 0, limit = 100) => {
+    const response = await api.get<{
+      messages: Message[];
+      total: number;
+    }>('/messages', {
+      params: { chat_id: chatId, skip, limit },
+    });
+    return response.data;
   },
 };

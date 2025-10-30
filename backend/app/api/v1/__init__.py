@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, health, tasks
+from app.api.v1 import auth, health, tasks, chats, messages
 
 api_router = APIRouter()
 
@@ -10,3 +10,5 @@ api_router = APIRouter()
 api_router.include_router(health.router, tags=["health"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
+api_router.include_router(chats.router, tags=["chats"])
+api_router.include_router(messages.router, tags=["messages"])

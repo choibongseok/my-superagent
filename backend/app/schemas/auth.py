@@ -1,8 +1,19 @@
 """Authentication schemas."""
 
 from typing import Optional
+from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
+
+
+class UserInfo(BaseModel):
+    """User information schema for token response."""
+
+    id: UUID
+    email: EmailStr
+    full_name: Optional[str] = None
+
+    model_config = {"from_attributes": True}
 
 
 class Token(BaseModel):
@@ -11,6 +22,7 @@ class Token(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    user: UserInfo
 
 
 class TokenPayload(BaseModel):

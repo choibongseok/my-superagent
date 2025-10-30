@@ -13,7 +13,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from app.core.config import settings
 from app.core.database import Base
-from app.models import User, Task
+from app.models import User, Task, Chat, Message
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -29,7 +29,9 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 # Override sqlalchemy.url with environment variable
-config.set_main_option('sqlalchemy.url', settings.DATABASE_URL)
+# Convert async URL to sync URL for migrations
+sync_url = settings.DATABASE_URL.replace('postgresql+asyncpg', 'postgresql+psycopg2')
+config.set_main_option('sqlalchemy.url', sync_url)
 
 
 def run_migrations_offline() -> None:

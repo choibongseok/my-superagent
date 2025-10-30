@@ -30,8 +30,12 @@ export default function LoginPage() {
       const code = prompt('Enter the authorization code:');
 
       if (code) {
-        const { access_token, refresh_token } = await authAPI.handleCallback(code);
-        setTokens(access_token, refresh_token);
+        const data = await authAPI.handleCallback(code);
+        setTokens(data.access_token, data.refresh_token, {
+          id: data.user.id,
+          email: data.user.email,
+          name: data.user.full_name || data.user.email,
+        });
         navigate('/');
       }
     } catch (error) {
