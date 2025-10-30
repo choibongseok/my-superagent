@@ -63,6 +63,7 @@ async def create_message(
                 "role": message.role.value,
                 "content": message.content,
                 "created_at": message.created_at.isoformat(),
+                "updated_at": message.updated_at.isoformat() if message.updated_at else message.created_at.isoformat(),
             },
         },
         chat_id=message.chat_id,

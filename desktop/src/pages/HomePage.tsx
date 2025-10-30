@@ -34,10 +34,11 @@ export default function HomePage() {
   // Get current chat details
   const currentChat = chats.find((c) => c.id === selectedChatId);
 
-  // Initialize WebSocket and load chats on mount
-  useEffect(() => {
-    const { user, accessToken } = useAuthStore.getState();
+  // Get auth state from store (this will re-render when auth changes)
+  const { user, accessToken } = useAuthStore();
 
+  // Initialize WebSocket and load chats when auth state changes
+  useEffect(() => {
     if (user?.id && accessToken) {
       // Connect WebSocket
       websocketService.connect(user.id, accessToken);
@@ -72,12 +73,12 @@ export default function HomePage() {
       // Load chats
       loadChats();
 
-      // Cleanup on unmount
+      // Cleanup on unmount or when auth changes
       return () => {
         websocketService.disconnect();
       };
     }
-  }, []); // Empty dependency array - runs once on mount
+  }, [user?.id, accessToken, pendingJoinChatId]); // Re-run when auth state or pending join changes
 
   // Join/leave chat rooms when selectedChatId changes
   useEffect(() => {

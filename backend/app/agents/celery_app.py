@@ -47,6 +47,7 @@ def process_research_task(self, task_id: str, prompt: str, user_id: str):
         dict: Task result with research findings
     """
     try:
+        import asyncio
         from app.agents.research_agent import ResearchAgent
         from uuid import UUID
 
@@ -58,8 +59,8 @@ def process_research_task(self, task_id: str, prompt: str, user_id: str):
             session_id=task_id,
         )
 
-        # Execute research
-        result = agent.research(prompt)
+        # Execute research (async method - must await)
+        result = asyncio.run(agent.research(prompt))
 
         logger.info(f"Completed research task {task_id}")
         return {
@@ -93,22 +94,30 @@ def process_docs_task(
         dict: Task result with document URL
     """
     try:
+        import asyncio
         from app.agents.docs_agent import DocsAgent
 
         logger.info(f"Starting docs task {task_id}")
+
+        # TODO: Implement credential retrieval from user storage
+        # For now, warn about missing credentials
+        logger.warning(
+            f"Creating DocsAgent without credentials for task {task_id}. "
+            "Google Workspace API calls will fail. Implement credential retrieval."
+        )
 
         # Create agent instance
         agent = DocsAgent(
             user_id=user_id,
             session_id=task_id,
-            credentials=None,  # TODO: Get user credentials
+            credentials=None,  # TODO: Get user credentials from secure storage
         )
 
-        # Generate document
-        result = agent.create_document(
+        # Generate document (async method - must await)
+        result = asyncio.run(agent.create_document(
             title=title,
             content_request=prompt,
-        )
+        ))
 
         logger.info(f"Completed docs task {task_id}")
         return {
@@ -141,22 +150,31 @@ def process_sheets_task(
         dict: Task result with spreadsheet URL
     """
     try:
+        import asyncio
         from app.agents.sheets_agent import SheetsAgent
 
         logger.info(f"Starting sheets task {task_id}")
+
+        # TODO: Implement credential retrieval from user storage
+        logger.warning(
+            f"Creating SheetsAgent without credentials for task {task_id}. "
+            "Google Sheets API calls will fail. Implement credential retrieval."
+        )
 
         # Create agent instance
         agent = SheetsAgent(
             user_id=user_id,
             session_id=task_id,
-            credentials=None,  # TODO: Get user credentials
+            credentials=None,  # TODO: Get user credentials from secure storage
         )
 
-        # Generate spreadsheet
-        result = agent.create_spreadsheet(
+        # Generate spreadsheet (assuming future async implementation)
+        # Note: SheetsAgent is currently a stub - this will fail until implemented
+        logger.warning(f"SheetsAgent is not yet implemented - task {task_id} will fail")
+        result = asyncio.run(agent.create_spreadsheet(
             title=title,
             data_request=prompt,
-        )
+        ))
 
         logger.info(f"Completed sheets task {task_id}")
         return {
@@ -189,22 +207,31 @@ def process_slides_task(
         dict: Task result with presentation URL
     """
     try:
+        import asyncio
         from app.agents.slides_agent import SlidesAgent
 
         logger.info(f"Starting slides task {task_id}")
+
+        # TODO: Implement credential retrieval from user storage
+        logger.warning(
+            f"Creating SlidesAgent without credentials for task {task_id}. "
+            "Google Slides API calls will fail. Implement credential retrieval."
+        )
 
         # Create agent instance
         agent = SlidesAgent(
             user_id=user_id,
             session_id=task_id,
-            credentials=None,  # TODO: Get user credentials
+            credentials=None,  # TODO: Get user credentials from secure storage
         )
 
-        # Generate presentation
-        result = agent.create_presentation(
+        # Generate presentation (assuming future async implementation)
+        # Note: SlidesAgent is currently a stub - this will fail until implemented
+        logger.warning(f"SlidesAgent is not yet implemented - task {task_id} will fail")
+        result = asyncio.run(agent.create_presentation(
             title=title,
             content_request=prompt,
-        )
+        ))
 
         logger.info(f"Completed slides task {task_id}")
         return {

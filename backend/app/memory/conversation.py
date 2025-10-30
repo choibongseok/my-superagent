@@ -199,6 +199,16 @@ class ConversationMemory:
         """
         return self.metadata.copy()
 
+    @property
+    def buffer(self):
+        """
+        Get the underlying LangChain memory object for agent integration.
+
+        Returns:
+            ConversationBufferMemory or ConversationSummaryMemory instance
+        """
+        return self.memory
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Export conversation memory to dictionary.

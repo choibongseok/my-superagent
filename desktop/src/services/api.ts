@@ -68,6 +68,12 @@ export const authAPI = {
     const response = await api.post<{
       access_token: string;
       refresh_token: string;
+      token_type: string;
+      user: {
+        id: string;
+        email: string;
+        full_name: string | null;
+      };
     }>('/auth/callback', { code });
     return response.data;
   },
