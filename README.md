@@ -112,12 +112,20 @@
 - Metadata 및 inputs 저장
 
 #### 6. Enterprise Features
-- Multi-agent orchestration (복잡한 작업 자동 분배)
-- Celery 비동기 Task Queue (자동 큐잉 + 상태 동기화)
-- LocalCache 서비스 (성능 최적화 + 오프라인 지원)
-- **보안 강화** (9개 메서드에서 `eval()` 제거, 코드 인젝션 방지)
-- WebSocket 재연결 로직 (네트워크 단절 후 자동 복구)
-- **25+ E2E 통합 테스트** (full workflow + orchestration)
+- **Multi-agent orchestration**: 복잡한 작업 자동 분배 및 조율
+- **Celery 비동기 Task Queue**: 자동 큐잉 + 실시간 상태 동기화
+- **LocalCache 서비스**: 성능 최적화 + 오프라인 지원
+- **Email Service** (389 라인 구현):
+  - SMTP 기반 workspace invitation
+  - 프로페셔널한 HTML 템플릿 (반응형 디자인)
+  - Plain text fallback
+  - 8개 테스트 시나리오
+- **보안 강화**: 
+  - 9개 메서드에서 `eval()` 제거 (코드 인젝션 방지)
+  - JWT 기반 인증 (access + refresh tokens)
+  - Google ID token 검증
+- **WebSocket 재연결 로직**: 네트워크 단절 후 자동 복구
+- **25+ E2E 통합 테스트**: full workflow + multi-agent orchestration
 
 ---
 
