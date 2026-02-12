@@ -54,9 +54,11 @@ export default function HomePage() {
       websocketService.on('connected', () => {
         console.log('WebSocket connected');
 
-        // Handle pending join if there was a selected chat before connection
-        if (pendingJoinChatId) {
-          websocketService.joinChat(pendingJoinChatId);
+        // Rejoin current chat on connection/reconnection
+        // Use pendingJoinChatId if available, otherwise use selectedChatId
+        const chatToJoin = pendingJoinChatId || selectedChatId;
+        if (chatToJoin) {
+          websocketService.joinChat(chatToJoin);
           setPendingJoinChatId(null);
         }
       });
