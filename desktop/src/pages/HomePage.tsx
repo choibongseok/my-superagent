@@ -5,7 +5,7 @@ import { chatsAPI, messagesAPI } from '../services/api';
 import { websocketService } from '../services/websocket';
 
 export default function HomePage() {
-  const { user, isGuest, clearTokens } = useAuthStore();
+  const { user, isGuest, clearTokens, accessToken } = useAuthStore();
   const {
     chats,
     selectedChatId,
@@ -34,24 +34,21 @@ export default function HomePage() {
   // Get current chat details
   const currentChat = chats.find((c) => c.id === selectedChatId);
 
-  // Get auth state from store (this will re-render when auth changes)
-  const { user, accessToken } = useAuthStore();
-
   // Initialize WebSocket and load chats when auth state changes
   useEffect(() => {
     if (user?.id && accessToken) {
       // Connect WebSocket
       websocketService.connect(user.id, accessToken);
 
-      // Handle WebSocket events
-      websocketService.on('new_message', (data) => {
+      // Define event handlers
+      const handleNewMessage = (data: any) => {
         console.log('New message received:', data);
         if (data.message) {
           addMessage(data.message);
         }
-      });
+      };
 
-      websocketService.on('connected', () => {
+      const handleConnected = () => {
         console.log('WebSocket connected');
 
         // Rejoin current chat on connection/reconnection
@@ -61,26 +58,37 @@ export default function HomePage() {
           websocketService.joinChat(chatToJoin);
           setPendingJoinChatId(null);
         }
-      });
+      };
 
-      websocketService.on('disconnected', () => {
+      const handleDisconnected = () => {
         console.log('WebSocket disconnected');
-      });
+      };
 
-      websocketService.on('error', (data) => {
+      const handleError = (data: any) => {
         console.error('WebSocket error:', data);
         setError('WebSocket connection error');
-      });
+      };
+
+      // Register event handlers
+      websocketService.on('new_message', handleNewMessage);
+      websocketService.on('connected', handleConnected);
+      websocketService.on('disconnected', handleDisconnected);
+      websocketService.on('error', handleError);
 
       // Load chats
       loadChats();
 
       // Cleanup on unmount or when auth changes
       return () => {
+        // Remove event handlers before disconnect to prevent memory leaks
+        websocketService.off('new_message', handleNewMessage);
+        websocketService.off('connected', handleConnected);
+        websocketService.off('disconnected', handleDisconnected);
+        websocketService.off('error', handleError);
         websocketService.disconnect();
       };
     }
-  }, [user?.id, accessToken, pendingJoinChatId]); // Re-run when auth state or pending join changes
+  }, [user?.id, accessToken, pendingJoinChatId, selectedChatId, addMessage, setError]); // Re-run when auth state or pending join changes
 
   // Join/leave chat rooms when selectedChatId changes
   useEffect(() => {
