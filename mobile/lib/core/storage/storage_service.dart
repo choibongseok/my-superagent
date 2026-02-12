@@ -20,6 +20,7 @@ class StorageService {
   late Box _tasksBox;
   late Box _settingsBox;
   late Box _cacheBox;
+  late Box _syncBox;
 
   // SharedPreferences (for simple key-value)
   late SharedPreferences _prefs;
@@ -34,6 +35,7 @@ class StorageService {
     _tasksBox = await Hive.openBox(AppConstants.boxTasks);
     _settingsBox = await Hive.openBox(AppConstants.boxSettings);
     _cacheBox = await Hive.openBox(AppConstants.boxCache);
+    _syncBox = await Hive.openBox(AppConstants.boxSync);
 
     // Initialize SharedPreferences
     _prefs = await SharedPreferences.getInstance();
@@ -245,12 +247,51 @@ class StorageService {
     return await _prefs.clear();
   }
 
+  // ============ Sync Queue Methods ============
+
+  /// Save sync queue
+  Future<void> saveSyncQueue(List<Map<String, dynamic>> queue) async {
+    await _syncBox.put('queue', queue);
+  }
+
+  /// Get sync queue
+  List<Map<String, dynamic>> getSyncQueue() {
+    final queue = _syncBox.get('queue');
+    if (queue == null) return [];
+    return (queue as List).cast<Map<String, dynamic>>();
+  }
+
+  /// Add action to sync queue
+  Future<void> addToSyncQueue(Map<String, dynamic> action) async {
+    final queue = getSyncQueue();
+    queue.add(action);
+    await saveSyncQueue(queue);
+  }
+
+  /// Remove action from sync queue
+  Future<void> removeFromSyncQueue(String actionId) async {
+    final queue = getSyncQueue();
+    queue.removeWhere((action) => action['id'] == actionId);
+    await saveSyncQueue(queue);
+  }
+
+  /// Clear sync queue
+  Future<void> clearSyncQueue() async {
+    await _syncBox.delete('queue');
+  }
+
+  /// Get sync queue count
+  int getSyncQueueCount() {
+    return getSyncQueue().length;
+  }
+
   /// Clear all storage
   Future<void> clearAll() async {
     await clearSecure();
     await clearAuth();
     await clearTasks();
     await clearCache();
+    await clearSyncQueue();
     await clearPrefs();
   }
 }

@@ -30,6 +30,7 @@ class AppConstants {
   static const String boxTasks = 'tasks_box';
   static const String boxSettings = 'settings_box';
   static const String boxCache = 'cache_box';
+  static const String boxSync = 'sync_box';
 
   // Agent Types
   static const String agentDocs = 'docs';
