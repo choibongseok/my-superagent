@@ -355,5 +355,32 @@ class MemoryManager:
             "metadata": self.get_metadata(),
         }
 
+    # Compatibility methods for BaseAgent integration
+
+    def get_context(self) -> str:
+        """
+        Get conversation context (alias for get_conversation_context).
+
+        Returns:
+            Conversation history as string
+        """
+        return self.get_conversation_context()
+
+    def clear(self) -> None:
+        """
+        Clear conversation memory (alias for clear_conversation).
+        """
+        self.clear_conversation()
+
+    @property
+    def buffer(self):
+        """
+        Get the underlying LangChain memory buffer for agent integration.
+
+        Returns:
+            LangChain memory object (ConversationBufferMemory or ConversationSummaryMemory)
+        """
+        return self.conversation_memory.buffer
+
 
 __all__ = ["MemoryManager"]

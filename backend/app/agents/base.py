@@ -16,7 +16,7 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 
 from app.core.config import settings
-from app.memory.conversation import ConversationMemory
+from app.memory.manager import MemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -36,14 +36,14 @@ class BaseAgent(ABC):
     Features:
         - LLM provider abstraction (OpenAI, Anthropic)
         - LangFuse tracing and monitoring (when available)
-        - Phase 2 ConversationMemory integration
+        - Phase 2 MemoryManager integration (conversation + vector memory)
         - Tool integration via LangChain
         - Proper initialization order for callbacks
         - Error handling and retry logic
 
     Critical Implementation Details:
         1. LangFuse handler MUST be initialized BEFORE LLM creation
-        2. ConversationMemory (Phase 2) is used instead of basic buffer
+        2. MemoryManager (Phase 2) provides both short-term and long-term memory
         3. Memory buffer is passed to AgentExecutor for chat_history
         4. Helper methods (add_user_message, add_ai_message) provided
 
@@ -95,7 +95,7 @@ class BaseAgent(ABC):
         # Then create LLM with the handler
         self.llm = self._create_llm(llm_provider, model, temperature, max_tokens)
 
-        # FIXED: Use Phase 2 ConversationMemory instead of basic buffer
+        # FIXED: Use Phase 2 MemoryManager (conversation + vector memory)
         self.memory = self._init_memory()
 
         # Tools will be set by subclasses
@@ -135,22 +135,24 @@ class BaseAgent(ABC):
             logger.warning(f"Failed to initialize LangFuse handler: {e}")
             return None
 
-    def _init_memory(self) -> ConversationMemory:
+    def _init_memory(self) -> MemoryManager:
         """
-        Initialize Phase 2 ConversationMemory.
+        Initialize Phase 2 MemoryManager with conversation and vector memory.
 
         Returns:
-            ConversationMemory instance
+            MemoryManager instance
         """
-        memory = ConversationMemory(
+        memory = MemoryManager(
             user_id=self.user_id,
             session_id=self.session_id,
-            max_token_limit=2000,
+            use_vector_memory=True,  # Enable long-term memory
             use_summary=False,  # Can be enabled with LLM parameter
+            conversation_max_tokens=2000,
+            vector_top_k=5,
             llm=self.llm if hasattr(self, 'llm') else None,
         )
         
-        logger.debug(f"ConversationMemory initialized for session {self.session_id}")
+        logger.debug(f"MemoryManager initialized for session {self.session_id}")
         return memory
 
     def _create_llm(

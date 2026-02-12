@@ -22,7 +22,7 @@ class ResearchAgent(BaseAgent):
         - Information synthesis from multiple sources
         - Automatic citation generation
         - Source tracking and validation
-        - Integration with Phase 2 ConversationMemory
+        - Integration with Phase 2 MemoryManager
 
     Usage:
         agent = ResearchAgent(
