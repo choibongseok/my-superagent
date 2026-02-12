@@ -63,6 +63,10 @@ def process_research_task(self, task_id: str, prompt: str, user_id: str):
         result = asyncio.run(agent.research(prompt))
 
         logger.info(f"Completed research task {task_id}")
+        
+        # Update task status in database
+        update_task_status(task_id, "completed", result=result)
+        
         return {
             "status": "completed",
             "result": result,
@@ -70,6 +74,8 @@ def process_research_task(self, task_id: str, prompt: str, user_id: str):
 
     except Exception as e:
         logger.error(f"Error in research task {task_id}: {str(e)}")
+        # Update task status to failed
+        update_task_status(task_id, "failed", error=str(e))
         # Retry with exponential backoff
         raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
 
@@ -123,6 +129,10 @@ def process_docs_task(
         ))
 
         logger.info(f"Completed docs task {task_id}")
+        
+        # Update task status in database
+        update_task_status(task_id, "completed", result=result)
+        
         return {
             "status": "completed",
             "result": result,
@@ -130,6 +140,7 @@ def process_docs_task(
 
     except Exception as e:
         logger.error(f"Error in docs task {task_id}: {str(e)}")
+        update_task_status(task_id, "failed", error=str(e))
         raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
 
 
@@ -179,6 +190,10 @@ def process_sheets_task(
         result = asyncio.run(agent.run(prompt))
 
         logger.info(f"Completed sheets task {task_id}")
+        
+        # Update task status in database
+        update_task_status(task_id, "completed", result=result)
+        
         return {
             "status": "completed",
             "result": result,
@@ -186,6 +201,7 @@ def process_sheets_task(
 
     except Exception as e:
         logger.error(f"Error in sheets task {task_id}: {str(e)}")
+        update_task_status(task_id, "failed", error=str(e))
         raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
 
 
@@ -235,6 +251,10 @@ def process_slides_task(
         result = asyncio.run(agent.run(prompt))
 
         logger.info(f"Completed slides task {task_id}")
+        
+        # Update task status in database
+        update_task_status(task_id, "completed", result=result)
+        
         return {
             "status": "completed",
             "result": result,
@@ -242,9 +262,56 @@ def process_slides_task(
 
     except Exception as e:
         logger.error(f"Error in slides task {task_id}: {str(e)}")
+        update_task_status(task_id, "failed", error=str(e))
         raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
 
 
+@celery_app.task(name="agents.update_task_status")
+def update_task_status(task_id: str, status: str, result: dict = None, error: str = None):
+    """Update task status in database after completion.
+    
+    Args:
+        task_id: Task UUID
+        status: New task status (completed, failed)
+        result: Task result data (optional)
+        error: Error message if failed (optional)
+    """
+    import asyncio
+    from sqlalchemy import select
+    from app.core.database import AsyncSessionLocal
+    from app.models.task import Task as TaskModel, TaskStatus
+    from uuid import UUID
+    
+    async def _update():
+        async with AsyncSessionLocal() as session:
+            # Get task
+            result_query = await session.execute(
+                select(TaskModel).where(TaskModel.id == UUID(task_id))
+            )
+            task = result_query.scalar_one_or_none()
+            
+            if not task:
+                logger.error(f"Task {task_id} not found in database")
+                return
+            
+            # Update status
+            if status == "completed":
+                task.status = TaskStatus.COMPLETED
+                task.result = result
+            elif status == "failed":
+                task.status = TaskStatus.FAILED
+                task.error_message = error
+            
+            await session.commit()
+            logger.info(f"Updated task {task_id} status to {status}")
+    
+    try:
+        asyncio.run(_update())
+    except Exception as e:
+        logger.error(f"Failed to update task {task_id} status: {str(e)}")
+
+
+# Add callback configuration for automatic status updates
 # Health check task
 @celery_app.task(name="agents.health_check")
 def health_check():
