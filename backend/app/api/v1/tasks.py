@@ -1,5 +1,6 @@
 """Task management endpoints."""
 
+import logging
 from typing import Annotated
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from app.models.user import User
 from app.schemas.task import Task, TaskCreate, TaskList
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/", response_model=Task, status_code=status.HTTP_201_CREATED)
@@ -47,11 +49,55 @@ async def create_task(
     await db.commit()
     await db.refresh(task)
     
-    # TODO: Queue task to Celery
-    # from app.agents.tasks import process_task
-    # celery_task = process_task.apply_async(args=[str(task.id)])
-    # task.celery_task_id = celery_task.id
-    # await db.commit()
+    # Queue task to Celery based on task_type
+    try:
+        from app.agents.celery_app import (
+            process_research_task,
+            process_docs_task,
+            process_sheets_task,
+            process_slides_task,
+        )
+        
+        task_id_str = str(task.id)
+        user_id_str = str(current_user.id)
+        
+        if task_data.task_type == "research":
+            celery_task = process_research_task.apply_async(
+                args=[task_id_str, task_data.prompt, user_id_str]
+            )
+        elif task_data.task_type == "docs":
+            title = task_data.metadata.get("title", "Untitled Document") if task_data.metadata else "Untitled Document"
+            celery_task = process_docs_task.apply_async(
+                args=[task_id_str, task_data.prompt, user_id_str, title]
+            )
+        elif task_data.task_type == "sheets":
+            title = task_data.metadata.get("title", "Untitled Spreadsheet") if task_data.metadata else "Untitled Spreadsheet"
+            celery_task = process_sheets_task.apply_async(
+                args=[task_id_str, task_data.prompt, user_id_str, title]
+            )
+        elif task_data.task_type == "slides":
+            title = task_data.metadata.get("title", "Untitled Presentation") if task_data.metadata else "Untitled Presentation"
+            celery_task = process_slides_task.apply_async(
+                args=[task_id_str, task_data.prompt, user_id_str, title]
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown task type: {task_data.task_type}",
+            )
+        
+        # Store Celery task ID
+        task.celery_task_id = celery_task.id
+        task.status = TaskStatus.IN_PROGRESS
+        await db.commit()
+        await db.refresh(task)
+        
+    except Exception as e:
+        # If Celery queuing fails, mark task as failed
+        task.status = TaskStatus.FAILED
+        task.error_message = f"Failed to queue task: {str(e)}"
+        await db.commit()
+        logger.error(f"Failed to queue task {task.id}: {str(e)}")
     
     return task
 
@@ -177,7 +223,12 @@ async def cancel_task(
     task.status = TaskStatus.CANCELLED
     await db.commit()
     
-    # TODO: Cancel Celery task
-    # if task.celery_task_id:
-    #     from app.agents.celery_app import celery_app
-    #     celery_app.control.revoke(task.celery_task_id, terminate=True)
+    # Cancel Celery task if it exists
+    if task.celery_task_id:
+        try:
+            from app.agents.celery_app import celery_app
+            celery_app.control.revoke(task.celery_task_id, terminate=True)
+            logger.info(f"Cancelled Celery task {task.celery_task_id} for task {task_id}")
+        except Exception as e:
+            logger.error(f"Failed to cancel Celery task {task.celery_task_id}: {str(e)}")
+            # Don't fail the request if Celery cancellation fails
