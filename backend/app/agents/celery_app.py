@@ -96,21 +96,24 @@ def process_docs_task(
     try:
         import asyncio
         from app.agents.docs_agent import DocsAgent
+        from app.services.google_auth import get_user_credentials
 
         logger.info(f"Starting docs task {task_id}")
 
-        # TODO: Implement credential retrieval from user storage
-        # For now, warn about missing credentials
-        logger.warning(
-            f"Creating DocsAgent without credentials for task {task_id}. "
-            "Google Workspace API calls will fail. Implement credential retrieval."
-        )
+        # Retrieve user credentials from database (async operation)
+        credentials = asyncio.run(get_user_credentials(user_id))
+        
+        if not credentials:
+            raise ValueError(
+                f"User {user_id} has no Google credentials. "
+                "Please authenticate via Google OAuth first."
+            )
 
-        # Create agent instance
+        # Create agent instance with real credentials
         agent = DocsAgent(
             user_id=user_id,
             session_id=task_id,
-            credentials=None,  # TODO: Get user credentials from secure storage
+            credentials=credentials,
         )
 
         # Generate document (async method - must await)
@@ -152,29 +155,28 @@ def process_sheets_task(
     try:
         import asyncio
         from app.agents.sheets_agent import SheetsAgent
+        from app.services.google_auth import get_user_credentials
 
         logger.info(f"Starting sheets task {task_id}")
 
-        # TODO: Implement credential retrieval from user storage
-        logger.warning(
-            f"Creating SheetsAgent without credentials for task {task_id}. "
-            "Google Sheets API calls will fail. Implement credential retrieval."
-        )
+        # Retrieve user credentials from database (async operation)
+        credentials = asyncio.run(get_user_credentials(user_id))
+        
+        if not credentials:
+            raise ValueError(
+                f"User {user_id} has no Google credentials. "
+                "Please authenticate via Google OAuth first."
+            )
 
-        # Create agent instance
+        # Create agent instance with real credentials
         agent = SheetsAgent(
             user_id=user_id,
             session_id=task_id,
-            credentials=None,  # TODO: Get user credentials from secure storage
+            credentials=credentials,
         )
 
-        # Generate spreadsheet (assuming future async implementation)
-        # Note: SheetsAgent is currently a stub - this will fail until implemented
-        logger.warning(f"SheetsAgent is not yet implemented - task {task_id} will fail")
-        result = asyncio.run(agent.create_spreadsheet(
-            title=title,
-            data_request=prompt,
-        ))
+        # Generate spreadsheet (async method - must await)
+        result = asyncio.run(agent.run(prompt))
 
         logger.info(f"Completed sheets task {task_id}")
         return {
@@ -209,29 +211,28 @@ def process_slides_task(
     try:
         import asyncio
         from app.agents.slides_agent import SlidesAgent
+        from app.services.google_auth import get_user_credentials
 
         logger.info(f"Starting slides task {task_id}")
 
-        # TODO: Implement credential retrieval from user storage
-        logger.warning(
-            f"Creating SlidesAgent without credentials for task {task_id}. "
-            "Google Slides API calls will fail. Implement credential retrieval."
-        )
+        # Retrieve user credentials from database (async operation)
+        credentials = asyncio.run(get_user_credentials(user_id))
+        
+        if not credentials:
+            raise ValueError(
+                f"User {user_id} has no Google credentials. "
+                "Please authenticate via Google OAuth first."
+            )
 
-        # Create agent instance
+        # Create agent instance with real credentials
         agent = SlidesAgent(
             user_id=user_id,
             session_id=task_id,
-            credentials=None,  # TODO: Get user credentials from secure storage
+            credentials=credentials,
         )
 
-        # Generate presentation (assuming future async implementation)
-        # Note: SlidesAgent is currently a stub - this will fail until implemented
-        logger.warning(f"SlidesAgent is not yet implemented - task {task_id} will fail")
-        result = asyncio.run(agent.create_presentation(
-            title=title,
-            content_request=prompt,
-        ))
+        # Generate presentation (async method - must await)
+        result = asyncio.run(agent.run(prompt))
 
         logger.info(f"Completed slides task {task_id}")
         return {

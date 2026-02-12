@@ -1,8 +1,11 @@
 """Google Sheets Agent for spreadsheet generation."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import logging
+from uuid import UUID
 
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
 from langchain.tools import Tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
@@ -22,6 +25,30 @@ class SheetsAgent(BaseAgent):
     - Create charts and pivot tables
     - Share and manage permissions
     """
+    
+    def __init__(
+        self,
+        user_id: str | UUID,
+        session_id: Optional[str | UUID] = None,
+        credentials: Optional[Credentials] = None,
+    ):
+        """
+        Initialize SheetsAgent with Google credentials.
+        
+        Args:
+            user_id: User ID for LangFuse tracking
+            session_id: Session ID for conversation memory
+            credentials: Google OAuth2 credentials
+        """
+        self.credentials = credentials
+        self.sheets_service = None
+        
+        if credentials:
+            # Build Google Sheets API service
+            self.sheets_service = build("sheets", "v4", credentials=credentials)
+        
+        # Call parent init
+        super().__init__(user_id=user_id, session_id=session_id)
 
     def _get_metadata(self) -> Dict[str, Any]:
         return {
@@ -52,9 +79,44 @@ class SheetsAgent(BaseAgent):
             Returns:
                 Spreadsheet ID and URL
             """
-            # TODO: Implement actual Google Sheets API call
-            logger.info(f"Creating spreadsheet: {title} with {sheet_count} sheets")
-            return f"Created spreadsheet '{title}' (ID: mock_id_123)"
+            if not self.sheets_service:
+                return "Error: Google Sheets API not initialized. Missing credentials."
+            
+            try:
+                logger.info(f"Creating spreadsheet: {title} with {sheet_count} sheets")
+                
+                # Create spreadsheet
+                spreadsheet_body = {
+                    "properties": {
+                        "title": title
+                    },
+                    "sheets": [
+                        {
+                            "properties": {
+                                "title": f"Sheet{i+1}",
+                                "gridProperties": {
+                                    "rowCount": 1000,
+                                    "columnCount": 26
+                                }
+                            }
+                        }
+                        for i in range(sheet_count)
+                    ]
+                }
+                
+                result = self.sheets_service.spreadsheets().create(
+                    body=spreadsheet_body
+                ).execute()
+                
+                spreadsheet_id = result.get("spreadsheetId")
+                spreadsheet_url = result.get("spreadsheetUrl")
+                
+                logger.info(f"Created spreadsheet '{title}' - ID: {spreadsheet_id}")
+                return f"Successfully created spreadsheet '{title}'\nURL: {spreadsheet_url}\nID: {spreadsheet_id}"
+                
+            except Exception as e:
+                logger.error(f"Failed to create spreadsheet: {e}")
+                return f"Error creating spreadsheet: {str(e)}"
         
         def write_data(spreadsheet_id: str, range_name: str, values: List[List[Any]]) -> str:
             """
@@ -68,9 +130,31 @@ class SheetsAgent(BaseAgent):
             Returns:
                 Success message with updated range
             """
-            # TODO: Implement actual write operation
-            logger.info(f"Writing data to {spreadsheet_id} range {range_name}")
-            return f"Successfully wrote {len(values)} rows to {range_name}"
+            if not self.sheets_service:
+                return "Error: Google Sheets API not initialized. Missing credentials."
+            
+            try:
+                logger.info(f"Writing data to {spreadsheet_id} range {range_name}")
+                
+                body = {
+                    "values": values
+                }
+                
+                result = self.sheets_service.spreadsheets().values().update(
+                    spreadsheetId=spreadsheet_id,
+                    range=range_name,
+                    valueInputOption="USER_ENTERED",
+                    body=body
+                ).execute()
+                
+                updated_cells = result.get("updatedCells", 0)
+                
+                logger.info(f"Wrote {len(values)} rows to {range_name}")
+                return f"Successfully wrote {len(values)} rows ({updated_cells} cells) to {range_name}"
+                
+            except Exception as e:
+                logger.error(f"Failed to write data: {e}")
+                return f"Error writing data: {str(e)}"
         
         def read_data(spreadsheet_id: str, range_name: str) -> str:
             """
@@ -83,9 +167,35 @@ class SheetsAgent(BaseAgent):
             Returns:
                 Data from the specified range
             """
-            # TODO: Implement actual read operation
-            logger.info(f"Reading data from {spreadsheet_id} range {range_name}")
-            return f"Reading data from {range_name} (mock data)"
+            if not self.sheets_service:
+                return "Error: Google Sheets API not initialized. Missing credentials."
+            
+            try:
+                logger.info(f"Reading data from {spreadsheet_id} range {range_name}")
+                
+                result = self.sheets_service.spreadsheets().values().get(
+                    spreadsheetId=spreadsheet_id,
+                    range=range_name
+                ).execute()
+                
+                values = result.get("values", [])
+                
+                if not values:
+                    return f"No data found in range {range_name}"
+                
+                # Format as text table
+                row_count = len(values)
+                col_count = max(len(row) for row in values) if values else 0
+                
+                formatted_data = f"Data from {range_name} ({row_count} rows, {col_count} columns):\n\n"
+                for row in values:
+                    formatted_data += "| " + " | ".join(str(cell) for cell in row) + " |\n"
+                
+                return formatted_data
+                
+            except Exception as e:
+                logger.error(f"Failed to read data: {e}")
+                return f"Error reading data: {str(e)}"
         
         def format_cells(spreadsheet_id: str, range_name: str, format_type: str) -> str:
             """
