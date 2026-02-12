@@ -96,6 +96,16 @@ class Settings(BaseSettings):
     PROMETHEUS_PORT: int = 9090
     ENABLE_METRICS: bool = True
 
+    # Email
+    EMAIL_ENABLED: bool = Field(default=False)
+    SMTP_HOST: str = Field(default="smtp.gmail.com")
+    SMTP_PORT: int = Field(default=587)
+    SMTP_USER: str = Field(default="")
+    SMTP_PASSWORD: str = Field(default="")
+    FROM_EMAIL: str = Field(default="noreply@agenthq.com")
+    FROM_NAME: str = Field(default="AgentHQ")
+    FRONTEND_URL: str = Field(default="http://localhost:3000")
+
     @field_validator("CORS_ORIGINS", mode="after")
     @classmethod
     def parse_cors_origins(cls, v):

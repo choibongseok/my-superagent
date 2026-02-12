@@ -11,8 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.dependencies import get_current_user
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
+from app.services.email_service import email_service
 from app.models.workspace import Workspace
 from app.models.workspace_member import MemberRole, WorkspaceMember
 from app.models.workspace_invitation import InvitationStatus, WorkspaceInvitation
@@ -539,7 +541,22 @@ async def create_invitation(
     response_data.workspace_name = workspace.name
     response_data.inviter_name = current_user.full_name
     
-    # TODO: Send invitation email
+    # Send invitation email
+    invitation_link = f"{settings.FRONTEND_URL}/invitations/accept?token={token}"
+    
+    email_sent = email_service.send_workspace_invitation(
+        to_email=invitation_data.invitee_email,
+        workspace_name=workspace.name,
+        inviter_name=current_user.full_name or "A team member",
+        invitation_link=invitation_link,
+        role=invitation_data.role.value,
+        expires_in_days=7,
+    )
+    
+    if not email_sent:
+        # Log warning but don't fail the request
+        # (invitation can still be shared via link)
+        pass
     
     return response_data
 
