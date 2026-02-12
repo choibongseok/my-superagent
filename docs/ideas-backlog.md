@@ -6,7 +6,251 @@
 
 ---
 
-## 2026-02-12 | 기획자 에이전트 아이디어 제안
+## 2026-02-12 (PM) | 기획자 에이전트 2차 아이디어 제안
+
+### 🎙️ Idea #8: "Voice-First Interface" - 말로 명령하는 AI 비서
+
+**문제점**:
+- 현재 AgentHQ는 **텍스트 입력만 지원** (타이핑 필요)
+- 모바일 환경에서 긴 명령어 입력하기 불편함
+- 운전 중, 요리 중 등 핸즈프리가 필요한 상황에서 사용 불가
+- Siri/Google Assistant 같은 편의성이 없음
+
+**제안 아이디어**:
+```
+"Voice-First Interface" - Siri/Google Assistant 통합
+```
+
+**핵심 기능**:
+1. **음성 명령 지원**
+   - "Hey AgentHQ, 지난 주 매출 데이터로 보고서 만들어줘"
+   - Speech-to-Text (Whisper API 또는 Google Speech API)
+   - 자연어 처리 → Agent 명령 변환
+
+2. **Voice Shortcuts (iOS/Android)**
+   - iOS: Siri Shortcuts 통합
+   - Android: Google Assistant Actions
+   - 예: "매출 보고서 만들기" → 미리 정의된 Task 실행
+
+3. **Voice Response (선택적)**
+   - 작업 완료 시 음성 알림
+   - Text-to-Speech (ElevenLabs 또는 Google TTS)
+   - 예: "Q4 매출 보고서가 완성되었습니다. Google Docs에서 확인하세요."
+
+4. **Multimodal Interaction**
+   - 음성 + 텍스트 혼합 사용
+   - 음성으로 시작 → 화면에서 수정
+   - 예: "보고서 만들어줘" (음성) → 템플릿 선택 (터치)
+
+**기술 구현**:
+- **STT (Speech-to-Text)**:
+  - OpenAI Whisper API (다국어, 정확도 높음)
+  - 또는 Google Cloud Speech-to-Text
+- **TTS (Text-to-Speech)**:
+  - ElevenLabs (자연스러운 음성)
+  - 또는 Google Cloud TTS
+- **Mobile Integration**:
+  - iOS: SiriKit + Intents Extension
+  - Android: Google Assistant Actions + App Actions
+- **Backend**:
+  - `/api/v1/voice/command` 엔드포인트 추가
+  - Audio file upload → STT → Task creation
+
+**예상 임팩트**:
+- 🚀 **사용자 경험**: 
+  - 명령 입력 시간 80% 단축 (타이핑 vs 말하기)
+  - 핸즈프리 사용 → 사용 시나리오 3배 확장
+  - 접근성 향상 (시각 장애, 타이핑 어려운 사용자)
+- 🎯 **차별화**: 
+  - Zapier/n8n: 음성 인터페이스 없음
+  - Notion: 음성 입력만, Agent 통합 없음
+  - **AgentHQ**: Voice + AI Agent = 최초의 음성 제어 문서 자동화
+- 📈 **비즈니스**: 
+  - 모바일 사용률 50% 증가 (현재 주로 Desktop)
+  - Apple Watch/Android Wear 확장 가능
+  - 차량 내 사용 시나리오 (CarPlay/Android Auto)
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Hard)
+- STT/TTS API 통합 (1주)
+- Mobile Siri/Assistant 통합 (3주)
+- Voice UI/UX 설계 (1주)
+- 총 5주
+
+**우선순위**: 🟡 MEDIUM-HIGH (Phase 8-9, 모바일 사용자 확대)
+
+---
+
+### 🧠 Idea #9: "Smart Document Composer" - AI가 배우는 나만의 글쓰기 스타일
+
+**문제점**:
+- 현재 Agent가 생성한 문서는 **범용적인 스타일** (누구나 비슷함)
+- 개인/회사별 특유의 톤, 용어, 구조가 반영되지 않음
+- 예: 
+  - A회사: "~입니다" (격식체) vs B회사: "~해요" (친근체)
+  - 재무팀: "EBITDA" vs 마케팅팀: "ROI, CTR"
+- 사용자가 매번 수동으로 수정해야 함
+
+**제안 아이디어**:
+```
+"Smart Document Composer" - AI가 과거 문서로 학습하는 개인화
+```
+
+**핵심 기능**:
+1. **Writing Style Learning**
+   - 사용자가 과거에 작성한 문서 분석 (Google Docs 히스토리)
+   - LLM Fine-tuning 또는 Few-shot learning
+   - 학습 요소:
+     - 문장 길이 (짧음/긴 문장 선호)
+     - 어조 (격식체/친근체/전문적/캐주얼)
+     - 용어 선택 (업계 전문 용어 vs 쉬운 표현)
+     - 구조 (헤딩 스타일, bullet points vs 문단)
+
+2. **Company Style Guide Integration**
+   - 회사 스타일 가이드 업로드 (PDF, Docs)
+   - RAG 기반으로 회사 규정 자동 적용
+   - 예: "당사는 ~합니다" (회사 공식 표현)
+   - 금지 단어 필터링 (경쟁사 제품명 등)
+
+3. **Domain-Specific Templates**
+   - 직무별 템플릿 자동 생성
+   - 예: 
+     - 영업팀: "매출 보고서" → 숫자 강조, 그래프 많이
+     - 법무팀: "계약서 검토" → 조항별 분석, 리스크 포인트
+     - HR팀: "채용 공고" → 복지 강조, 친근한 톤
+
+4. **Real-time Style Suggestions**
+   - 문서 생성 중 스타일 추천
+   - "이 문장은 너무 길어요. 2개로 나누는 게 어떨까요?"
+   - "회사 스타일 가이드에 따르면 '고객님' 대신 '귀사'를 사용합니다"
+
+**기술 구현**:
+- **Style Analysis**:
+  - spaCy 또는 NLTK로 문서 분석
+  - Metrics: 문장 길이, 어휘 다양성, 읽기 난이도
+- **Learning Pipeline**:
+  - Option 1: GPT-4 Few-shot learning (빠름, 비용 높음)
+  - Option 2: Fine-tuning GPT-3.5/Llama (느림, 비용 낮음)
+  - Option 3: Prompt engineering + RAG (권장, 밸런스)
+- **Style Guide RAG**:
+  - 회사 문서 → VectorStore 임베딩
+  - 문서 생성 시 관련 규정 자동 참조
+- **Database**:
+  - `user_styles` 테이블:
+    - `tone` (formal/casual/professional)
+    - `sentence_length_avg`
+    - `vocabulary_level` (simple/advanced)
+    - `preferred_structure` (bullets/paragraphs)
+
+**예상 임팩트**:
+- 🚀 **사용자 경험**: 
+  - 문서 수정 시간 60% 단축 (AI가 이미 내 스타일로 작성)
+  - "내가 쓴 것 같은" 자연스러운 문서
+  - 브랜드 일관성 향상 (회사 스타일 자동 준수)
+- 🎯 **차별화**: 
+  - Grammarly: 스타일 제안만, 문서 자동 생성 없음
+  - Jasper AI: 마케팅 카피에 특화, Google Workspace 통합 약함
+  - **AgentHQ**: 개인화 + Google Workspace + 자동화 = 유일무이
+- 📈 **비즈니스**: 
+  - 엔터프라이즈 고객 필수 기능 (브랜드 가이드라인 준수)
+  - Team plan 전환율 증가 (회사 스타일 공유)
+  - 사용자 만족도 대폭 향상 → NPS 20점 상승 예상
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Hard)
+- 문서 분석 파이프라인 (2주)
+- Style learning 시스템 (3주)
+- RAG 기반 스타일 가이드 통합 (2주)
+- 총 7주
+
+**우선순위**: 🔥 HIGH (Phase 7-8, 차별화 핵심 기능)
+
+---
+
+### 📱 Idea #10: "Universal Clipboard & Handoff" - 디바이스 간 완벽한 연결
+
+**문제점**:
+- 현재 Desktop ↔ Mobile 데이터 동기화는 있지만 **실시간 Handoff 없음**
+- 사용 시나리오:
+  - Desktop에서 보고서 만들다가 → 외출 → Mobile에서 이어서 확인/수정
+  - Mobile에서 아이디어 입력 → Desktop에서 바로 이어서 작업
+- Apple Ecosystem (Handoff, Universal Clipboard) 같은 seamless 경험 부재
+
+**제안 아이디어**:
+```
+"Universal Clipboard & Handoff" - Apple처럼 매끄러운 멀티 디바이스 경험
+```
+
+**핵심 기능**:
+1. **Universal Clipboard**
+   - Desktop에서 텍스트 복사 → Mobile 클립보드에 자동 동기화
+   - Mobile에서 복사 → Desktop에 즉시 반영
+   - 이미지, 링크, 텍스트 모두 지원
+   - 클립보드 히스토리 (최근 10개)
+
+2. **Task Handoff**
+   - Desktop에서 Task 진행 중 → Mobile 알림:
+     - "Desktop에서 작업 중인 'Q4 매출 보고서'를 이어서 하시겠어요?"
+   - Mobile에서 "Continue on Desktop" 버튼
+   - 작업 상태 완벽 동기화 (Agent 대화 컨텍스트 포함)
+
+3. **Document Collaboration Sync**
+   - Google Docs 문서 → Desktop에서 열기 → Mobile에서 실시간 동기화
+   - Cursor position 동기화 (같은 문서의 어느 부분 보고 있는지)
+   - Comments/Suggestions 실시간 알림
+
+4. **Smart Device Detection**
+   - 같은 WiFi 네트워크에 있을 때 자동 연결
+   - Bluetooth LE로 근거리 디바이스 인식
+   - 보안: 같은 계정만 연결 가능
+
+5. **Quick Actions from Notification**
+   - Mobile 알림에서 바로 Desktop Task 제어
+   - "Desktop에서 보고서 완성됨 → [Open on Mobile] [Share] [Dismiss]"
+   - 양방향 컨트롤
+
+**기술 구현**:
+- **Clipboard Sync**:
+  - Desktop: Electron Clipboard API 감지
+  - Mobile: Flutter Clipboard listener
+  - Backend: WebSocket 또는 Firebase Cloud Messaging (FCM)
+  - Redis pub/sub으로 실시간 브로드캐스트
+- **Task State Sync**:
+  - Database: `device_sessions` 테이블
+    - `device_id`, `task_id`, `last_active`, `context_snapshot`
+  - WebSocket으로 디바이스 간 상태 브로드캐스트
+- **Proximity Detection**:
+  - Bluetooth LE (BLE) beacons
+  - 또는 WiFi SSID 기반 동일 네트워크 감지
+- **Security**:
+  - End-to-end encryption (클립보드 데이터 암호화)
+  - Device pairing (최초 1회 인증)
+  - Timeout (5분 후 클립보드 자동 삭제)
+
+**예상 임팩트**:
+- 🚀 **사용자 경험**: 
+  - 디바이스 전환 시간 90% 단축 (파일 찾기, 로그인 불필요)
+  - "마법 같은" seamless 경험 → Wow factor
+  - 생산성 대폭 향상 (언제 어디서든 이어서 작업)
+- 🎯 **차별화**: 
+  - Google Workspace: 클라우드 동기화만, Handoff 없음
+  - Notion: 멀티 디바이스 지원, 하지만 실시간 클립보드 없음
+  - **AgentHQ**: Apple Handoff + Google Workspace + AI Agent = 완벽한 생태계
+- 📈 **비즈니스**: 
+  - Desktop + Mobile 동시 사용률 70% 증가
+  - Premium 기능 (Handoff = $9/month 추가)
+  - Apple/Google 공식 파트너십 가능 (Best Practice 사례)
+
+**개발 난이도**: ⭐⭐⭐⭐⭐ (Very Hard)
+- 클립보드 동기화 (2주)
+- WebSocket 실시간 통신 (2주)
+- Device proximity 감지 (2주)
+- End-to-end encryption (1주)
+- 총 7주
+
+**우선순위**: 🟡 MEDIUM (Phase 9-10, "Wow" 기능)
+
+---
+
+## 2026-02-12 (AM) | 기획자 에이전트 아이디어 제안
 
 ### 💬 Idea #1: "Smart Context Memory" - AI가 기억하는 작업 맥락
 
@@ -462,6 +706,9 @@
 | **Real-time Team Collaboration** | 🚀🚀🚀🚀🚀 | ⭐⭐⭐⭐ | 🔥 HIGH | 7주 |
 | **Agent Performance Analytics** | 🚀🚀🚀 | ⭐⭐⭐ | 🟡 MEDIUM | 3주 |
 | **Smart Scheduling & Auto-Reporting** | 🚀🚀🚀🚀 | ⭐⭐⭐ | 🟡 MEDIUM | 3주 |
+| **Voice-First Interface** | 🚀🚀🚀🚀 | ⭐⭐⭐⭐ | 🟡 MEDIUM-HIGH | 5주 |
+| **Smart Document Composer** | 🚀🚀🚀🚀🚀 | ⭐⭐⭐⭐ | 🔥 HIGH | 7주 |
+| **Universal Clipboard & Handoff** | 🚀🚀🚀🚀 | ⭐⭐⭐⭐⭐ | 🟡 MEDIUM | 7주 |
 
 ---
 
@@ -529,6 +776,9 @@
 | 2026-02-12 (PM) | Planner Agent | Real-time Team Collaboration Hub | ✅ Proposed |
 | 2026-02-12 (PM) | Planner Agent | Agent Performance Analytics Dashboard | ✅ Proposed |
 | 2026-02-12 (PM) | Planner Agent | Smart Scheduling & Auto-Reporting | ✅ Proposed |
+| 2026-02-12 (PM 2차) | Planner Agent | Voice-First Interface | ✅ Proposed |
+| 2026-02-12 (PM 2차) | Planner Agent | Smart Document Composer | ✅ Proposed |
+| 2026-02-12 (PM 2차) | Planner Agent | Universal Clipboard & Handoff | ✅ Proposed |
 
 ---
 
@@ -537,5 +787,5 @@
 - 우선순위 변경 제안은 Planner Agent에게 연락
 
 **작성자**: Planner Agent  
-**최종 업데이트**: 2026-02-12 07:57 UTC  
-**총 제안 아이디어**: 7개 (오전 4개 + 오후 3개)
+**최종 업데이트**: 2026-02-12 13:20 UTC  
+**총 제안 아이디어**: 10개 (오전 4개 + 오후 1차 3개 + 오후 2차 3개)
