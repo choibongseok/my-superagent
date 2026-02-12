@@ -6,6 +6,230 @@
 
 ---
 
+## 2026-02-12 (PM 3차) | 기획자 에이전트 최종 아이디어 제안 🔥
+
+### 🛡️ Idea #11: "Smart Undo & Agent Version Control" - AI 실수 걱정 없이
+
+**문제점**:
+- AI Agent가 **잘못된 문서를 생성**하거나 **데이터를 망칠 수 있음**
+- 사용자 입장: "Agent가 내 중요한 스프레드시트를 수정했는데, 원래대로 돌리고 싶어..."
+- 현재: Google Docs 버전 관리에 의존 (Agent 작업 추적 어려움)
+- 신뢰 문제: "Agent가 실수할까봐 중요한 작업은 못 맡기겠어"
+
+**제안 아이디어**:
+```
+"Smart Undo & Agent Version Control" - AI 작업 추적 및 롤백 시스템
+```
+
+**핵심 기능**:
+1. **Agent Action Timeline**
+   - 모든 Agent 작업 기록 (누가, 언제, 무엇을, 왜)
+   - 예: "Research Agent가 15:30에 'Q4 Report.docx'에 10개 인용 추가"
+   - Before/After 스냅샷 자동 저장
+
+2. **One-Click Undo**
+   - Agent 작업 하나만 선택적 되돌리기
+   - 예: "차트 생성은 좋은데, 표 서식만 원래대로"
+   - Granular rollback (문서 전체가 아닌 특정 변경사항만)
+
+3. **Change Preview & Approval**
+   - Critical 작업은 실행 전 미리보기
+   - 예: "Sheets Agent가 1000개 행을 삭제하려 함 → 승인 필요"
+   - Confidence score 기반 자동 승인/수동 승인
+
+4. **Version Diff Visualization**
+   - Agent가 변경한 내용 시각적 비교 (Git diff 스타일)
+   - 색상 코딩: 추가(녹색), 삭제(빨강), 수정(노랑)
+
+**기술 구현**:
+- **Backend**:
+  - AgentActionLog 모델 (action_type, document_id, before_snapshot, after_snapshot)
+  - Google Docs/Sheets Revision API 통합
+  - Delta storage (전체 문서가 아닌 변경사항만 저장)
+- **Frontend**:
+  - Timeline UI (시간순 작업 목록)
+  - Diff viewer (side-by-side 비교)
+  - "Undo this action" 버튼
+
+**예상 임팩트**:
+- 🚀 **사용자 신뢰**: 
+  - Agent 사용 빈도 3배 증가 (실수 두려움 제거)
+  - Enterprise 도입 장벽 50% 감소 ("안전성 검증" 통과)
+- 🎯 **차별화**: 
+  - Zapier/n8n: 단순 에러 로그만 (Undo 없음)
+  - Notion AI: 문서 레벨 버전만 (AI 작업 추적 불가)
+  - **AgentHQ**: 최초의 "AI 작업 추적 + 롤백" 시스템
+- 📈 **비즈니스**: 
+  - Enterprise 전환율 40% 증가 (안전성 증명)
+  - 고객 지원 문의 60% 감소 ("Agent가 망쳤어요" → 셀프 Undo)
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Hard)
+- Google Revision API 통합 (1주)
+- Timeline UI 및 Diff viewer (2주)
+- Rollback 로직 및 테스트 (2주)
+- 총 5주
+
+**우선순위**: 🔥 CRITICAL (Phase 7-8, Enterprise 진출 필수)
+
+**설계 검토 요청**: ✅ (아래 참고)
+
+---
+
+### 💰 Idea #12: "Intelligent Cost Optimizer" - LLM 비용 50% 절감
+
+**문제점**:
+- LLM API 비용이 **사용자/팀별로 투명하지 않음**
+- 어떤 Agent가 비용을 많이 쓰는지 모름
+- 불필요한 긴 프롬프트로 토큰 낭비
+- Enterprise 고객: "월 1000달러 쓰는데, 어디에 쓴 거지?"
+
+**제안 아이디어**:
+```
+"Intelligent Cost Optimizer" - 사용자별 LLM 비용 추적 및 최적화
+```
+
+**핵심 기능**:
+1. **Real-time Cost Dashboard**
+   - 사용자/팀별 LLM 비용 실시간 추적
+   - 예: "Research Agent: $45.20 | Docs Agent: $23.10 | 총: $68.30"
+   - Cost breakdown: Prompt tokens, Completion tokens, Model 종류
+
+2. **Cost Alerts & Limits**
+   - 예산 초과 시 알림
+   - 예: "개인 월 $50 초과 → 경고" / "팀 $500 초과 → 자동 중지"
+   - Soft limit (알림만) vs Hard limit (작업 중단)
+
+3. **Smart Token Optimization**
+   - Prompt 자동 압축 (불필요한 컨텍스트 제거)
+   - Model routing: 간단한 작업 → GPT-3.5 / 복잡한 작업 → GPT-4
+   - Caching: 반복되는 프롬프트 재사용 (Anthropic Prompt Caching)
+
+4. **Cost Prediction**
+   - 작업 실행 전 예상 비용 표시
+   - 예: "이 보고서 생성 비용: ~$2.50 (예상 토큰: 50k)"
+   - 비용 vs 퀄리티 트레이드오프 선택
+
+**기술 구현**:
+- **Backend**:
+  - LLMCostTracker 서비스 (token count → cost 계산)
+  - LangFuse integration (이미 구현됨 - 확장)
+  - Cost breakdown API (`/api/v1/analytics/cost`)
+- **Frontend**:
+  - Cost dashboard (차트: 시간별, Agent별, 사용자별)
+  - Budget management UI
+  - Real-time cost indicator (작업 실행 중 비용 표시)
+- **Optimization Engine**:
+  - Prompt compression (GPT-4 → summary → GPT-3.5)
+  - Model router (complexity score → model selection)
+  - Cache manager (Anthropic Prompt Caching API)
+
+**예상 임팩트**:
+- 🚀 **비용 절감**: 
+  - LLM 비용 평균 50% 감소 (최적화 + 캐싱)
+  - Enterprise 고객당 월 $500 절약
+- 🎯 **차별화**: 
+  - Zapier/n8n: AI 비용 추적 없음
+  - Notion AI: 사용량만 표시 (최적화 없음)
+  - **AgentHQ**: 최초의 "AI 비용 투명성 + 최적화" 플랫폼
+- 📈 **비즈니스**: 
+  - Enterprise 도입 증가 (CFO 설득: "비용 통제 가능")
+  - Upsell 기회 (최적화 기능을 Premium tier로)
+  - 고객 이탈 감소 ("비용 부담" → "비용 관리")
+
+**개발 난이도**: ⭐⭐⭐☆☆ (Medium)
+- LangFuse integration 확장 (이미 있음, 1주)
+- Cost dashboard UI (1.5주)
+- Optimization engine (Prompt caching, Model routing, 2주)
+- 총 4.5주
+
+**우선순위**: 🟡 MEDIUM-HIGH (Phase 8-9, Enterprise 필수)
+
+**설계 검토 요청**: ✅ (아래 참고)
+
+---
+
+### 🔒 Idea #13: "Enterprise Security & Compliance Suite" - Fortune 500 진출
+
+**문제점**:
+- 현재 **보안/규정 준수 기능 부족** (Enterprise 고객 차단)
+- GDPR, SOC2, HIPAA 요구사항 미충족
+- Audit log 없음 ("누가 어떤 데이터에 접근했는지 추적 불가")
+- 대기업 보안팀: "감사 가능성 없으면 도입 불가"
+
+**제안 아이디어**:
+```
+"Enterprise Security & Compliance Suite" - Fortune 500을 위한 보안 강화
+```
+
+**핵심 기능**:
+1. **Comprehensive Audit Logs**
+   - 모든 액션 기록 (CRUD + AI 작업)
+   - 예: "User 'john@acme.com'이 2026-02-12 15:30 UTC에 'Confidential.xlsx' 읽음"
+   - Tamper-proof logs (변조 방지, blockchain 또는 immutable storage)
+   - Retention policy (1년/3년/7년)
+
+2. **Data Residency & Encryption**
+   - EU/US/APAC 리전 선택 (GDPR 준수)
+   - End-to-end encryption (at-rest + in-transit)
+   - Customer-managed encryption keys (CMEK)
+   - 예: "독일 고객 데이터는 Frankfurt 리전에만 저장"
+
+3. **Role-Based Access Control (RBAC)**
+   - Admin / Manager / User / Viewer 역할
+   - Granular permissions (예: "Docs 읽기 가능, Sheets 쓰기 불가")
+   - Team/workspace 단위 격리
+
+4. **Compliance Certifications**
+   - SOC 2 Type II (보안 감사)
+   - GDPR (개인정보 보호)
+   - HIPAA (의료 데이터) - optional
+   - ISO 27001 (정보 보안 관리)
+
+5. **Data Loss Prevention (DLP)**
+   - 민감 정보 감지 (신용카드, SSN, 비밀번호)
+   - Agent가 PII를 문서에 추가하려 할 때 차단
+   - Redaction: "***-**-1234" (마스킹)
+
+**기술 구현**:
+- **Backend**:
+  - AuditLog 모델 (user_id, action, resource, timestamp, ip_address)
+  - RBAC middleware (permission check on every API call)
+  - Encryption: AWS KMS or Google Cloud KMS
+  - DLP: Regex patterns + ML-based detection
+- **Infrastructure**:
+  - Multi-region deployment (AWS regions: us-east-1, eu-central-1, ap-southeast-1)
+  - Immutable audit storage (AWS S3 with Object Lock)
+- **Compliance**:
+  - SOC 2 audit process (6-12개월)
+  - GDPR documentation (privacy policy, DPA)
+
+**예상 임팩트**:
+- 🚀 **Enterprise 진출**: 
+  - Fortune 500 도입 가능 (보안 검증 통과)
+  - Enterprise ARR 10배 증가 (SMB $99/mo → Enterprise $999/mo)
+- 🎯 **차별화**: 
+  - Zapier: SOC 2 있지만 Audit log 제한적
+  - n8n: Self-hosted 옵션 있지만 규정 준수 약함
+  - **AgentHQ**: "AI + Compliance" 최초 결합 (규제 산업 타겟)
+- 📈 **비즈니스**: 
+  - Healthcare, Finance, Gov 진출 (규제 산업 3개 추가)
+  - Customer lifetime value 5배 (Enterprise retention 95%)
+  - 브랜드 신뢰도 급상승 ("안전한 AI 플랫폼")
+
+**개발 난이도**: ⭐⭐⭐⭐⭐ (Very Hard)
+- Audit log 시스템 (2주)
+- RBAC 구현 (3주)
+- Encryption & KMS 통합 (2주)
+- Multi-region deployment (3주)
+- Compliance 문서화 및 감사 (6-12개월, 외부 컨설턴트)
+- 총 10주 (개발) + 6-12개월 (인증)
+
+**우선순위**: 🔥 CRITICAL (Phase 9-10, Enterprise 시장 진출 필수)
+
+**설계 검토 요청**: ✅ (아래 참고)
+
+---
+
 ## 2026-02-12 (PM) | 기획자 에이전트 2차 아이디어 제안
 
 ### 🎙️ Idea #8: "Voice-First Interface" - 말로 명령하는 AI 비서
@@ -98,387 +322,144 @@
 **핵심 기능**:
 1. **Writing Style Learning**
    - 사용자가 과거에 작성한 문서 분석 (Google Docs 히스토리)
-   - LLM Fine-tuning 또는 Few-shot learning
-   - 학습 요소:
-     - 문장 길이 (짧음/긴 문장 선호)
-     - 어조 (격식체/친근체/전문적/캐주얼)
-     - 용어 선택 (업계 전문 용어 vs 쉬운 표현)
-     - 구조 (헤딩 스타일, bullet points vs 문단)
+   - 톤 (formal/casual), 문장 길이, 자주 쓰는 표현 추출
+   - 예: "User John은 '~입니다' 사용, 평균 문장 20단어"
 
-2. **Company Style Guide Integration**
-   - 회사 스타일 가이드 업로드 (PDF, Docs)
-   - RAG 기반으로 회사 규정 자동 적용
-   - 예: "당사는 ~합니다" (회사 공식 표현)
-   - 금지 단어 필터링 (경쟁사 제품명 등)
+2. **Company-Wide Style Guide**
+   - 팀/회사 전체 스타일 가이드 설정
+   - 예: "우리 회사는 'Customer' 대신 'Client' 사용"
+   - Terminology glossary (용어집): "AI → 인공지능"
 
-3. **Domain-Specific Templates**
-   - 직무별 템플릿 자동 생성
-   - 예: 
-     - 영업팀: "매출 보고서" → 숫자 강조, 그래프 많이
-     - 법무팀: "계약서 검토" → 조항별 분석, 리스크 포인트
-     - HR팀: "채용 공고" → 복지 강조, 친근한 톤
+3. **Context-Aware Generation**
+   - 문서 타입별 다른 스타일
+   - 예: 이메일(친근), 계약서(격식), 블로그(캐주얼)
 
-4. **Real-time Style Suggestions**
-   - 문서 생성 중 스타일 추천
-   - "이 문장은 너무 길어요. 2개로 나누는 게 어떨까요?"
-   - "회사 스타일 가이드에 따르면 '고객님' 대신 '귀사'를 사용합니다"
+4. **Style Feedback Loop**
+   - 사용자가 수정한 내용 학습
+   - 예: Agent가 "awesome"을 썼는데, 사용자가 "excellent"로 바꿈 → 학습
 
 **기술 구현**:
-- **Style Analysis**:
-  - spaCy 또는 NLTK로 문서 분석
-  - Metrics: 문장 길이, 어휘 다양성, 읽기 난이도
-- **Learning Pipeline**:
-  - Option 1: GPT-4 Few-shot learning (빠름, 비용 높음)
-  - Option 2: Fine-tuning GPT-3.5/Llama (느림, 비용 낮음)
-  - Option 3: Prompt engineering + RAG (권장, 밸런스)
-- **Style Guide RAG**:
-  - 회사 문서 → VectorStore 임베딩
-  - 문서 생성 시 관련 규정 자동 참조
-- **Database**:
-  - `user_styles` 테이블:
-    - `tone` (formal/casual/professional)
-    - `sentence_length_avg`
-    - `vocabulary_level` (simple/advanced)
-    - `preferred_structure` (bullets/paragraphs)
+- **Backend**:
+  - WritingStyleAnalyzer 서비스
+    - Google Docs API → 과거 문서 크롤링
+    - NLP 분석 (spaCy or Hugging Face)
+    - Style profile 생성 (JSON)
+  - StyleGuide 모델 (workspace-level)
+  - LLM prompt에 style profile 주입
+- **ML Pipeline**:
+  - Document vectorization (embedding)
+  - Clustering (비슷한 문서 그룹화)
+  - Style extraction (tone, vocabulary, structure)
+- **Frontend**:
+  - Style profile editor (수동 조정 가능)
+  - "내 스타일 학습" 버튼 (Google Docs 히스토리 분석)
 
 **예상 임팩트**:
-- 🚀 **사용자 경험**: 
-  - 문서 수정 시간 60% 단축 (AI가 이미 내 스타일로 작성)
-  - "내가 쓴 것 같은" 자연스러운 문서
-  - 브랜드 일관성 향상 (회사 스타일 자동 준수)
+- 🚀 **사용자 만족도**: 
+  - 문서 수정 시간 70% 감소 (스타일 일치)
+  - "내가 쓴 것 같은 문서" → 신뢰도 상승
+  - 팀 일관성 (모든 문서가 같은 톤)
 - 🎯 **차별화**: 
-  - Grammarly: 스타일 제안만, 문서 자동 생성 없음
-  - Jasper AI: 마케팅 카피에 특화, Google Workspace 통합 약함
-  - **AgentHQ**: 개인화 + Google Workspace + 자동화 = 유일무이
+  - Zapier/n8n: 스타일 학습 없음
+  - Notion AI: 범용 AI만 (개인화 약함)
+  - **AgentHQ**: 최초의 "개인 글쓰기 스타일 학습" 문서 AI
 - 📈 **비즈니스**: 
-  - 엔터프라이즈 고객 필수 기능 (브랜드 가이드라인 준수)
-  - Team plan 전환율 증가 (회사 스타일 공유)
-  - 사용자 만족도 대폭 향상 → NPS 20점 상승 예상
+  - Premium tier 기능 (개인화 = 프리미엄)
+  - Enterprise 전환율 30% 증가 (회사 브랜드 보호)
+  - 바이럴 포인트 ("내 스타일로 문서 써줘!" 입소문)
 
 **개발 난이도**: ⭐⭐⭐⭐☆ (Hard)
-- 문서 분석 파이프라인 (2주)
-- Style learning 시스템 (3주)
-- RAG 기반 스타일 가이드 통합 (2주)
+- NLP 분석 파이프라인 (3주)
+- Google Docs 히스토리 크롤링 (1주)
+- LLM 프롬프트 엔지니어링 (2주)
+- Style profile UI (1주)
 - 총 7주
 
-**우선순위**: 🔥 HIGH (Phase 7-8, 차별화 핵심 기능)
+**우선순위**: 🔥 HIGH (Phase 8-9, 차별화 핵심)
 
 ---
 
-### 📱 Idea #10: "Universal Clipboard & Handoff" - 디바이스 간 완벽한 연결
+### 🔄 Idea #10: "Universal Clipboard & Handoff" - Apple Continuity처럼
 
 **문제점**:
-- 현재 Desktop ↔ Mobile 데이터 동기화는 있지만 **실시간 Handoff 없음**
-- 사용 시나리오:
-  - Desktop에서 보고서 만들다가 → 외출 → Mobile에서 이어서 확인/수정
-  - Mobile에서 아이디어 입력 → Desktop에서 바로 이어서 작업
-- Apple Ecosystem (Handoff, Universal Clipboard) 같은 seamless 경험 부재
+- 사용자가 **여러 디바이스 사용** (Desktop → Mobile → Tablet)
+- 현재: 각 디바이스에서 새로 시작해야 함
+- 예: Desktop에서 "매출 보고서" 작업 중 → 외출 → Mobile에서 이어서 못함
+- Apple Continuity / Samsung Flow 같은 seamless 전환 없음
 
 **제안 아이디어**:
 ```
-"Universal Clipboard & Handoff" - Apple처럼 매끄러운 멀티 디바이스 경험
+"Universal Clipboard & Handoff" - 디바이스 간 작업 seamless 전환
 ```
 
 **핵심 기능**:
 1. **Universal Clipboard**
-   - Desktop에서 텍스트 복사 → Mobile 클립보드에 자동 동기화
-   - Mobile에서 복사 → Desktop에 즉시 반영
-   - 이미지, 링크, 텍스트 모두 지원
-   - 클립보드 히스토리 (최근 10개)
+   - 한 디바이스에서 복사 → 다른 디바이스에서 붙여넣기
+   - 예: Desktop에서 "Q4 Report" 복사 → Mobile에서 Agent에게 붙여넣기
+   - 텍스트, 이미지, 파일 지원
 
 2. **Task Handoff**
-   - Desktop에서 Task 진행 중 → Mobile 알림:
-     - "Desktop에서 작업 중인 'Q4 매출 보고서'를 이어서 하시겠어요?"
-   - Mobile에서 "Continue on Desktop" 버튼
-   - 작업 상태 완벽 동기화 (Agent 대화 컨텍스트 포함)
+   - 진행 중인 작업을 다른 디바이스에서 이어서
+   - 예: Desktop에서 "매출 보고서 작성 중" → Mobile 알림 "이어서 하시겠어요?"
+   - 작업 상태 실시간 동기화
 
-3. **Document Collaboration Sync**
-   - Google Docs 문서 → Desktop에서 열기 → Mobile에서 실시간 동기화
-   - Cursor position 동기화 (같은 문서의 어느 부분 보고 있는지)
-   - Comments/Suggestions 실시간 알림
+3. **Cross-Device Notifications**
+   - Agent 작업 완료 시 모든 디바이스에 알림
+   - 예: Desktop에서 Task 시작 → Mobile에서 완료 알림 받음
+   - Smart notification routing (현재 사용 중인 디바이스만)
 
-4. **Smart Device Detection**
-   - 같은 WiFi 네트워크에 있을 때 자동 연결
-   - Bluetooth LE로 근거리 디바이스 인식
-   - 보안: 같은 계정만 연결 가능
-
-5. **Quick Actions from Notification**
-   - Mobile 알림에서 바로 Desktop Task 제어
-   - "Desktop에서 보고서 완성됨 → [Open on Mobile] [Share] [Dismiss]"
-   - 양방향 컨트롤
+4. **Unified History**
+   - 모든 디바이스에서 같은 대화 히스토리
+   - 예: Desktop에서 "지난 대화 내용 뭐였지?" → Mobile에서 확인
 
 **기술 구현**:
-- **Clipboard Sync**:
-  - Desktop: Electron Clipboard API 감지
-  - Mobile: Flutter Clipboard listener
-  - Backend: WebSocket 또는 Firebase Cloud Messaging (FCM)
-  - Redis pub/sub으로 실시간 브로드캐스트
-- **Task State Sync**:
-  - Database: `device_sessions` 테이블
-    - `device_id`, `task_id`, `last_active`, `context_snapshot`
-  - WebSocket으로 디바이스 간 상태 브로드캐스트
-- **Proximity Detection**:
-  - Bluetooth LE (BLE) beacons
-  - 또는 WiFi SSID 기반 동일 네트워크 감지
+- **Backend**:
+  - WebSocket sync channel (디바이스 간 실시간 동기화)
+  - ClipboardSync 서비스 (텍스트/이미지 저장)
+  - TaskState 모델 (진행 중인 작업 상태)
+- **Frontend**:
+  - Desktop: Electron IPC (clipboard monitor)
+  - Mobile: Flutter clipboard plugin
+  - Push notification (FCM/APNs)
 - **Security**:
-  - End-to-end encryption (클립보드 데이터 암호화)
-  - Device pairing (최초 1회 인증)
-  - Timeout (5분 후 클립보드 자동 삭제)
+  - End-to-end encryption (디바이스 간 데이터)
+  - Time-limited clipboard (1분 후 자동 삭제)
 
 **예상 임팩트**:
 - 🚀 **사용자 경험**: 
-  - 디바이스 전환 시간 90% 단축 (파일 찾기, 로그인 불필요)
-  - "마법 같은" seamless 경험 → Wow factor
-  - 생산성 대폭 향상 (언제 어디서든 이어서 작업)
+  - 디바이스 전환 마찰 제거 (seamless)
+  - 모바일 사용률 2배 증가 (Desktop 작업을 Mobile에서 완료)
+  - "어디서든 이어서" → 생산성 30% 향상
 - 🎯 **차별화**: 
-  - Google Workspace: 클라우드 동기화만, Handoff 없음
-  - Notion: 멀티 디바이스 지원, 하지만 실시간 클립보드 없음
-  - **AgentHQ**: Apple Handoff + Google Workspace + AI Agent = 완벽한 생태계
+  - Zapier/n8n: 디바이스 동기화 없음
+  - Notion: 문서 동기화만 (작업 handoff 없음)
+  - **AgentHQ**: "Apple Continuity" 수준의 AI 작업 전환
 - 📈 **비즈니스**: 
-  - Desktop + Mobile 동시 사용률 70% 증가
-  - Premium 기능 (Handoff = $9/month 추가)
-  - Apple/Google 공식 파트너십 가능 (Best Practice 사례)
+  - Multi-device 사용자 engagement 2배
+  - Mobile app 리텐션 50% 증가
+  - "Apple처럼 부드러운 경험" → 브랜드 차별화
 
 **개발 난이도**: ⭐⭐⭐⭐⭐ (Very Hard)
-- 클립보드 동기화 (2주)
-- WebSocket 실시간 통신 (2주)
-- Device proximity 감지 (2주)
-- End-to-end encryption (1주)
+- WebSocket sync 시스템 (2주)
+- Clipboard monitoring (Desktop/Mobile, 2주)
+- Task handoff logic (1주)
+- Push notification integration (1주)
+- Encryption & security (1주)
 - 총 7주
 
-**우선순위**: 🟡 MEDIUM (Phase 9-10, "Wow" 기능)
+**우선순위**: 🟡 MEDIUM (Phase 9-10, UX 향상)
 
 ---
 
-## 2026-02-12 (AM) | 기획자 에이전트 아이디어 제안
+## 2026-02-12 (PM 1차) | 기획자 에이전트 아이디어 제안
 
-### 💬 Idea #1: "Smart Context Memory" - AI가 기억하는 작업 맥락
+### 🤝 Idea #5: "Real-time Team Collaboration Hub" - Notion meets Slack for Agents
 
 **문제점**:
-- 현재 AgentHQ는 대화 히스토리만 저장하고, **작업 간 연관성을 파악하지 못함**
-- 예: "지난 주 만든 매출 보고서" → AI가 어떤 문서인지 찾지 못함
-- 사용자가 매번 문서 URL을 붙여넣거나 검색해야 함
-
-**제안 아이디어**:
-```
-"Smart Context Memory" - 시맨틱 작업 그래프
-```
-
-**핵심 기능**:
-1. **작업 간 관계 자동 추적**
-   - "Q4 매출 보고서" 생성 → "2024 연간 실적 분석" 생성 → 자동으로 연결
-   - 사용자가 "지난 주 매출 보고서"라고 하면 → 시맨틱 검색으로 자동 찾기
-   
-2. **문서 버전 관리**
-   - "Q4 매출 보고서 v2 만들어줘" → 기존 v1 참조하여 개선
-   - Git 스타일 변경 이력 추적
-
-3. **Smart Suggestions**
-   - "매출 보고서 만들었으면 다음엔 프레젠테이션 필요하지 않나요?" 자동 제안
-   - 과거 패턴 학습: Sales Report → Presentation (80% 확률)
-
-**기술 구현**:
-- PGVector를 활용한 시맨틱 문서 임베딩
-- Neo4j 또는 PostgreSQL Recursive CTE로 작업 그래프 구축
-- LangChain Memory → 기존 VectorMemory 확장
-
-**예상 임팩트**:
-- 🚀 **사용자 경험**: 문서 찾기 시간 70% 단축
-- 🎯 **차별화**: Zapier/n8n에는 없는 "컨텍스트 기억" 기능
-- 📈 **비즈니스**: 반복 사용률 증가 → MAU 30% 향상 예상
-
-**개발 난이도**: ⭐⭐⭐☆☆ (Medium)
-- 기존 VectorMemory 기반 확장 가능
-- Graph 구조 추가 필요 (2-3주)
-
-**우선순위**: 🔥 HIGH (Phase 5-6에 추가 권장)
-
----
-
-### 📊 Idea #2: "Visual Workflow Builder" - 코드 없이 AI 워크플로우 만들기
-
-**문제점**:
-- 현재 AgentHQ는 **자연어 명령만 지원** (GUI 없음)
-- 복잡한 멀티 스텝 작업 시 명령어가 길어지고 헷갈림
-- 비기술자 사용자는 진입 장벽 높음
-
-**제안 아이디어**:
-```
-"Visual Workflow Builder" - Drag-and-Drop AI 작업 연결
-```
-
-**핵심 기능**:
-1. **노드 기반 워크플로우 UI**
-   ```
-   [Research Agent] → [Filter Results] → [Create Docs] → [Send Email]
-      (웹 검색)        (상위 5개만)      (리포트 생성)     (Gmail API)
-   ```
-   - n8n/Zapier 스타일 UI
-   - 각 노드 = Agent 또는 Tool
-   
-2. **AI 추천 워크플로우**
-   - "매출 보고서 자동화"라고 입력 → 자주 쓰는 패턴 템플릿 자동 생성
-   - Marketplace에서 다른 사용자 워크플로우 다운로드 가능
-
-3. **실시간 디버깅**
-   - 각 노드 실행 결과 시각화
-   - 오류 발생 시 어느 단계에서 실패했는지 명확히 표시
-
-**기술 구현**:
-- **Frontend**: React Flow 또는 Rete.js (워크플로우 UI 라이브러리)
-- **Backend**: 기존 `multi_agent_orchestrator.py` 확장
-  - 노드 그래프를 JSON으로 저장
-  - 각 노드 = Agent 또는 Tool 호출
-- **새 모델**: `Workflow` 테이블 (nodes, edges, metadata)
-
-**예상 임팩트**:
-- 🚀 **사용자 경험**: 비기술자도 복잡한 자동화 가능 → TAM 3배 확장
-- 🎯 **차별화**: 
-  - Zapier: AI Agent 없음, 단순 API 연결만
-  - n8n: 오픈소스지만 Google Workspace 통합 약함
-  - **AgentHQ**: AI + 워크플로우 + Google 완전 통합 = 유일무이
-- 📈 **비즈니스**: 
-  - 프리미엄 기능으로 유료 전환율 60% 예상
-  - Workflow Marketplace → 생태계 구축
-
-**개발 난이도**: ⭐⭐⭐⭐☆ (Hard)
-- 새로운 UI 컴포넌트 필요 (3-4주)
-- Backend orchestrator 리팩토링 (2주)
-- 총 6주 소요 예상
-
-**우선순위**: 🔥 CRITICAL (Phase 7-8 메인 기능 권장)
-- 이 기능이 있으면 **엔터프라이즈 고객 타겟 가능**
-
----
-
-### 🤖 Idea #3: "Agent Personas" - 도메인별 전문 AI 에이전트
-
-**문제점**:
-- 현재 Agent는 범용적 (Research, Docs, Sheets, Slides)
-- 특정 산업/도메인 지식이 부족
-  - 예: 법률 문서, 의료 리포트, 재무 분석 → 일반 AI로는 전문성 부족
-
-**제안 아이디어**:
-```
-"Agent Personas" - 산업별 맞춤형 AI 전문가
-```
-
-**핵심 기능**:
-1. **Persona Marketplace**
-   - 사용자가 도메인 선택: 
-     - 📊 Financial Analyst (재무 분석가)
-     - ⚖️ Legal Assistant (법률 보조)
-     - 🏥 Medical Researcher (의료 연구원)
-     - 📈 Marketing Strategist (마케팅 전략가)
-   - 각 Persona = 특화된 Prompt + Domain-specific Knowledge Base
-
-2. **Custom Persona 생성**
-   - "내 회사 스타일 리포트 작성자" 만들기
-   - 과거 문서 업로드 → Fine-tuning 또는 Few-shot learning
-   - RAG 기반 회사 내부 규정/템플릿 참조
-
-3. **Multi-Persona Collaboration**
-   - "Financial Analyst + Legal Assistant가 함께 IR 자료 만들기"
-   - 각 Persona가 역할 분담하여 협업
-
-**기술 구현**:
-- **Prompt Engineering**: 
-  - 각 Persona별 System Prompt 템플릿
-  - 예: Financial Analyst → "You are a CFA-certified analyst..."
-- **RAG Integration**:
-  - 도메인별 Knowledge Base (PDF, 논문, 규정)
-  - VectorStore에 도메인 문서 임베딩
-- **Fine-tuning (Optional)**:
-  - GPT-4 fine-tuning 또는 Anthropic Claude prompt caching
-
-**예상 임팩트**:
-- 🚀 **사용자 경험**: 
-  - 법률회사: "계약서 리뷰" 시간 80% 단축
-  - 병원: "임상 연구 리포트" 품질 대폭 향상
-- 🎯 **차별화**: 
-  - ChatGPT: 범용 AI, 도메인 특화 없음
-  - Notion AI: 텍스트 생성만, 문서 자동화 약함
-  - **AgentHQ**: Google Workspace + 도메인 전문가 AI = B2B 킬러앱
-- 📈 **비즈니스**: 
-  - 엔터프라이즈 계약 단가 10배 증가 ($99/mo → $999/mo)
-  - 산업별 파트너십 (법률회사, 병원 등)
-
-**개발 난이도**: ⭐⭐⭐☆☆ (Medium-Hard)
-- Prompt 템플릿 설계 (1-2주)
-- RAG Knowledge Base 구축 (2주)
-- UI: Persona 선택 화면 (1주)
-- 총 4-5주
-
-**우선순위**: 🟡 MEDIUM (Phase 8-9, 엔터프라이즈 진출 시)
-
----
-
-### 🔄 Idea #4: "Smart Template Auto-Update" - 템플릿이 스스로 진화한다
-
-**문제점**:
-- 현재 Template Marketplace는 **정적 템플릿** (한 번 만들면 끝)
-- 사용자 피드백이나 트렌드 변화를 반영하지 못함
-- 예: "2024 Q1 매출 템플릿" → Q2에는 데이터 구조 바뀔 수 있음
-
-**제안 아이디어**:
-```
-"Smart Template Auto-Update" - 사용자 데이터로 템플릿 자동 개선
-```
-
-**핵심 기능**:
-1. **Usage Analytics 기반 최적화**
-   - 사용자들이 생성한 문서 분석
-   - "80%의 사용자가 'Executive Summary' 섹션을 먼저 읽음" → 템플릿 순서 변경
-   
-2. **A/B Testing for Templates**
-   - 같은 목적의 템플릿 2개 버전 제공
-   - 사용자 만족도 높은 버전 자동 채택
-
-3. **Community-Driven Evolution**
-   - 사용자가 템플릿 수정 → "이 변경사항 공유하시겠어요?" → Fork & Merge 개념
-   - GitHub 스타일 템플릿 버전 관리
-
-**기술 구현**:
-- **Analytics Pipeline**:
-  - 생성된 문서 메타데이터 수집 (개인정보 제외)
-  - LLM으로 "효과적인 패턴" 추출
-- **Template Versioning**:
-  - Git 스타일 diff/merge 시스템
-  - Database: `template_versions` 테이블
-- **추천 알고리즘**:
-  - Collaborative Filtering: "이 템플릿을 쓴 사람들은 이것도 씀"
-
-**예상 임팩트**:
-- 🚀 **사용자 경험**: 
-  - 항상 최신 Best Practice 템플릿 사용 가능
-  - 커뮤니티 지식 공유 → 학습 곡선 단축
-- 🎯 **차별화**: 
-  - Notion: 템플릿 정적
-  - Coda: 협업 강하지만 AI 통합 약함
-  - **AgentHQ**: AI + 진화하는 템플릿 = 살아있는 생태계
-- 📈 **비즈니스**: 
-  - 네트워크 효과 → 사용자 많을수록 템플릿 품질 향상
-  - Viral growth 기대
-
-**개발 난이도**: ⭐⭐⭐⭐☆ (Hard)
-- Analytics 파이프라인 구축 (2주)
-- 템플릿 버전 관리 시스템 (3주)
-- 추천 알고리즘 (2주)
-- 총 7주
-
-**우선순위**: 🟢 LOW (Phase 10+, 성장 단계)
-
----
-
----
-
-### 👥 Idea #5: "Real-time Team Collaboration Hub" - 팀 단위 AI 협업 공간
-
-**문제점**:
-- 현재 AgentHQ는 **개인 사용자 중심** 설계
-- 팀 프로젝트 시 여러 사람이 동일한 Agent 컨텍스트를 공유하기 어려움
-- 예: "마케팅 팀 전체가 같은 Campaign Report에 대해 Agent와 대화" 불가능
-- 협업 기능이 없어 엔터프라이즈 진출 제한
+- 현재 AgentHQ는 **개인 사용자 중심** (팀 협업 기능 부족)
+- 여러 팀원이 같은 Agent를 사용하려면 복잡함
+- 작업 할당, 진행 상황 공유, 코멘트 등 협업 기능 없음
+- Slack/Teams에서 "Agent가 만든 보고서 공유" → 수동으로 링크 복사/붙여넣기
 
 **제안 아이디어**:
 ```
@@ -486,148 +467,145 @@
 ```
 
 **핵심 기능**:
-1. **Team Workspace**
-   - 팀별 독립 워크스페이스 생성
-   - 공유 Agent 컨텍스트 (모든 팀원이 동일한 대화 히스토리 접근)
-   - 역할 기반 권한 관리 (Owner, Admin, Member, Viewer)
+1. **Team Workspaces**
+   - 팀별 독립된 공간 (Marketing, Sales, Engineering)
+   - 팀 공유 Templates, 공유 Task history
+   - Role-based access (Admin, Member, Viewer)
 
-2. **Real-time Co-editing**
-   - 여러 사용자가 동시에 Agent와 대화
-   - WebSocket 기반 실시간 메시지 동기화
-   - "John is typing..." 표시
-   - Cursor presence (Google Docs 스타일)
+2. **Task Assignment & Progress**
+   - Agent task를 팀원에게 할당
+   - 예: "John, 이 매출 보고서 검토 부탁" → John에게 알림
+   - Kanban board: To-do / In Progress / Done
 
-3. **Task Assignment & Tracking**
-   - Agent가 생성한 문서/작업을 팀원에게 할당
-   - "@mention" 기능으로 특정 팀원에게 알림
-   - Task 완료 여부 추적 (Kanban 보드)
+3. **Real-time Comments & Mentions**
+   - Agent가 생성한 문서에 팀원들이 코멘트
+   - @mention으로 특정 사람 태그
+   - 예: "@Sarah, 이 차트 데이터 확인 부탁"
 
-4. **Audit Log & Version History**
-   - 누가, 언제, 무엇을 Agent에게 요청했는지 추적
-   - 문서 변경 이력 Git 스타일 추적
-   - 컴플라이언스 요구사항 충족 (GDPR, SOC 2)
+4. **Activity Feed**
+   - 팀 내 모든 Agent 활동 실시간 표시
+   - 예: "Mike가 Slides Agent로 프레젠테이션 생성함"
+   - 투명성 (누가 무엇을 했는지 한눈에)
+
+5. **Shared Agent Sessions**
+   - 여러 사람이 같은 Agent와 동시 대화
+   - 예: 팀 미팅 중 "Agent한테 물어보자" → 모두가 같은 화면 보며 질문
 
 **기술 구현**:
-- **WebSocket**: Socket.io를 활용한 실시간 동기화
-- **Database**:
-  - `teams` 테이블 (Phase 8에서 이미 생성됨 ✅)
-  - `team_members` (user_id, team_id, role)
-  - `team_conversations` (shared context)
-- **Frontend**: 
-  - React + Socket.io-client
-  - Presence detection (active users)
-  - Collaborative cursor library (Yjs 또는 Liveblocks)
 - **Backend**:
-  - Multi-user session management
-  - Event broadcasting (메시지, 상태 변경)
+  - Workspace 모델 (team_id, members, permissions)
+  - Task assignment (assignee_id, status, due_date)
+  - Comment 모델 (task_id, user_id, text, mentions)
+  - Activity feed (event stream, WebSocket push)
+- **Frontend**:
+  - Workspace switcher UI
+  - Kanban board (React DnD)
+  - Real-time comment section (WebSocket)
+  - Activity feed sidebar
+- **WebSocket**:
+  - Real-time sync (task updates, comments, activity)
 
 **예상 임팩트**:
-- 🚀 **사용자 경험**: 
-  - 팀 단위 생산성 3배 향상 (중복 작업 제거)
-  - 실시간 협업으로 의사결정 속도 50% 빨라짐
+- 🚀 **B2B SaaS 전환**: 
+  - 개인 사용자 → 팀 라이센스 (ARR 5배 증가)
+  - Team plan: $199/mo (5 users) vs Individual $39/mo
 - 🎯 **차별화**: 
-  - Zapier/n8n: 개인 사용만 가능
-  - Notion: 협업 강하지만 AI Agent 약함
-  - **AgentHQ**: 팀 협업 + AI Agent = 완벽한 조합
+  - Zapier: 팀 기능 약함 (단순 공유만)
+  - Notion: 협업 강하지만 AI Agent 없음
+  - **AgentHQ**: "AI + 협업" 최초 결합 (Notion meets AI)
 - 📈 **비즈니스**: 
-  - 엔터프라이즈 고객 타겟 가능 (B2B SaaS)
-  - Team plan: $49/user/month (5명 팀 = $245/month)
-  - ACV (Annual Contract Value) 10배 증가
+  - Enterprise 진출 가능 (팀 협업 필수)
+  - Viral loop (팀원 초대 → 사용자 증가)
+  - 고객 retention 2배 (팀 전체가 lock-in)
 
 **개발 난이도**: ⭐⭐⭐⭐☆ (Hard)
-- WebSocket 인프라 구축 (2주)
-- Multi-user session 관리 (2주)
-- Frontend 실시간 UI (3주)
+- Workspace & permission system (3주)
+- Task assignment & Kanban (2주)
+- Real-time comments (1주)
+- Activity feed (1주)
 - 총 7주
 
-**우선순위**: 🔥 HIGH (Phase 9, 엔터프라이즈 진출 필수)
+**우선순위**: 🔥 HIGH (Phase 8-9, B2B SaaS 필수)
 
 ---
 
-### 📊 Idea #6: "Agent Performance Analytics Dashboard" - AI 에이전트 성능 모니터링
+### 📊 Idea #6: "Agent Performance Analytics Dashboard" - "어떤 Agent가 가장 유용한가?"
 
 **문제점**:
-- 현재 Agent 성능을 측정할 방법이 없음
-- 사용자는 "Agent가 잘하고 있는지" 모름
-  - 예: "Research Agent는 정확도 85%, Docs Agent는 90%"
-- LLM 비용이 얼마나 드는지 투명하지 않음
-- Agent 실패 시 원인 분석 어려움
+- 사용자가 **Agent 성능을 객관적으로 평가하기 어려움**
+- "Research Agent가 유용한가? Docs Agent가 더 나은가?"
+- Agent 비용/시간/품질 데이터 없음
+- 개선 방향 불명확 (어떤 Agent를 먼저 개선해야 할지 모름)
 
 **제안 아이디어**:
 ```
-"Agent Performance Analytics Dashboard" - 실시간 성능 대시보드
+"Agent Performance Analytics Dashboard" - AI 성능 투명성
 ```
 
 **핵심 기능**:
-1. **Real-time Metrics Dashboard**
-   - Agent별 성공률, 평균 응답 시간, 비용
-   - 시각화: Chart.js 또는 Recharts
-   - 예시:
-     ```
-     Research Agent: 92% 성공률, 평균 8.3초, $0.12/request
-     Docs Agent:     88% 성공률, 평균 12.1초, $0.18/request
-     ```
+1. **Agent Usage Metrics**
+   - 각 Agent별 사용 빈도, 성공률, 실패율
+   - 예: "Research Agent: 250회 사용, 성공률 92%, 평균 응답 시간 45초"
+   - 시간별/일별/월별 트렌드
 
-2. **Cost Tracking & Alerts**
-   - LLM API 비용 실시간 추적 (OpenAI, Anthropic)
-   - 월별 예산 설정 → 초과 시 알림
-   - 비용 최적화 제안:
-     - "GPT-4 대신 GPT-3.5-turbo 사용 시 70% 절감 가능"
+2. **Cost per Agent**
+   - Agent별 LLM 비용 분석
+   - 예: "Docs Agent: $120 (이번 달) | Sheets Agent: $45"
+   - ROI 계산: "Docs Agent가 120분 절약 → $60 가치"
 
-3. **Error Analysis & Debugging**
-   - 실패한 Task 자동 분류:
-     - API 오류 (Google API 할당량 초과)
-     - LLM Hallucination (잘못된 정보 생성)
-     - Timeout (응답 시간 초과)
-   - Stack trace + 재현 가능한 입력 저장
-   - "비슷한 에러 3건 발생 → 패턴 감지" 알림
+3. **Quality Ratings**
+   - 사용자가 Agent 결과물에 별점 (1-5 stars)
+   - 예: "이 보고서 품질은? ⭐⭐⭐⭐⭐"
+   - 품질 트렌드 (시간에 따라 개선되는지?)
 
-4. **User Satisfaction Score**
-   - 각 Agent 응답 후 👍/👎 피드백
-   - NPS (Net Promoter Score) 추적
-   - 낮은 평가 → 자동 개선 제안
+4. **Bottleneck Detection**
+   - 어느 Agent가 가장 느린지, 어디서 실패하는지
+   - 예: "Slides Agent가 이미지 삽입에서 자주 실패 (30%)"
+   - 개선 우선순위 자동 제안
+
+5. **Comparative Analysis**
+   - Agent 간 비교 (A/B 테스트)
+   - 예: "GPT-4 vs Claude: 어느 모델이 Docs Agent에 더 좋은가?"
 
 **기술 구현**:
-- **Metrics Collection**:
-  - Phase 6에서 이미 Prometheus 구축됨 ✅
-  - 추가: LangFuse 통합 (LLM 비용 추적)
-  - Custom metrics: `agent_success_rate`, `agent_latency`, `llm_cost`
-- **Frontend Dashboard**:
-  - React + Chart.js 또는 Recharts
-  - 실시간 업데이트 (WebSocket 또는 polling)
-- **Data Storage**:
-  - TimescaleDB (시계열 데이터 최적화)
-  - 또는 InfluxDB + Grafana
+- **Backend**:
+  - AgentMetrics 모델 (agent_type, success_count, failure_count, avg_duration)
+  - Quality rating (task_id, rating, feedback_text)
+  - LangFuse integration (이미 있음 - 확장)
+- **Frontend**:
+  - Dashboard (charts: line, bar, pie)
+  - Agent comparison view
+  - Bottleneck heatmap
 
 **예상 임팩트**:
-- 🚀 **사용자 경험**: 
-  - 투명한 성능 지표 → 신뢰도 30% 향상
-  - 비용 최적화 → 사용자 절감 $100-500/month
+- 🚀 **개발 효율**: 
+  - 어떤 Agent를 개선해야 할지 데이터 기반 결정
+  - 개발 리소스 50% 절약 (추측 대신 데이터)
 - 🎯 **차별화**: 
-  - ChatGPT: 성능 지표 없음 (Black box)
-  - **AgentHQ**: 완전 투명한 AI → 신뢰 기반 브랜드
+  - Zapier: 실행 로그만 (성능 분석 없음)
+  - Notion AI: 사용량만 표시 (품질/비용 분석 없음)
+  - **AgentHQ**: 최초의 "AI 성능 대시보드" (투명성)
 - 📈 **비즈니스**: 
-  - 프리미엄 기능 (Analytics Dashboard = $29/month 추가)
-  - 엔터프라이즈 고객 필수 기능 (Cost control)
+  - Enterprise 신뢰도 증가 (데이터 기반 의사결정)
+  - Upsell 기회 (Analytics를 Premium tier로)
+  - 고객 만족도 20% 증가 (품질 개선 visible)
 
 **개발 난이도**: ⭐⭐⭐☆☆ (Medium)
-- Prometheus metrics 이미 있음 ✅
-- LangFuse 통합 (1주)
-- Frontend Dashboard (2주)
+- Metrics collection (이미 일부 있음, 1주)
+- Dashboard UI (2주)
 - 총 3주
 
-**우선순위**: 🟡 MEDIUM (Phase 7-8, 사용자 신뢰 구축)
+**우선순위**: 🟡 MEDIUM (Phase 8-9, 개발 효율화)
 
 ---
 
-### ⏰ Idea #7: "Smart Scheduling & Auto-Reporting" - 주기적 리포트 자동 생성
+### ⏰ Idea #7: "Smart Scheduling & Auto-Reporting" - "매주 월요일 9AM에 자동 보고서"
 
 **문제점**:
-- 현재 사용자가 **매번 수동으로 Agent에게 요청**해야 함
-- 반복적인 작업 자동화 불가
-  - 예: "매주 월요일 아침 9시, 지난 주 매출 보고서 생성"
-  - 예: "매달 1일, 월간 실적 프레젠테이션 자동 작성"
-- 사용자가 잊어버리면 리포트 누락
+- 사용자가 **반복 작업을 매번 수동으로 실행**
+- 예: 매주 월요일마다 "지난 주 매출 보고서 만들어줘"
+- 정기 보고서, 주간 요약 등 자동화 안 됨
+- Calendar 통합 없음 (미팅 전에 자동으로 브리핑 생성하면 좋은데...)
 
 **제안 아이디어**:
 ```
@@ -635,63 +613,270 @@
 ```
 
 **핵심 기능**:
-1. **Schedule Builder (GUI)**
-   - 시각적 스케줄 설정:
-     ```
-     "매주 월요일 9:00 AM → Research Agent → Weekly Sales Report"
-     ```
-   - Cron expression 또는 자연어 입력 지원:
-     - "Every Monday at 9 AM"
-     - "First day of every month"
-   
-2. **Automated Task Execution**
-   - 설정된 시간에 Agent 자동 실행
-   - 결과 자동 저장 (Google Drive 또는 이메일 전송)
-   - 실패 시 재시도 (3회) + 알림
+1. **Scheduled Tasks**
+   - 반복 작업 스케줄링 (매일/매주/매월)
+   - 예: "매주 월요일 9AM에 매출 보고서 생성"
+   - Cron-like syntax: `0 9 * * MON` (선택적)
 
-3. **Dynamic Data Refresh**
-   - 리포트에 **최신 데이터 자동 반영**
-   - 예: "매주 월요일, 지난 7일 Google Analytics 데이터 자동 수집"
-   - Google Sheets에서 데이터 가져오기 → LLM 분석 → Docs 생성
+2. **Smart Triggers**
+   - 시간 외 다른 트리거
+   - 예: "Google Sheets에 새 행 추가되면 → 자동 분석"
+   - Calendar 통합: "미팅 1시간 전 → 브리핑 생성"
 
-4. **Smart Suggestions**
-   - 사용자 패턴 학습:
-     - "매주 금요일 오후 5시에 같은 리포트 요청 → 자동화하시겠어요?" 제안
-   - 템플릿 기반 스케줄 생성:
-     - "Weekly Sales Report Template" 선택 → 자동으로 월요일 9시 스케줄 생성
+3. **Auto-Delivery**
+   - 생성된 문서를 자동으로 이메일/Slack 발송
+   - 예: "보고서 완성 → john@acme.com에게 이메일"
+   - Slack/Teams 채널에 자동 포스팅
+
+4. **Conditional Execution**
+   - "매출이 목표 미달이면 → 알림"
+   - "신규 고객 10명 이상이면 → 축하 보고서"
 
 **기술 구현**:
-- **Scheduler**:
-  - Celery Beat (이미 사용 중 ✅)
-  - 또는 APScheduler (더 유연한 스케줄링)
-- **Database**:
-  - `scheduled_tasks` 테이블:
-    - `schedule` (cron expression)
-    - `agent_type` (research, docs, sheets, slides)
-    - `prompt_template` (변수 치환 가능)
-    - `delivery_method` (email, drive, webhook)
+- **Backend**:
+  - ScheduledTask 모델 (cron_expression, task_type, params)
+  - Celery Beat (스케줄링 엔진, 이미 있음)
+  - Trigger system (time, event, condition)
+  - Email/Slack 발송 (이미 Email Service 있음)
 - **Frontend**:
-  - Schedule builder UI (React + react-cron-generator)
-  - 과거 실행 히스토리 표시
+  - Schedule builder UI (visual cron editor)
+  - Trigger configuration
+  - History (과거 자동 실행 결과)
 
 **예상 임팩트**:
-- 🚀 **사용자 경험**: 
-  - 수동 작업 80% 감소 (반복 작업 제거)
-  - "Set it and forget it" → 생산성 10배 향상
+- 🚀 **사용자 생산성**: 
+  - 반복 작업 0분 (완전 자동화)
+  - 시간 절약 평균 2시간/주
 - 🎯 **차별화**: 
-  - Zapier: 스케줄 기능 있지만 AI Agent 없음
-  - **AgentHQ**: 스케줄 + AI Agent = 완전 자동화
+  - Zapier: 스케줄링 있지만 AI Agent 없음
+  - Notion: Recurring tasks만 (자동 생성 없음)
+  - **AgentHQ**: "AI + 스케줄링" (Zapier meets AI)
 - 📈 **비즈니스**: 
-  - Retention 향상 (매주 자동 리포트 → 이탈 방지)
-  - 프리미엄 기능 (Scheduling = $19/month 추가)
+  - Engagement 2배 (매일 사용 → 습관화)
+  - Enterprise 필수 기능 (정기 보고서)
+  - Power user retention 90%
 
 **개발 난이도**: ⭐⭐⭐☆☆ (Medium)
-- Celery Beat 이미 사용 중 ✅
+- ScheduledTask 모델 및 Celery Beat 통합 (1주)
+- Trigger system (1주)
 - Schedule builder UI (2주)
 - Email/Drive 통합 (1주)
-- 총 3주
+- 총 3주 (일부 이미 있는 인프라 활용)
 
 **우선순위**: 🟡 MEDIUM (Phase 8-9, 사용자 편의성)
+
+---
+
+## 2026-02-12 (AM) | 기획자 에이전트 첫 아이디어 제안
+
+### 🧠 Idea #1: "Smart Context Memory" - AI가 과거 작업을 기억한다
+
+**날짜**: 2026-02-12  
+**제안자**: Planner Agent  
+**상태**: ✅ Proposed
+
+**문제점**:
+- 현재 AgentHQ는 **대화별로 독립적인 메모리** 사용
+- 사용자가 과거에 "Q3 매출 분석 리포트"를 만들었다면, 이번에 "Q4 매출 분석" 만들 때 그 패턴을 재사용하면 좋은데...
+- 예: "지난번처럼 같은 형식으로 리포트 만들어줘" → Agent는 "지난번"을 모름
+
+**제안 아이디어**:
+```
+"Smart Context Memory" - 시맨틱 검색 기반의 작업 그래프
+```
+
+**핵심 기능**:
+1. **Task Graph**: 사용자의 모든 작업을 그래프로 연결
+   - 예: "Q3 Report" → "Q4 Report" (similar pattern)
+   - 작업 간 유사도 계산 (embedding similarity)
+
+2. **Semantic Retrieval**: 새 작업 시작 시 과거 유사 작업 자동 검색
+   - 예: "매출 분석 해줘" → 과거 3개 매출 분석 작업 찾기
+   - 템플릿/스타일 자동 추천
+
+3. **Follow-up Understanding**: "지난번처럼" 같은 맥락 이해
+   - 예: "지난번 차트 스타일로" → 이전 작업의 차트 설정 가져오기
+
+**예상 임팩트**:
+- 🚀 **사용자 경험**: 반복 작업 시간 50% 단축
+- 🎯 **차별화**: Zapier/n8n은 단순 workflow만, 컨텍스트 학습 없음
+- 📈 **비즈니스**: Power user retention 30% 증가
+
+**개발 난이도**: ⭐⭐⭐☆☆ (Medium)
+- PGVector 활용 (이미 있음)
+- Task embedding + similarity search
+- 약 2-3주 소요
+
+**우선순위**: 🔥 HIGH (Phase 7, Quick Win)
+
+---
+
+### 🎨 Idea #2: "Visual Workflow Builder" - 드래그앤드롭으로 AI 워크플로우 생성
+
+**날짜**: 2026-02-12  
+**제안자**: Planner Agent  
+**상태**: ✅ Proposed
+
+**문제점**:
+- 현재 AgentHQ는 **자연어 명령만 지원** (텍스트로 복잡한 워크플로우 설명하기 어려움)
+- 복잡한 multi-step 작업: "먼저 A하고, 그 다음 B하고, 조건에 따라 C 또는 D" → 설명하기 힘듦
+- 비개발자 (마케터, PM) 입장에서는 "시각적으로 보면서 만들고 싶어"
+
+**제안 아이디어**:
+```
+"Visual Workflow Builder" - Zapier/n8n 스타일 + AI Agent
+```
+
+**핵심 기능**:
+1. **Drag & Drop Canvas**
+   - Nodes: Agent (Research, Docs, Sheets, Slides)
+   - Edges: Data flow (A의 결과 → B의 입력)
+   - 예: [Research] → [Docs] → [Email 발송]
+
+2. **Conditional Logic**
+   - If/Else branches
+   - 예: "매출이 100만원 이상이면 → 축하 이메일, 아니면 → 개선 보고서"
+
+3. **Loops & Iterations**
+   - 예: "각 고객별로 맞춤 보고서 생성" (for loop)
+
+4. **Pre-built Templates**
+   - "월간 보고서 자동화", "신규 고객 온보딩" 등 템플릿 제공
+
+5. **AI-Assisted Design**
+   - 자연어로 "월간 매출 보고서 워크플로우" 설명 → AI가 workflow 자동 생성
+   - 사용자는 필요한 부분만 수정
+
+**예상 임팩트**:
+- 🚀 **사용자 확장**: 비개발자 시장 진출 (마케터, PM, 영업팀)
+- 🎯 **차별화**: 
+  - Zapier/n8n: 시각적이지만 AI 통합 약함
+  - AgentHQ: "Visual + AI Agent" 최초 결합
+- 📈 **비즈니스**: 
+  - SMB/Enterprise 진출 (복잡한 워크플로우 필요)
+  - ARR 5배 증가 (고객당 $99/mo → $499/mo)
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Hard)
+- Frontend: React Flow 사용 (2주)
+- Backend: Workflow execution engine (3주)
+- AI-assisted design (1주)
+- 총 6주
+
+**우선순위**: 🔥 CRITICAL (Phase 7-8, 게임 체인저)
+
+**설계 검토 요청**: ✅ (아래 참고)
+
+---
+
+### 👤 Idea #3: "Agent Personas" - 도메인별 전문 AI
+
+**날짜**: 2026-02-12  
+**제안자**: Planner Agent  
+**상태**: ✅ Proposed
+
+**문제점**:
+- 현재 Agent들은 **범용적** (Research, Docs, Sheets, Slides)
+- 도메인 특화 지식 부족
+  - 재무팀: "EBITDA 계산해줘" → Agent가 모름
+  - 법률팀: "계약서 검토" → 법률 용어 이해 부족
+  - HR팀: "면접 질문 생성" → 채용 프로세스 몰라
+
+**제안 아이디어**:
+```
+"Agent Personas" - 직군/산업별 전문 AI
+```
+
+**핵심 기능**:
+1. **Pre-built Personas**
+   - Finance Agent: 재무제표, 예산 분석, 투자 리포트
+   - Legal Agent: 계약서 검토, 법률 리서치
+   - HR Agent: 채용 공고, 면접 질문, 온보딩 문서
+   - Marketing Agent: 콘텐츠 생성, SEO 키워드, 광고 카피
+
+2. **Custom Persona Creator**
+   - 사용자가 직접 Persona 생성
+   - 예: "우리 회사 제품 전문가 Agent" 
+     - Context: 회사 제품 문서, FAQ, 가격 정책 업로드
+     - Agent가 제품 설명, 견적서, 제안서 생성
+
+3. **Persona Marketplace**
+   - 다른 사용자가 만든 Persona 공유/판매
+   - 예: "E-commerce 재무 분석 Agent" (10,000명 사용)
+
+4. **Multi-Persona Collaboration**
+   - 여러 Persona가 협업
+   - 예: Finance Agent가 데이터 분석 → Legal Agent가 계약서 생성
+
+**예상 임팩트**:
+- 🚀 **정확도**: 도메인 특화로 결과 품질 3배 향상
+- 🎯 **차별화**: 
+  - ChatGPT/Claude: 범용만
+  - AgentHQ: 직군별 전문가 (vertical SaaS)
+- 📈 **비즈니스**: 
+  - 산업별 진출 (Healthcare, Finance, Legal, HR)
+  - Enterprise 전환율 50% 증가
+  - Marketplace 수익 (플랫폼 수수료 30%)
+
+**개발 난이도**: ⭐⭐⭐☆☆ (Medium)
+- Persona template system (2주)
+- Custom context upload (1주)
+- Marketplace (2주)
+- 총 4-5주 (Phase 1만, Marketplace는 Phase 2)
+
+**우선순위**: 🟡 MEDIUM (Phase 8-9, Vertical 확장)
+
+---
+
+### 🔄 Idea #4: "Smart Template Auto-Update" - 템플릿이 스스로 진화한다
+
+**날짜**: 2026-02-12  
+**제안자**: Planner Agent  
+**상태**: ✅ Proposed
+
+**문제점**:
+- 템플릿은 **정적** (한번 만들면 그대로)
+- 사용자 피드백 반영 안 됨
+- 예: "이 템플릿으로 100번 보고서 만들었는데, 매번 차트 색상을 수동으로 바꿈" → 템플릿이 학습 안 함
+
+**제안 아이디어**:
+```
+"Smart Template Auto-Update" - 사용 패턴 학습으로 템플릿 자동 개선
+```
+
+**핵심 기능**:
+1. **Usage Pattern Detection**
+   - 사용자가 템플릿으로 생성 후 수정한 내용 추적
+   - 예: 100번 중 80번 "차트 색상을 파랑으로 변경" → 패턴 감지
+
+2. **Auto-Improvement Suggestion**
+   - "이 템플릿을 개선하시겠어요? 대부분의 사용자가 차트 색상을 파랑으로 바꿉니다"
+   - 클릭 한 번으로 템플릿 업데이트
+
+3. **A/B Testing**
+   - 두 버전 템플릿 테스트
+   - 예: 템플릿 A vs B → 어느 쪽이 더 적은 수정으로 완성되는지?
+
+4. **Version Control**
+   - 템플릿 변경 히스토리 추적
+   - 롤백 가능 ("이전 버전이 더 좋았어")
+
+**예상 임팩트**:
+- 🚀 **템플릿 품질**: 시간이 지날수록 자동 개선 (crowd-sourced optimization)
+- 🎯 **차별화**: 
+  - Notion: 정적 템플릿만
+  - AgentHQ: "살아있는 템플릿" (자가 진화)
+- 📈 **비즈니스**: 
+  - 템플릿 마켓플레이스 활성화
+  - Power user retention 증가 (더 나은 템플릿)
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Hard)
+- Usage tracking (2주)
+- Pattern detection ML (3주)
+- Version control (1주)
+- A/B testing framework (1주)
+- 총 7주
+
+**우선순위**: 🟢 LOW (Phase 9-10, 장기 투자)
 
 ---
 
@@ -709,6 +894,9 @@
 | **Voice-First Interface** | 🚀🚀🚀🚀 | ⭐⭐⭐⭐ | 🟡 MEDIUM-HIGH | 5주 |
 | **Smart Document Composer** | 🚀🚀🚀🚀🚀 | ⭐⭐⭐⭐ | 🔥 HIGH | 7주 |
 | **Universal Clipboard & Handoff** | 🚀🚀🚀🚀 | ⭐⭐⭐⭐⭐ | 🟡 MEDIUM | 7주 |
+| **Smart Undo & Version Control** | 🚀🚀🚀🚀⭐ | ⭐⭐⭐⭐ | 🔥 CRITICAL | 5주 |
+| **Intelligent Cost Optimizer** | 🚀🚀🚀⭐ | ⭐⭐⭐ | 🟡 MEDIUM-HIGH | 4.5주 |
+| **Enterprise Security & Compliance** | 🚀🚀🚀🚀🚀 | ⭐⭐⭐⭐⭐ | 🔥 CRITICAL | 10주 + 6-12개월 |
 
 ---
 
@@ -720,13 +908,16 @@
   - ✅ AI Agent (Zapier는 단순 API 연결)
   - ✅ Google Workspace 네이티브 통합 (문서 내용 이해 및 생성)
   - ✅ Visual Workflow Builder + AI 추천
+  - ✅ **Smart Undo** (Zapier는 실행만, 롤백 없음)
+  - ✅ **Cost Optimizer** (Zapier는 비용 추적 없음)
 
 ### vs. n8n
 - **n8n 강점**: 오픈소스, 셀프 호스팅, 저렴
 - **AgentHQ 차별화**:
   - ✅ Google Workspace 전문화 (n8n은 범용)
   - ✅ 도메인별 AI Persona (n8n은 AI 통합 약함)
-  - ✅ Enterprise-grade (RBAC, Audit log, SSO)
+  - ✅ Enterprise-grade (RBAC, Audit log, SSO, SOC2)
+  - ✅ **Smart Undo** (n8n은 워크플로우 재실행만)
 
 ### vs. Microsoft Power Automate
 - **Power Automate 강점**: Microsoft 생태계 통합, 대기업 신뢰
@@ -734,6 +925,7 @@
   - ✅ Google Workspace 우선 (Microsoft는 Google 통합 약함)
   - ✅ 더 나은 UX (Power Automate는 복잡함)
   - ✅ AI-first 접근 (자연어 + 워크플로우)
+  - ✅ **Security & Compliance** (GDPR, SOC2로 경쟁)
 
 ### vs. Notion AI / Coda
 - **Notion/Coda 강점**: 문서 협업 강함, 대중적 인지도
@@ -741,20 +933,30 @@
   - ✅ 완전 자동화 (Notion은 수동 작업 많음)
   - ✅ Multi-agent orchestration (여러 AI가 협업)
   - ✅ Google Drive/Sheets/Slides 직접 제어
+  - ✅ **Real-time Team Collaboration Hub** (Notion보다 강력)
+  - ✅ **Voice-First** (Notion은 텍스트만)
 
 ---
 
 ## 💡 다음 단계 (Next Actions)
 
 ### 기획자 → 설계자 에이전트
-- [ ] 위 4개 아이디어 중 **기술적 타당성 검토 요청**
+- [ ] 위 13개 아이디어 중 **기술적 타당성 검토 요청**
+  - 우선순위 CRITICAL 4개:
+    1. **Visual Workflow Builder** (Phase 7-8 핵심)
+    2. **Smart Undo & Version Control** (Enterprise 필수)
+    3. **Enterprise Security & Compliance** (Fortune 500 진출)
+    4. **Real-time Team Collaboration Hub** (B2B SaaS 전환)
+  - 추가 검토 HIGH 1개:
+    5. **Smart Document Composer** (차별화 핵심)
   - 기존 아키텍처에 통합 가능한지?
   - 새로운 기술 스택 필요한지?
   - 성능/확장성 리스크는?
 
 ### 기획자 → 개발자 에이전트
 - [ ] **Proof of Concept (PoC) 우선순위**
-  - Smart Context Memory: 2주 PoC 요청
+  - Smart Undo: 1주 PoC (Google Revision API 테스트)
+  - Cost Optimizer: 1주 PoC (LangFuse cost tracking 확장)
   - Visual Workflow Builder: UI 목업 요청
 
 ### 기획자 → 검토자 에이전트
@@ -779,6 +981,9 @@
 | 2026-02-12 (PM 2차) | Planner Agent | Voice-First Interface | ✅ Proposed |
 | 2026-02-12 (PM 2차) | Planner Agent | Smart Document Composer | ✅ Proposed |
 | 2026-02-12 (PM 2차) | Planner Agent | Universal Clipboard & Handoff | ✅ Proposed |
+| 2026-02-12 (PM 3차) | Planner Agent | Smart Undo & Version Control | ✅ Proposed |
+| 2026-02-12 (PM 3차) | Planner Agent | Intelligent Cost Optimizer | ✅ Proposed |
+| 2026-02-12 (PM 3차) | Planner Agent | Enterprise Security & Compliance Suite | ✅ Proposed |
 
 ---
 
@@ -787,5 +992,5 @@
 - 우선순위 변경 제안은 Planner Agent에게 연락
 
 **작성자**: Planner Agent  
-**최종 업데이트**: 2026-02-12 13:20 UTC  
-**총 제안 아이디어**: 10개 (오전 4개 + 오후 1차 3개 + 오후 2차 3개)
+**최종 업데이트**: 2026-02-12 15:20 UTC  
+**총 제안 아이디어**: 13개 (오전 4개 + 오후 1차 3개 + 오후 2차 3개 + 오후 3차 3개)
