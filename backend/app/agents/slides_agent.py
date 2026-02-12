@@ -2,6 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 import logging
+import json
 from uuid import UUID
 
 from google.oauth2.credentials import Credentials
@@ -219,27 +220,27 @@ class SlidesAgent(BaseAgent):
             Tool(
                 name="add_slide",
                 description="Add a new slide to an existing presentation",
-                func=lambda args: add_slide(**eval(args) if isinstance(args, str) else args)
+                func=lambda args: add_slide(**json.loads(args) if isinstance(args, str) else args)
             ),
             Tool(
                 name="insert_text",
                 description="Insert text content into a specific slide",
-                func=lambda args: insert_text(**eval(args) if isinstance(args, str) else args)
+                func=lambda args: insert_text(**json.loads(args) if isinstance(args, str) else args)
             ),
             Tool(
                 name="insert_image",
                 description="Insert an image into a specific slide",
-                func=lambda args: insert_image(**eval(args) if isinstance(args, str) else args)
+                func=lambda args: insert_image(**json.loads(args) if isinstance(args, str) else args)
             ),
             Tool(
                 name="apply_theme",
                 description="Apply a theme to the entire presentation",
-                func=lambda args: apply_theme(**eval(args) if isinstance(args, str) else args)
+                func=lambda args: apply_theme(**json.loads(args) if isinstance(args, str) else args)
             ),
             Tool(
                 name="add_speaker_notes",
                 description="Add speaker notes to a slide",
-                func=lambda args: add_speaker_notes(**eval(args) if isinstance(args, str) else args)
+                func=lambda args: add_speaker_notes(**json.loads(args) if isinstance(args, str) else args)
             )
         ]
 

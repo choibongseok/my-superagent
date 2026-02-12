@@ -2,6 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 import logging
+import json
 from uuid import UUID
 
 from google.oauth2.credentials import Credentials
@@ -238,22 +239,22 @@ class SheetsAgent(BaseAgent):
             Tool(
                 name="write_data",
                 description="Write data to a specific range in a spreadsheet",
-                func=lambda args: write_data(**eval(args) if isinstance(args, str) else args)
+                func=lambda args: write_data(**json.loads(args) if isinstance(args, str) else args)
             ),
             Tool(
                 name="read_data",
                 description="Read data from a specific range in a spreadsheet",
-                func=lambda args: read_data(**eval(args) if isinstance(args, str) else args)
+                func=lambda args: read_data(**json.loads(args) if isinstance(args, str) else args)
             ),
             Tool(
                 name="format_cells",
                 description="Apply formatting to cells in a spreadsheet",
-                func=lambda args: format_cells(**eval(args) if isinstance(args, str) else args)
+                func=lambda args: format_cells(**json.loads(args) if isinstance(args, str) else args)
             ),
             Tool(
                 name="create_chart",
                 description="Create a chart from data in a spreadsheet",
-                func=lambda args: create_chart(**eval(args) if isinstance(args, str) else args)
+                func=lambda args: create_chart(**json.loads(args) if isinstance(args, str) else args)
             )
         ]
 
