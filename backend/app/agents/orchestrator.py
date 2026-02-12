@@ -12,6 +12,8 @@ from langchain_anthropic import ChatAnthropic
 
 from app.agents.research_agent import ResearchAgent
 from app.agents.docs_agent import DocsAgent
+from app.agents.sheets_agent import SheetsAgent
+from app.agents.slides_agent import SlidesAgent
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -127,7 +129,18 @@ class MultiAgentOrchestrator:
                 session_id=self.session_id,
                 credentials=self.google_credentials,
             )
-        # TODO: Add sheets and slides agents
+        elif agent_type == "sheets":
+            agent = SheetsAgent(
+                user_id=self.user_id,
+                session_id=self.session_id,
+                credentials=self.google_credentials,
+            )
+        elif agent_type == "slides":
+            agent = SlidesAgent(
+                user_id=self.user_id,
+                session_id=self.session_id,
+                credentials=self.google_credentials,
+            )
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
 

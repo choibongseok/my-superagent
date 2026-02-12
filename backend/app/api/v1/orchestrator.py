@@ -11,6 +11,7 @@ from app.agents.task_planner import TaskPlanner
 from app.api.dependencies import get_current_user
 from app.core.database import get_db
 from app.models.user import User
+from app.services.google_auth import get_user_credentials
 from app.schemas.orchestrator import (
     AgentTaskInfo,
     ComplexTaskRequest,
@@ -53,10 +54,12 @@ async def execute_complex_task(
         )
 
         # Initialize orchestrator
-        # TODO: Get Google credentials from user session/database
+        # Get Google credentials from database
+        google_credentials = await get_user_credentials(str(current_user.id))
+        
         orchestrator = MultiAgentOrchestrator(
             user_id=str(current_user.id),
-            google_credentials=None,  # Will be implemented in Phase 5
+            google_credentials=google_credentials,
         )
 
         # Execute complex task
