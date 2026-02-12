@@ -154,31 +154,168 @@ class SlidesAgent(BaseAgent):
                 presentation_id: Presentation ID
                 slide_id: Slide ID
                 text: Text content to insert
-                position: Text position (CENTERED, TOP_LEFT, etc.)
+                position: Text position (CENTERED, TOP_LEFT, BOTTOM_RIGHT, etc.)
                 
             Returns:
-                Success message
+                Success message with text box ID
             """
-            # TODO: Implement text insertion
-            logger.info(f"Inserting text to slide {slide_id}: {text[:50]}...")
-            return f"Inserted text to slide {slide_id}"
+            if not self.slides_service:
+                return "Error: Google Slides API not initialized. Missing credentials."
+            
+            try:
+                logger.info(f"Inserting text to slide {slide_id}: {text[:50]}...")
+                
+                # Get presentation to determine dimensions
+                presentation = self.slides_service.presentations().get(
+                    presentationId=presentation_id
+                ).execute()
+                
+                page_width = presentation.get('pageSize', {}).get('width', {}).get('magnitude', 720)
+                page_height = presentation.get('pageSize', {}).get('height', {}).get('magnitude', 540)
+                
+                # Define text box dimensions and position based on position parameter
+                box_width = page_width * 0.8
+                box_height = page_height * 0.3
+                
+                if position == "CENTERED":
+                    x = (page_width - box_width) / 2
+                    y = (page_height - box_height) / 2
+                elif position == "TOP_LEFT":
+                    x = page_width * 0.05
+                    y = page_height * 0.05
+                elif position == "TOP_CENTER":
+                    x = (page_width - box_width) / 2
+                    y = page_height * 0.05
+                elif position == "BOTTOM_RIGHT":
+                    x = page_width - box_width - (page_width * 0.05)
+                    y = page_height - box_height - (page_height * 0.05)
+                else:
+                    # Default to centered
+                    x = (page_width - box_width) / 2
+                    y = (page_height - box_height) / 2
+                
+                # Create text box with text
+                text_box_id = f"textbox_{slide_id}_{hash(text) % 10000}"
+                
+                requests = [
+                    {
+                        "createShape": {
+                            "objectId": text_box_id,
+                            "shapeType": "TEXT_BOX",
+                            "elementProperties": {
+                                "pageObjectId": slide_id,
+                                "size": {
+                                    "width": {"magnitude": box_width, "unit": "PT"},
+                                    "height": {"magnitude": box_height, "unit": "PT"}
+                                },
+                                "transform": {
+                                    "scaleX": 1,
+                                    "scaleY": 1,
+                                    "translateX": x,
+                                    "translateY": y,
+                                    "unit": "PT"
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "insertText": {
+                            "objectId": text_box_id,
+                            "text": text
+                        }
+                    }
+                ]
+                
+                # Execute requests
+                response = self.slides_service.presentations().batchUpdate(
+                    presentationId=presentation_id,
+                    body={"requests": requests}
+                ).execute()
+                
+                logger.info(f"Inserted text to slide {slide_id} - Text box ID: {text_box_id}")
+                return f"Successfully inserted text to slide {slide_id}\nText box ID: {text_box_id}"
+                
+            except Exception as e:
+                logger.error(f"Failed to insert text: {e}")
+                return f"Error inserting text: {str(e)}"
         
-        def insert_image(presentation_id: str, slide_id: str, image_url: str, position: Dict[str, float]) -> str:
+        def insert_image(presentation_id: str, slide_id: str, image_url: str, position: Dict[str, float] = None) -> str:
             """
             Insert an image into a slide.
             
             Args:
                 presentation_id: Presentation ID
                 slide_id: Slide ID
-                image_url: URL of the image
-                position: Position dict with x, y, width, height
+                image_url: URL of the image (must be publicly accessible)
+                position: Position dict with x, y, width, height (optional, defaults to centered)
                 
             Returns:
                 Success message with image ID
             """
-            # TODO: Implement image insertion
-            logger.info(f"Inserting image to slide {slide_id} from {image_url}")
-            return f"Inserted image to slide {slide_id} (ID: image_123)"
+            if not self.slides_service:
+                return "Error: Google Slides API not initialized. Missing credentials."
+            
+            try:
+                logger.info(f"Inserting image to slide {slide_id} from {image_url}")
+                
+                # Get presentation dimensions
+                presentation = self.slides_service.presentations().get(
+                    presentationId=presentation_id
+                ).execute()
+                
+                page_width = presentation.get('pageSize', {}).get('width', {}).get('magnitude', 720)
+                page_height = presentation.get('pageSize', {}).get('height', {}).get('magnitude', 540)
+                
+                # Set default position if not provided
+                if position is None:
+                    # Center image with 60% of page width
+                    img_width = page_width * 0.6
+                    img_height = page_height * 0.6
+                    x = (page_width - img_width) / 2
+                    y = (page_height - img_height) / 2
+                else:
+                    x = position.get('x', 0)
+                    y = position.get('y', 0)
+                    img_width = position.get('width', page_width * 0.5)
+                    img_height = position.get('height', page_height * 0.5)
+                
+                # Create image ID
+                image_id = f"image_{slide_id}_{hash(image_url) % 10000}"
+                
+                # Create image insertion request
+                requests = [{
+                    "createImage": {
+                        "objectId": image_id,
+                        "url": image_url,
+                        "elementProperties": {
+                            "pageObjectId": slide_id,
+                            "size": {
+                                "width": {"magnitude": img_width, "unit": "PT"},
+                                "height": {"magnitude": img_height, "unit": "PT"}
+                            },
+                            "transform": {
+                                "scaleX": 1,
+                                "scaleY": 1,
+                                "translateX": x,
+                                "translateY": y,
+                                "unit": "PT"
+                            }
+                        }
+                    }
+                }]
+                
+                # Execute request
+                response = self.slides_service.presentations().batchUpdate(
+                    presentationId=presentation_id,
+                    body={"requests": requests}
+                ).execute()
+                
+                logger.info(f"Inserted image to slide {slide_id} - Image ID: {image_id}")
+                return f"Successfully inserted image to slide {slide_id}\nImage ID: {image_id}\nSource: {image_url}"
+                
+            except Exception as e:
+                logger.error(f"Failed to insert image: {e}")
+                return f"Error inserting image: {str(e)}"
         
         def apply_theme(presentation_id: str, theme_id: str) -> str:
             """
@@ -186,14 +323,70 @@ class SlidesAgent(BaseAgent):
             
             Args:
                 presentation_id: Presentation ID
-                theme_id: Theme ID or predefined theme name
+                theme_id: Theme color (e.g., 'blue', 'red', 'green') or hex color
                 
             Returns:
                 Success message
             """
-            # TODO: Implement theme application
-            logger.info(f"Applying theme {theme_id} to {presentation_id}")
-            return f"Applied theme {theme_id} to presentation"
+            if not self.slides_service:
+                return "Error: Google Slides API not initialized. Missing credentials."
+            
+            try:
+                logger.info(f"Applying theme {theme_id} to {presentation_id}")
+                
+                # Map theme names to colors
+                theme_colors = {
+                    'blue': {'red': 0.0, 'green': 0.5, 'blue': 1.0},
+                    'red': {'red': 1.0, 'green': 0.0, 'blue': 0.0},
+                    'green': {'red': 0.0, 'green': 0.8, 'blue': 0.0},
+                    'purple': {'red': 0.6, 'green': 0.0, 'blue': 0.8},
+                    'orange': {'red': 1.0, 'green': 0.5, 'blue': 0.0},
+                    'teal': {'red': 0.0, 'green': 0.7, 'blue': 0.7},
+                }
+                
+                # Get color
+                color = theme_colors.get(theme_id.lower(), theme_colors['blue'])
+                
+                # Get all slides
+                presentation = self.slides_service.presentations().get(
+                    presentationId=presentation_id
+                ).execute()
+                
+                requests = []
+                
+                # Apply background color to all slides
+                for slide in presentation.get('slides', []):
+                    slide_id = slide.get('objectId')
+                    requests.append({
+                        "updatePageProperties": {
+                            "objectId": slide_id,
+                            "pageProperties": {
+                                "pageBackgroundFill": {
+                                    "solidFill": {
+                                        "color": {
+                                            "rgbColor": color
+                                        },
+                                        "alpha": 0.2  # Light theme
+                                    }
+                                }
+                            },
+                            "fields": "pageBackgroundFill.solidFill"
+                        }
+                    })
+                
+                # Execute theme application
+                if requests:
+                    self.slides_service.presentations().batchUpdate(
+                        presentationId=presentation_id,
+                        body={"requests": requests}
+                    ).execute()
+                
+                logger.info(f"Applied {theme_id} theme to presentation {presentation_id}")
+                return f"Successfully applied {theme_id} theme to presentation"
+                
+            except Exception as e:
+                logger.error(f"Failed to apply theme: {e}")
+                return f"Error applying theme: {str(e)}"
         
         def add_speaker_notes(presentation_id: str, slide_id: str, notes: str) -> str:
             """
@@ -207,9 +400,92 @@ class SlidesAgent(BaseAgent):
             Returns:
                 Success message
             """
-            # TODO: Implement speaker notes
-            logger.info(f"Adding speaker notes to slide {slide_id}")
-            return f"Added speaker notes to slide {slide_id}"
+            if not self.slides_service:
+                return "Error: Google Slides API not initialized. Missing credentials."
+            
+            try:
+                logger.info(f"Adding speaker notes to slide {slide_id}")
+                
+                # Get the slide to find notes page
+                presentation = self.slides_service.presentations().get(
+                    presentationId=presentation_id
+                ).execute()
+                
+                # Find the slide
+                slide = None
+                for s in presentation.get('slides', []):
+                    if s.get('objectId') == slide_id:
+                        slide = s
+                        break
+                
+                if not slide:
+                    return f"Error: Slide {slide_id} not found"
+                
+                # Get notes page object ID
+                notes_page = slide.get('slideProperties', {}).get('notesPage', {})
+                notes_page_id = notes_page.get('objectId')
+                
+                if not notes_page_id:
+                    return f"Error: Notes page not found for slide {slide_id}"
+                
+                # Find the notes shape (usually the second shape after the slide thumbnail)
+                notes_shape_id = None
+                for element in notes_page.get('pageElements', []):
+                    shape = element.get('shape', {})
+                    if shape.get('shapeType') == 'TEXT_BOX':
+                        # This is likely the notes text box
+                        notes_shape_id = element.get('objectId')
+                        break
+                
+                if not notes_shape_id:
+                    # Create a new text box for notes
+                    notes_shape_id = f"notes_{slide_id}"
+                    requests = [{
+                        "createShape": {
+                            "objectId": notes_shape_id,
+                            "shapeType": "TEXT_BOX",
+                            "elementProperties": {
+                                "pageObjectId": notes_page_id,
+                                "size": {
+                                    "width": {"magnitude": 600, "unit": "PT"},
+                                    "height": {"magnitude": 200, "unit": "PT"}
+                                },
+                                "transform": {
+                                    "scaleX": 1,
+                                    "scaleY": 1,
+                                    "translateX": 60,
+                                    "translateY": 350,
+                                    "unit": "PT"
+                                }
+                            }
+                        }
+                    }]
+                    
+                    self.slides_service.presentations().batchUpdate(
+                        presentationId=presentation_id,
+                        body={"requests": requests}
+                    ).execute()
+                
+                # Insert text into notes
+                requests = [{
+                    "insertText": {
+                        "objectId": notes_shape_id,
+                        "text": notes,
+                        "insertionIndex": 0
+                    }
+                }]
+                
+                self.slides_service.presentations().batchUpdate(
+                    presentationId=presentation_id,
+                    body={"requests": requests}
+                ).execute()
+                
+                logger.info(f"Added speaker notes to slide {slide_id}")
+                return f"Successfully added speaker notes to slide {slide_id}"
+                
+            except Exception as e:
+                logger.error(f"Failed to add speaker notes: {e}")
+                return f"Error adding speaker notes: {str(e)}"
         
         return [
             Tool(

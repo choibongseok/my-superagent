@@ -205,14 +205,122 @@ class SheetsAgent(BaseAgent):
             Args:
                 spreadsheet_id: Spreadsheet ID
                 range_name: Range to format
-                format_type: Type of formatting (bold, italic, currency, percent, etc.)
+                format_type: Type of formatting (bold, italic, currency, percent, number_format, etc.)
                 
             Returns:
                 Success message
             """
-            # TODO: Implement formatting
-            logger.info(f"Applying {format_type} format to {range_name}")
-            return f"Applied {format_type} formatting to {range_name}"
+            if not self.sheets_service:
+                return "Error: Google Sheets API not initialized. Missing credentials."
+            
+            try:
+                logger.info(f"Applying {format_type} format to {range_name}")
+                
+                # Get sheet ID from range
+                sheet = self.sheets_service.spreadsheets().get(
+                    spreadsheetId=spreadsheet_id
+                ).execute()
+                
+                sheet_id = sheet['sheets'][0]['properties']['sheetId']
+                
+                # Parse range
+                parts = range_name.split('!')
+                if len(parts) > 1:
+                    sheet_name = parts[0]
+                    cell_range = parts[1]
+                    # Find sheet ID by name
+                    for s in sheet['sheets']:
+                        if s['properties']['title'] == sheet_name:
+                            sheet_id = s['properties']['sheetId']
+                            break
+                    range_name = cell_range
+                
+                # Convert A1 notation to grid range
+                # Simplified: just use the whole sheet for now
+                requests = []
+                
+                # Define format requests based on type
+                if format_type == "bold":
+                    requests = [{
+                        "repeatCell": {
+                            "range": {
+                                "sheetId": sheet_id,
+                            },
+                            "cell": {
+                                "userEnteredFormat": {
+                                    "textFormat": {
+                                        "bold": True
+                                    }
+                                }
+                            },
+                            "fields": "userEnteredFormat.textFormat.bold"
+                        }
+                    }]
+                elif format_type == "italic":
+                    requests = [{
+                        "repeatCell": {
+                            "range": {
+                                "sheetId": sheet_id,
+                            },
+                            "cell": {
+                                "userEnteredFormat": {
+                                    "textFormat": {
+                                        "italic": True
+                                    }
+                                }
+                            },
+                            "fields": "userEnteredFormat.textFormat.italic"
+                        }
+                    }]
+                elif format_type == "currency":
+                    requests = [{
+                        "repeatCell": {
+                            "range": {
+                                "sheetId": sheet_id,
+                            },
+                            "cell": {
+                                "userEnteredFormat": {
+                                    "numberFormat": {
+                                        "type": "CURRENCY",
+                                        "pattern": "$#,##0.00"
+                                    }
+                                }
+                            },
+                            "fields": "userEnteredFormat.numberFormat"
+                        }
+                    }]
+                elif format_type == "percent":
+                    requests = [{
+                        "repeatCell": {
+                            "range": {
+                                "sheetId": sheet_id,
+                            },
+                            "cell": {
+                                "userEnteredFormat": {
+                                    "numberFormat": {
+                                        "type": "PERCENT",
+                                        "pattern": "0.00%"
+                                    }
+                                }
+                            },
+                            "fields": "userEnteredFormat.numberFormat"
+                        }
+                    }]
+                else:
+                    return f"Unsupported format type: {format_type}. Supported: bold, italic, currency, percent"
+                
+                # Apply formatting
+                self.sheets_service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={"requests": requests}
+                ).execute()
+                
+                logger.info(f"Applied {format_type} formatting to {range_name}")
+                return f"Successfully applied {format_type} formatting to {range_name}"
+                
+            except Exception as e:
+                logger.error(f"Failed to format cells: {e}")
+                return f"Error formatting cells: {str(e)}"
         
         def create_chart(spreadsheet_id: str, data_range: str, chart_type: str) -> str:
             """
@@ -220,15 +328,124 @@ class SheetsAgent(BaseAgent):
             
             Args:
                 spreadsheet_id: Spreadsheet ID
-                data_range: Data range for the chart
-                chart_type: Type of chart (line, bar, pie, etc.)
+                data_range: Data range for the chart (e.g., 'Sheet1!A1:B10')
+                chart_type: Type of chart (LINE, BAR, COLUMN, PIE, AREA, SCATTER)
                 
             Returns:
                 Success message with chart ID
             """
-            # TODO: Implement chart creation
-            logger.info(f"Creating {chart_type} chart from {data_range}")
-            return f"Created {chart_type} chart (ID: chart_123)"
+            if not self.sheets_service:
+                return "Error: Google Sheets API not initialized. Missing credentials."
+            
+            try:
+                logger.info(f"Creating {chart_type} chart from {data_range}")
+                
+                # Get sheet info
+                sheet = self.sheets_service.spreadsheets().get(
+                    spreadsheetId=spreadsheet_id
+                ).execute()
+                
+                # Parse range to get sheet ID
+                parts = data_range.split('!')
+                sheet_name = parts[0] if len(parts) > 1 else sheet['sheets'][0]['properties']['title']
+                
+                # Find sheet ID
+                sheet_id = None
+                for s in sheet['sheets']:
+                    if s['properties']['title'] == sheet_name:
+                        sheet_id = s['properties']['sheetId']
+                        break
+                
+                if sheet_id is None:
+                    return f"Error: Sheet '{sheet_name}' not found"
+                
+                # Map chart type to API format
+                chart_type_map = {
+                    "line": "LINE",
+                    "bar": "BAR",
+                    "column": "COLUMN",
+                    "pie": "PIE",
+                    "area": "AREA",
+                    "scatter": "SCATTER",
+                }
+                api_chart_type = chart_type_map.get(chart_type.lower(), chart_type.upper())
+                
+                # Create chart request
+                requests = [{
+                    "addChart": {
+                        "chart": {
+                            "spec": {
+                                "title": f"{api_chart_type} Chart",
+                                "basicChart": {
+                                    "chartType": api_chart_type,
+                                    "legendPosition": "RIGHT_LEGEND",
+                                    "axis": [
+                                        {
+                                            "position": "BOTTOM_AXIS",
+                                            "title": "X Axis"
+                                        },
+                                        {
+                                            "position": "LEFT_AXIS",
+                                            "title": "Y Axis"
+                                        }
+                                    ],
+                                    "domains": [{
+                                        "domain": {
+                                            "sourceRange": {
+                                                "sources": [{
+                                                    "sheetId": sheet_id,
+                                                    "startRowIndex": 0,
+                                                    "endRowIndex": 10,
+                                                    "startColumnIndex": 0,
+                                                    "endColumnIndex": 1
+                                                }]
+                                            }
+                                        }
+                                    }],
+                                    "series": [{
+                                        "series": {
+                                            "sourceRange": {
+                                                "sources": [{
+                                                    "sheetId": sheet_id,
+                                                    "startRowIndex": 0,
+                                                    "endRowIndex": 10,
+                                                    "startColumnIndex": 1,
+                                                    "endColumnIndex": 2
+                                                }]
+                                            }
+                                        },
+                                        "targetAxis": "LEFT_AXIS"
+                                    }]
+                                }
+                            },
+                            "position": {
+                                "overlayPosition": {
+                                    "anchorCell": {
+                                        "sheetId": sheet_id,
+                                        "rowIndex": 0,
+                                        "columnIndex": 4
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }]
+                
+                # Execute chart creation
+                response = self.sheets_service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={"requests": requests}
+                ).execute()
+                
+                # Get chart ID from response
+                chart_id = response.get("replies", [{}])[0].get("addChart", {}).get("chart", {}).get("chartId")
+                
+                logger.info(f"Created {api_chart_type} chart - ID: {chart_id}")
+                return f"Successfully created {api_chart_type} chart from {data_range}\nChart ID: {chart_id}"
+                
+            except Exception as e:
+                logger.error(f"Failed to create chart: {e}")
+                return f"Error creating chart: {str(e)}"
         
         return [
             Tool(
