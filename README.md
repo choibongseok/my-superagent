@@ -66,23 +66,48 @@
 
 #### 1. Intelligent Document Generation
 - **Google Docs**: 구조화된 리포트 자동 생성, 인용 관리
-- **Google Sheets**: 데이터 분석 및 시각화 자동화
-- **Google Slides**: 프레젠테이션 레이아웃 및 콘텐츠 자동 구성
+- **Google Sheets**: 
+  - 데이터 입력 및 자동 분석
+  - 셀 서식 지정 (bold, italic, currency, percent)
+  - 차트 자동 생성 (LINE, BAR, COLUMN, PIE, AREA, SCATTER)
+- **Google Slides**: 
+  - 프레젠테이션 자동 구성
+  - 텍스트/이미지 삽입 (위치 커스터마이징)
+  - 발표자 노트 추가
+  - 색상 테마 적용 (6가지 프리셋)
 
 #### 2. Research & Analysis
-- 웹 검색 및 정보 수집
+- 웹 검색 및 정보 수집 (OpenWeatherMap 통합)
 - 다중 소스 교차 검증
 - 자동 인용 및 참고 문헌 생성 (APA, MLA, Chicago 스타일)
+- Citation 통계 및 Source 관리
 
 #### 3. Memory & Context
-- 대화 히스토리 관리 (ConversationMemory)
-- 시맨틱 검색 기반 장기 메모리 (VectorStoreMemory)
+- **MemoryManager**: ConversationMemory + VectorMemory 통합
+- 시맨틱 검색 기반 장기 메모리 (PGVector)
 - 컨텍스트 기반 Follow-up 지원
+- Multi-turn conversation 히스토리 관리
 
 #### 4. Multi-Platform Access
 - **Desktop**: Tauri 네이티브 앱 (Windows, macOS, Linux)
 - **Mobile**: Flutter 앱 (iOS, Android)
+  - Google OAuth 인증
+  - **완전한 오프라인 모드** (자동 동기화)
+  - Optimistic updates (빠른 UX)
+  - Sync queue (네트워크 복구 시 자동 재전송)
 - **Web**: (Planned) 브라우저 지원
+
+#### 5. Template System
+- Task 템플릿 기반 빠른 작업 생성
+- Category → Task Type 자동 매핑
+- Metadata 및 inputs 저장
+- Celery worker 자동 큐잉
+
+#### 6. Enterprise Features
+- Multi-agent orchestration (복잡한 작업 자동 분배)
+- Celery 비동기 Task Queue
+- LocalCache 서비스 (성능 최적화)
+- 보안 강화 (코드 인젝션 방지)
 
 ---
 
@@ -133,7 +158,7 @@
 | **Desktop**       | Tauri 1.5+, React 18, TypeScript, Tailwind CSS         |
 | **Mobile**        | Flutter 3.16+, Dart                                    |
 | **Infrastructure**| Docker, Cloud Run, GCS, Terraform                      |
-| **Testing**       | pytest, pytest-asyncio, Flutter test                   |
+| **Testing**       | pytest, pytest-asyncio, Flutter test, E2E test suite (25+ scenarios) |
 
 ---
 
