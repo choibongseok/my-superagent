@@ -3,6 +3,7 @@ import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
 import { chatsAPI, messagesAPI } from '../services/api';
 import { websocketService } from '../services/websocket';
+import { logger } from '../utils/logger';
 
 export default function HomePage() {
   const { user, isGuest, clearTokens, accessToken } = useAuthStore();
@@ -42,14 +43,14 @@ export default function HomePage() {
 
       // Define event handlers
       const handleNewMessage = (data: any) => {
-        console.log('New message received:', data);
+        logger.debug('New message received:', data);
         if (data.message) {
           addMessage(data.message);
         }
       };
 
       const handleConnected = () => {
-        console.log('WebSocket connected');
+        logger.debug('WebSocket connected');
 
         // Rejoin current chat on connection/reconnection
         // Use pendingJoinChatId if available, otherwise use selectedChatId
@@ -61,11 +62,11 @@ export default function HomePage() {
       };
 
       const handleDisconnected = () => {
-        console.log('WebSocket disconnected');
+        logger.debug('WebSocket disconnected');
       };
 
       const handleError = (data: any) => {
-        console.error('WebSocket error:', data);
+        logger.error('WebSocket error:', data);
         setError('WebSocket connection error');
       };
 
@@ -120,7 +121,7 @@ export default function HomePage() {
       const response = await chatsAPI.list();
       setChats(response.chats);
     } catch (err: any) {
-      console.error('Failed to load chats:', err);
+      logger.error('Failed to load chats:', err);
       setError(err.response?.data?.detail || 'Failed to load chats');
     } finally {
       setLoading(false);
@@ -134,7 +135,7 @@ export default function HomePage() {
       const response = await messagesAPI.list(chatId);
       setMessages(chatId, response.messages);
     } catch (err: any) {
-      console.error('Failed to load messages:', err);
+      logger.error('Failed to load messages:', err);
       setError(err.response?.data?.detail || 'Failed to load messages');
     } finally {
       setLoading(false);
@@ -151,7 +152,7 @@ export default function HomePage() {
       addChat(newChat);
       selectChat(newChat.id);
     } catch (err: any) {
-      console.error('Failed to create chat:', err);
+      logger.error('Failed to create chat:', err);
       setError(err.response?.data?.detail || 'Failed to create chat');
     } finally {
       setLoading(false);
@@ -179,7 +180,7 @@ export default function HomePage() {
       });
       // Message will be added via WebSocket event
     } catch (err: any) {
-      console.error('Failed to send message:', err);
+      logger.error('Failed to send message:', err);
       setError(err.response?.data?.detail || 'Failed to send message');
       // Restore message on error
       setMessage(messageContent);

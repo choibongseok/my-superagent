@@ -2,6 +2,8 @@
  * WebSocket service for real-time messaging
  */
 
+import { logger } from '../utils/logger';
+
 type MessageHandler = (data: any) => void;
 
 export class WebSocketService {
@@ -32,7 +34,7 @@ export class WebSocketService {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
-        console.log('WebSocket connected');
+        logger.debug('WebSocket connected');
         this.reconnectAttempts = 0;
         this.emit('connected', {});
       };
@@ -40,23 +42,23 @@ export class WebSocketService {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log('WebSocket message received:', data);
+          logger.debug('WebSocket message received:', data);
 
           if (data.type) {
             this.emit(data.type, data);
           }
         } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
+          logger.error('Error parsing WebSocket message:', error);
         }
       };
 
       this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        logger.error('WebSocket error:', error);
         this.emit('error', { error });
       };
 
       this.ws.onclose = (event: CloseEvent) => {
-        console.log(`WebSocket disconnected: code=${event.code}, reason=${event.reason}`);
+        logger.debug(`WebSocket disconnected: code=${event.code}, reason=${event.reason}`);
         this.emit('disconnected', { code: event.code, reason: event.reason });
         
         // 정상 종료(1000) 또는 의도적 종료가 아닌 경우에만 재연결
@@ -65,7 +67,7 @@ export class WebSocketService {
         }
       };
     } catch (error) {
-      console.error('Error creating WebSocket:', error);
+      logger.error('Error creating WebSocket:', error);
       this.attemptReconnect();
     }
   }
@@ -86,7 +88,7 @@ export class WebSocketService {
         this.maxReconnectDelay
       );
 
-      console.log(
+      logger.info(
         `Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${exponentialDelay}ms...`
       );
 
@@ -99,7 +101,7 @@ export class WebSocketService {
         }
       }, exponentialDelay);
     } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnection attempts reached. Giving up.');
+      logger.error('Max reconnection attempts reached. Giving up.');
       this.emit('reconnect_failed', {});
     }
   }
@@ -128,7 +130,7 @@ export class WebSocketService {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
     } else {
-      console.error('WebSocket is not connected');
+      logger.error('WebSocket is not connected');
     }
   }
 

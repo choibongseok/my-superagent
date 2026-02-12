@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api';
 import { useAuthStore } from '../store/authStore';
+import { logger } from '../utils/logger';
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
@@ -39,7 +40,7 @@ export default function LoginPage() {
         navigate('/');
       }
     } catch (error) {
-      console.error('Login error:', error);
+      logger.error('Login error:', error);
       alert('Login failed. Please try again.');
     } finally {
       setIsLoading(false);
