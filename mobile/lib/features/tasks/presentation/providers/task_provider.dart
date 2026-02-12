@@ -8,22 +8,26 @@ class TasksState {
   final List<TaskModel> tasks;
   final bool isLoading;
   final String? error;
+  final bool isOffline;
 
   const TasksState({
     this.tasks = const [],
     this.isLoading = false,
     this.error,
+    this.isOffline = false,
   });
 
   TasksState copyWith({
     List<TaskModel>? tasks,
     bool? isLoading,
     String? error,
+    bool? isOffline,
   }) {
     return TasksState(
       tasks: tasks ?? this.tasks,
       isLoading: isLoading ?? this.isLoading,
       error: error,
+      isOffline: isOffline ?? this.isOffline,
     );
   }
 
@@ -32,6 +36,7 @@ class TasksState {
       tasks: tasks,
       isLoading: isLoading,
       error: null,
+      isOffline: isOffline,
     );
   }
 
@@ -40,6 +45,7 @@ class TasksState {
       tasks: tasks,
       isLoading: loading,
       error: null,
+      isOffline: isOffline,
     );
   }
 }
@@ -51,7 +57,7 @@ class TasksNotifier extends StateNotifier<TasksState> {
 
   TasksNotifier(this._ref) : super(const TasksState());
 
-  /// Load all tasks
+  /// Load all tasks (with offline support)
   Future<void> loadTasks({bool refresh = false}) async {
     // Don't set loading if refreshing (to avoid UI flicker)
     if (!refresh) {
@@ -60,17 +66,39 @@ class TasksNotifier extends StateNotifier<TasksState> {
 
     try {
       final taskRepo = _ref.read(taskRepositoryProvider);
-      final tasks = await taskRepo.getTasks();
+      final tasks = await taskRepo.getTasks(useCache: true);
 
       state = TasksState(
         tasks: tasks,
         isLoading: false,
         error: null,
+        isOffline: false,
       );
     } catch (e) {
+      // Check if we have offline data
+      final taskRepo = _ref.read(taskRepositoryProvider);
+      final hasOffline = await taskRepo.hasOfflineData();
+      
+      if (hasOffline) {
+        // Load from cache as fallback
+        try {
+          final cachedTasks = await taskRepo.getTasks(useCache: true);
+          state = TasksState(
+            tasks: cachedTasks,
+            isLoading: false,
+            error: null,
+            isOffline: true, // Indicate we're using cached data
+          );
+          return;
+        } catch (_) {
+          // If cache also fails, show error
+        }
+      }
+      
       state = state.copyWith(
         isLoading: false,
         error: '작업 목록을 불러오는데 실패했습니다: $e',
+        isOffline: false,
       );
     }
   }

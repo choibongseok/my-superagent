@@ -5,10 +5,14 @@ import '../../../../core/connectivity/connectivity_provider.dart';
 import 'task_repository.dart';
 import 'cached_task_repository.dart';
 
-/// Provider for basic TaskRepository (no caching)
+/// Provider for basic TaskRepository (with offline support)
 final basicTaskRepositoryProvider = Provider<TaskRepository>((ref) {
   final apiClient = ref.watch(apiClientProvider);
-  return TaskRepository(apiClient: apiClient);
+  final storage = ref.watch(storageServiceProvider);
+  return TaskRepository(
+    apiClient: apiClient,
+    storage: storage,
+  );
 });
 
 /// Provider for CachedTaskRepository (with offline support)

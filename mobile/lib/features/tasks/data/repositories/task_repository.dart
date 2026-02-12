@@ -1,20 +1,28 @@
 import '../../../../core/network/api_client.dart';
 import '../../../../core/errors/app_exception.dart';
+import '../../../../core/storage/storage_service.dart';
 import '../models/task_model.dart';
 
-/// Repository for task operations
+/// Repository for task operations with offline support
 class TaskRepository {
   final ApiClient _apiClient;
+  final StorageService _storage;
 
-  TaskRepository({required ApiClient apiClient}) : _apiClient = apiClient;
+  TaskRepository({
+    required ApiClient apiClient,
+    required StorageService storage,
+  })  : _apiClient = apiClient,
+        _storage = storage;
 
-  /// Get all tasks for current user
+  /// Get all tasks for current user (with offline support)
   Future<List<TaskModel>> getTasks({
     int? limit,
     int? offset,
     String? status,
+    bool useCache = true,
   }) async {
     try {
+      // Try to fetch from API
       final queryParams = <String, dynamic>{};
       if (limit != null) queryParams['limit'] = limit;
       if (offset != null) queryParams['offset'] = offset;
@@ -26,20 +34,57 @@ class TaskRepository {
       );
 
       final data = response.data;
+      List<TaskModel> tasks = [];
+      
       if (data is List) {
-        return data.map((json) => TaskModel.fromJson(json)).toList();
+        tasks = data.map((json) => TaskModel.fromJson(json)).toList();
       } else if (data is Map && data['tasks'] != null) {
-        final tasks = data['tasks'] as List;
-        return tasks.map((json) => TaskModel.fromJson(json)).toList();
+        final tasksList = data['tasks'] as List;
+        tasks = tasksList.map((json) => TaskModel.fromJson(json)).toList();
       }
 
-      return [];
+      // Cache the tasks for offline use
+      await _cacheTasks(tasks);
+
+      return tasks;
     } catch (e, stackTrace) {
+      // If network error and cache is enabled, try to load from cache
+      if (useCache) {
+        final cachedTasks = await _getCachedTasks();
+        if (cachedTasks.isNotEmpty) {
+          return cachedTasks;
+        }
+      }
+      
       throw AppException(
         message: 'Failed to get tasks: $e',
         originalError: e,
         stackTrace: stackTrace,
       );
+    }
+  }
+
+  /// Cache tasks locally
+  Future<void> _cacheTasks(List<TaskModel> tasks) async {
+    try {
+      await _storage.clearTasks();
+      for (final task in tasks) {
+        await _storage.saveTask(task.id, task.toJson());
+      }
+    } catch (e) {
+      // Silently fail if caching fails
+      print('Failed to cache tasks: $e');
+    }
+  }
+
+  /// Get cached tasks
+  Future<List<TaskModel>> _getCachedTasks() async {
+    try {
+      final cached = _storage.getAllTasks();
+      return cached.map((json) => TaskModel.fromJson(json)).toList();
+    } catch (e) {
+      print('Failed to load cached tasks: $e');
+      return [];
     }
   }
 
@@ -75,7 +120,12 @@ class TaskRepository {
         },
       );
 
-      return TaskModel.fromJson(response.data);
+      final task = TaskModel.fromJson(response.data);
+      
+      // Cache the newly created task
+      await _storage.saveTask(task.id, task.toJson());
+      
+      return task;
     } on ValidationException {
       rethrow;
     } catch (e, stackTrace) {
@@ -241,5 +291,16 @@ class TaskRepository {
         stackTrace: stackTrace,
       );
     }
+  }
+
+  /// Check if offline mode (has cached tasks)
+  Future<bool> hasOfflineData() async {
+    final cached = await _getCachedTasks();
+    return cached.isNotEmpty;
+  }
+
+  /// Clear all cached tasks
+  Future<void> clearCache() async {
+    await _storage.clearTasks();
   }
 }
