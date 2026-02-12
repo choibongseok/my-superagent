@@ -247,13 +247,13 @@ class BaseAgent(ABC):
             prompt=prompt,
         )
 
-        # FIXED: Create executor with memory.buffer for chat_history
+        # FIXED: Create executor with memory.langchain_memory for chat_history
         callbacks = [self.langfuse_handler] if self.langfuse_handler else []
         
         self.agent_executor = AgentExecutor(
             agent=agent,
             tools=self.tools,
-            memory=self.memory.buffer,  # Pass buffer for LangChain compatibility
+            memory=self.memory.langchain_memory,  # Pass langchain_memory for LangChain compatibility
             verbose=settings.DEBUG,
             max_iterations=10,
             max_execution_time=300,  # 5 minutes

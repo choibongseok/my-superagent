@@ -200,7 +200,7 @@ class ConversationMemory:
         return self.metadata.copy()
 
     @property
-    def buffer(self):
+    def langchain_memory(self):
         """
         Get the underlying LangChain memory object for agent integration.
 
