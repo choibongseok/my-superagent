@@ -214,17 +214,92 @@ async def use_template(
         Generated prompt and task info
     """
     try:
+        from app.models.task import Task as TaskModel
+        from app.models.task import TaskStatus
+        from app.agents.celery_app import (
+            process_research_task,
+            process_docs_task,
+            process_sheets_task,
+            process_slides_task,
+        )
+        
         service = TemplateService(db)
         result = await service.use_template(
             template_id, use_request.inputs, current_user.id
         )
 
-        # TODO: Create task with generated prompt (Phase 1 integration)
-        task_id = UUID("00000000-0000-0000-0000-000000000000")  # Placeholder
+        # Map template category to task type
+        category_to_task_type = {
+            "research": "research",
+            "document": "docs",
+            "docs": "docs",
+            "spreadsheet": "sheets",
+            "sheets": "sheets",
+            "presentation": "slides",
+            "slides": "slides",
+        }
+        
+        output_type = result.get("output_type", "research").lower()
+        task_type = category_to_task_type.get(output_type, "research")
+        
+        # Create task in database
+        task = TaskModel(
+            user_id=current_user.id,
+            prompt=result["prompt"],
+            task_type=task_type,
+            status=TaskStatus.PENDING,
+            metadata={"template_id": str(template_id), "inputs": use_request.inputs},
+        )
+        
+        db.add(task)
+        await db.commit()
+        await db.refresh(task)
+        
+        # Queue task to Celery
+        try:
+            task_id_str = str(task.id)
+            user_id_str = str(current_user.id)
+            
+            if task_type == "research":
+                celery_task = process_research_task.apply_async(
+                    args=[task_id_str, result["prompt"], user_id_str]
+                )
+            elif task_type == "docs":
+                title = use_request.inputs.get("title", "Template Document")
+                celery_task = process_docs_task.apply_async(
+                    args=[task_id_str, result["prompt"], user_id_str, title]
+                )
+            elif task_type == "sheets":
+                title = use_request.inputs.get("title", "Template Spreadsheet")
+                celery_task = process_sheets_task.apply_async(
+                    args=[task_id_str, result["prompt"], user_id_str, title]
+                )
+            elif task_type == "slides":
+                title = use_request.inputs.get("title", "Template Presentation")
+                celery_task = process_slides_task.apply_async(
+                    args=[task_id_str, result["prompt"], user_id_str, title]
+                )
+            else:
+                raise ValueError(f"Unknown task type: {task_type}")
+            
+            # Store Celery task ID and update status
+            task.celery_task_id = celery_task.id
+            task.status = TaskStatus.IN_PROGRESS
+            await db.commit()
+            await db.refresh(task)
+            
+            logger.info(f"Created task {task.id} from template {template_id}")
+            
+        except Exception as celery_error:
+            # If Celery queuing fails, mark task as failed
+            task.status = TaskStatus.FAILED
+            task.error_message = f"Failed to queue task: {str(celery_error)}"
+            await db.commit()
+            logger.error(f"Failed to queue task from template: {celery_error}")
 
         return TemplateUseResponse(
             template_id=UUID(result["template_id"]),
-            task_id=task_id,
+            task_id=task.id,
             prompt=result["prompt"],
         )
 
