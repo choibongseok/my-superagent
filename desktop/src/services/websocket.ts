@@ -10,15 +10,25 @@ export class WebSocketService {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
+  private maxReconnectDelay = 30000; // 최대 30초
   private userId: string | null = null;
   private accessToken: string | null = null;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
+  private intentionalClose = false; // 의도적 종료 플래그
 
   connect(userId: string, accessToken: string) {
     this.userId = userId;
     this.accessToken = accessToken;
+    this.intentionalClose = false; // 연결 시작 시 플래그 리셋
     const wsUrl = `ws://localhost:8000/api/v1/messages/ws?token=${accessToken}`;
 
     try {
+      // 기존 WebSocket 정리
+      if (this.ws) {
+        this.ws.onclose = null; // 기존 핸들러 제거
+        this.ws.close();
+      }
+
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
@@ -45,10 +55,14 @@ export class WebSocketService {
         this.emit('error', { error });
       };
 
-      this.ws.onclose = () => {
-        console.log('WebSocket disconnected');
-        this.emit('disconnected', {});
-        this.attemptReconnect();
+      this.ws.onclose = (event: CloseEvent) => {
+        console.log(`WebSocket disconnected: code=${event.code}, reason=${event.reason}`);
+        this.emit('disconnected', { code: event.code, reason: event.reason });
+        
+        // 정상 종료(1000) 또는 의도적 종료가 아닌 경우에만 재연결
+        if (!this.intentionalClose && event.code !== 1000) {
+          this.attemptReconnect();
+        }
       };
     } catch (error) {
       console.error('Error creating WebSocket:', error);
@@ -57,25 +71,56 @@ export class WebSocketService {
   }
 
   private attemptReconnect() {
+    // 이미 재연결 타이머가 있으면 취소
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
     if (this.reconnectAttempts < this.maxReconnectAttempts && this.userId && this.accessToken) {
       this.reconnectAttempts++;
-      const delay = this.reconnectDelay * this.reconnectAttempts;
+      
+      // Exponential backoff: min(초기지연 * 2^시도횟수, 최대지연)
+      const exponentialDelay = Math.min(
+        this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+        this.maxReconnectDelay
+      );
 
-      console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${delay}ms...`);
+      console.log(
+        `Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${exponentialDelay}ms...`
+      );
 
-      setTimeout(() => {
-        this.connect(this.userId!, this.accessToken!);
-      }, delay);
+      this.reconnectTimeout = setTimeout(() => {
+        const userId = this.userId;
+        const accessToken = this.accessToken;
+        
+        if (userId && accessToken) {
+          this.connect(userId, accessToken);
+        }
+      }, exponentialDelay);
+    } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('Max reconnection attempts reached. Giving up.');
+      this.emit('reconnect_failed', {});
     }
   }
 
   disconnect() {
+    this.intentionalClose = true; // 의도적 종료 표시
+    
+    // 재연결 타이머 취소
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    
     if (this.ws) {
-      this.ws.close();
+      this.ws.close(1000, 'Client disconnecting'); // 정상 종료 코드
       this.ws = null;
     }
+    
     this.userId = null;
     this.accessToken = null;
+    this.reconnectAttempts = 0;
     this.handlers.clear();
   }
 
