@@ -1,13 +1,15 @@
 /**
- * API Client for AgentHQ Backend
+ * Unified API Client for AgentHQ Backend
+ * Combines best practices from api/client.ts and services/api.ts
+ * Integrated with Zustand auth store for state synchronization
  */
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from "axios";
-import { config } from "../config";
+import { useAuthStore } from "../store/authStore";
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
 class ApiClient {
   private client: AxiosInstance;
-  private token: string | null = null;
-  private refreshToken: string | null = null;
   private isRefreshing = false;
   private failedQueue: Array<{
     resolve: (value?: any) => void;
@@ -16,17 +18,18 @@ class ApiClient {
 
   constructor() {
     this.client = axios.create({
-      baseURL: config.apiUrl,
+      baseURL: API_URL,
       headers: {
         "Content-Type": "application/json",
       },
     });
 
-    // Add request interceptor for auth token
+    // Add request interceptor for auth token (dynamically from auth store)
     this.client.interceptors.request.use(
       (config) => {
-        if (this.token) {
-          config.headers.Authorization = `Bearer ${this.token}`;
+        const { accessToken } = useAuthStore.getState();
+        if (accessToken) {
+          config.headers.Authorization = `Bearer ${accessToken}`;
         }
         return config;
       },
@@ -58,29 +61,54 @@ class ApiClient {
 
           try {
             // Attempt to refresh token
-            const newTokens = await this.refreshAccessToken();
-
-            if (newTokens) {
-              // Update tokens
-              this.setToken(newTokens.access_token);
-              this.setRefreshToken(newTokens.refresh_token);
-
-              // Retry all queued requests
-              this.failedQueue.forEach((promise) => {
-                promise.resolve();
-              });
-              this.failedQueue = [];
-
-              // Retry original request
-              return this.client(originalRequest);
+            const { refreshToken } = useAuthStore.getState();
+            if (!refreshToken) {
+              throw new Error('No refresh token available');
             }
+
+            const response = await axios.post<{
+              access_token: string;
+              refresh_token: string;
+              user: {
+                id: string;
+                email: string;
+                full_name: string | null;
+              };
+            }>(
+              `${API_URL}/auth/refresh`,
+              { refresh_token: refreshToken },
+              { headers: { "Content-Type": "application/json" } }
+            );
+
+            const data = response.data;
+
+            // Update auth store with new tokens
+            useAuthStore.getState().setTokens(
+              data.access_token,
+              data.refresh_token,
+              {
+                id: data.user.id,
+                email: data.user.email,
+                name: data.user.full_name || data.user.email,
+              }
+            );
+
+            // Retry all queued requests
+            this.failedQueue.forEach((promise) => {
+              promise.resolve();
+            });
+            this.failedQueue = [];
+
+            // Retry original request
+            return this.client(originalRequest);
           } catch (refreshError) {
-            // Refresh failed - logout user
+            // Refresh failed - clear tokens and redirect to login
             this.failedQueue.forEach((promise) => {
               promise.reject(refreshError);
             });
             this.failedQueue = [];
-            this.clearToken();
+            useAuthStore.getState().clearTokens();
+            window.location.href = '/login';
             return Promise.reject(refreshError);
           } finally {
             this.isRefreshing = false;
@@ -90,61 +118,6 @@ class ApiClient {
         return Promise.reject(error);
       }
     );
-  }
-
-  private async refreshAccessToken(): Promise<{ access_token: string; refresh_token: string } | null> {
-    if (!this.refreshToken) {
-      return null;
-    }
-
-    try {
-      const response = await axios.post<{ access_token: string; refresh_token: string }>(
-        `${config.apiUrl}/api/v1/auth/refresh`,
-        { refresh_token: this.refreshToken },
-        { headers: { "Content-Type": "application/json" } }
-      );
-
-      return response.data;
-    } catch (error) {
-      console.error("Token refresh failed:", error);
-      return null;
-    }
-  }
-
-  setToken(token: string) {
-    this.token = token;
-    localStorage.setItem("auth_token", token);
-  }
-
-  setRefreshToken(token: string) {
-    this.refreshToken = token;
-    localStorage.setItem("refresh_token", token);
-  }
-
-  clearToken() {
-    this.token = null;
-    this.refreshToken = null;
-    localStorage.removeItem("auth_token");
-    localStorage.removeItem("refresh_token");
-  }
-
-  getToken(): string | null {
-    if (!this.token) {
-      this.token = localStorage.getItem("auth_token");
-    }
-    return this.token;
-  }
-
-  getRefreshToken(): string | null {
-    if (!this.refreshToken) {
-      this.refreshToken = localStorage.getItem("refresh_token");
-    }
-    return this.refreshToken;
-  }
-
-  loadTokensFromStorage() {
-    this.token = localStorage.getItem("auth_token");
-    this.refreshToken = localStorage.getItem("refresh_token");
   }
 
   async get<T = any>(url: string, config?: AxiosRequestConfig): Promise<T> {
@@ -170,6 +143,15 @@ class ApiClient {
     return response.data;
   }
 
+  async patch<T = any>(
+    url: string,
+    data?: any,
+    config?: AxiosRequestConfig
+  ): Promise<T> {
+    const response = await this.client.patch<T>(url, data, config);
+    return response.data;
+  }
+
   async delete<T = any>(url: string, config?: AxiosRequestConfig): Promise<T> {
     const response = await this.client.delete<T>(url, config);
     return response.data;
@@ -177,3 +159,144 @@ class ApiClient {
 }
 
 export const apiClient = new ApiClient();
+
+// Type Definitions
+export interface Task {
+  id: string;
+  user_id: string;
+  prompt: string;
+  task_type: 'docs' | 'sheets' | 'slides' | 'research';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  result?: any;
+  error_message?: string;
+  document_url?: string;
+  document_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateTaskRequest {
+  prompt: string;
+  task_type: 'docs' | 'sheets' | 'slides' | 'research';
+  metadata?: any;
+}
+
+export interface Chat {
+  id: string;
+  title: string;
+  user_id: string;
+  created_at: string;
+  updated_at: string;
+  messages?: Message[];
+}
+
+export interface CreateChatRequest {
+  title: string;
+}
+
+export interface UpdateChatRequest {
+  title?: string;
+}
+
+export interface Message {
+  id: string;
+  chat_id: string;
+  user_id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateMessageRequest {
+  chat_id: string;
+  content: string;
+  role?: 'user' | 'assistant' | 'system';
+}
+
+// API Methods
+export const authAPI = {
+  getGoogleAuthUrl: async () => {
+    return apiClient.get<{ auth_url: string }>('/auth/google');
+  },
+
+  handleCallback: async (code: string) => {
+    return apiClient.post<{
+      access_token: string;
+      refresh_token: string;
+      token_type: string;
+      user: {
+        id: string;
+        email: string;
+        full_name: string | null;
+      };
+    }>('/auth/callback', { code });
+  },
+};
+
+export const tasksAPI = {
+  create: async (data: CreateTaskRequest) => {
+    return apiClient.post<Task>('/tasks', data);
+  },
+
+  list: async (page = 1, pageSize = 20) => {
+    return apiClient.get<{
+      tasks: Task[];
+      total: number;
+      page: number;
+      page_size: number;
+    }>('/tasks', {
+      params: { page, page_size: pageSize },
+    });
+  },
+
+  get: async (taskId: string) => {
+    return apiClient.get<Task>(`/tasks/${taskId}`);
+  },
+
+  cancel: async (taskId: string) => {
+    return apiClient.delete(`/tasks/${taskId}`);
+  },
+};
+
+export const chatsAPI = {
+  create: async (data: CreateChatRequest) => {
+    return apiClient.post<Chat>('/chats', data);
+  },
+
+  list: async (skip = 0, limit = 50) => {
+    return apiClient.get<{
+      chats: Chat[];
+      total: number;
+    }>('/chats', {
+      params: { skip, limit },
+    });
+  },
+
+  get: async (chatId: string) => {
+    return apiClient.get<Chat>(`/chats/${chatId}`);
+  },
+
+  update: async (chatId: string, data: UpdateChatRequest) => {
+    return apiClient.patch<Chat>(`/chats/${chatId}`, data);
+  },
+
+  delete: async (chatId: string) => {
+    return apiClient.delete(`/chats/${chatId}`);
+  },
+};
+
+export const messagesAPI = {
+  create: async (data: CreateMessageRequest) => {
+    return apiClient.post<Message>('/messages', data);
+  },
+
+  list: async (chatId: string, skip = 0, limit = 100) => {
+    return apiClient.get<{
+      messages: Message[];
+      total: number;
+    }>('/messages', {
+      params: { chat_id: chatId, skip, limit },
+    });
+  },
+};
