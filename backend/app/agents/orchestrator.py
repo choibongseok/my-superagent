@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -150,6 +151,192 @@ class MultiAgentOrchestrator:
 
         return agent
 
+    @staticmethod
+    def _normalize_llm_content(content: Any) -> str:
+        """Normalize provider-specific LLM content into a text string."""
+        if isinstance(content, str):
+            return content
+
+        if isinstance(content, list):
+            parts: List[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                    continue
+
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if text:
+                        parts.append(str(text))
+                    continue
+
+                text = getattr(item, "text", None)
+                if text:
+                    parts.append(str(text))
+
+            return "\n".join(parts).strip()
+
+        return str(content)
+
+    @staticmethod
+    def _extract_json_payload(plan_text: str) -> str:
+        """Extract JSON payload from plain text or fenced markdown blocks."""
+        fenced_match = re.search(
+            r"```(?:json)?\s*(.*?)```",
+            plan_text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if fenced_match:
+            return fenced_match.group(1).strip()
+
+        return plan_text.strip()
+
+    @staticmethod
+    def _normalize_task_entries(raw_tasks: List[Any]) -> List[Dict[str, Any]]:
+        """Normalize and validate raw task dictionaries from planner output."""
+        allowed_agents = {"research", "docs", "sheets", "slides"}
+        normalized_tasks: List[Dict[str, Any]] = []
+
+        for index, raw_task in enumerate(raw_tasks, start=1):
+            if not isinstance(raw_task, dict):
+                raise ValueError(
+                    f"Invalid task entry at index {index - 1}: expected object"
+                )
+
+            task_id = str(raw_task.get("task_id") or f"task_{index}").strip()
+            if not task_id:
+                raise ValueError(f"Task at index {index - 1} has empty task_id")
+
+            agent_type = str(raw_task.get("agent_type", "")).strip().lower()
+            if not agent_type:
+                raise ValueError(f"Task '{task_id}' is missing agent_type")
+            if agent_type not in allowed_agents:
+                raise ValueError(
+                    f"Task '{task_id}' has unsupported agent_type: {agent_type}"
+                )
+
+            description = str(raw_task.get("description", "")).strip()
+            if not description:
+                raise ValueError(f"Task '{task_id}' is missing description")
+
+            dependencies = raw_task.get("dependencies")
+            if dependencies is None:
+                dependencies = []
+            elif isinstance(dependencies, str):
+                dependencies = [dependencies]
+            elif not isinstance(dependencies, list):
+                raise ValueError(
+                    f"Task '{task_id}' dependencies must be a list or string"
+                )
+
+            normalized_dependencies: List[str] = []
+            for dependency in dependencies:
+                dependency_id = str(dependency).strip()
+                if dependency_id:
+                    normalized_dependencies.append(dependency_id)
+
+            normalized_tasks.append(
+                {
+                    "task_id": task_id,
+                    "agent_type": agent_type,
+                    "description": description,
+                    "dependencies": list(dict.fromkeys(normalized_dependencies)),
+                }
+            )
+
+        return normalized_tasks
+
+    @staticmethod
+    def _validate_task_dependencies(tasks: List[Dict[str, Any]]) -> None:
+        """Validate dependency references, duplicate IDs, and dependency cycles."""
+        task_ids: List[str] = []
+        duplicates: set[str] = set()
+        seen: set[str] = set()
+
+        for task in tasks:
+            task_id = task["task_id"]
+            task_ids.append(task_id)
+            if task_id in seen:
+                duplicates.add(task_id)
+            seen.add(task_id)
+
+        if duplicates:
+            duplicate_list = ", ".join(sorted(duplicates))
+            raise ValueError(f"Duplicate task_id values found: {duplicate_list}")
+
+        known_ids = set(task_ids)
+        missing_dependencies = sorted(
+            {
+                dep
+                for task in tasks
+                for dep in task["dependencies"]
+                if dep not in known_ids
+            }
+        )
+        if missing_dependencies:
+            missing = ", ".join(missing_dependencies)
+            raise ValueError(f"Unknown task dependencies found: {missing}")
+
+        graph = {task["task_id"]: task["dependencies"] for task in tasks}
+        visited: set[str] = set()
+        visiting: set[str] = set()
+
+        def dfs(task_id: str) -> None:
+            if task_id in visited:
+                return
+            if task_id in visiting:
+                raise ValueError(f"Circular task dependency detected at '{task_id}'")
+
+            visiting.add(task_id)
+            for dependency_id in graph[task_id]:
+                dfs(dependency_id)
+            visiting.remove(task_id)
+            visited.add(task_id)
+
+        for current_task_id in task_ids:
+            dfs(current_task_id)
+
+    @staticmethod
+    def _looks_like_task_list(payload: Any) -> bool:
+        """Heuristic to distinguish task lists from structured LLM content blocks."""
+        if not isinstance(payload, list) or not payload:
+            return False
+
+        if not all(isinstance(item, dict) for item in payload):
+            return False
+
+        task_like_keys = {"task_id", "agent_type", "description", "dependencies"}
+        return all(bool(task_like_keys.intersection(item.keys())) for item in payload)
+
+    @classmethod
+    def _parse_task_plan(cls, raw_plan: Any) -> List[Dict[str, Any]]:
+        """Parse planner output and return normalized task dictionaries."""
+        if isinstance(raw_plan, dict) or cls._looks_like_task_list(raw_plan):
+            parsed = raw_plan
+        else:
+            plan_text = cls._normalize_llm_content(raw_plan)
+            if not plan_text:
+                raise ValueError("Planner returned empty content")
+
+            payload_text = cls._extract_json_payload(plan_text)
+            parsed = json.loads(payload_text)
+
+        if isinstance(parsed, list):
+            raw_tasks = parsed
+        elif isinstance(parsed, dict) and isinstance(parsed.get("tasks"), list):
+            raw_tasks = parsed["tasks"]
+        else:
+            raise ValueError(
+                "Planner response must be a list of tasks or an object containing 'tasks'"
+            )
+
+        if not raw_tasks:
+            raise ValueError("Planner returned no tasks")
+
+        normalized_tasks = cls._normalize_task_entries(raw_tasks)
+        cls._validate_task_dependencies(normalized_tasks)
+        return normalized_tasks
+
     async def decompose_task(self, task_description: str) -> List[AgentTask]:
         """
         Decompose complex task into agent-specific subtasks.
@@ -210,25 +397,17 @@ Break this down into subtasks for the available agents. Output JSON only."""
             ]
 
             response = await self.llm.ainvoke(messages)
-            plan_text = response.content
-
-            # Extract JSON from response
-            if "```json" in plan_text:
-                plan_text = plan_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in plan_text:
-                plan_text = plan_text.split("```")[1].split("```")[0].strip()
-
-            plan = json.loads(plan_text)
+            parsed_tasks = self._parse_task_plan(response.content)
 
             # Create AgentTask objects
             tasks = [
                 AgentTask(
-                    task_id=t["task_id"],
-                    agent_type=t["agent_type"],
-                    description=t["description"],
-                    dependencies=t.get("dependencies", []),
+                    task_id=task["task_id"],
+                    agent_type=task["agent_type"],
+                    description=task["description"],
+                    dependencies=task["dependencies"],
                 )
-                for t in plan["tasks"]
+                for task in parsed_tasks
             ]
 
             logger.info(
@@ -325,7 +504,9 @@ Break this down into subtasks for the available agents. Output JSON only."""
                     break
 
                 # No ready tasks but not all completed - circular dependency?
-                logger.error("No ready tasks but execution incomplete - possible circular dependency")
+                logger.error(
+                    "No ready tasks but execution incomplete - possible circular dependency"
+                )
                 break
 
             # Execute ready tasks in parallel
