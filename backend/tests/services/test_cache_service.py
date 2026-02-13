@@ -452,6 +452,54 @@ def test_local_cache_touch_can_convert_key_to_non_expiring():
     assert cache.ttl_remaining("config") is None
 
 
+def test_local_cache_touch_many_refreshes_existing_keys_once():
+    cache = LocalCacheService()
+    cache.set("session:a", "alpha", ttl_seconds=1)
+    cache.set("session:b", "beta", ttl_seconds=1)
+
+    time.sleep(0.4)
+
+    touched = cache.touch_many(
+        ["session:a", "missing", "session:a", "session:b"],
+        ttl_seconds=2,
+    )
+
+    assert touched == 2
+
+    ttl_a = cache.ttl_remaining("session:a")
+    ttl_b = cache.ttl_remaining("session:b")
+    assert ttl_a is not None and 1.5 <= ttl_a <= 2
+    assert ttl_b is not None and 1.5 <= ttl_b <= 2
+
+
+def test_local_cache_get_and_touch_refreshes_ttl_and_returns_value():
+    cache = LocalCacheService()
+    cache.set("auth-token", "abc", ttl_seconds=1)
+
+    time.sleep(0.6)
+
+    assert cache.get_and_touch("auth-token", ttl_seconds=1) == "abc"
+
+    # Sliding TTL should keep key alive past original expiration.
+    time.sleep(0.6)
+    assert cache.get("auth-token") == "abc"
+
+    time.sleep(0.6)
+    assert cache.get("auth-token") is None
+
+
+def test_local_cache_get_and_touch_returns_default_on_miss_and_tracks_lookup():
+    cache = LocalCacheService()
+
+    assert (
+        cache.get_and_touch("missing", ttl_seconds=60, default="fallback") == "fallback"
+    )
+
+    stats = cache.stats()
+    assert stats["hits"] == 0
+    assert stats["misses"] == 1
+
+
 def test_local_cache_increment_initializes_missing_key():
     cache = LocalCacheService()
 

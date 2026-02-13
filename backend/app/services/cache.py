@@ -490,6 +490,39 @@ class LocalCacheService:
         self.set(key, value, ttl_seconds=ttl_seconds)
         return True
 
+    def touch_many(self, keys: Iterable[str], ttl_seconds: int | None) -> int:
+        """Refresh TTL for multiple keys and return the update count.
+
+        Duplicate keys are only processed once. Missing or expired keys are
+        skipped.
+        """
+        touched = 0
+        for key in dict.fromkeys(keys):
+            if self.touch(key, ttl_seconds=ttl_seconds):
+                touched += 1
+
+        return touched
+
+    def get_and_touch(
+        self,
+        key: str,
+        ttl_seconds: int | None,
+        default: Any | None = None,
+    ) -> Any | None:
+        """Return value for ``key`` and refresh its TTL in one call.
+
+        This helper supports sliding-expiration access patterns. Missing or
+        expired keys return ``default`` and are not inserted.
+        """
+        item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
+        if item is None:
+            return default
+
+        value, _ = item
+        self.set(key, value, ttl_seconds=ttl_seconds)
+        return value
+
     def increment(
         self,
         key: str,
