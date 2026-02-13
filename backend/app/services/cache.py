@@ -127,6 +127,61 @@ class LocalCacheService:
         for key, value in items.items():
             self.set(key, value, ttl_seconds=ttl_seconds)
 
+    def replace(
+        self,
+        key: str,
+        value: Any,
+        ttl_seconds: int | None = None,
+        *,
+        keep_ttl: bool = True,
+    ) -> bool:
+        """Replace an existing key value and return whether replacement happened.
+
+        Args:
+            key: Cache key to update.
+            value: New value to store.
+            ttl_seconds: TTL to apply when ``keep_ttl`` is ``False``.
+            keep_ttl: Preserve the current absolute expiration by default.
+
+        Returns:
+            ``True`` when an active key existed and was replaced,
+            ``False`` otherwise.
+        """
+        item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
+        if item is None:
+            return False
+
+        _, expires_at = item
+        if keep_ttl:
+            self._store[key] = (value, expires_at)
+            self._mark_accessed(key)
+            self._increment_stat("sets")
+            return True
+
+        self.set(key, value, ttl_seconds=ttl_seconds)
+        return True
+
+    def replace_many(
+        self,
+        items: Mapping[str, Any],
+        ttl_seconds: int | None = None,
+        *,
+        keep_ttl: bool = True,
+    ) -> int:
+        """Replace multiple existing keys and return the replacement count."""
+        replaced = 0
+        for key, value in items.items():
+            if self.replace(
+                key,
+                value,
+                ttl_seconds=ttl_seconds,
+                keep_ttl=keep_ttl,
+            ):
+                replaced += 1
+
+        return replaced
+
     def set_if_absent(
         self,
         key: str,

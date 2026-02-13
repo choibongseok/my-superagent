@@ -67,6 +67,66 @@ def test_local_cache_bulk_set_and_get_many():
     assert cache.get_many(["a", "missing", "c"]) == {"a": 1, "c": 3}
 
 
+def test_local_cache_replace_updates_existing_key_and_preserves_ttl_by_default():
+    cache = LocalCacheService()
+    cache.set("session", "v1", ttl_seconds=1)
+
+    time.sleep(0.4)
+
+    assert cache.replace("session", "v2") is True
+    assert cache.get("session") == "v2"
+
+    ttl = cache.ttl_remaining("session")
+    assert ttl is not None
+    assert 0 < ttl < 1
+
+    time.sleep(ttl + 0.1)
+
+    assert cache.get("session") is None
+
+
+def test_local_cache_replace_returns_false_for_missing_or_expired_key():
+    cache = LocalCacheService()
+
+    assert cache.replace("missing", "value") is False
+
+    cache.set("temp", "value", ttl_seconds=1)
+    time.sleep(1.05)
+
+    assert cache.replace("temp", "next") is False
+
+
+def test_local_cache_replace_can_override_ttl_when_keep_ttl_is_false():
+    cache = LocalCacheService()
+    cache.set("token", "old", ttl_seconds=1)
+
+    time.sleep(0.4)
+
+    assert (
+        cache.replace(
+            "token",
+            "new",
+            ttl_seconds=2,
+            keep_ttl=False,
+        )
+        is True
+    )
+
+    ttl = cache.ttl_remaining("token")
+    assert ttl is not None
+    assert 1.5 <= ttl <= 2
+
+
+def test_local_cache_replace_many_replaces_existing_keys_only():
+    cache = LocalCacheService()
+    cache.set_many({"a": 1, "b": 2})
+
+    replaced = cache.replace_many({"a": 10, "missing": 99, "b": 20})
+
+    assert replaced == 2
+    assert cache.get_many(["a", "b", "missing"]) == {"a": 10, "b": 20}
+
+
 def test_local_cache_peek_returns_value_without_affecting_stats_or_lru_order():
     cache = LocalCacheService(max_entries=2)
     cache.set("a", 1)
