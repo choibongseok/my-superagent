@@ -79,7 +79,12 @@ class LocalCacheService:
             self._store.pop(oldest_key, None)
             self._increment_stat("evictions")
 
-    def _get_entry(self, key: str) -> tuple[Any, float | None] | None:
+    def _get_entry(
+        self,
+        key: str,
+        *,
+        mark_access: bool = True,
+    ) -> tuple[Any, float | None] | None:
         """Return a non-expired cache entry or ``None`` when missing/expired."""
         item = self._store.get(key)
         if item is None:
@@ -91,7 +96,8 @@ class LocalCacheService:
             self._increment_stat("expirations")
             return None
 
-        self._mark_accessed(key)
+        if mark_access:
+            self._mark_accessed(key)
         return item
 
     @staticmethod
@@ -151,12 +157,31 @@ class LocalCacheService:
         value, _ = item
         return value
 
+    def peek(self, key: str, default: Any | None = None) -> Any | None:
+        """Read a cached value without affecting stats or LRU order."""
+        item = self._get_entry(key, mark_access=False)
+        if item is None:
+            return default
+
+        value, _ = item
+        return value
+
     def get_many(self, keys: Iterable[str]) -> dict[str, Any]:
         """Return available values for the requested keys."""
         results: dict[str, Any] = {}
         for key in keys:
             item = self._get_entry(key)
             self._record_lookup(hit=item is not None)
+            if item is not None:
+                value, _ = item
+                results[key] = value
+        return results
+
+    def peek_many(self, keys: Iterable[str]) -> dict[str, Any]:
+        """Read multiple cached values without affecting stats or LRU order."""
+        results: dict[str, Any] = {}
+        for key in keys:
+            item = self._get_entry(key, mark_access=False)
             if item is not None:
                 value, _ = item
                 results[key] = value

@@ -67,6 +67,40 @@ def test_local_cache_bulk_set_and_get_many():
     assert cache.get_many(["a", "missing", "c"]) == {"a": 1, "c": 3}
 
 
+def test_local_cache_peek_returns_value_without_affecting_stats_or_lru_order():
+    cache = LocalCacheService(max_entries=2)
+    cache.set("a", 1)
+    cache.set("b", 2)
+
+    before_stats = cache.stats().copy()
+    assert cache.peek("a") == 1
+    assert cache.peek("missing", default="fallback") == "fallback"
+
+    after_stats = cache.stats()
+    assert after_stats == before_stats
+
+    # Peek should not mark keys as recently used.
+    cache.set("c", 3)
+    assert cache.get("a") is None
+    assert cache.get("b") == 2
+    assert cache.get("c") == 3
+
+
+def test_local_cache_peek_many_reads_values_without_mutating_stats():
+    cache = LocalCacheService()
+    cache.set_many({"alpha": 1, "beta": 2})
+
+    before_stats = cache.stats().copy()
+
+    assert cache.peek_many(["alpha", "missing", "beta", "alpha"]) == {
+        "alpha": 1,
+        "beta": 2,
+    }
+
+    after_stats = cache.stats()
+    assert after_stats == before_stats
+
+
 def test_local_cache_get_or_set_many_populates_missing_keys_once():
     cache = LocalCacheService()
     cache.set("cached", 10)
