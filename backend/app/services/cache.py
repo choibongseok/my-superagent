@@ -131,6 +131,26 @@ class LocalCacheService:
         for key, value in items.items():
             self.set(key, value, ttl_seconds=ttl_seconds)
 
+    def set_if_absent(
+        self,
+        key: str,
+        value: Any,
+        ttl_seconds: int | None = None,
+    ) -> bool:
+        """Store ``value`` only when ``key`` is currently missing.
+
+        Returns:
+            ``True`` when the value was inserted, ``False`` when an active
+            (non-expired) value already exists for ``key``.
+        """
+        item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
+        if item is not None:
+            return False
+
+        self.set(key, value, ttl_seconds=ttl_seconds)
+        return True
+
     def get(self, key: str) -> Any | None:
         """Return cached value or ``None`` when missing/expired."""
         item = self._get_entry(key)
@@ -324,6 +344,18 @@ class LocalCacheService:
             self._track_inflight(key, in_flight)
 
         return await asyncio.shield(in_flight)
+
+    def pop(self, key: str, default: Any | None = None) -> Any | None:
+        """Remove and return ``key`` value, or ``default`` when absent."""
+        item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
+        if item is None:
+            return default
+
+        value, _ = item
+        self._delete_key(key)
+        self._increment_stat("deletes")
+        return value
 
     def delete(self, key: str) -> None:
         """Delete a cached key if present."""

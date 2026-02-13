@@ -67,6 +67,24 @@ def test_local_cache_bulk_set_and_get_many():
     assert cache.get_many(["a", "missing", "c"]) == {"a": 1, "c": 3}
 
 
+def test_local_cache_set_if_absent_stores_missing_key_only_once():
+    cache = LocalCacheService()
+
+    assert cache.set_if_absent("session", "first") is True
+    assert cache.set_if_absent("session", "second") is False
+    assert cache.get("session") == "first"
+
+
+def test_local_cache_set_if_absent_treats_expired_entry_as_missing():
+    cache = LocalCacheService()
+    cache.set("otp", "1234", ttl_seconds=1)
+
+    time.sleep(1.05)
+
+    assert cache.set_if_absent("otp", "5678") is True
+    assert cache.get("otp") == "5678"
+
+
 def test_local_cache_has_respects_expiration():
     cache = LocalCacheService()
 
@@ -203,6 +221,25 @@ def test_local_cache_decrement_supports_missing_keys_and_non_negative_amount():
 
     with pytest.raises(ValueError, match="amount must be greater than or equal to 0"):
         cache.decrement("credits", amount=-1)
+
+
+def test_local_cache_pop_returns_value_and_removes_key():
+    cache = LocalCacheService()
+    cache.set("token", "abc123")
+
+    assert cache.pop("token") == "abc123"
+    assert cache.get("token") is None
+
+
+def test_local_cache_pop_returns_default_for_missing_or_expired_key():
+    cache = LocalCacheService()
+
+    assert cache.pop("missing", default="fallback") == "fallback"
+
+    cache.set("temp", "value", ttl_seconds=1)
+    time.sleep(1.05)
+
+    assert cache.pop("temp", default="expired") == "expired"
 
 
 def test_local_cache_delete_many_returns_removed_count():
@@ -408,6 +445,22 @@ def test_local_cache_stats_track_hits_misses_and_mutations():
     assert stats["hits"] == 3
     assert stats["misses"] == 3
     assert stats["entries"] == 2
+
+
+def test_local_cache_stats_include_set_if_absent_and_pop_lookups():
+    cache = LocalCacheService()
+
+    assert cache.set_if_absent("key", "value") is True
+    assert cache.set_if_absent("key", "ignored") is False
+    assert cache.pop("key") == "value"
+    assert cache.pop("key") is None
+
+    stats = cache.stats()
+
+    assert stats["sets"] == 1
+    assert stats["deletes"] == 1
+    assert stats["hits"] == 2
+    assert stats["misses"] == 2
 
 
 def test_local_cache_stats_track_expirations_and_evictions():
