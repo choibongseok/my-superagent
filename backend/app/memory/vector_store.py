@@ -226,7 +226,8 @@ class VectorStoreMemory:
         self,
         query: str,
         k: Optional[int] = None,
-        score_threshold: float = 0.7,
+        score_threshold: Optional[float] = None,
+        adaptive_threshold: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Search memories with similarity scores.
@@ -234,19 +235,48 @@ class VectorStoreMemory:
         Args:
             query: Search query
             k: Number of results
-            score_threshold: Minimum similarity score (0-1)
+            score_threshold: Minimum similarity score (0-1). If None and
+                adaptive_threshold is True, will be calculated based on result quality.
+            adaptive_threshold: When True and score_threshold is None, automatically
+                filters results based on score distribution (keeps results within
+                1.5 std deviations of the mean)
 
         Returns:
             List of memories with scores
         """
         k = k or self.top_k
 
+        # Use a low initial threshold or None to get all candidates
+        initial_threshold = score_threshold if score_threshold is not None else 0.0
+
         results = self.vector_store.similarity_search_with_relevance_scores(
             query,
-            k=k,
-            score_threshold=score_threshold,
+            k=k * 2 if adaptive_threshold and score_threshold is None else k,
+            score_threshold=initial_threshold,
             filter={"user_id": self.user_id},
         )
+
+        # Apply adaptive threshold if requested and no explicit threshold provided
+        if adaptive_threshold and score_threshold is None and len(results) > 1:
+            scores = [score for _, score in results]
+            mean_score = sum(scores) / len(scores)
+            
+            # Calculate standard deviation
+            variance = sum((s - mean_score) ** 2 for s in scores) / len(scores)
+            std_dev = variance ** 0.5
+            
+            # Keep results within 1.5 standard deviations below mean
+            # This filters out low-quality matches while keeping good ones
+            adaptive_threshold_value = max(0.5, mean_score - 1.5 * std_dev)
+            
+            # Filter results
+            results = [(doc, score) for doc, score in results 
+                      if score >= adaptive_threshold_value][:k]
+            
+            logger.debug(
+                f"Applied adaptive threshold: {adaptive_threshold_value:.3f} "
+                f"(mean={mean_score:.3f}, std={std_dev:.3f})"
+            )
 
         formatted_results = []
         for doc, score in results:
@@ -255,6 +285,7 @@ class VectorStoreMemory:
                     "content": doc.page_content,
                     "metadata": doc.metadata,
                     "score": score,
+                    "relevance": "high" if score >= 0.85 else "medium" if score >= 0.7 else "low",
                 }
             )
 
