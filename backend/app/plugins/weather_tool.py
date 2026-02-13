@@ -61,6 +61,49 @@ class Plugin(ToolPlugin):
 
         return canonical_units
 
+    def _resolve_units(self, requested_units: Any) -> str:
+        """Resolve effective units for a request.
+
+        Uses plugin-level defaults when no per-request override is provided.
+        """
+        if requested_units is None:
+            return self.units
+
+        return self._normalize_units(requested_units)
+
+    @staticmethod
+    def _convert_metric_to_imperial_temperature(celsius: float) -> float:
+        """Convert Celsius to Fahrenheit."""
+        return round((celsius * 9 / 5) + 32, 1)
+
+    @staticmethod
+    def _convert_kmh_to_mph(kmh: float) -> float:
+        """Convert km/h to mph."""
+        return round(kmh / 1.60934, 1)
+
+    def _build_mock_weather_response(self, location: str, units: str) -> Dict[str, Any]:
+        """Build deterministic mock weather data for offline/test mode."""
+        temperature_celsius = 22.5
+        wind_kmh = 12.3
+
+        if units == "imperial":
+            temperature = self._convert_metric_to_imperial_temperature(
+                temperature_celsius
+            )
+            wind_speed = self._convert_kmh_to_mph(wind_kmh)
+        else:
+            temperature = temperature_celsius
+            wind_speed = wind_kmh
+
+        return {
+            "location": location,
+            "temperature": temperature,
+            "condition": "Partly Cloudy",
+            "humidity": 65,
+            "wind_speed": wind_speed,
+            "units": units,
+        }
+
     def _normalize_country_code(self, country_code: Any) -> str | None:
         """Normalize optional ISO 3166-1 alpha-2 country codes."""
         if country_code is None:
@@ -166,7 +209,8 @@ class Plugin(ToolPlugin):
                 "location": str (optional, required unless latitude/longitude are provided),
                 "country_code": str (optional, ISO alpha-2 country code used with location),
                 "latitude": float (optional, requires longitude),
-                "longitude": float (optional, requires latitude)
+                "longitude": float (optional, requires latitude),
+                "units": str (optional, metric/celsius or imperial/fahrenheit)
             }
 
         Returns:
@@ -175,21 +219,23 @@ class Plugin(ToolPlugin):
                 "temperature": float,
                 "condition": str,
                 "humidity": int,
-                "wind_speed": float
+                "wind_speed": float,
+                "units": str
             }
         """
         normalized_location, location_params = self._resolve_location_inputs(inputs)
+        resolved_units = self._resolve_units(inputs.get("units"))
 
         # If no API key, return mock data
         if not self.api_key:
-            logger.info(f"Getting weather for: {normalized_location} (mock mode)")
-            return {
-                "location": normalized_location,
-                "temperature": 22.5,
-                "condition": "Partly Cloudy",
-                "humidity": 65,
-                "wind_speed": 12.3,
-            }
+            logger.info(
+                "Getting weather for: %s (mock mode, units=%s)",
+                normalized_location,
+                resolved_units,
+            )
+            return self._build_mock_weather_response(
+                normalized_location, resolved_units
+            )
 
         # Make real API call to OpenWeatherMap
         logger.info(f"Fetching real weather data for: {normalized_location}")
@@ -198,7 +244,7 @@ class Plugin(ToolPlugin):
             async with httpx.AsyncClient() as client:
                 params = {
                     "appid": self.api_key,
-                    "units": self.units,
+                    "units": resolved_units,
                     **location_params,
                 }
 
@@ -225,9 +271,11 @@ class Plugin(ToolPlugin):
                     "condition": data["weather"][0]["description"].title(),
                     "humidity": data["main"]["humidity"],
                     "wind_speed": round(
-                        data["wind"]["speed"] * (3.6 if self.units == "metric" else 1),
+                        data["wind"]["speed"]
+                        * (3.6 if resolved_units == "metric" else 1),
                         1,
                     ),  # Convert m/s to km/h for metric
+                    "units": resolved_units,
                 }
 
         except httpx.HTTPStatusError as e:
@@ -256,8 +304,9 @@ class Plugin(ToolPlugin):
         """
         result = await self.execute({"location": tool_input})
 
-        temperature_unit = "°C" if self.units == "metric" else "°F"
-        wind_unit = "km/h" if self.units == "metric" else "mph"
+        resolved_units = result.get("units", self.units)
+        temperature_unit = "°C" if resolved_units == "metric" else "°F"
+        wind_unit = "km/h" if resolved_units == "metric" else "mph"
 
         return (
             f"Weather in {result['location']}:\n"
@@ -274,6 +323,8 @@ class Plugin(ToolPlugin):
             "Input can be a city name (e.g., 'London', 'New York', 'Tokyo'), "
             "a city plus country code (e.g., 'Paris' + country_code='FR'), "
             "or coordinates (e.g., '37.5665,126.9780'). "
+            "Per-request units override is supported via units='metric/celsius' or "
+            "units='imperial/fahrenheit'. "
             "Returns temperature, weather condition, humidity, and wind speed. "
             "Requires OpenWeatherMap API key in plugin config."
         )
@@ -282,7 +333,7 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.4.0",
+            version="1.5.0",
             description="Get real-time weather information using OpenWeatherMap API",
             author="AgentHQ",
             permissions=["network.http"],
@@ -295,6 +346,7 @@ class Plugin(ToolPlugin):
                 "country_code": "string (optional, ISO alpha-2 country code used with location)",
                 "latitude": "number (optional, must be used with longitude)",
                 "longitude": "number (optional, must be used with latitude)",
+                "units": "string (optional, metric/celsius or imperial/fahrenheit, overrides plugin default)",
             },
             outputs={
                 "location": "string",
@@ -302,5 +354,6 @@ class Plugin(ToolPlugin):
                 "condition": "string",
                 "humidity": "integer",
                 "wind_speed": "float",
+                "units": "string (metric or imperial)",
             },
         )

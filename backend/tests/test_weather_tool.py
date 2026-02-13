@@ -194,6 +194,79 @@ class TestWeatherTool:
         assert "8.0 mph" in result
 
     @pytest.mark.asyncio
+    async def test_units_override_changes_mock_response_units(self):
+        """Test per-request units override works even when plugin default is metric."""
+        plugin = WeatherPlugin(config={"units": "metric"})
+
+        result = await plugin.execute({"location": "Seoul", "units": "fahrenheit"})
+
+        assert result["location"] == "Seoul"
+        assert result["units"] == "imperial"
+        assert result["temperature"] == 72.5
+        assert result["wind_speed"] == 7.6
+
+    @pytest.mark.asyncio
+    async def test_units_override_validates_supported_values(self, api_plugin):
+        """Test execute validates invalid per-request units overrides."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(
+                ValueError,
+                match="Unsupported units. Use metric/celsius or imperial/fahrenheit",
+            ):
+                await api_plugin.execute({"location": "Seoul", "units": "kelvin"})
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_units_override_updates_api_request_parameters(self, api_plugin):
+        """Test per-request units override is propagated to OpenWeather params."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 70.0, "humidity": 55},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 10.0},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            result = await api_plugin.execute(
+                {"location": "Seoul", "units": "imperial"}
+            )
+
+            _, kwargs = mock_get.call_args
+            assert kwargs["params"]["units"] == "imperial"
+            assert result["wind_speed"] == 10.0
+            assert result["units"] == "imperial"
+
+    @pytest.mark.asyncio
+    async def test_run_tool_uses_units_from_execute_result(self):
+        """Test run_tool formatting follows resolved units returned by execute."""
+        plugin = WeatherPlugin(config={"units": "metric"})
+
+        with patch.object(
+            plugin,
+            "execute",
+            AsyncMock(
+                return_value={
+                    "location": "New York",
+                    "temperature": 70.0,
+                    "condition": "Clear Sky",
+                    "humidity": 40,
+                    "wind_speed": 8.0,
+                    "units": "imperial",
+                }
+            ),
+        ):
+            result = await plugin.run_tool("New York")
+
+        assert "70.0°F" in result
+        assert "8.0 mph" in result
+
+    @pytest.mark.asyncio
     async def test_coordinate_location_query(self, api_plugin):
         """Test coordinates are sent as lat/lon params."""
         mock_response = AsyncMock()
@@ -333,12 +406,13 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.4.0"
+        assert manifest.version == "1.5.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "country_code" in manifest.inputs
         assert "latitude" in manifest.inputs
         assert "longitude" in manifest.inputs
+        assert "units" in manifest.inputs
         assert "required when latitude/longitude" in manifest.inputs["location"]
 
     def test_tool_description(self, api_plugin):
