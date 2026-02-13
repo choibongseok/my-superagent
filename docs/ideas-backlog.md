@@ -6,6 +6,125 @@
 
 ---
 
+## 2026-02-13 (PM2) | 기획자 에이전트 - 팀 협업 & AI 인사이트 제안 👥📊🤖
+
+### 👥 Idea #35: "Real-time Team Collaboration" - AI Agent + Google Docs 수준 협업
+
+**문제점**:
+- 현재 AgentHQ는 **개인 사용자 중심** (팀 협업 기능 없음)
+- 실제 업무는 팀 단위 (마케팅 기획서, 분기 보고서 등)
+- 비동기 협업 문제: 작업 충돌, "누가 지금 작업 중?" 모름
+- **경쟁사 현황**:
+  - Google Docs: 실시간 동시 편집 완벽 ✅
+  - Notion: 팀 워크스페이스 + 실시간 편집 ✅
+  - **AgentHQ: 팀 기능 없음** ❌
+
+**제안 솔루션**:
+```
+"Real-time Team Collaboration" - 팀원이 동시에 AI 작업 편집, Google Docs처럼
+```
+
+**핵심 기능**:
+1. **Team Workspaces**: 팀 단위 독립 작업 공간, 역할 관리 (Owner/Admin/Editor/Viewer)
+2. **Real-time Collaborative Editing**: Google Docs처럼 동시 편집, Live cursors, Change tracking
+3. **Presence & Activity Feed**: 팀원 실시간 상태 표시, @mention 기능
+4. **Shared Agent Sessions**: 같은 Agent 작업 공유, 댓글 기능
+5. **Version History (Team-aware)**: 팀원별 변경사항 추적, Rollback
+
+**기술 구현**:
+- Backend: Team/TeamMember 모델, Permission system (RBAC)
+- Real-time Sync: Y.js 또는 CRDT (Conflict-free Replicated Data Types)
+- Frontend: Live cursors UI, Activity Feed sidebar
+
+**예상 임팩트**:
+- 🚀 **Enterprise 확보**: B2C → B2B 전환, Enterprise tier $99/user/month, 10명 팀 → $990/month
+- 🎯 **차별화**: Zapier (협업 약함), Notion (AI Agent 없음), **AgentHQ: AI + 실시간 협업** ⭐
+- 📈 **비즈니스**: MAU +300%, Retention +200%, Churn -60%, NPS +20점
+- 🧠 **네트워크 효과**: 팀원 초대 → 신규 사용자 → 또 다른 팀 초대 (Slack처럼 바이럴)
+
+**개발 난이도**: ⭐⭐⭐⭐⭐ (VERY HARD, 10주)
+**우선순위**: 🔥 CRITICAL (Phase 9, Enterprise 시장 필수)
+
+---
+
+### 📊 Idea #36: "AI Insights Dashboard" - 작업 패턴 분석 및 생산성 개선 제안
+
+**문제점**:
+- 현재 사용자는 **자신이 얼마나 생산적인지 모름** (데이터는 있지만 인사이트 없음)
+- LangFuse로 추적 중이지만 **사용자에게 미공개** ❌
+- 개선 방법을 모름 ("어떻게 더 빨리?", "비용 어디서 절감?")
+- **경쟁사 현황**:
+  - RescueTime: 시간 추적 + 생산성 보고서 ✅
+  - Notion Analytics: 페이지 조회수만 ✅
+  - **AgentHQ: Analytics 없음** ❌
+
+**제안 솔루션**:
+```
+"AI Insights Dashboard" - AI가 작업 패턴을 분석하고 개선 방법 제안
+```
+
+**핵심 기능**:
+1. **Personal Productivity Dashboard**: 주간/월간 리포트 (완료 작업, 평균 시간, 시간대별 생산성)
+2. **AI-Powered Recommendations**: 작업 패턴 분석 → 개선 제안 (예: "Workflow 자동화 시 30% 절약")
+3. **Cost Optimization Insights**: LLM 비용 상세 분해, 절감 기회 제안
+4. **Team Analytics (Team tier)**: 팀 전체 생산성 추이, Leaderboard, 협업 패턴
+5. **Goal Tracking & Gamification**: 목표 설정, 진행률 표시, 배지 획득, Streaks
+
+**기술 구현**:
+- Backend: Analytics Service, ML Recommendation Engine (Scikit-learn), LangFuse 통합
+- Frontend: Dashboard (Recharts), Goal progress UI
+- LangFuse: /api/v1/langfuse/traces → Analytics 집계
+
+**예상 임팩트**:
+- 🚀 **사용자 참여도**: DAU/MAU +80%, Session 길이 +50%, 목표 달성 만족도 +30점
+- 🎯 **차별화**: Zapier (Analytics 없음), Notion (조회수만), **AgentHQ: AI 개선 제안** ⭐
+- 📈 **비즈니스**: 유료 전환율 +40%, Retention +60%, Premium: "Advanced Analytics" $19/month
+- 🧠 **데이터 자산**: 사용자 행동 데이터 축적 → ML 모델 개선, 업계 벤치마크 제공
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (HARD, 8주)
+**우선순위**: 🔥 HIGH (Phase 9, 사용자 Lock-in 핵심)
+
+---
+
+### 🤖 Idea #37: "Proactive AI Assistant" - 사용자 의도 예측 및 선제 작업 제안
+
+**문제점**:
+- 현재 AgentHQ는 **Reactive** (사용자가 명령 → Agent 실행)
+- 많은 작업이 **예측 가능하고 반복적** (매주 월요일 리포트, 매일 이메일 요약)
+- 사용자가 매번 수동 실행 → 번거로움, 시간 낭비 (평균 2분)
+- **경쟁사 현황**:
+  - Google Now: 자동 표시 (단종됨)
+  - Zapier: Scheduled workflows (단순 반복만)
+  - **AgentHQ: Proactive 기능 없음** ❌
+
+**제안 솔루션**:
+```
+"Proactive AI Assistant" - AI가 사용자 패턴 학습 → 필요한 작업 미리 제안/실행
+```
+
+**핵심 기능**:
+1. **Pattern Learning & Prediction**: 사용자 행동 학습 (ML), 패턴 감지 → 자동 제안
+2. **Smart Triggers**: 시간/이벤트/조건 기반 자동화 (이메일 10개 이상, 캘린더 변경, 위치)
+3. **Contextual Suggestions**: 현재 상황 분석 → 적절한 작업 제안 (GPT-4 맥락 분석)
+4. **Pre-computed Results**: 반복 작업 미리 계산 (캐싱), 대기 시간 0초
+5. **Smart Nudges**: 부드러운 넛지 (강요 X), 동기 부여
+
+**기술 구현**:
+- Backend: Pattern Learning Engine (LSTM/Transformer), Trigger System, Pre-computation (Celery Beat)
+- AI Model: Time series prediction (Prophet/LSTM), Context analysis (GPT-4), Reinforcement Learning
+- Frontend: Proactive suggestions UI (카드), "Start now" vs "Snooze" vs "Never"
+
+**예상 임팩트**:
+- 🚀 **사용자 경험**: 작업 시작 95% 단축 (2분 → 5초), 작업 빈도 +200%, NPS +35점
+- 🎯 **차별화**: Zapier (수동 설정), Notion (Reactive), **AgentHQ: AI 학습 + 선제 제안** ⭐
+- 📈 **비즈니스**: DAU +150%, 유료 전환율 +50%, Retention +80%, Premium: "Unlimited Proactive Tasks" $24/month
+- 🧠 **네트워크 효과**: 사용할수록 정확한 제안, 팀 패턴 학습 (공통 작업 자동화)
+
+**개발 난이도**: ⭐⭐⭐⭐⭐ (VERY HARD, 9주)
+**우선순위**: 🔥 CRITICAL (Phase 10, 사용자 경험 혁신)
+
+---
+
 ## 2026-02-13 (PM) | 기획자 에이전트 - 생태계 & 지능형 자동화 제안 🌐🤖
 
 ### 🛒 Idea #32: "Agent Marketplace & Community Hub" - 사용자 생성 Agent 생태계
