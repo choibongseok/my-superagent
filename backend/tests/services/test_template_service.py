@@ -656,6 +656,96 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_unique_transform_before_join(
+        self, service_with_mock_db
+    ):
+        """unique should deduplicate iterables in first-seen order for chaining."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Tags: {tags->unique->join(" | ")}',
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"tags": ["agent", "safety", "agent", "automation", "safety"]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Tags: agent | safety | automation"
+        assert template.usage_count == 4
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_unique_transform_for_unhashable_values(
+        self, service_with_mock_db
+    ):
+        """unique should handle dict/list items by equality when values are unhashable."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Records: {records->unique->json}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "records": [
+                        {"name": "Mina", "score": 1},
+                        {"name": "Mina", "score": 1},
+                        {"name": "Jin", "score": 2},
+                    ]
+                },
+                user_id,
+            )
+
+        assert (
+            result["prompt"]
+            == 'Records: [{"name":"Mina","score":1},{"name":"Jin","score":2}]'
+        )
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_unique_transform_for_string_values(
+        self, service_with_mock_db
+    ):
+        """unique should reject plain strings to avoid character-by-character output."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Tags: {tags->unique}",
+            category="docs",
+            usage_count=6,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match="Failed to apply template transform 'unique'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"tags": "agent"},
+                    user_id,
+                )
+
+        assert template.usage_count == 6
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_rejects_join_transform_for_non_iterable_values(
         self, service_with_mock_db
     ):

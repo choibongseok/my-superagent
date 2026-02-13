@@ -148,6 +148,35 @@ def _join_values(value: object, argument_spec: str) -> str:
     return separator.join(str(item) for item in iterator)
 
 
+def _unique_values(value: object) -> list[object]:
+    """Return iterable values with duplicates removed in first-seen order."""
+    if isinstance(value, (str, bytes, bytearray)):
+        raise ValueError("unique expects an iterable value, not a string")
+
+    try:
+        iterator = iter(value)
+    except TypeError as exc:
+        raise ValueError("unique expects an iterable value") from exc
+
+    seen_hashable: set[object] = set()
+    seen_unhashable: list[object] = []
+    unique_items: list[object] = []
+
+    for item in iterator:
+        try:
+            if item in seen_hashable:
+                continue
+            seen_hashable.add(item)
+        except TypeError:
+            if any(existing == item for existing in seen_unhashable):
+                continue
+            seen_unhashable.append(item)
+
+        unique_items.append(item)
+
+    return unique_items
+
+
 class TemplateService:
     """Service for template management."""
 
@@ -353,6 +382,7 @@ class TemplateService:
         - ``{field|default value->strip->title}``
         - ``{summary->truncate(120)}``
         - ``{name->replace("Agent", "Assistant")}``
+        - ``{tags->unique->join(" | ")}``
 
         Returns:
             Tuple of ``(field_path, default_value, transforms)``.
@@ -389,6 +419,7 @@ class TemplateService:
             "pascal_case": _to_pascal_case,
             "json": lambda raw: _to_json(raw, pretty=False),
             "json_pretty": lambda raw: _to_json(raw, pretty=True),
+            "unique": _unique_values,
         }
         supported_transforms = sorted(
             [
@@ -487,7 +518,7 @@ class TemplateService:
         ``{service->dot_case}``, ``{build_target->constant_case}``,
         ``{variable->camel_case}``, ``{variable->pascal_case}``,
         ``{summary->truncate(120)}``, ``{title->replace("Agent", "Assistant")}``,
-        ``{tags->join(" | ")}``, ``{payload->json}``, or
+        ``{tags->unique->join(" | ")}``, ``{payload->json}``, or
         ``{payload->json_pretty}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
