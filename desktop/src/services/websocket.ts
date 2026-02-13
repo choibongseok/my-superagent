@@ -15,7 +15,7 @@ export class WebSocketService {
   private maxReconnectDelay = 30000; // 최대 30초
   private userId: string | null = null;
   private accessToken: string | null = null;
-  private reconnectTimeout: NodeJS.Timeout | null = null;
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false; // 의도적 종료 플래그
 
   connect(userId: string, accessToken: string) {
