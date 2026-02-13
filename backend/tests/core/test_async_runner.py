@@ -59,3 +59,27 @@ async def test_run_async_timeout_with_existing_event_loop():
 def test_run_async_rejects_non_positive_timeout():
     with pytest.raises(ValueError, match="timeout must be greater than 0"):
         run_async(_compute_value, timeout=0)
+
+
+def test_run_async_supports_positional_arguments():
+    async def _add(left: int, right: int) -> int:
+        await asyncio.sleep(0.01)
+        return left + right
+
+    assert run_async(_add, 20, 22) == 42
+
+
+def test_run_async_supports_keyword_arguments():
+    async def _format_message(name: str, suffix: str = "") -> str:
+        await asyncio.sleep(0.01)
+        return f"hello {name}{suffix}"
+
+    assert run_async(_format_message, "codex", suffix="!") == "hello codex!"
+
+
+def test_run_async_rejects_non_awaitable_return_value():
+    def _sync_value() -> int:
+        return 42
+
+    with pytest.raises(TypeError, match="must return an awaitable"):
+        run_async(_sync_value)

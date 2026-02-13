@@ -61,7 +61,7 @@ def process_research_task(self, task_id: str, prompt: str, user_id: str):
         )
 
         # Execute research (async method - must await)
-        result = run_async(lambda: agent.research(prompt))
+        result = run_async(agent.research, prompt)
 
         logger.info(f"Completed research task {task_id}")
 
@@ -107,7 +107,7 @@ def process_docs_task(
         logger.info(f"Starting docs task {task_id}")
 
         # Retrieve user credentials from database (async operation)
-        credentials = run_async(lambda: get_user_credentials(user_id))
+        credentials = run_async(get_user_credentials, user_id)
 
         if not credentials:
             raise ValueError(
@@ -124,10 +124,9 @@ def process_docs_task(
 
         # Generate document (async method - must await)
         result = run_async(
-            lambda: agent.create_document(
-                title=title,
-                prompt=prompt,
-            )
+            agent.create_document,
+            title=title,
+            prompt=prompt,
         )
 
         logger.info(f"Completed docs task {task_id}")
@@ -172,7 +171,7 @@ def process_sheets_task(
         logger.info(f"Starting sheets task {task_id}")
 
         # Retrieve user credentials from database (async operation)
-        credentials = run_async(lambda: get_user_credentials(user_id))
+        credentials = run_async(get_user_credentials, user_id)
 
         if not credentials:
             raise ValueError(
@@ -188,7 +187,7 @@ def process_sheets_task(
         )
 
         # Generate spreadsheet (async method - must await)
-        result = run_async(lambda: agent.run(prompt))
+        result = run_async(agent.run, prompt)
 
         logger.info(f"Completed sheets task {task_id}")
 
@@ -232,7 +231,7 @@ def process_slides_task(
         logger.info(f"Starting slides task {task_id}")
 
         # Retrieve user credentials from database (async operation)
-        credentials = run_async(lambda: get_user_credentials(user_id))
+        credentials = run_async(get_user_credentials, user_id)
 
         if not credentials:
             raise ValueError(
@@ -248,7 +247,7 @@ def process_slides_task(
         )
 
         # Generate presentation (async method - must await)
-        result = run_async(lambda: agent.run(prompt))
+        result = run_async(agent.run, prompt)
 
         logger.info(f"Completed slides task {task_id}")
 

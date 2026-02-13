@@ -5,12 +5,19 @@ from __future__ import annotations
 import asyncio
 import queue
 import threading
-from typing import Awaitable, Callable, TypeVar, cast
+from collections.abc import Awaitable, Callable
+from typing import ParamSpec, TypeVar, cast
 
+P = ParamSpec("P")
 T = TypeVar("T")
 
 
-def run_async(coro_factory: Callable[[], Awaitable[T]], timeout: float | None = None) -> T:
+def run_async(
+    coro_factory: Callable[P, Awaitable[T]],
+    *args: P.args,
+    timeout: float | None = None,
+    **kwargs: P.kwargs,
+) -> T:
     """Run an async coroutine factory from synchronous code.
 
     This helper supports two scenarios:
@@ -21,9 +28,11 @@ def run_async(coro_factory: Callable[[], Awaitable[T]], timeout: float | None = 
        execute in a dedicated worker thread with its own loop.
 
     Args:
-        coro_factory: Zero-argument callable that returns an awaitable.
+        coro_factory: Callable that returns an awaitable.
+        *args: Positional arguments passed to ``coro_factory``.
         timeout: Optional timeout in seconds. If provided and the coroutine
             does not complete within the deadline, ``TimeoutError`` is raised.
+        **kwargs: Keyword arguments passed to ``coro_factory``.
 
     Returns:
         The coroutine result.
@@ -35,7 +44,10 @@ def run_async(coro_factory: Callable[[], Awaitable[T]], timeout: float | None = 
         raise ValueError("timeout must be greater than 0")
 
     async def _run_with_timeout() -> T:
-        coro = coro_factory()
+        coro = coro_factory(*args, **kwargs)
+        if not isinstance(coro, Awaitable):
+            raise TypeError("coro_factory must return an awaitable")
+
         if timeout is None:
             return await coro
         return await asyncio.wait_for(coro, timeout=timeout)
