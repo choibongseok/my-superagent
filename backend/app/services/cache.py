@@ -182,6 +182,69 @@ class LocalCacheService:
 
         return replaced
 
+    def compare_and_set(
+        self,
+        key: str,
+        expected_value: Any,
+        new_value: Any,
+        ttl_seconds: int | None = None,
+        *,
+        keep_ttl: bool = True,
+    ) -> bool:
+        """Update ``key`` only when its current value matches ``expected_value``.
+
+        This lightweight compare-and-set (CAS) helper enables optimistic
+        concurrency workflows without introducing external locking.
+
+        Args:
+            key: Cache key to update.
+            expected_value: Value required for the update to proceed.
+            new_value: Value written when comparison succeeds.
+            ttl_seconds: TTL to apply when ``keep_ttl`` is ``False``.
+            keep_ttl: Preserve the existing absolute expiration by default.
+
+        Returns:
+            ``True`` when the key existed and matched ``expected_value``,
+            ``False`` otherwise.
+        """
+        item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
+        if item is None:
+            return False
+
+        current_value, expires_at = item
+        if current_value != expected_value:
+            return False
+
+        if keep_ttl:
+            self._store[key] = (new_value, expires_at)
+            self._mark_accessed(key)
+            self._increment_stat("sets")
+            return True
+
+        self.set(key, new_value, ttl_seconds=ttl_seconds)
+        return True
+
+    def compare_and_delete(self, key: str, expected_value: Any) -> bool:
+        """Delete ``key`` only when it currently matches ``expected_value``.
+
+        Returns:
+            ``True`` when the key existed and was removed,
+            ``False`` when missing/expired or value mismatch.
+        """
+        item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
+        if item is None:
+            return False
+
+        current_value, _ = item
+        if current_value != expected_value:
+            return False
+
+        self._delete_key(key)
+        self._increment_stat("deletes")
+        return True
+
     def set_if_absent(
         self,
         key: str,

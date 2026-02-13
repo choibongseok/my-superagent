@@ -127,6 +127,74 @@ def test_local_cache_replace_many_replaces_existing_keys_only():
     assert cache.get_many(["a", "b", "missing"]) == {"a": 10, "b": 20}
 
 
+def test_local_cache_compare_and_set_updates_only_on_expected_match():
+    cache = LocalCacheService()
+    cache.set("version", 1)
+
+    assert cache.compare_and_set("version", expected_value=2, new_value=3) is False
+    assert cache.get("version") == 1
+
+    assert cache.compare_and_set("version", expected_value=1, new_value=2) is True
+    assert cache.get("version") == 2
+
+
+def test_local_cache_compare_and_set_preserves_existing_ttl_by_default():
+    cache = LocalCacheService()
+    cache.set("token", "v1", ttl_seconds=1)
+
+    time.sleep(0.4)
+
+    assert cache.compare_and_set("token", expected_value="v1", new_value="v2") is True
+
+    ttl = cache.ttl_remaining("token")
+    assert ttl is not None
+    assert 0 < ttl < 1
+
+
+def test_local_cache_compare_and_set_can_override_ttl_when_keep_ttl_is_false():
+    cache = LocalCacheService()
+    cache.set("token", "v1", ttl_seconds=1)
+
+    time.sleep(0.4)
+
+    assert (
+        cache.compare_and_set(
+            "token",
+            expected_value="v1",
+            new_value="v2",
+            ttl_seconds=2,
+            keep_ttl=False,
+        )
+        is True
+    )
+
+    ttl = cache.ttl_remaining("token")
+    assert ttl is not None
+    assert 1.5 <= ttl <= 2
+
+
+def test_local_cache_compare_and_delete_removes_only_matching_values():
+    cache = LocalCacheService()
+    cache.set("lock", "owner-a")
+
+    assert cache.compare_and_delete("lock", expected_value="owner-b") is False
+    assert cache.get("lock") == "owner-a"
+
+    assert cache.compare_and_delete("lock", expected_value="owner-a") is True
+    assert cache.get("lock") is None
+
+
+def test_local_cache_compare_and_delete_returns_false_for_missing_or_expired_key():
+    cache = LocalCacheService()
+
+    assert cache.compare_and_delete("missing", expected_value="x") is False
+
+    cache.set("temp", "value", ttl_seconds=1)
+    time.sleep(1.05)
+
+    assert cache.compare_and_delete("temp", expected_value="value") is False
+
+
 def test_local_cache_peek_returns_value_without_affecting_stats_or_lru_order():
     cache = LocalCacheService(max_entries=2)
     cache.set("a", 1)
