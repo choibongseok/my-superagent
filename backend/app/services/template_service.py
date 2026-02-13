@@ -122,6 +122,32 @@ def _replace_text(value: object, argument_spec: str) -> str:
     return str(value).replace(search, replacement)
 
 
+def _join_values(value: object, argument_spec: str) -> str:
+    """Join iterable values into a single string.
+
+    ``join()`` defaults to `", "` as separator.
+    ``join(" | ")`` uses a custom separator.
+    """
+    args: list[str] = []
+    if argument_spec.strip():
+        args = _parse_transform_args(argument_spec)
+
+    if len(args) > 1:
+        raise ValueError("join expects zero or one argument: separator")
+
+    separator = args[0] if args else ", "
+
+    if isinstance(value, (str, bytes, bytearray)):
+        raise ValueError("join expects an iterable value, not a string")
+
+    try:
+        iterator = iter(value)
+    except TypeError as exc:
+        raise ValueError("join expects an iterable value") from exc
+
+    return separator.join(str(item) for item in iterator)
+
+
 class TemplateService:
     """Service for template management."""
 
@@ -369,6 +395,7 @@ class TemplateService:
                 *available_transforms.keys(),
                 "truncate(<max_length>)",
                 "replace(<search>,<replacement>)",
+                "join([separator])",
             ]
         )
 
@@ -390,6 +417,8 @@ class TemplateService:
                     )
                 elif transform_name == "replace":
                     operation = lambda raw, spec=argument_spec: _replace_text(raw, spec)
+                elif transform_name == "join":
+                    operation = lambda raw, spec=argument_spec: _join_values(raw, spec)
 
             if operation is None:
                 supported = ", ".join(supported_transforms)
@@ -458,7 +487,8 @@ class TemplateService:
         ``{service->dot_case}``, ``{build_target->constant_case}``,
         ``{variable->camel_case}``, ``{variable->pascal_case}``,
         ``{summary->truncate(120)}``, ``{title->replace("Agent", "Assistant")}``,
-        ``{payload->json}``, or ``{payload->json_pretty}``).
+        ``{tags->join(" | ")}``, ``{payload->json}``, or
+        ``{payload->json_pretty}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)

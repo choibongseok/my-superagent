@@ -604,6 +604,116 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_join_transform_with_default_separator(
+        self, service_with_mock_db
+    ):
+        """join() should join iterable values using a readable default separator."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Tags: {tags->join()}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"tags": ["agent", "automation", "safety"]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Tags: agent, automation, safety"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_join_transform_with_custom_separator(
+        self, service_with_mock_db
+    ):
+        """join(separator) should support CSV-quoted custom separators."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Owners: {owners->join(" | ")}',
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"owners": ["Mina", "Jin"]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Owners: Mina | Jin"
+        assert template.usage_count == 3
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_join_transform_for_non_iterable_values(
+        self, service_with_mock_db
+    ):
+        """join should fail fast when applied to non-iterable scalar values."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Owners: {owners->join()}",
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'join\(\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"owners": 42},
+                    user_id,
+                )
+
+        assert template.usage_count == 1
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_join_transform_with_too_many_arguments(
+        self, service_with_mock_db
+    ):
+        """join should reject argument lists longer than one separator value."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Owners: {owners->join(", ", " and ")}',
+            category="docs",
+            usage_count=4,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match="Failed to apply template transform 'join",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"owners": ["Mina", "Jin"]},
+                    user_id,
+                )
+
+        assert template.usage_count == 4
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_case_insensitive_transform_names(
         self, service_with_mock_db
     ):
