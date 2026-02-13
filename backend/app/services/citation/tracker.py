@@ -1,6 +1,7 @@
 """Citation Tracker for managing citations and sources."""
 
 import logging
+import re
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -310,19 +311,44 @@ class CitationTracker:
         style: str = "apa",
     ) -> str:
         """
-        Add inline citations to text.
+        Replace citation placeholders with inline citation text.
+
+        Supported placeholders:
+            - [[cite:<citation_id>]]
+            - [[source:<source_id>]]
 
         Args:
             text: Original text
             style: Citation style
 
         Returns:
-            Text with inline citations
+            Text with inline citations rendered where placeholders exist
         """
-        # This is a placeholder - actual implementation would need
-        # more sophisticated text processing to insert citations
-        logger.warning("Inline citation insertion not fully implemented")
-        return text
+
+        pattern = re.compile(
+            r"\[\[\s*(?P<kind>cite|citation|source)\s*:\s*(?P<id>[^\]\s]+)\s*\]\]",
+            flags=re.IGNORECASE,
+        )
+
+        def _render_placeholder(match: re.Match[str]) -> str:
+            ref_kind = match.group("kind").lower()
+            ref_id = match.group("id")
+
+            citation: Optional[Citation] = None
+            if ref_kind in {"cite", "citation"}:
+                citation = self.get_citation(ref_id)
+            elif ref_kind == "source":
+                source = self.get_source(ref_id)
+                if source:
+                    citation = Citation(id=f"source_{ref_id}", source=source)
+
+            if not citation:
+                logger.warning("Citation placeholder not found: %s", match.group(0))
+                return match.group(0)
+
+            return citation.to_inline_citation(style=style)
+
+        return pattern.sub(_render_placeholder, text)
 
     def clear(self) -> None:
         """Clear all sources and citations."""

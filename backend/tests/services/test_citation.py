@@ -175,6 +175,52 @@ class TestCitationTracker:
         assert "Beta Author" in bibliography[1]
         assert "Zebra Author" in bibliography[2]
 
+    def test_get_inline_citations_replaces_citation_placeholders(self):
+        """Test replacing [[cite:<id>]] placeholders with inline citation text."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(
+            title="AI Safety 101",
+            author="Jane Doe",
+            published_date=datetime(2024, 1, 1),
+        )
+        citation = tracker.cite(source_id, quoted_text="Alignment is hard.")
+        assert citation is not None
+
+        rendered = tracker.get_inline_citations(
+            f"AI safety is important [[cite:{citation.id}]].",
+            style="apa",
+        )
+
+        assert rendered == "AI safety is important (Jane Doe, 2024)."
+
+    def test_get_inline_citations_supports_source_placeholders(self):
+        """Test replacing [[source:<id>]] placeholders without creating citations."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(
+            title="Agent Design",
+            author="Ada Lovelace",
+            type=SourceType.ARTICLE,
+        )
+
+        rendered = tracker.get_inline_citations(
+            f"Reference design guidance [[source:{source_id}]].",
+            style="mla",
+        )
+
+        assert rendered == "Reference design guidance (Ada Lovelace)."
+        assert len(tracker.citations) == 0
+
+    def test_get_inline_citations_keeps_unknown_placeholders(self):
+        """Unknown placeholders should remain unchanged for safer debugging."""
+        tracker = CitationTracker()
+
+        original = "No data yet [[cite:missing_id]]."
+        rendered = tracker.get_inline_citations(original)
+
+        assert rendered == original
+
     def test_clear_tracker(self):
         """Test clearing all citations and sources."""
         tracker = CitationTracker()
