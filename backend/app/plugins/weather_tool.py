@@ -8,6 +8,7 @@ from typing import Any, Dict
 import httpx
 
 from app.plugins.base import PluginManifest, ToolPlugin
+from app.services.cache import LocalCacheService
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +43,24 @@ class Plugin(ToolPlugin):
             api_key: OpenWeatherMap API key (optional, uses mock data if not provided)
             units: Temperature units ('metric'/'celsius', 'imperial'/'fahrenheit', or 'standard'/'kelvin'; default: 'metric')
             lang: Optional language code for localized weather descriptions (e.g., 'en', 'ko', 'pt_br')
+            cache_ttl_seconds: Optional positive integer TTL for response caching (default: 0 disables caching)
+            cache_max_entries: Optional maximum cache entries (default: 256)
         """
         super().__init__(config)
         self.api_key = config.get("api_key")
         self.units = self._normalize_units(config.get("units", "metric"))
         self.lang = self._normalize_language(config.get("lang"))
+        self.cache_ttl_seconds = self._normalize_cache_ttl(
+            config.get("cache_ttl_seconds", 0)
+        )
+        self.cache_max_entries = self._normalize_cache_max_entries(
+            config.get("cache_max_entries", 256)
+        )
+        self._response_cache = (
+            LocalCacheService(max_entries=self.cache_max_entries)
+            if self.cache_ttl_seconds > 0
+            else None
+        )
 
     def _normalize_units(self, units: Any) -> str:
         """Normalize units and support human-friendly aliases."""
@@ -100,6 +114,54 @@ class Plugin(ToolPlugin):
             return self.lang
 
         return self._normalize_language(requested_language)
+
+    @staticmethod
+    def _normalize_cache_ttl(value: Any) -> int:
+        """Normalize optional cache TTL configuration."""
+        if value is None:
+            return 0
+
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError("cache_ttl_seconds must be an integer") from error
+
+        if normalized < 0:
+            raise ValueError("cache_ttl_seconds cannot be negative")
+
+        return normalized
+
+    @staticmethod
+    def _normalize_cache_max_entries(value: Any) -> int:
+        """Normalize cache size limits for response caching."""
+        if value is None:
+            return 256
+
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError("cache_max_entries must be an integer") from error
+
+        if normalized <= 0:
+            raise ValueError("cache_max_entries must be greater than 0")
+
+        return normalized
+
+    @staticmethod
+    def _build_cache_key(
+        *,
+        location: str,
+        units: str,
+        language: str | None,
+    ) -> str:
+        """Build deterministic cache keys for weather responses."""
+        language_key = language or "default"
+        return f"weather:{location.lower()}|{units}|{language_key}"
+
+    @staticmethod
+    def _clone_weather_result(result: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a shallow copy to avoid external mutations of cached payloads."""
+        return dict(result)
 
     @staticmethod
     def _convert_metric_to_imperial_temperature(celsius: float) -> float:
@@ -204,11 +266,21 @@ class Plugin(ToolPlugin):
 
     async def initialize(self) -> None:
         """Initialize weather tool."""
+        cache_state = (
+            f"enabled (ttl={self.cache_ttl_seconds}s, max_entries={self.cache_max_entries})"
+            if self._response_cache is not None
+            else "disabled"
+        )
+
         if self.api_key:
-            logger.info("Weather tool plugin initialized with OpenWeatherMap API")
+            logger.info(
+                "Weather tool plugin initialized with OpenWeatherMap API; cache=%s",
+                cache_state,
+            )
         else:
             logger.warning(
-                "Weather tool plugin initialized in mock mode (no API key provided)"
+                "Weather tool plugin initialized in mock mode (no API key provided); cache=%s",
+                cache_state,
             )
 
     def _build_location_params(self, location: str) -> Dict[str, Any]:
@@ -328,6 +400,18 @@ class Plugin(ToolPlugin):
         resolved_units = self._resolve_units(inputs.get("units"))
         resolved_language = self._resolve_language(inputs.get("lang"))
 
+        cache_key: str | None = None
+        if self._response_cache is not None:
+            cache_key = self._build_cache_key(
+                location=normalized_location,
+                units=resolved_units,
+                language=resolved_language,
+            )
+            cached_result = self._response_cache.get(cache_key)
+            if cached_result is not None:
+                logger.debug("Weather cache hit for %s", cache_key)
+                return self._clone_weather_result(cached_result)
+
         # If no API key, return mock data
         if not self.api_key:
             logger.info(
@@ -336,9 +420,16 @@ class Plugin(ToolPlugin):
                 resolved_units,
                 resolved_language,
             )
-            return self._build_mock_weather_response(
+            result = self._build_mock_weather_response(
                 normalized_location, resolved_units
             )
+            if cache_key is not None and self._response_cache is not None:
+                self._response_cache.set(
+                    cache_key,
+                    self._clone_weather_result(result),
+                    ttl_seconds=self.cache_ttl_seconds,
+                )
+            return result
 
         # Make real API call to OpenWeatherMap
         logger.info(f"Fetching real weather data for: {normalized_location}")
@@ -374,7 +465,7 @@ class Plugin(ToolPlugin):
                 temperature = round(main["temp"], 1)
                 feels_like = round(main.get("feels_like", main["temp"]), 1)
 
-                return {
+                result = {
                     "location": data.get("name") or normalized_location,
                     "temperature": temperature,
                     "feels_like": feels_like,
@@ -386,6 +477,15 @@ class Plugin(ToolPlugin):
                     ),
                     "units": resolved_units,
                 }
+
+                if cache_key is not None and self._response_cache is not None:
+                    self._response_cache.set(
+                        cache_key,
+                        self._clone_weather_result(result),
+                        ttl_seconds=self.cache_ttl_seconds,
+                    )
+
+                return result
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
@@ -447,6 +547,7 @@ class Plugin(ToolPlugin):
             "units='imperial/fahrenheit', or units='standard/kelvin'. "
             "Responses include both actual temperature and feels-like temperature. "
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
+            "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
             "Returns temperature, weather condition, humidity, and wind speed. "
             "Requires OpenWeatherMap API key in plugin config."
         )
@@ -455,14 +556,16 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.9.0",
-            description="Get real-time weather information using OpenWeatherMap API",
+            version="1.10.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
                 "api_key": "string (optional, OpenWeatherMap API key - uses mock data if not provided)",
                 "units": "string (optional, metric/celsius, imperial/fahrenheit, or standard/kelvin; default: metric)",
                 "lang": "string (optional, ISO 639-1 code with optional locale, e.g., en or pt_br)",
+                "cache_ttl_seconds": "integer (optional, >0 enables per-location response cache for this many seconds; default: 0)",
+                "cache_max_entries": "integer (optional, maximum cached responses; default: 256)",
             },
             inputs={
                 "location": "string (optional, required when zip_code and latitude/longitude are not provided)",

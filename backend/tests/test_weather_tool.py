@@ -63,6 +63,120 @@ class TestWeatherTool:
         ):
             WeatherPlugin(config={"lang": "english"})
 
+    def test_cache_config_validation(self):
+        """Cache settings should validate numeric and range constraints."""
+        with pytest.raises(ValueError, match="cache_ttl_seconds cannot be negative"):
+            WeatherPlugin(config={"cache_ttl_seconds": -1})
+
+        with pytest.raises(ValueError, match="cache_ttl_seconds must be an integer"):
+            WeatherPlugin(config={"cache_ttl_seconds": "abc"})
+
+        with pytest.raises(
+            ValueError, match="cache_max_entries must be greater than 0"
+        ):
+            WeatherPlugin(config={"cache_ttl_seconds": 60, "cache_max_entries": 0})
+
+    @pytest.mark.asyncio
+    async def test_response_cache_reuses_api_response(self):
+        """Repeated calls with same query should reuse cached API responses."""
+        plugin = WeatherPlugin(config={"api_key": "test_key", "cache_ttl_seconds": 30})
+
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 14.5, "humidity": 40},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 2.0},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            first = await plugin.execute({"location": "Seoul"})
+            second = await plugin.execute({"location": "Seoul"})
+
+            assert first == second
+            assert mock_get.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_response_cache_key_includes_units_and_language(self):
+        """Different units/lang combinations should produce independent cache entries."""
+        plugin = WeatherPlugin(config={"api_key": "test_key", "cache_ttl_seconds": 30})
+
+        first_response = AsyncMock()
+        first_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 20.0, "humidity": 40},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 3.0},
+        }
+        first_response.raise_for_status = AsyncMock()
+
+        second_response = AsyncMock()
+        second_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 68.0, "humidity": 41},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 8.0},
+        }
+        second_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(side_effect=[first_response, second_response])
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            metric_result = await plugin.execute(
+                {"location": "Seoul", "units": "metric", "lang": "en"}
+            )
+            imperial_result = await plugin.execute(
+                {"location": "Seoul", "units": "imperial", "lang": "ko"}
+            )
+
+            assert metric_result["units"] == "metric"
+            assert imperial_result["units"] == "imperial"
+            assert mock_get.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_response_cache_expires_after_ttl(self):
+        """Cached API responses should expire once TTL has elapsed."""
+        plugin = WeatherPlugin(config={"api_key": "test_key", "cache_ttl_seconds": 1})
+
+        first_response = AsyncMock()
+        first_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 10.0, "humidity": 55},
+            "weather": [{"description": "mist"}],
+            "wind": {"speed": 1.0},
+        }
+        first_response.raise_for_status = AsyncMock()
+
+        second_response = AsyncMock()
+        second_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 12.0, "humidity": 55},
+            "weather": [{"description": "mist"}],
+            "wind": {"speed": 1.0},
+        }
+        second_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(side_effect=[first_response, second_response])
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            first = await plugin.execute({"location": "Seoul"})
+            await plugin.execute({"location": "Seoul"})
+            assert mock_get.await_count == 1
+
+            import asyncio
+
+            await asyncio.sleep(1.05)
+            third = await plugin.execute({"location": "Seoul"})
+
+            assert mock_get.await_count == 2
+            assert first["temperature"] != third["temperature"]
+
     @pytest.mark.asyncio
     async def test_location_required(self, mock_plugin):
         """Test that location parameter is required."""
@@ -654,11 +768,13 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.9.0"
+        assert manifest.version == "1.10.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
         assert "lang" in manifest.config_schema
+        assert "cache_ttl_seconds" in manifest.config_schema
+        assert "cache_max_entries" in manifest.config_schema
         assert "zip_code" in manifest.inputs
         assert "country_code" in manifest.inputs
         assert "latitude" in manifest.inputs
@@ -682,3 +798,4 @@ class TestWeatherTool:
         assert "standard/kelvin" in description
         assert "feels-like temperature" in description
         assert "lang" in description
+        assert "cache_ttl_seconds" in description
