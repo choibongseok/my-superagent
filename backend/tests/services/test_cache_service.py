@@ -1,5 +1,6 @@
 """Tests for LocalCacheService compatibility cache."""
 
+import asyncio
 import time
 
 import pytest
@@ -84,3 +85,41 @@ async def test_local_cache_get_or_set_async_accepts_sync_factory():
 
     assert result == "sync-value"
     assert cache.get("sync-factory") == "sync-value"
+
+
+@pytest.mark.asyncio
+async def test_local_cache_get_or_set_async_deduplicates_concurrent_calls():
+    cache = LocalCacheService()
+    calls = {"count": 0}
+
+    async def factory() -> str:
+        calls["count"] += 1
+        await asyncio.sleep(0.05)
+        return "shared"
+
+    results = await asyncio.gather(
+        cache.get_or_set_async("concurrent", factory),
+        cache.get_or_set_async("concurrent", factory),
+        cache.get_or_set_async("concurrent", factory),
+    )
+
+    assert results == ["shared", "shared", "shared"]
+    assert calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_local_cache_get_or_set_async_cleans_inflight_when_factory_fails():
+    cache = LocalCacheService()
+    calls = {"count": 0}
+
+    async def flaky_factory() -> str:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("boom")
+        return "recovered"
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await cache.get_or_set_async("flaky", flaky_factory)
+
+    assert await cache.get_or_set_async("flaky", flaky_factory) == "recovered"
+    assert calls["count"] == 2

@@ -7,6 +7,7 @@ small ergonomics for bulk and lazy caching workflows.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping
@@ -20,6 +21,8 @@ class LocalCacheService:
         # key -> (value, expires_at)
         # expires_at is None for non-expiring entries
         self._store: dict[str, tuple[Any, float | None]] = {}
+        # key -> in-flight async population task
+        self._inflight: dict[str, asyncio.Task[Any]] = {}
 
     def _get_entry(self, key: str) -> tuple[Any, float | None] | None:
         """Return a non-expired cache entry or ``None`` when missing/expired."""
@@ -85,6 +88,14 @@ class LocalCacheService:
         self.set(key, value, ttl_seconds=ttl_seconds)
         return value
 
+    async def _resolve_async_factory(
+        self,
+        factory: Callable[[], Awaitable[Any] | Any],
+    ) -> Any:
+        """Resolve a lazy factory that may be sync or async."""
+        produced = factory()
+        return await produced if inspect.isawaitable(produced) else produced
+
     async def get_or_set_async(
         self,
         key: str,
@@ -94,16 +105,24 @@ class LocalCacheService:
         """Async-friendly variant of :meth:`get_or_set`.
 
         The ``factory`` may return either a direct value or an awaitable.
-        This lets async workflows memoize expensive coroutines without
-        duplicating cache helper code.
+        Concurrent callers for the same key are de-duplicated so that only
+        one factory execution runs while others await the same result.
         """
         item = self._get_entry(key)
         if item is not None:
             value, _ = item
             return value
 
-        produced = factory()
-        value = await produced if inspect.isawaitable(produced) else produced
+        in_flight = self._inflight.get(key)
+        if in_flight is not None:
+            return await in_flight
+
+        task = asyncio.create_task(self._resolve_async_factory(factory))
+        self._inflight[key] = task
+        try:
+            value = await task
+        finally:
+            self._inflight.pop(key, None)
 
         self.set(key, value, ttl_seconds=ttl_seconds)
         return value
