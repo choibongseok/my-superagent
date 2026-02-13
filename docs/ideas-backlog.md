@@ -6,6 +6,283 @@
 
 ---
 
+## 2026-02-13 (AM 2차) | 기획자 에이전트 - 모바일 & 협업 강화 제안 📱🔔
+
+### 🔔 Idea #29: "Smart Notifications & Digest" - AI 큐레이션 알림 시스템
+
+**문제점**:
+- 현재 사용자는 **모든 Agent 작업 완료를 수동 확인**
+  - 예: Research Agent 실행 → 15분 대기 → 다시 와서 확인 (비효율)
+- 중요한 정보를 놓침
+  - 예: 긴급한 이메일 도착, 캘린더 변경사항
+- **정보 과부하** (Information Overload)
+  - 매일 수백 개 알림 → 무시하게 됨
+  - Slack, Gmail, 캘린더 각자 알림 → 분산
+- 경쟁사 동향:
+  - Notion: 단순 알림만 (지능형 필터링 X)
+  - Slack: 모든 메시지 알림 (소음)
+  - **AgentHQ: 알림 시스템 없음** ❌
+
+**제안 아이디어**:
+```
+"Smart Notifications & Digest" - AI가 중요한 것만 골라서 알림하는 지능형 시스템
+```
+
+**핵심 기능**:
+1. **AI-Powered Prioritization**
+   - 모든 이벤트에 중요도 점수 자동 부여 (0-100)
+   - 예: CEO 이메일 = 95점, 스팸 = 5점
+   - 사용자 행동 학습 → 점수 정확도 향상
+   - 80점 이상만 즉시 알림 (나머지는 Digest에 포함)
+
+2. **Smart Digest (Daily/Weekly)**
+   - 매일 아침 9시: "오늘의 요약" 이메일/Slack
+   - 내용:
+     - 완료된 Agent 작업 (5건)
+     - 놓친 중요 이메일 (2건)
+     - 오늘 일정 (3개 회의)
+     - 추천 작업 ("이 리포트 업데이트할 시간이에요")
+   - 예상 읽기 시간: 2분 (핵심만 요약)
+
+3. **Contextual Notifications**
+   - 위치/시간 기반 알림
+   - 예: 오전 9-18시만 알림 (야간 방해 X)
+   - 예: 모바일 위치가 집 → "퇴근했으니 업무 알림 중지"
+   - Do Not Disturb 자동 감지 (캘린더 회의 중)
+
+4. **Multi-Channel Delivery**
+   - 알림 채널 선택: Email, Slack, WhatsApp, Push
+   - 중요도별 채널 자동 선택
+     - 긴급 (95+): Push + Email + Slack
+     - 중요 (80-94): Push + Email
+     - 보통 (60-79): Digest에만 포함
+   - 예: "CEO 이메일 도착" → 즉시 Push
+
+5. **Smart Snooze & Reminders**
+   - "나중에 보기" → AI가 최적 시간 제안
+   - 예: "30분 후" vs "내일 아침 9시" vs "다음 주 월요일"
+   - 자동 리마인더: "3일 전에 스누즈한 작업이에요"
+
+**기술 구현**:
+- **Backend**:
+  - NotificationEngine 서비스
+  - Prioritization ML 모델 (GPT-3.5로 중요도 분류)
+  - Digest generator (daily/weekly cron job)
+- **Multi-Channel**:
+  - Email: SMTP (이미 Phase 8에서 구현됨 ✅)
+  - Slack: Slack API
+  - WhatsApp: Twilio API
+  - Push: Firebase Cloud Messaging (Mobile)
+- **User Preferences**:
+  - 알림 설정 UI (채널, 시간대, 중요도 threshold)
+
+**예상 임팩트**:
+- 🚀 **생산성**: 
+  - 정보 찾기 시간 80% 단축 (중요한 것만 보임)
+  - 작업 완료 대기 시간 제거 (즉시 알림)
+  - "놓침" 방지 (중요 이메일 100% 캐치)
+- 🎯 **차별화**: 
+  - Notion: 단순 알림 (지능형 X)
+  - Slack: 모든 메시지 (소음)
+  - **AgentHQ**: AI 큐레이션 (신호 vs 소음)
+- 📈 **비즈니스**: 
+  - 모바일 사용률 +120% (Push 알림 → 재방문)
+  - 사용자 만족도(NPS) +25점 (정보 과부하 해결)
+  - Premium 기능: "Advanced Digest" ($9/month)
+
+**개발 난이도**: ⭐⭐⭐☆☆ (Medium)
+- Notification engine (2주)
+- Prioritization ML (1.5주)
+- Multi-channel integration (2주)
+- Digest generator (1주)
+- 총 6.5주
+
+**우선순위**: 🔥 HIGH (Phase 9, 사용자 유지율 핵심)
+
+**설계 검토 요청**: ✅
+
+---
+
+### 📜 Idea #30: "Version Control & Time Travel" - 모든 작업의 버전 관리
+
+**문제점**:
+- 현재 Agent가 문서를 **덮어쓰기만** 함 (이전 버전 복구 불가)
+  - 예: Docs Agent로 리포트 수정 → 이전 버전 사라짐
+  - 실수로 삭제 → 복구 방법 없음
+- Google Docs는 버전 관리 지원하지만 **AgentHQ 밖에서 확인해야 함** (불편)
+- 팀 협업 시 "누가 언제 무엇을 바꿨는지" 추적 어려움
+- 경쟁사 동향:
+  - Notion: 버전 히스토리 강력 (페이지 단위)
+  - Google Docs: 버전 관리 완벽 (시간대별)
+  - **AgentHQ: 버전 관리 없음** ❌
+
+**제안 아이디어**:
+```
+"Version Control & Time Travel" - 모든 Agent 작업을 Git처럼 버전 관리
+```
+
+**핵심 기능**:
+1. **Automatic Versioning**
+   - 모든 Agent 작업 자동 버전 저장
+   - 예: Docs Agent 3회 실행 → v1, v2, v3 자동 저장
+   - 변경사항 diff 표시 (빨간색 삭제, 초록색 추가)
+   - 타임스탬프 + 사용자 + Agent 정보 기록
+
+2. **One-Click Rollback**
+   - "이전 버전으로 복구" 버튼
+   - 미리보기: v2 vs v3 비교
+   - 부분 복구: "이 단락만 v2로 되돌리기"
+   - Undo/Redo 무제한 (Google Docs처럼)
+
+3. **Version Timeline**
+   - 시각적 타임라인: 작업 히스토리 한눈에
+   - 예: "2시간 전: Research Agent 실행 → 30분 전: Docs 작성 → 지금: Sheets 생성"
+   - 특정 시점으로 "시간 여행" (Time Travel)
+   - "어제 오후 3시 상태로 돌아가기"
+
+4. **Collaborative Version Control**
+   - 팀원별 변경사항 추적
+   - 예: "Alice가 차트 추가 (v3) → Bob이 텍스트 수정 (v4)"
+   - Conflict resolution: 동시 편집 시 병합 도구
+   - Blame view: "이 문장은 누가 썼나?" (Git blame처럼)
+
+5. **Smart Branching (Advanced)**
+   - "실험적 작업" 브랜치 생성
+   - 예: "v3에서 브랜치 → 새로운 차트 시도 → 마음에 안 들면 버림"
+   - 성공하면 메인 버전에 병합
+   - A/B 테스트: 두 버전 비교 → 더 나은 것 선택
+
+**기술 구현**:
+- **Backend**:
+  - DocumentVersion 모델 (document_id, version, content, diff, user_id, agent_id, timestamp)
+  - Version storage: PostgreSQL JSONB (효율적 diff 저장)
+  - Diff algorithm: Myers' diff (Git 사용 알고리즘)
+- **Frontend**:
+  - Timeline UI (React Timeline 라이브러리)
+  - Diff viewer (react-diff-viewer)
+  - Rollback 버튼 (한 번에 복구)
+- **Storage Optimization**:
+  - Delta compression (전체 저장 X, 변경사항만)
+  - 30일 이상 된 버전 자동 압축
+  - Premium 사용자: 무제한 보관 / Free: 7일
+
+**예상 임팩트**:
+- 🚀 **안심 & 신뢰**: 
+  - 실수 두려움 제거 (언제든 복구 가능)
+  - 실험 장려 ("이상하면 되돌리면 되니까")
+  - 협업 투명성 +100% (누가 뭘 했는지 명확)
+- 🎯 **차별화**: 
+  - Zapier: 버전 관리 없음 (한 번 실행하면 끝)
+  - Notion: 페이지 단위 (AI Agent 작업 추적 X)
+  - **AgentHQ**: AI 작업도 Git처럼 관리 (유일무이)
+- 📈 **비즈니스**: 
+  - 유료 전환율 +45% (안심 → 중요 작업 사용)
+  - Enterprise 확보 (Audit trail 필수)
+  - Premium 기능: "Unlimited Versions" ($19/month)
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Medium-Hard)
+- Version 모델 (1주)
+- Diff engine (2주)
+- Rollback 기능 (1.5주)
+- Timeline UI (1.5주)
+- 총 6주
+
+**우선순위**: 🔥 CRITICAL (Phase 8-9, 사용자 안심 핵심)
+
+**설계 검토 요청**: ✅
+
+---
+
+### 📱 Idea #31: "Mobile-First Shortcuts" - 10초 안에 작업 완료
+
+**문제점**:
+- 현재 모바일 앱은 **Desktop과 동일한 UX** (긴 프로세스)
+  - 예: 앱 열기 → 로그인 → Agent 선택 → 프롬프트 입력 → 실행 (1분+)
+- 모바일 사용자는 **빠른 작업 원함**
+  - 예: 출퇴근 중 10초 안에 "오늘 일정 요약"
+  - 예: 회의 전 3초 만에 "경쟁사 최신 뉴스"
+- **마찰(Friction)** 높음 → 사용률 낮음
+- 경쟁사 동향:
+  - Notion: 위젯 지원 (빠른 메모)
+  - Slack: Siri Shortcuts 통합
+  - **AgentHQ: 모바일 특화 기능 없음** ❌
+
+**제안 아이디어**:
+```
+"Mobile-First Shortcuts" - 10초 안에 Agent 작업 완료하는 모바일 최적화
+```
+
+**핵심 기능**:
+1. **Home Screen Widgets**
+   - iOS/Android 위젯: 홈 화면에서 즉시 실행
+   - 예: "오늘 일정" 위젯 → 탭 → 캘린더 요약 즉시 표시
+   - 자주 쓰는 작업 4개 고정 (사용자 학습)
+   - Live updates: 위젯 내용 실시간 갱신
+
+2. **Siri/Google Assistant Integration**
+   - 음성 명령: "Hey Siri, AgentHQ로 주간 리포트 생성"
+   - Siri Shortcuts 지원 (iOS)
+   - Google Assistant Actions (Android)
+   - 예: "OK Google, 오늘 이메일 요약해줘" → AgentHQ Research Agent 실행
+
+3. **Quick Actions (Force Touch)**
+   - 앱 아이콘 길게 누르기 → 메뉴
+   - 예: "새 리포트", "이메일 요약", "일정 확인", "경쟁사 뉴스"
+   - 1탭으로 즉시 실행 (앱 열기 불필요)
+
+4. **Share Sheet Integration**
+   - 다른 앱에서 공유 → AgentHQ 바로 실행
+   - 예: Safari에서 기사 읽기 → Share → "AgentHQ로 요약"
+   - 예: 사진 앱 → 이미지 선택 → "AgentHQ로 분석" (Multimodal)
+
+5. **Background Execution**
+   - 앱 닫혀 있어도 작업 실행
+   - 예: 출근 시간(8:30) 자동 감지 → "출근 준비 브리핑" 생성
+   - Push 알림: "오늘의 요약이 준비되었습니다"
+
+**기술 구현**:
+- **iOS**:
+  - WidgetKit (SwiftUI)
+  - Siri Shortcuts (Intents Extension)
+  - Share Extension
+  - Background Fetch
+- **Android**:
+  - App Widgets (Jetpack Compose)
+  - Google Assistant Actions
+  - Share Intent
+  - WorkManager (background tasks)
+- **Backend**:
+  - Fast API endpoints (< 200ms response)
+  - Pre-computed results (캐싱)
+  - Push notification service (이미 구현됨)
+
+**예상 임팩트**:
+- 🚀 **모바일 사용률**: 
+  - 일일 사용 5배 증가 (위젯 → 습관화)
+  - 작업 시작 시간 90% 단축 (1분 → 5초)
+  - 새로운 사용 패턴: "출퇴근 필수 앱"
+- 🎯 **차별화**: 
+  - Zapier: 모바일 앱 약함 (Desktop 중심)
+  - Notion: 위젯 있지만 AI Agent 없음
+  - **AgentHQ**: AI + Mobile Native (유일무이)
+- 📈 **비즈니스**: 
+  - MAU +80% (모바일 신규 사용자)
+  - DAU/MAU ratio 개선 (30% → 60%, 일일 사용 증가)
+  - 앱 스토어 순위 상승 (위젯 → 발견)
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Hard)
+- iOS Widgets (2주)
+- Android Widgets (2주)
+- Siri/Assistant (2주)
+- Share Extension (1주)
+- 총 7주
+
+**우선순위**: 🔥 HIGH (Phase 9, 모바일 사용자 확대 핵심)
+
+**설계 검토 요청**: ✅
+
+---
+
 ## 2026-02-13 (AM 1차) | 기획자 에이전트 - 신뢰성 & 사용성 강화 제안 ✨🎯
 
 ### 🔍 Idea #26: "AI Fact Checker" - 실시간 결과 검증 시스템
