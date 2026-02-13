@@ -2,6 +2,7 @@
 
 import importlib
 import logging
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
@@ -151,8 +152,9 @@ class PluginManager:
             include_plugins: Optional allowlist of plugin selectors. Selectors
                 may be module stems ("weather_tool"), module paths
                 ("app.plugins.weather_tool"), or filenames
-                ("weather_tool.py"). When provided, only matching plugins
-                are considered.
+                ("weather_tool.py"). Glob patterns are also supported
+                (for example, ``"weather_*"``). When provided, only
+                matching plugins are considered.
             exclude_plugins: Optional denylist of plugin selectors in the same
                 format as ``include_plugins``.
             stop_on_error: If True, fail fast when a plugin cannot be loaded.
@@ -164,7 +166,7 @@ class PluginManager:
         loaded: List[str] = []
         config_map: Mapping[str, Mapping[str, Any]] = plugin_configs or {}
 
-        include_set = (
+        include_selectors = (
             {
                 self._normalize_module_selector(selector)
                 for selector in include_plugins
@@ -172,13 +174,13 @@ class PluginManager:
             if include_plugins is not None
             else None
         )
-        exclude_set = {
+        exclude_selectors = {
             self._normalize_module_selector(selector)
             for selector in (exclude_plugins or [])
         }
 
-        if include_set is not None:
-            overlap = include_set & exclude_set
+        if include_selectors is not None:
+            overlap = include_selectors & exclude_selectors
             if overlap:
                 conflicting = ", ".join(sorted(overlap))
                 raise ValueError(
@@ -202,11 +204,17 @@ class PluginManager:
             module_name = plugin_file.stem
             module_path = f"app.plugins.{module_name}"
 
-            if include_set is not None and module_name not in include_set:
+            if include_selectors is not None and not any(
+                fnmatchcase(module_name, selector)
+                for selector in include_selectors
+            ):
                 logger.debug("Skipping plugin %s (not in include list)", module_name)
                 continue
 
-            if module_name in exclude_set:
+            if any(
+                fnmatchcase(module_name, selector)
+                for selector in exclude_selectors
+            ):
                 logger.debug("Skipping plugin %s (in exclude list)", module_name)
                 continue
 

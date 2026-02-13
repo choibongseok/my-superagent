@@ -194,6 +194,72 @@ async def test_load_plugins_from_directory_respects_exclude_denylist(
 
 
 @pytest.mark.asyncio
+async def test_load_plugins_from_directory_include_supports_glob_patterns(
+    tmp_path, monkeypatch
+):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+    (tmp_path / "slack_notifier.py").write_text("# slack", encoding="utf-8")
+
+    modules = {
+        "app.plugins.weather_tool": _plugin_module(
+            "app.plugins.weather_tool",
+            _build_plugin_class("weather-plugin", ["network.http"]),
+        ),
+        "app.plugins.slack_notifier": _plugin_module(
+            "app.plugins.slack_notifier",
+            _build_plugin_class("slack-plugin", ["network.http"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    loaded = await manager.load_plugins_from_directory(include_plugins=["*tool"])
+
+    assert loaded == ["weather-plugin"]
+    assert manager.get_plugin("weather-plugin") is not None
+    assert manager.get_plugin("slack-plugin") is None
+
+
+@pytest.mark.asyncio
+async def test_load_plugins_from_directory_exclude_supports_glob_patterns(
+    tmp_path, monkeypatch
+):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+    (tmp_path / "slack_notifier.py").write_text("# slack", encoding="utf-8")
+
+    modules = {
+        "app.plugins.weather_tool": _plugin_module(
+            "app.plugins.weather_tool",
+            _build_plugin_class("weather-plugin", ["network.http"]),
+        ),
+        "app.plugins.slack_notifier": _plugin_module(
+            "app.plugins.slack_notifier",
+            _build_plugin_class("slack-plugin", ["network.http"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    loaded = await manager.load_plugins_from_directory(exclude_plugins=["*_tool"])
+
+    assert loaded == ["slack-plugin"]
+    assert manager.get_plugin("weather-plugin") is None
+    assert manager.get_plugin("slack-plugin") is not None
+
+
+@pytest.mark.asyncio
 async def test_load_plugins_from_directory_rejects_include_exclude_overlap(
     tmp_path, monkeypatch
 ):
