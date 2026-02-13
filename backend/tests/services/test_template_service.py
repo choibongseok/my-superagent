@@ -504,6 +504,87 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_json_transform(self, service_with_mock_db):
+        """json transform should serialize nested values into compact JSON."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Payload: {payload->json}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"payload": {"topic": "안전", "count": 2, "items": ["a", "b"]}},
+                user_id,
+            )
+
+        assert result["prompt"] == 'Payload: {"count":2,"items":["a","b"],"topic":"안전"}'
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_pretty_json_transform(
+        self, service_with_mock_db
+    ):
+        """json_pretty transform should serialize with indentation and newlines."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Payload:\n{payload->json_pretty}",
+            category="docs",
+            usage_count=4,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"payload": {"topic": "AgentHQ", "items": ["one", "two"]}},
+                user_id,
+            )
+
+        assert '"topic": "AgentHQ"' in result["prompt"]
+        assert '"items": [' in result["prompt"]
+        assert '\n  "items":' in result["prompt"]
+        assert template.usage_count == 5
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_reports_transform_execution_errors(
+        self, service_with_mock_db
+    ):
+        """Transform failures should bubble up as clear ValueError messages."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Payload: {payload->json}",
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match="Failed to apply template transform 'json'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"payload": {"unsupported": {1, 2, 3}}},
+                    user_id,
+                )
+
+        assert template.usage_count == 3
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_rejects_unsupported_transform(
         self, service_with_mock_db
     ):

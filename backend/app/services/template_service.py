@@ -1,5 +1,6 @@
 """Service for template marketplace management."""
 
+import json
 import logging
 import re
 from string import Formatter
@@ -64,6 +65,14 @@ def _to_camel_case(value: object) -> str:
         return ""
 
     return pascal_case[0].lower() + pascal_case[1:]
+
+
+def _to_json(value: object, *, pretty: bool = False) -> str:
+    """Serialize values to JSON for prompt rendering transforms."""
+    if pretty:
+        return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
+
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
 class TemplateService:
@@ -303,6 +312,8 @@ class TemplateService:
             ).upper(),
             "camel_case": _to_camel_case,
             "pascal_case": _to_pascal_case,
+            "json": lambda raw: _to_json(raw, pretty=False),
+            "json_pretty": lambda raw: _to_json(raw, pretty=True),
         }
 
         transformed = value
@@ -314,7 +325,13 @@ class TemplateService:
                     f"Unsupported template transform: {transform}. "
                     f"Supported transforms: {supported}"
                 )
-            transformed = operation(transformed)
+
+            try:
+                transformed = operation(transformed)
+            except Exception as exc:
+                raise ValueError(
+                    f"Failed to apply template transform '{transform}': {exc}"
+                ) from exc
 
         return transformed
 
@@ -367,7 +384,8 @@ class TemplateService:
         example ``{audience->upper}``, ``{name|friend->title}``,
         ``{project_name->snake_case}``, ``{release_title->kebab_case}``,
         ``{service->dot_case}``, ``{build_target->constant_case}``,
-        ``{variable->camel_case}``, or ``{variable->pascal_case}``).
+        ``{variable->camel_case}``, ``{variable->pascal_case}``,
+        ``{payload->json}``, or ``{payload->json_pretty}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)
