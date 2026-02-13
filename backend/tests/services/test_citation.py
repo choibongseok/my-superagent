@@ -282,6 +282,69 @@ class TestCitationTracker:
                 published_before=datetime(2024, 12, 31),
             )
 
+    def test_search_sources_supports_case_insensitive_metadata_filters(self):
+        """Metadata filters should match keys/values regardless of casing."""
+        tracker = CitationTracker()
+
+        ai_ops_id = tracker.add_source(
+            title="AI Ops Playbook",
+            metadata={"topic": "AI", "region": "KR"},
+        )
+        tracker.add_source(
+            title="AI Safety Brief",
+            metadata={"topic": "safety", "region": "US"},
+        )
+
+        matches = tracker.search_sources(
+            "ai",
+            metadata_filters={"TOPIC": "ai", "region": "kr"},
+        )
+
+        assert [source.id for source in matches] == [ai_ops_id]
+
+    def test_search_sources_metadata_filters_support_multiple_allowed_values(self):
+        """Metadata filter values can be provided as an allow-list iterable."""
+        tracker = CitationTracker()
+
+        kr_id = tracker.add_source(
+            title="Regional AI Overview",
+            metadata={"region": "KR", "topic": "ai"},
+        )
+        jp_id = tracker.add_source(
+            title="Regional Data Overview",
+            metadata={"region": "JP", "topic": "data"},
+        )
+        tracker.add_source(
+            title="US AI Overview",
+            metadata={"region": "US", "topic": "ai"},
+        )
+
+        matches = tracker.search_sources(
+            "overview",
+            metadata_filters={"region": ["kr", "jp"]},
+        )
+
+        assert [source.id for source in matches] == [kr_id, jp_id]
+
+    def test_search_sources_rejects_invalid_metadata_filters(self):
+        """Search should validate metadata filter payload shape and values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="metadata_filters must be a mapping of key/value filters",
+        ):
+            tracker.search_sources("ai", metadata_filters=[("topic", "ai")])
+
+        with pytest.raises(ValueError, match="metadata_filters keys cannot be blank"):
+            tracker.search_sources("ai", metadata_filters={"   ": "ai"})
+
+        with pytest.raises(
+            ValueError,
+            match="must include at least one non-empty value",
+        ):
+            tracker.search_sources("ai", metadata_filters={"topic": []})
+
     def test_create_citation(self):
         """Test creating a citation."""
         tracker = CitationTracker()

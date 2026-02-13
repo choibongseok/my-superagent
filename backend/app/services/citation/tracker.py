@@ -3,6 +3,7 @@
 import logging
 import re
 import uuid
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -110,6 +111,83 @@ class CitationTracker:
             return ""
 
         return " ".join(value.split()).casefold()
+
+    @classmethod
+    def _normalize_metadata_values(cls, value: Any) -> set[str]:
+        """Normalize metadata values for robust case-insensitive comparisons."""
+        if isinstance(value, (list, tuple, set, frozenset)):
+            candidates = value
+        else:
+            candidates = [value]
+
+        normalized_values: set[str] = set()
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            normalized_candidate = cls._normalize_text(str(candidate))
+            if normalized_candidate:
+                normalized_values.add(normalized_candidate)
+
+        return normalized_values
+
+    @classmethod
+    def _normalize_metadata_filters(
+        cls,
+        metadata_filters: Optional[Mapping[str, Any]],
+    ) -> Optional[dict[str, set[str]]]:
+        """Normalize and validate optional metadata filter values."""
+        if metadata_filters is None:
+            return None
+        if not isinstance(metadata_filters, Mapping):
+            raise ValueError("metadata_filters must be a mapping of key/value filters")
+
+        normalized_filters: dict[str, set[str]] = {}
+        for key, value in metadata_filters.items():
+            if not isinstance(key, str):
+                raise ValueError("metadata_filters keys must be strings")
+
+            normalized_key = cls._normalize_text(key)
+            if not normalized_key:
+                raise ValueError("metadata_filters keys cannot be blank")
+
+            normalized_values = cls._normalize_metadata_values(value)
+            if not normalized_values:
+                raise ValueError(
+                    f"metadata_filters for key '{key}' must include at least one non-empty value"
+                )
+
+            normalized_filters.setdefault(normalized_key, set()).update(
+                normalized_values
+            )
+
+        return normalized_filters
+
+    @classmethod
+    def _matches_metadata_filters(
+        cls,
+        source_metadata: Mapping[str, Any],
+        metadata_filters: Optional[Mapping[str, set[str]]],
+    ) -> bool:
+        """Check whether source metadata matches all normalized filters."""
+        if not metadata_filters:
+            return True
+
+        normalized_metadata: dict[str, set[str]] = {}
+        for key, value in source_metadata.items():
+            normalized_key = cls._normalize_text(str(key))
+            if not normalized_key:
+                continue
+
+            normalized_metadata.setdefault(normalized_key, set()).update(
+                cls._normalize_metadata_values(value)
+            )
+
+        for key, expected_values in metadata_filters.items():
+            source_values = normalized_metadata.get(key)
+            if not source_values or source_values.isdisjoint(expected_values):
+                return False
+
+        return True
 
     @classmethod
     def _build_source_fingerprint(
@@ -360,6 +438,7 @@ class CitationTracker:
         match_mode: Literal["all", "any"] = "all",
         published_after: Optional[datetime] = None,
         published_before: Optional[datetime] = None,
+        metadata_filters: Optional[Mapping[str, Any]] = None,
     ) -> List[Source]:
         """Search sources with lightweight relevance ranking.
 
@@ -375,6 +454,9 @@ class CitationTracker:
                 ``"any"`` returns sources that match at least one token.
             published_after: Optional lower-bound date filter (inclusive).
             published_before: Optional upper-bound date filter (inclusive).
+            metadata_filters: Optional metadata constraints where each key/value
+                pair must match source metadata exactly (case-insensitive). Values
+                may be scalars or iterables of accepted values.
 
         Returns:
             Ranked list of matching sources.
@@ -405,6 +487,8 @@ class CitationTracker:
             )
             normalized_source_type = self._normalize_text(normalized_source_type)
 
+        normalized_metadata_filters = self._normalize_metadata_filters(metadata_filters)
+
         ranked_matches: List[tuple[int, Source]] = []
 
         for source in self.sources.values():
@@ -412,6 +496,12 @@ class CitationTracker:
             if (
                 normalized_source_type is not None
                 and source_type_value != normalized_source_type
+            ):
+                continue
+
+            if not self._matches_metadata_filters(
+                source.metadata or {},
+                normalized_metadata_filters,
             ):
                 continue
 
