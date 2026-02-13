@@ -211,6 +211,34 @@ class TestCitationTracker:
         with pytest.raises(ValueError, match="limit must be greater than 0"):
             tracker.search_sources("agent", limit=0)
 
+    def test_search_sources_match_mode_any_returns_partial_token_matches(self):
+        """match_mode='any' should return partial token matches, unlike default all."""
+        tracker = CitationTracker()
+
+        both_id = tracker.add_source(title="Agentic Workflow Patterns")
+        agentic_only_id = tracker.add_source(title="Agentic Reliability Guide")
+        workflow_only_id = tracker.add_source(title="Workflow Handbook")
+
+        matches_all = tracker.search_sources("agentic workflow")
+        assert [source.id for source in matches_all] == [both_id]
+
+        matches_any = tracker.search_sources("agentic workflow", match_mode="any")
+
+        assert len(matches_any) == 3
+        assert matches_any[0].id == both_id
+        assert {source.id for source in matches_any} == {
+            both_id,
+            agentic_only_id,
+            workflow_only_id,
+        }
+
+    def test_search_sources_rejects_invalid_match_mode(self):
+        """Search should validate supported token matching modes."""
+        tracker = CitationTracker()
+
+        with pytest.raises(ValueError, match="match_mode must be 'all' or 'any'"):
+            tracker.search_sources("agent", match_mode="partial")
+
     def test_create_citation(self):
         """Test creating a citation."""
         tracker = CitationTracker()

@@ -4,7 +4,7 @@ import logging
 import re
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from app.services.citation.models import Citation, Source, SourceType
@@ -357,6 +357,7 @@ class CitationTracker:
         *,
         source_type: Optional[SourceType | str] = None,
         limit: Optional[int] = None,
+        match_mode: Literal["all", "any"] = "all",
     ) -> List[Source]:
         """Search sources with lightweight relevance ranking.
 
@@ -367,12 +368,19 @@ class CitationTracker:
             query: Search text. Blank query returns all sources.
             source_type: Optional source type filter.
             limit: Optional max number of results. Must be > 0 when set.
+            match_mode: Token matching strategy. ``"all"`` requires every
+                query token to appear in the searchable source text, while
+                ``"any"`` returns sources that match at least one token.
 
         Returns:
             Ranked list of matching sources.
         """
         if limit is not None and limit <= 0:
             raise ValueError("limit must be greater than 0")
+
+        normalized_match_mode = self._normalize_text(match_mode)
+        if normalized_match_mode not in {"all", "any"}:
+            raise ValueError("match_mode must be 'all' or 'any'")
 
         normalized_query = self._normalize_text(query)
         query_tokens = [token for token in normalized_query.split(" ") if token]
@@ -413,7 +421,12 @@ class CitationTracker:
             )
 
             if query_tokens:
-                if not all(token in searchable_text for token in query_tokens):
+                if normalized_match_mode == "all":
+                    has_match = all(token in searchable_text for token in query_tokens)
+                else:
+                    has_match = any(token in searchable_text for token in query_tokens)
+
+                if not has_match:
                     continue
 
                 score = 0
