@@ -162,6 +162,77 @@ class LocalCacheService:
                 results[key] = value
         return results
 
+    def get_or_set_many(
+        self,
+        keys: Iterable[str],
+        factory: Callable[[list[str]], Mapping[str, Any]],
+        ttl_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        """Return values for ``keys``, populating misses in one factory call.
+
+        Args:
+            keys: Cache keys to resolve.
+            factory: Callable that receives missing keys and returns a mapping
+                containing values for each missing key.
+            ttl_seconds: Optional TTL applied only to values populated by
+                ``factory``.
+
+        Returns:
+            Mapping of resolved key/value pairs for the requested keys.
+
+        Raises:
+            TypeError: If ``factory`` is not callable or does not return a
+                mapping.
+            ValueError: If the factory result omits any requested missing key.
+        """
+        if not callable(factory):
+            raise TypeError("factory must be callable")
+
+        requested_keys = list(keys)
+        lookup_cache: dict[str, tuple[Any, float | None] | None] = {}
+        resolved_values: dict[str, Any] = {}
+        missing_keys: list[str] = []
+
+        for key in requested_keys:
+            item = lookup_cache.get(key)
+            if key not in lookup_cache:
+                item = self._get_entry(key)
+                lookup_cache[key] = item
+                if item is None:
+                    missing_keys.append(key)
+                else:
+                    value, _ = item
+                    resolved_values[key] = value
+
+            self._record_lookup(hit=item is not None)
+
+        if missing_keys:
+            unique_missing_keys = list(dict.fromkeys(missing_keys))
+            produced_values = factory(unique_missing_keys)
+            if not isinstance(produced_values, Mapping):
+                raise TypeError("factory must return a mapping of key/value pairs")
+
+            unresolved_keys = [
+                key for key in unique_missing_keys if key not in produced_values
+            ]
+            if unresolved_keys:
+                missing_display = ", ".join(unresolved_keys)
+                raise ValueError(
+                    f"factory result is missing values for keys: {missing_display}"
+                )
+
+            for key in unique_missing_keys:
+                value = produced_values[key]
+                self.set(key, value, ttl_seconds=ttl_seconds)
+                resolved_values[key] = value
+
+        ordered_results: dict[str, Any] = {}
+        for key in requested_keys:
+            if key in resolved_values and key not in ordered_results:
+                ordered_results[key] = resolved_values[key]
+
+        return ordered_results
+
     def has(self, key: str) -> bool:
         """Return ``True`` when a non-expired key exists."""
         exists = self._get_entry(key) is not None

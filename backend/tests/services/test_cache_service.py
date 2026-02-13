@@ -67,6 +67,75 @@ def test_local_cache_bulk_set_and_get_many():
     assert cache.get_many(["a", "missing", "c"]) == {"a": 1, "c": 3}
 
 
+def test_local_cache_get_or_set_many_populates_missing_keys_once():
+    cache = LocalCacheService()
+    cache.set("cached", 10)
+
+    calls = {"count": 0, "missing": []}
+
+    def factory(missing_keys: list[str]) -> dict[str, int]:
+        calls["count"] += 1
+        calls["missing"] = missing_keys
+        return {
+            "fresh": 20,
+            "late": 30,
+        }
+
+    values = cache.get_or_set_many(["cached", "fresh", "fresh", "late"], factory)
+
+    assert values == {"cached": 10, "fresh": 20, "late": 30}
+    assert calls == {"count": 1, "missing": ["fresh", "late"]}
+    assert cache.get("fresh") == 20
+    assert cache.get("late") == 30
+
+
+def test_local_cache_get_or_set_many_skips_factory_when_all_keys_cached():
+    cache = LocalCacheService()
+    cache.set_many({"a": 1, "b": 2})
+
+    def should_not_run(_: list[str]) -> dict[str, int]:
+        raise AssertionError("factory must not be called when all keys are cached")
+
+    assert cache.get_or_set_many(["a", "b"], should_not_run) == {"a": 1, "b": 2}
+
+
+def test_local_cache_get_or_set_many_applies_ttl_to_populated_entries():
+    cache = LocalCacheService()
+
+    populated = cache.get_or_set_many(
+        ["token"],
+        lambda missing: {key: "abc123" for key in missing},
+        ttl_seconds=1,
+    )
+
+    assert populated == {"token": "abc123"}
+    assert cache.get("token") == "abc123"
+
+    time.sleep(1.05)
+
+    assert cache.get("token") is None
+
+
+def test_local_cache_get_or_set_many_validates_factory_output_mapping():
+    cache = LocalCacheService()
+
+    with pytest.raises(TypeError, match="factory must return a mapping"):
+        cache.get_or_set_many(
+            ["missing"],
+            lambda _: ["not", "a", "mapping"],  # type: ignore[arg-type]
+        )
+
+
+def test_local_cache_get_or_set_many_requires_all_missing_keys_in_factory_result():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="missing values for keys: beta"):
+        cache.get_or_set_many(
+            ["alpha", "beta"],
+            lambda _: {"alpha": 1},
+        )
+
+
 def test_local_cache_set_if_absent_stores_missing_key_only_once():
     cache = LocalCacheService()
 
