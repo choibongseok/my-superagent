@@ -12,6 +12,7 @@ import inspect
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable, Mapping
+from fnmatch import fnmatchcase
 from typing import Any
 
 
@@ -248,6 +249,28 @@ class LocalCacheService:
     def clear_prefix(self, prefix: str) -> int:
         """Delete all keys that start with ``prefix`` and return removal count."""
         matching_keys = [key for key in self._store if key.startswith(prefix)]
+        return self.delete_many(matching_keys)
+
+    def clear_pattern(self, pattern: str) -> int:
+        """Delete keys that match a glob ``pattern``.
+
+        Pattern syntax follows :mod:`fnmatch` conventions (for example,
+        ``"user:*:profile"`` or ``"workspace:?"``).
+        """
+        matching_keys = [key for key in self._store if fnmatchcase(key, pattern)]
+        return self.delete_many(matching_keys)
+
+    def clear_patterns(self, patterns: Iterable[str]) -> int:
+        """Delete keys that match any glob pattern in ``patterns``."""
+        pattern_list = [pattern for pattern in patterns if pattern]
+        if not pattern_list:
+            return 0
+
+        matching_keys = {
+            key
+            for key in self._store
+            if any(fnmatchcase(key, pattern) for pattern in pattern_list)
+        }
         return self.delete_many(matching_keys)
 
     def size(self) -> int:

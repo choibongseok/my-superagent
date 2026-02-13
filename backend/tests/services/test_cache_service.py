@@ -178,6 +178,55 @@ def test_local_cache_clear_prefix_removes_matching_keys_only():
     assert cache.get("user:2:profile") is None
 
 
+def test_local_cache_clear_pattern_removes_glob_matches_only():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "user:1:profile": {"name": "A"},
+            "user:2:profile": {"name": "B"},
+            "user:2:settings": {"theme": "dark"},
+            "workspace:1": {"title": "Project"},
+        }
+    )
+
+    removed = cache.clear_pattern("user:*:profile")
+
+    assert removed == 2
+    assert cache.get("user:1:profile") is None
+    assert cache.get("user:2:profile") is None
+    assert cache.get("user:2:settings") == {"theme": "dark"}
+    assert cache.get("workspace:1") == {"title": "Project"}
+
+
+def test_local_cache_clear_patterns_removes_union_of_pattern_matches():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "task:1:result": {"status": "done"},
+            "task:2:result": {"status": "pending"},
+            "task:2:error": {"message": "boom"},
+            "metrics:latency": 123,
+        }
+    )
+
+    removed = cache.clear_patterns(["task:*:result", "task:*:error", ""])
+
+    assert removed == 3
+    assert cache.get("task:1:result") is None
+    assert cache.get("task:2:result") is None
+    assert cache.get("task:2:error") is None
+    assert cache.get("metrics:latency") == 123
+
+
+def test_local_cache_clear_patterns_returns_zero_for_empty_patterns():
+    cache = LocalCacheService()
+    cache.set("stable", "value")
+
+    assert cache.clear_patterns([]) == 0
+    assert cache.clear_patterns([""]) == 0
+    assert cache.get("stable") == "value"
+
+
 def test_local_cache_size_counts_only_active_entries():
     cache = LocalCacheService()
     cache.set("persist", "ok")
