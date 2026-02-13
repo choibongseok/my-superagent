@@ -77,15 +77,21 @@ class Source(BaseModel):
 
         return " ".join(parts)
 
+    @staticmethod
+    def _quoted_title(title: str) -> str:
+        """Return title wrapped in quotes with terminal punctuation outside quotes."""
+        normalized = title.strip().rstrip(".")
+        return f'"{normalized}".'
+
     def _format_mla(self) -> str:
         """Format in MLA style."""
         parts = []
 
-        # Author. "Title." URL. Accessed Date.
+        # Author. "Title". URL. Accessed Date.
         if self.author:
             parts.append(f"{self.author}.")
 
-        parts.append(f'"{self.title}."')
+        parts.append(self._quoted_title(self.title))
 
         if self.url:
             parts.append(f"{self.url}.")
@@ -99,11 +105,11 @@ class Source(BaseModel):
         """Format in Chicago style."""
         parts = []
 
-        # Author. "Title." Accessed Date. URL.
+        # Author. "Title". Accessed Date. URL.
         if self.author:
             parts.append(f"{self.author}.")
 
-        parts.append(f'"{self.title}."')
+        parts.append(self._quoted_title(self.title))
 
         accessed = self.accessed_date.strftime("%B %d, %Y")
         parts.append(f"Accessed {accessed}.")

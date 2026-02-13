@@ -56,6 +56,8 @@ class CitationTracker:
         self.sources: Dict[str, Source] = {}
         self.citations: Dict[str, Citation] = {}
         self.source_url_map: Dict[str, str] = {}  # normalized URL -> source_id mapping
+        # source_type|author|title fingerprint -> source_id mapping
+        self.source_fingerprint_map: Dict[str, str] = {}
 
         logger.debug("CitationTracker initialized")
 
@@ -101,6 +103,34 @@ class CitationTracker:
             logger.warning("Failed to normalize URL: %s", url)
             return url
 
+    @staticmethod
+    def _normalize_text(value: Optional[str]) -> str:
+        """Normalize free-form text for stable deduplication fingerprints."""
+        if not value:
+            return ""
+
+        return " ".join(value.split()).casefold()
+
+    @classmethod
+    def _build_source_fingerprint(
+        cls,
+        title: str,
+        source_type: SourceType | str,
+        author: Optional[str],
+    ) -> str:
+        """Build deterministic fingerprint for URL-less sources."""
+        normalized_title = cls._normalize_text(title)
+        normalized_author = cls._normalize_text(author)
+
+        source_type_value = (
+            source_type.value
+            if isinstance(source_type, SourceType)
+            else str(source_type)
+        )
+        normalized_type = cls._normalize_text(source_type_value)
+
+        return f"{normalized_type}|{normalized_author}|{normalized_title}"
+
     def add_source(
         self,
         title: str,
@@ -127,11 +157,18 @@ class CitationTracker:
             Source ID
         """
         canonical_url = self._canonicalize_url(url)
+        source_fingerprint = self._build_source_fingerprint(title, type, author)
 
         # Check if source already exists by canonical URL
         if canonical_url and canonical_url in self.source_url_map:
             existing_id = self.source_url_map[canonical_url]
-            logger.debug(f"Source already exists: {existing_id}")
+            logger.debug(f"Source already exists by URL: {existing_id}")
+            return existing_id
+
+        # For URL-less sources (books, local docs, etc.), dedupe by metadata fingerprint.
+        if not canonical_url and source_fingerprint in self.source_fingerprint_map:
+            existing_id = self.source_fingerprint_map[source_fingerprint]
+            logger.debug(f"Source already exists by fingerprint: {existing_id}")
             return existing_id
 
         # Generate unique ID
@@ -155,6 +192,8 @@ class CitationTracker:
         # Map canonical URL to source ID
         if canonical_url:
             self.source_url_map[canonical_url] = source_id
+
+        self.source_fingerprint_map[source_fingerprint] = source_id
 
         logger.info(f"Added source: {source_id} - {title}")
         return source_id
@@ -355,6 +394,7 @@ class CitationTracker:
         self.sources.clear()
         self.citations.clear()
         self.source_url_map.clear()
+        self.source_fingerprint_map.clear()
         logger.info("Cleared all citations and sources")
 
     def get_statistics(self) -> Dict[str, Any]:
@@ -373,6 +413,7 @@ class CitationTracker:
             "total_citations": len(self.citations),
             "source_types": source_types,
             "unique_urls": len(self.source_url_map),
+            "unique_source_fingerprints": len(self.source_fingerprint_map),
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -405,10 +446,18 @@ class CitationTracker:
         for source_data in data.get("sources", []):
             source = Source(**source_data)
             tracker.sources[source.id] = source
+
             if source.url:
                 canonical_url = tracker._canonicalize_url(str(source.url))
                 if canonical_url:
                     tracker.source_url_map[canonical_url] = source.id
+
+            source_fingerprint = tracker._build_source_fingerprint(
+                title=source.title,
+                source_type=source.type,
+                author=source.author,
+            )
+            tracker.source_fingerprint_map[source_fingerprint] = source.id
 
         # Restore citations
         for citation_data in data.get("citations", []):

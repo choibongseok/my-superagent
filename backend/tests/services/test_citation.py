@@ -61,6 +61,42 @@ class TestCitationTracker:
         assert id1 == id2
         assert len(tracker.sources) == 1
 
+    def test_add_duplicate_source_without_url_uses_fingerprint(self):
+        """URL-less sources should dedupe by normalized type+author+title fingerprint."""
+        tracker = CitationTracker()
+
+        id1 = tracker.add_source(
+            title="  Clean Architecture  ",
+            type=SourceType.BOOK,
+            author="Robert C. Martin",
+        )
+        id2 = tracker.add_source(
+            title="clean architecture",
+            type=SourceType.BOOK,
+            author=" robert c. martin ",
+        )
+
+        assert id1 == id2
+        assert len(tracker.sources) == 1
+
+    def test_add_source_without_url_different_author_not_duplicate(self):
+        """Fingerprint should keep similarly titled URL-less sources distinct by author."""
+        tracker = CitationTracker()
+
+        id1 = tracker.add_source(
+            title="Deep Learning",
+            type=SourceType.BOOK,
+            author="Ian Goodfellow",
+        )
+        id2 = tracker.add_source(
+            title="Deep Learning",
+            type=SourceType.BOOK,
+            author="Francois Chollet",
+        )
+
+        assert id1 != id2
+        assert len(tracker.sources) == 2
+
     def test_get_source_by_url(self):
         """Test retrieving source by normalized URL lookup."""
         tracker = CitationTracker()
@@ -258,6 +294,7 @@ class TestCitationTracker:
         assert stats["source_types"][SourceType.WEB] == 2
         assert stats["source_types"][SourceType.BOOK] == 1
         assert stats["unique_urls"] == 2
+        assert stats["unique_source_fingerprints"] == 3
 
     def test_to_dict_and_from_dict(self):
         """Test serialization and deserialization."""
@@ -268,22 +305,28 @@ class TestCitationTracker:
             url="https://example.com",
             author="Test Author",
         )
+        tracker.add_source(
+            title="Clean Code",
+            type=SourceType.BOOK,
+            author="Robert C. Martin",
+        )
         tracker.cite(source_id, quoted_text="Test quote")
 
         # Export to dict
         data = tracker.to_dict()
 
-        assert len(data["sources"]) == 1
+        assert len(data["sources"]) == 2
         assert len(data["citations"]) == 1
 
         # Import from dict
         new_tracker = CitationTracker.from_dict(data)
 
-        assert len(new_tracker.sources) == 1
+        assert len(new_tracker.sources) == 2
         assert len(new_tracker.citations) == 1
 
-        # Verify data integrity
-        source = list(new_tracker.sources.values())[0]
+        # Verify URL source data integrity
+        source = new_tracker.get_source(source_id)
+        assert source is not None
         assert source.title == "Test Source"
         assert source.author == "Test Author"
 
@@ -291,6 +334,21 @@ class TestCitationTracker:
         found = new_tracker.get_source_by_url("https://example.com/?utm_source=test")
         assert found is not None
         assert found.id == source.id
+
+        # Fingerprint map should also be restored for URL-less sources
+        duplicate_book_id = new_tracker.add_source(
+            title=" clean code ",
+            type=SourceType.BOOK,
+            author="robert c. martin",
+        )
+        assert len(new_tracker.sources) == 2
+
+        clean_code_source = [
+            existing
+            for existing in new_tracker.sources.values()
+            if existing.title == "Clean Code"
+        ][0]
+        assert duplicate_book_id == clean_code_source.id
 
 
 class TestSource:
