@@ -711,16 +711,40 @@ class CitationTracker:
                 if not has_match:
                     continue
 
+                # Enhanced scoring with phrase matching and term frequency
                 score = 0
+                
+                # Bonus for exact phrase match (significantly boosts relevance)
+                if len(query_tokens) > 1 and normalized_query in searchable_text:
+                    if normalized_query in title:
+                        score += 20  # Exact phrase in title is highly relevant
+                    elif normalized_query in description:
+                        score += 10  # Exact phrase in description is very relevant
+                    else:
+                        score += 5   # Exact phrase anywhere is moderately relevant
+                
+                # Individual token scoring with term frequency
                 for token in query_tokens:
+                    # Title matches are most important
                     if token in title:
-                        score += 5
+                        title_count = title.count(token)
+                        score += 5 * min(title_count, 3)  # Cap at 3 occurrences to avoid spam
+                    
+                    # Author matches indicate topical expertise
                     if token in author:
-                        score += 3
+                        author_count = author.count(token)
+                        score += 3 * min(author_count, 2)
+                    
+                    # Description matches provide context
                     if token in description:
-                        score += 2
+                        desc_count = description.count(token)
+                        score += 2 * min(desc_count, 3)
+                    
+                    # URL matches suggest relevant domain
                     if token in source_url:
                         score += 1
+                    
+                    # Metadata matches add supporting evidence
                     if token in metadata_text:
                         score += 1
             else:
@@ -1020,11 +1044,27 @@ class CitationTracker:
             )
 
             if source.published_date is None:
-                recency_scores.append(0.5)
+                # Undated sources are penalized more heavily (0.3 instead of 0.5)
+                # to encourage proper sourcing with publication dates
+                recency_scores.append(0.3)
                 continue
 
             age_days = max(0.0, (now - source.published_date).total_seconds() / 86400)
-            freshness = max(0.0, 1.0 - (age_days / recency_window_days))
+            
+            # Use a more realistic decay curve instead of linear decay
+            # Information value decays logarithmically for most content
+            if age_days <= recency_window_days * 0.1:
+                # Very recent sources (within 10% of window) get near-perfect scores
+                freshness = 1.0 - (age_days / (recency_window_days * 0.1)) * 0.1
+            elif age_days <= recency_window_days * 0.5:
+                # Moderate age (10-50% of window) - gentle decay
+                normalized_age = (age_days - recency_window_days * 0.1) / (recency_window_days * 0.4)
+                freshness = 0.9 - (normalized_age * 0.3)  # Decays from 0.9 to 0.6
+            else:
+                # Older sources (50-100% of window) - steeper decay
+                normalized_age = (age_days - recency_window_days * 0.5) / (recency_window_days * 0.5)
+                freshness = max(0.0, 0.6 - (normalized_age * 0.6))  # Decays from 0.6 to 0.0
+            
             recency_scores.append(freshness)
 
         source_count_score = min(total_sources / min_sources, 1.0)
@@ -1100,12 +1140,26 @@ class CitationTracker:
         for source in self.sources.values():
             source_types[source.type] = source_types.get(source.type, 0) + 1
 
+        # Calculate average citations per source
+        total_citations = len(self.citations)
+        avg_citations = total_citations / len(self.sources) if self.sources else 0.0
+
+        # Find most and least cited sources
+        citation_counts = Counter(
+            citation.source.id for citation in self.citations.values()
+        )
+        most_cited = citation_counts.most_common(1)
+        least_cited = citation_counts.most_common()[:-2:-1] if citation_counts else []
+
         return {
             "total_sources": len(self.sources),
-            "total_citations": len(self.citations),
+            "total_citations": total_citations,
+            "average_citations_per_source": round(avg_citations, 2),
             "source_types": source_types,
             "unique_urls": len(self.source_url_map),
             "unique_source_fingerprints": len(self.source_fingerprint_map),
+            "most_cited_source_id": most_cited[0][0] if most_cited else None,
+            "most_cited_count": most_cited[0][1] if most_cited else 0,
         }
 
     def to_dict(self) -> Dict[str, Any]:
