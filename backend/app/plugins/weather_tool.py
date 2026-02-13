@@ -56,7 +56,10 @@ class Plugin(ToolPlugin):
 
         lat = float(coordinate_match.group(1))
         lon = float(coordinate_match.group(2))
+        return self._build_coordinate_params(lat, lon)
 
+    def _build_coordinate_params(self, lat: float, lon: float) -> Dict[str, Any]:
+        """Validate and build OpenWeatherMap query params for coordinates."""
         if not -90 <= lat <= 90:
             raise ValueError("Invalid coordinates: latitude must be between -90 and 90")
         if not -180 <= lon <= 180:
@@ -69,13 +72,50 @@ class Plugin(ToolPlugin):
             "lon": lon,
         }
 
+    def _resolve_location_inputs(
+        self, inputs: Dict[str, Any]
+    ) -> tuple[str, Dict[str, Any]]:
+        """Resolve weather query params from location string or structured coordinates."""
+        latitude = inputs.get("latitude")
+        longitude = inputs.get("longitude")
+
+        if latitude is not None or longitude is not None:
+            if latitude is None or longitude is None:
+                raise ValueError("latitude and longitude must be provided together")
+
+            try:
+                lat = float(latitude)
+                lon = float(longitude)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    "latitude and longitude must be numeric values"
+                ) from error
+
+            location_params = self._build_coordinate_params(lat, lon)
+            normalized_location = f"{lat},{lon}"
+            return normalized_location, location_params
+
+        location = inputs.get("location")
+        if location is None:
+            raise ValueError("location is required")
+        if not isinstance(location, str):
+            raise ValueError("location must be a string")
+
+        normalized_location = location.strip()
+        if not normalized_location:
+            raise ValueError("location cannot be empty")
+
+        return normalized_location, self._build_location_params(normalized_location)
+
     async def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """
         Get weather information.
 
         Args:
             inputs: {
-                "location": str (required, city name or coordinates)
+                "location": str (optional, required unless latitude/longitude are provided),
+                "latitude": float (optional, requires longitude),
+                "longitude": float (optional, requires latitude)
             }
 
         Returns:
@@ -87,12 +127,7 @@ class Plugin(ToolPlugin):
                 "wind_speed": float
             }
         """
-        location = inputs.get("location")
-        if not location:
-            raise ValueError("location is required")
-
-        normalized_location = location.strip()
-        location_params = self._build_location_params(normalized_location)
+        normalized_location, location_params = self._resolve_location_inputs(inputs)
 
         # If no API key, return mock data
         if not self.api_key:
@@ -195,7 +230,7 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.2.0",
+            version="1.3.0",
             description="Get real-time weather information using OpenWeatherMap API",
             author="AgentHQ",
             permissions=["network.http"],
@@ -204,7 +239,9 @@ class Plugin(ToolPlugin):
                 "units": "string (optional, 'metric' or 'imperial', default: 'metric')",
             },
             inputs={
-                "location": "string (required, city name or lat,lon coordinates)",
+                "location": "string (optional, required when latitude/longitude are not provided)",
+                "latitude": "number (optional, must be used with longitude)",
+                "longitude": "number (optional, must be used with latitude)",
             },
             outputs={
                 "location": "string",

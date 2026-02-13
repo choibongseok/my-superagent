@@ -37,6 +37,12 @@ class TestWeatherTool:
             await mock_plugin.execute({})
 
     @pytest.mark.asyncio
+    async def test_location_cannot_be_blank(self, mock_plugin):
+        """Test that blank location strings are rejected early."""
+        with pytest.raises(ValueError, match="location cannot be empty"):
+            await mock_plugin.execute({"location": "   "})
+
+    @pytest.mark.asyncio
     async def test_run_tool_formats_output(self, mock_plugin):
         """Test that run_tool returns formatted string."""
         result = await mock_plugin.run_tool("Tokyo")
@@ -196,6 +202,54 @@ class TestWeatherTool:
             assert result["location"] == "Seoul"
 
     @pytest.mark.asyncio
+    async def test_structured_coordinate_query(self, api_plugin):
+        """Test structured latitude/longitude inputs map to lat/lon params."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 20.0, "humidity": 60},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 3.0},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            result = await api_plugin.execute(
+                {"latitude": "37.5665", "longitude": 126.9780}
+            )
+
+            _, kwargs = mock_get.call_args
+            assert kwargs["params"]["lat"] == 37.5665
+            assert kwargs["params"]["lon"] == 126.978
+            assert "q" not in kwargs["params"]
+            assert result["location"] == "Seoul"
+
+    @pytest.mark.asyncio
+    async def test_structured_coordinates_require_both_values(self, api_plugin):
+        """Test latitude/longitude must be supplied together."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(
+                ValueError, match="latitude and longitude must be provided together"
+            ):
+                await api_plugin.execute({"latitude": 37.5665})
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_structured_coordinates_require_numeric_values(self, api_plugin):
+        """Test structured coordinates validate numeric input types."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(
+                ValueError, match="latitude and longitude must be numeric values"
+            ):
+                await api_plugin.execute({"latitude": "north", "longitude": "west"})
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_coordinate_location_validation(self, api_plugin):
         """Test invalid coordinates fail fast before API call."""
         with patch("httpx.AsyncClient") as mock_client:
@@ -207,10 +261,12 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.2.0"
+        assert manifest.version == "1.3.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
-        assert "lat,lon" in manifest.inputs["location"]
+        assert "latitude" in manifest.inputs
+        assert "longitude" in manifest.inputs
+        assert "required when latitude/longitude" in manifest.inputs["location"]
 
     def test_tool_description(self, api_plugin):
         """Test tool description includes API information."""
