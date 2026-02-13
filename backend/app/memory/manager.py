@@ -166,6 +166,10 @@ class MemoryManager:
         """
         self.conversation_memory.add_ai_message(message)
 
+    def add_system_message(self, message: str) -> None:
+        """Add system message to conversation."""
+        self.conversation_memory.add_system_message(message)
+
     def add_memory(
         self,
         content: str,
@@ -220,7 +224,7 @@ class MemoryManager:
 
         Args:
             query: Query string used for matching
-            role: Restrict results to "human", "ai", or "any"
+            role: Restrict results to "human", "ai", "system", or "any"
             case_sensitive: Whether search should be case-sensitive
             last_n: Restrict search to the last N messages
             limit: Maximum number of matched messages to return
@@ -405,7 +409,7 @@ class MemoryManager:
     def buffer(self):
         """
         Get the underlying LangChain memory buffer for agent integration.
-        
+
         DEPRECATED: Use langchain_memory instead.
 
         Returns:
@@ -417,7 +421,7 @@ class MemoryManager:
     def langchain_memory(self):
         """
         Get the underlying LangChain memory for BaseAgent integration.
-        
+
         BaseAgent.initialize_agent()에서 AgentExecutor에 전달됨.
 
         Returns:

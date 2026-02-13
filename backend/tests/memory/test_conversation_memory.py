@@ -1,7 +1,7 @@
 """Tests for Conversation Memory."""
 
 import pytest
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.memory.conversation import ConversationMemory
 
@@ -50,6 +50,20 @@ class TestConversationMemory:
         assert isinstance(messages[1], AIMessage)
         assert messages[1].content == "Hi there!"
 
+    def test_add_system_message(self):
+        """Test adding system message."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_system_message("System guidance")
+
+        messages = memory.get_messages()
+        assert len(messages) == 1
+        assert isinstance(messages[0], SystemMessage)
+        assert messages[0].content == "System guidance"
+
     def test_multi_turn_conversation(self):
         """Test multi-turn conversation."""
         memory = ConversationMemory(
@@ -82,6 +96,20 @@ class TestConversationMemory:
         context = memory.get_context()
         assert "Human: Hello" in context
         assert "AI: Hi" in context
+
+    def test_get_context_includes_system_messages(self):
+        """Context rendering should include system role labels."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_system_message("Follow policy")
+        memory.add_user_message("Hello")
+
+        context = memory.get_context()
+        assert "System: Follow policy" in context
+        assert "Human: Hello" in context
 
     def test_get_last_n_messages(self):
         """Test getting last N messages."""
@@ -138,6 +166,23 @@ class TestConversationMemory:
         assert len(limited_matches) == 1
         assert isinstance(limited_matches[0], HumanMessage)
         assert limited_matches[0].content == "weather today"
+
+    def test_search_messages_supports_system_role_filtering(self):
+        """System role filter should return only system-authored messages."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_system_message("Use concise responses")
+        memory.add_user_message("Tell me about Python")
+        memory.add_ai_message("Python is great")
+
+        matches = memory.search_messages("use", role="system")
+
+        assert len(matches) == 1
+        assert isinstance(matches[0], SystemMessage)
+        assert matches[0].content == "Use concise responses"
 
     def test_search_messages_respects_last_n_window(self):
         """Test restricting search scope with last_n."""
@@ -196,7 +241,7 @@ class TestConversationMemory:
             memory.search_messages("   ")
 
         with pytest.raises(ValueError, match="role must be one of"):
-            memory.search_messages("hello", role="system")
+            memory.search_messages("hello", role="manager")
 
         with pytest.raises(ValueError, match="limit must be greater than 0"):
             memory.search_messages("hello", limit=0)
@@ -231,6 +276,7 @@ class TestConversationMemory:
             session_id="test_session",
         )
 
+        memory.add_system_message("Stay brief")
         memory.add_user_message("Hello")
         memory.add_ai_message("Hi")
 
@@ -238,9 +284,10 @@ class TestConversationMemory:
 
         assert data["user_id"] == "test_user"
         assert data["session_id"] == "test_session"
-        assert len(data["messages"]) == 2
-        assert data["messages"][0]["role"] == "human"
-        assert data["messages"][1]["role"] == "ai"
+        assert len(data["messages"]) == 3
+        assert data["messages"][0]["role"] == "system"
+        assert data["messages"][1]["role"] == "human"
+        assert data["messages"][2]["role"] == "ai"
 
     def test_from_dict(self):
         """Test creating from dictionary."""
@@ -248,6 +295,7 @@ class TestConversationMemory:
             "user_id": "test_user",
             "session_id": "test_session",
             "messages": [
+                {"role": "system", "content": "Stay brief"},
                 {"role": "human", "content": "Hello"},
                 {"role": "ai", "content": "Hi"},
             ],
@@ -258,7 +306,8 @@ class TestConversationMemory:
 
         assert memory.user_id == "test_user"
         assert memory.session_id == "test_session"
-        assert len(memory.get_messages()) == 2
+        assert len(memory.get_messages()) == 3
+        assert isinstance(memory.get_messages()[0], SystemMessage)
         assert memory.get_turn_count() == 1
 
     def test_metadata(self):

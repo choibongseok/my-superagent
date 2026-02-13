@@ -10,7 +10,12 @@ from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime
 
 from langchain.memory import ConversationBufferMemory, ConversationSummaryMemory
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+)
 from langchain_openai import ChatOpenAI
 
 from app.core.config import settings
@@ -115,6 +120,19 @@ class ConversationMemory:
 
         logger.debug(f"Added AI message to session {self.session_id}")
 
+    def add_system_message(self, message: str) -> None:
+        """
+        Add system message to conversation history.
+
+        Args:
+            message: System message content
+        """
+        self.memory.chat_memory.add_message(SystemMessage(content=message))
+        self.metadata["last_system_message"] = message
+        self.metadata["last_updated"] = datetime.utcnow().isoformat()
+
+        logger.debug(f"Added system message to session {self.session_id}")
+
     def add_messages(self, messages: List[BaseMessage]) -> None:
         """
         Add multiple messages to conversation history.
@@ -150,7 +168,7 @@ class ConversationMemory:
     def search_messages(
         self,
         query: str,
-        role: Literal["any", "human", "ai"] = "any",
+        role: Literal["any", "human", "ai", "system"] = "any",
         *,
         case_sensitive: bool = False,
         last_n: Optional[int] = None,
@@ -161,7 +179,7 @@ class ConversationMemory:
 
         Args:
             query: Query string used for matching message content
-            role: Restrict results to "human", "ai", or "any"
+            role: Restrict results to "human", "ai", "system", or "any"
             case_sensitive: Whether to match query with exact case
             last_n: Restrict search to the last N messages
             limit: Maximum number of matched messages to return
@@ -181,8 +199,8 @@ class ConversationMemory:
             raise ValueError("query must be a non-empty string")
 
         normalized_role = role.lower()
-        if normalized_role not in {"any", "human", "ai"}:
-            raise ValueError("role must be one of: any, human, ai")
+        if normalized_role not in {"any", "human", "ai", "system"}:
+            raise ValueError("role must be one of: any, human, ai, system")
 
         if limit is not None and limit <= 0:
             raise ValueError("limit must be greater than 0")
@@ -209,6 +227,8 @@ class ConversationMemory:
             if normalized_role == "human" and not isinstance(message, HumanMessage):
                 continue
             if normalized_role == "ai" and not isinstance(message, AIMessage):
+                continue
+            if normalized_role == "system" and not isinstance(message, SystemMessage):
                 continue
 
             content = str(message.content)
@@ -239,7 +259,7 @@ class ConversationMemory:
 
         context_parts = []
         for msg in messages:
-            role = "Human" if isinstance(msg, HumanMessage) else "AI"
+            role = self._get_role_label(msg)
             context_parts.append(f"{role}: {msg.content}")
 
         return "\n".join(context_parts)
@@ -295,13 +315,33 @@ class ConversationMemory:
     def buffer(self):
         """
         LangChain agent가 접근할 수 있도록 buffer 속성 노출.
-        
+
         BaseAgent와 MemoryManager에서 self.memory.buffer로 접근 가능.
 
         Returns:
             LangChain memory object
         """
         return self.memory
+
+    @staticmethod
+    def _get_role_key(message: BaseMessage) -> str:
+        """Return a stable role key for a LangChain message."""
+        if isinstance(message, HumanMessage):
+            return "human"
+        if isinstance(message, AIMessage):
+            return "ai"
+        if isinstance(message, SystemMessage):
+            return "system"
+        return "ai"
+
+    @classmethod
+    def _get_role_label(cls, message: BaseMessage) -> str:
+        """Return a display label for conversation context rendering."""
+        return {
+            "human": "Human",
+            "ai": "AI",
+            "system": "System",
+        }.get(cls._get_role_key(message), "AI")
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -315,7 +355,7 @@ class ConversationMemory:
             "session_id": self.session_id,
             "messages": [
                 {
-                    "role": "human" if isinstance(msg, HumanMessage) else "ai",
+                    "role": self._get_role_key(msg),
                     "content": msg.content,
                 }
                 for msg in self.get_messages()
@@ -339,19 +379,19 @@ class ConversationMemory:
 
         Returns:
             ConversationMemory instance
-        
+
         Raises:
             ValueError: If LLM is not provided but summary exists
         """
         has_summary = data.get("summary") is not None
-        
+
         # FIXED: Require LLM if summary exists
         if has_summary and llm is None:
             raise ValueError(
                 "LLM instance is required when restoring ConversationMemory "
                 "with summary. Provide llm parameter to from_dict()."
             )
-        
+
         memory = cls(
             user_id=data["user_id"],
             session_id=data["session_id"],
@@ -366,10 +406,17 @@ class ConversationMemory:
 
         # Restore messages
         for msg_data in data.get("messages", []):
-            if msg_data["role"] == "human":
+            role = msg_data.get("role", "ai")
+            if role == "human":
                 memory.add_user_message(msg_data["content"])
-            else:
+            elif role == "ai":
                 memory.add_ai_message(msg_data["content"])
+            elif role == "system":
+                memory.add_system_message(msg_data["content"])
+            else:
+                raise ValueError(
+                    f"unsupported message role '{role}' while restoring memory"
+                )
 
         # Restore metadata
         if "metadata" in data:

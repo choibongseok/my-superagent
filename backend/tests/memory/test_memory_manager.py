@@ -62,6 +62,21 @@ class TestMemoryManagerContext:
         assert len(matches) == 1
         assert matches[0].content == "Project timeline is in the docs"
 
+    def test_add_system_message_is_included_in_context(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="test_session",
+            use_vector_memory=False,
+        )
+
+        manager.add_system_message("Follow workspace policy")
+        manager.add_user_message("Understood")
+
+        context = manager.get_context()
+
+        assert "System: Follow workspace policy" in context
+        assert "Human: Understood" in context
+
     def test_search_conversation_supports_word_match_mode(self):
         manager = MemoryManager(
             user_id="test_user",
