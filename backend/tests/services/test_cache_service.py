@@ -170,6 +170,59 @@ def test_local_cache_get_or_set_many_requires_all_missing_keys_in_factory_result
         )
 
 
+@pytest.mark.asyncio
+async def test_local_cache_get_or_set_many_async_populates_missing_keys_once():
+    cache = LocalCacheService()
+    cache.set("cached", 1)
+
+    calls: dict[str, object] = {"count": 0, "missing": []}
+
+    async def factory(missing_keys: list[str]) -> dict[str, str]:
+        calls["count"] = int(calls["count"]) + 1
+        calls["missing"] = missing_keys
+        await asyncio.sleep(0.01)
+        return {key: key.upper() for key in missing_keys}
+
+    values = await cache.get_or_set_many_async(
+        ["cached", "fresh", "fresh", "late"],
+        factory,
+    )
+
+    assert values == {"cached": 1, "fresh": "FRESH", "late": "LATE"}
+    assert calls == {"count": 1, "missing": ["fresh", "late"]}
+    assert cache.get("fresh") == "FRESH"
+    assert cache.get("late") == "LATE"
+
+
+@pytest.mark.asyncio
+async def test_local_cache_get_or_set_many_async_accepts_sync_factory():
+    cache = LocalCacheService()
+
+    values = await cache.get_or_set_many_async(
+        ["x", "y"],
+        lambda missing_keys: {key: len(key) for key in missing_keys},
+    )
+
+    assert values == {"x": 1, "y": 1}
+
+
+@pytest.mark.asyncio
+async def test_local_cache_get_or_set_many_async_validates_factory_results():
+    cache = LocalCacheService()
+
+    with pytest.raises(TypeError, match="factory must return a mapping"):
+        await cache.get_or_set_many_async(
+            ["missing"],
+            lambda _: ["not", "a", "mapping"],  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(ValueError, match="missing values for keys: beta"):
+        await cache.get_or_set_many_async(
+            ["alpha", "beta"],
+            lambda _: {"alpha": 1},
+        )
+
+
 def test_local_cache_set_if_absent_stores_missing_key_only_once():
     cache = LocalCacheService()
 
