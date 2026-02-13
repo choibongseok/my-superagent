@@ -123,3 +123,31 @@ async def test_local_cache_get_or_set_async_cleans_inflight_when_factory_fails()
 
     assert await cache.get_or_set_async("flaky", flaky_factory) == "recovered"
     assert calls["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_local_cache_get_or_set_async_keeps_shared_task_alive_on_cancellation():
+    cache = LocalCacheService()
+    calls = {"count": 0}
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_factory() -> str:
+        calls["count"] += 1
+        started.set()
+        await release.wait()
+        return "stable-value"
+
+    first_caller = asyncio.create_task(cache.get_or_set_async("shared-key", slow_factory))
+    await started.wait()
+
+    first_caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first_caller
+
+    second_caller = asyncio.create_task(cache.get_or_set_async("shared-key", slow_factory))
+    release.set()
+
+    assert await second_caller == "stable-value"
+    assert cache.get("shared-key") == "stable-value"
+    assert calls["count"] == 1

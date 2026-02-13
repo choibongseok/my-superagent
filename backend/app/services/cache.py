@@ -96,6 +96,27 @@ class LocalCacheService:
         produced = factory()
         return await produced if inspect.isawaitable(produced) else produced
 
+    async def _populate_async(
+        self,
+        key: str,
+        factory: Callable[[], Awaitable[Any] | Any],
+        ttl_seconds: int | None,
+    ) -> Any:
+        """Populate a key from ``factory`` and persist it in cache."""
+        value = await self._resolve_async_factory(factory)
+        self.set(key, value, ttl_seconds=ttl_seconds)
+        return value
+
+    def _track_inflight(self, key: str, task: asyncio.Task[Any]) -> None:
+        """Track an in-flight task and clean it up when it finishes."""
+        self._inflight[key] = task
+
+        def _cleanup(finished: asyncio.Task[Any]) -> None:
+            if self._inflight.get(key) is finished:
+                self._inflight.pop(key, None)
+
+        task.add_done_callback(_cleanup)
+
     async def get_or_set_async(
         self,
         key: str,
@@ -107,6 +128,10 @@ class LocalCacheService:
         The ``factory`` may return either a direct value or an awaitable.
         Concurrent callers for the same key are de-duplicated so that only
         one factory execution runs while others await the same result.
+
+        This method is cancellation-safe for shared in-flight work: if one
+        caller is cancelled, the underlying population task continues and
+        other callers still receive/cache the resolved value.
         """
         item = self._get_entry(key)
         if item is not None:
@@ -114,18 +139,11 @@ class LocalCacheService:
             return value
 
         in_flight = self._inflight.get(key)
-        if in_flight is not None:
-            return await in_flight
+        if in_flight is None:
+            in_flight = asyncio.create_task(self._populate_async(key, factory, ttl_seconds))
+            self._track_inflight(key, in_flight)
 
-        task = asyncio.create_task(self._resolve_async_factory(factory))
-        self._inflight[key] = task
-        try:
-            value = await task
-        finally:
-            self._inflight.pop(key, None)
-
-        self.set(key, value, ttl_seconds=ttl_seconds)
-        return value
+        return await asyncio.shield(in_flight)
 
     def delete(self, key: str) -> None:
         """Delete a cached key if present."""
