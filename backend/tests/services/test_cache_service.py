@@ -150,6 +150,61 @@ def test_local_cache_touch_can_convert_key_to_non_expiring():
     assert cache.ttl_remaining("config") is None
 
 
+def test_local_cache_increment_initializes_missing_key():
+    cache = LocalCacheService()
+
+    updated = cache.increment("counter", amount=3, initial=10)
+
+    assert updated == 13
+    assert cache.get("counter") == 13
+
+
+def test_local_cache_increment_preserves_existing_ttl_by_default():
+    cache = LocalCacheService()
+    cache.set("counter", 1, ttl_seconds=1)
+
+    time.sleep(0.4)
+    updated = cache.increment("counter", amount=2)
+
+    assert updated == 3
+    ttl = cache.ttl_remaining("counter")
+    assert ttl is not None
+    assert 0 < ttl < 1
+
+    time.sleep(ttl + 0.1)
+    assert cache.get("counter") is None
+
+
+def test_local_cache_increment_overrides_ttl_when_explicitly_provided():
+    cache = LocalCacheService()
+    cache.set("counter", 1, ttl_seconds=1)
+
+    time.sleep(0.4)
+    updated = cache.increment("counter", amount=1, ttl_seconds=2)
+
+    assert updated == 2
+    ttl = cache.ttl_remaining("counter")
+    assert ttl is not None
+    assert 1.5 <= ttl <= 2
+
+
+def test_local_cache_increment_rejects_non_numeric_values():
+    cache = LocalCacheService()
+    cache.set("counter", "not-a-number")
+
+    with pytest.raises(TypeError, match="existing cache value must be a numeric value"):
+        cache.increment("counter")
+
+
+def test_local_cache_decrement_supports_missing_keys_and_non_negative_amount():
+    cache = LocalCacheService()
+
+    assert cache.decrement("credits", amount=2, initial=5) == 3
+
+    with pytest.raises(ValueError, match="amount must be greater than or equal to 0"):
+        cache.decrement("credits", amount=-1)
+
+
 def test_local_cache_delete_many_returns_removed_count():
     cache = LocalCacheService()
     cache.set_many({"alpha": 1, "beta": 2, "gamma": 3})

@@ -13,6 +13,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from fnmatch import fnmatchcase
+from numbers import Real
 from typing import Any
 
 
@@ -80,6 +81,13 @@ class LocalCacheService:
 
         self._mark_accessed(key)
         return item
+
+    @staticmethod
+    def _validate_numeric(value: Any, *, field_name: str) -> Real:
+        """Validate and return numeric values used by arithmetic cache operations."""
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise TypeError(f"{field_name} must be a numeric value")
+        return value
 
     def set(self, key: str, value: Any, ttl_seconds: int | None = None) -> None:
         """Store a value, optionally expiring after ``ttl_seconds``."""
@@ -157,6 +165,61 @@ class LocalCacheService:
         value, _ = item
         self.set(key, value, ttl_seconds=ttl_seconds)
         return True
+
+    def increment(
+        self,
+        key: str,
+        amount: Real = 1,
+        *,
+        initial: Real = 0,
+        ttl_seconds: int | None = None,
+    ) -> Real:
+        """Increase a numeric cache value and return the updated number.
+
+        Missing/expired keys are initialized from ``initial`` before applying
+        ``amount``. Existing key TTL is preserved unless ``ttl_seconds`` is
+        explicitly provided.
+        """
+        numeric_amount = self._validate_numeric(amount, field_name="amount")
+        item = self._get_entry(key)
+
+        if item is None:
+            numeric_current = self._validate_numeric(initial, field_name="initial")
+            self._evict_if_needed()
+            expires_at = None
+        else:
+            current, expires_at = item
+            numeric_current = self._validate_numeric(
+                current, field_name="existing cache value"
+            )
+
+        if ttl_seconds is not None:
+            expires_at = time.time() + ttl_seconds if ttl_seconds > 0 else None
+
+        new_value = numeric_current + numeric_amount
+        self._store[key] = (new_value, expires_at)
+        self._mark_accessed(key)
+        return new_value
+
+    def decrement(
+        self,
+        key: str,
+        amount: Real = 1,
+        *,
+        initial: Real = 0,
+        ttl_seconds: int | None = None,
+    ) -> Real:
+        """Decrease a numeric cache value and return the updated number."""
+        numeric_amount = self._validate_numeric(amount, field_name="amount")
+        if numeric_amount < 0:
+            raise ValueError("amount must be greater than or equal to 0")
+
+        return self.increment(
+            key,
+            amount=-numeric_amount,
+            initial=initial,
+            ttl_seconds=ttl_seconds,
+        )
 
     def get_or_set(
         self,
