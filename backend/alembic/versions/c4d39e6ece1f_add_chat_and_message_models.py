@@ -19,8 +19,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Create message_role enum
-    op.execute("CREATE TYPE message_role AS ENUM ('user', 'assistant', 'system')")
+    # Create message_role enum using SQLAlchemy Enum (safer than raw SQL)
+    message_role_enum = sa.Enum('user', 'assistant', 'system', name='message_role')
+    message_role_enum.create(op.get_bind(), checkfirst=True)
 
     # Create chats table
     op.create_table(

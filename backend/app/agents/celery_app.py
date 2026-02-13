@@ -125,7 +125,7 @@ def process_docs_task(
         # Generate document (async method - must await)
         result = asyncio.run(agent.create_document(
             title=title,
-            content_request=prompt,
+            prompt=prompt,
         ))
 
         logger.info(f"Completed docs task {task_id}")

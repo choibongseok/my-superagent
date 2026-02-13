@@ -209,6 +209,18 @@ class ConversationMemory:
         """
         return self.memory
 
+    @property
+    def buffer(self):
+        """
+        LangChain agent가 접근할 수 있도록 buffer 속성 노출.
+        
+        BaseAgent와 MemoryManager에서 self.memory.buffer로 접근 가능.
+
+        Returns:
+            LangChain memory object
+        """
+        return self.memory
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Export conversation memory to dictionary.

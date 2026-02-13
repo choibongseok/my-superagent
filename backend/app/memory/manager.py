@@ -382,5 +382,17 @@ class MemoryManager:
         """
         return self.conversation_memory.buffer
 
+    @property
+    def langchain_memory(self):
+        """
+        Get the underlying LangChain memory for BaseAgent integration.
+        
+        BaseAgent.initialize_agent()에서 AgentExecutor에 전달됨.
+
+        Returns:
+            LangChain memory object
+        """
+        return self.conversation_memory.langchain_memory
+
 
 __all__ = ["MemoryManager"]
