@@ -48,6 +48,36 @@ class TestCitationTracker:
         assert id1 == id2
         assert len(tracker.sources) == 1
 
+    def test_add_duplicate_source_with_normalized_url(self):
+        """Test duplicate detection across equivalent URL variants."""
+        tracker = CitationTracker()
+
+        canonical = "https://example.com/article?lang=en&ref=home"
+        variant = "https://EXAMPLE.com/article/?utm_source=newsletter&ref=home&lang=en#section"
+
+        id1 = tracker.add_source(title="Canonical Article", url=canonical)
+        id2 = tracker.add_source(title="Variant Article", url=variant)
+
+        assert id1 == id2
+        assert len(tracker.sources) == 1
+
+    def test_get_source_by_url(self):
+        """Test retrieving source by normalized URL lookup."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(
+            title="Normalization Test",
+            url="https://example.com/path?lang=ko&ref=1",
+        )
+
+        source = tracker.get_source_by_url(
+            "https://example.com/path/?utm_medium=email&ref=1&lang=ko"
+        )
+
+        assert source is not None
+        assert source.id == source_id
+        assert source.title == "Normalization Test"
+
     def test_create_citation(self):
         """Test creating a citation."""
         tracker = CitationTracker()
@@ -165,9 +195,13 @@ class TestCitationTracker:
         """Test getting citation statistics."""
         tracker = CitationTracker()
 
-        tracker.add_source(title="Web Article", url="https://example.com", type=SourceType.WEB)
+        tracker.add_source(
+            title="Web Article", url="https://example.com", type=SourceType.WEB
+        )
         tracker.add_source(title="Book", type=SourceType.BOOK)
-        source_id = tracker.add_source(title="Another Web", url="https://example.org", type=SourceType.WEB)
+        source_id = tracker.add_source(
+            title="Another Web", url="https://example.org", type=SourceType.WEB
+        )
 
         tracker.cite(source_id, quoted_text="Test")
 
@@ -206,6 +240,11 @@ class TestCitationTracker:
         source = list(new_tracker.sources.values())[0]
         assert source.title == "Test Source"
         assert source.author == "Test Author"
+
+        # URL map should be restored with normalization
+        found = new_tracker.get_source_by_url("https://example.com/?utm_source=test")
+        assert found is not None
+        assert found.id == source.id
 
 
 class TestSource:

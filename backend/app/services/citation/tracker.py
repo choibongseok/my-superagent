@@ -2,8 +2,9 @@
 
 import logging
 import uuid
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from app.services.citation.models import Citation, Source, SourceType
 
@@ -37,13 +38,67 @@ class CitationTracker:
         bibliography = tracker.get_bibliography(style="apa")
     """
 
+    TRACKING_QUERY_PARAMS = {
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "utm_term",
+        "utm_content",
+        "gclid",
+        "fbclid",
+        "mc_cid",
+        "mc_eid",
+    }
+
     def __init__(self):
         """Initialize citation tracker."""
         self.sources: Dict[str, Source] = {}
         self.citations: Dict[str, Citation] = {}
-        self.source_url_map: Dict[str, str] = {}  # URL -> source_id mapping
+        self.source_url_map: Dict[str, str] = {}  # normalized URL -> source_id mapping
 
         logger.debug("CitationTracker initialized")
+
+    @classmethod
+    def _normalize_url(cls, url: str) -> str:
+        """Normalize URLs so semantically identical links deduplicate cleanly."""
+        parsed = urlparse(url.strip())
+
+        scheme = (parsed.scheme or "https").lower()
+
+        hostname = (parsed.hostname or "").lower()
+        port = parsed.port
+        if port and not (
+            (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
+        ):
+            netloc = f"{hostname}:{port}"
+        else:
+            netloc = hostname
+
+        path = parsed.path or "/"
+        if path != "/":
+            path = path.rstrip("/")
+
+        filtered_query_params = [
+            (key, value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if key.lower() not in cls.TRACKING_QUERY_PARAMS
+        ]
+        filtered_query_params.sort()
+        query = urlencode(filtered_query_params, doseq=True)
+
+        return urlunparse((scheme, netloc, path, "", query, ""))
+
+    @classmethod
+    def _canonicalize_url(cls, url: Optional[str]) -> Optional[str]:
+        """Return normalized URL if present and parseable."""
+        if not url:
+            return None
+
+        try:
+            return cls._normalize_url(url)
+        except Exception:
+            logger.warning("Failed to normalize URL: %s", url)
+            return url
 
     def add_source(
         self,
@@ -70,9 +125,11 @@ class CitationTracker:
         Returns:
             Source ID
         """
-        # Check if source already exists by URL
-        if url and url in self.source_url_map:
-            existing_id = self.source_url_map[url]
+        canonical_url = self._canonicalize_url(url)
+
+        # Check if source already exists by canonical URL
+        if canonical_url and canonical_url in self.source_url_map:
+            existing_id = self.source_url_map[canonical_url]
             logger.debug(f"Source already exists: {existing_id}")
             return existing_id
 
@@ -94,9 +151,9 @@ class CitationTracker:
         # Store source
         self.sources[source_id] = source
 
-        # Map URL to source ID
-        if url:
-            self.source_url_map[url] = source_id
+        # Map canonical URL to source ID
+        if canonical_url:
+            self.source_url_map[canonical_url] = source_id
 
         logger.info(f"Added source: {source_id} - {title}")
         return source_id
@@ -112,6 +169,26 @@ class CitationTracker:
             Source or None
         """
         return self.sources.get(source_id)
+
+    def get_source_by_url(self, url: str) -> Optional[Source]:
+        """
+        Get source by URL using canonical URL normalization.
+
+        Args:
+            url: Source URL
+
+        Returns:
+            Source or None
+        """
+        canonical_url = self._canonicalize_url(url)
+        if not canonical_url:
+            return None
+
+        source_id = self.source_url_map.get(canonical_url)
+        if not source_id:
+            return None
+
+        return self.get_source(source_id)
 
     def cite(
         self,
@@ -303,7 +380,9 @@ class CitationTracker:
             source = Source(**source_data)
             tracker.sources[source.id] = source
             if source.url:
-                tracker.source_url_map[str(source.url)] = source.id
+                canonical_url = tracker._canonicalize_url(str(source.url))
+                if canonical_url:
+                    tracker.source_url_map[canonical_url] = source.id
 
         # Restore citations
         for citation_data in data.get("citations", []):
