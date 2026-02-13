@@ -332,12 +332,17 @@ class VectorStoreMemory:
                     mean_score - dynamic_multiplier * std_dev
                 )
             
-            # Additional safeguard: if top score is very high (>0.9), be more selective
+            # Additional safeguard: if top score is very high, be more selective
+            # Use a smooth transition based on top score quality
             top_score = max(scores)
-            if top_score > 0.9:
+            if top_score >= 0.85:
+                # Scale selectivity based on top score quality
+                # High scores (0.85-1.0) require proportionally higher threshold
+                selectivity_factor = 0.65 + (top_score - 0.85) * 0.33  # 0.65 to 0.70
+                top_score_threshold = top_score * selectivity_factor
                 adaptive_threshold_value = max(
                     adaptive_threshold_value,
-                    top_score * 0.7  # Require at least 70% of top score
+                    top_score_threshold
                 )
             
             # Filter results
