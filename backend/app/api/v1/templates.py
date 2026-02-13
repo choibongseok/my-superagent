@@ -225,7 +225,10 @@ async def use_template(
         
         service = TemplateService(db)
         result = await service.use_template(
-            template_id, use_request.inputs, current_user.id
+            template_id,
+            use_request.inputs,
+            current_user.id,
+            use_request.output_type,
         )
 
         # Map template category to task type

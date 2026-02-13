@@ -1,6 +1,7 @@
 """Service for template marketplace management."""
 
 import logging
+from string import Formatter
 from typing import List, Optional
 from uuid import UUID
 
@@ -219,8 +220,41 @@ class TemplateService:
 
         return templates, total
 
+    @staticmethod
+    def _extract_template_variables(prompt_template: str) -> set[str]:
+        """Extract top-level variable names from a format-style prompt template."""
+        variables: set[str] = set()
+        for _, field_name, _, _ in Formatter().parse(prompt_template):
+            if not field_name:
+                continue
+
+            # Handle nested field access like {user.name} or {user[name]}
+            base_field = field_name.split(".", 1)[0].split("[", 1)[0]
+            if base_field:
+                variables.add(base_field)
+
+        return variables
+
+    @classmethod
+    def _render_prompt_template(cls, prompt_template: str, inputs: dict) -> str:
+        """Render prompt template and validate required inputs."""
+        required_inputs = cls._extract_template_variables(prompt_template)
+        missing_inputs = sorted(key for key in required_inputs if key not in inputs)
+        if missing_inputs:
+            missing = ", ".join(missing_inputs)
+            raise ValueError(f"Missing template inputs: {missing}")
+
+        try:
+            return prompt_template.format_map(inputs)
+        except (KeyError, ValueError, AttributeError, IndexError) as exc:
+            raise ValueError(f"Failed to render template: {exc}") from exc
+
     async def use_template(
-        self, template_id: UUID, inputs: dict, user_id: UUID
+        self,
+        template_id: UUID,
+        inputs: dict,
+        user_id: UUID,
+        output_type: str | None = None,
     ) -> dict:
         """
         Use a template with inputs to generate prompt.
@@ -229,6 +263,7 @@ class TemplateService:
             template_id: Template ID
             inputs: Input values for template variables
             user_id: User ID
+            output_type: Optional output type override
 
         Returns:
             Dict with template_id, prompt, and suggested output_type
@@ -238,21 +273,20 @@ class TemplateService:
         if not template:
             raise ValueError(f"Template not found: {template_id}")
 
-        # Increment usage count
+        prompt = self._render_prompt_template(template.prompt_template, inputs)
+
+        # Increment usage count only after successful prompt rendering
         template.usage_count += 1
         await self.db.commit()
 
-        # Replace variables in prompt template
-        prompt = template.prompt_template
-        for key, value in inputs.items():
-            prompt = prompt.replace(f"{{{key}}}", str(value))
+        selected_output_type = (output_type or template.category).strip()
 
         logger.info(f"Template {template_id} used by user {user_id}")
 
         return {
             "template_id": str(template_id),
             "prompt": prompt,
-            "output_type": template.category,
+            "output_type": selected_output_type,
         }
 
     # Rating methods
