@@ -6,6 +6,283 @@
 
 ---
 
+## 2026-02-13 (PM) | 기획자 에이전트 - 생태계 & 지능형 자동화 제안 🌐🤖
+
+### 🛒 Idea #32: "Agent Marketplace & Community Hub" - 사용자 생성 Agent 생태계
+
+**문제점**:
+- 현재 AgentHQ는 **내장 Agent만 제공** (Research, Docs, Sheets, Slides)
+  - 사용자 특수 needs 대응 불가 (예: 법률 문서, 의료 리포트, 재무 분석)
+  - 모든 Agent를 내부 개발 → 개발 속도 제한
+- **네트워크 효과 부재**
+  - Zapier: 5,000+ integrations (커뮤니티 기여)
+  - Chrome Web Store: 200,000+ extensions (바이럴 성장)
+  - **AgentHQ: 4개 Agent (제한적)** ❌
+- 경쟁사 동향:
+  - ChatGPT: GPTs marketplace 출시 (2023.11) → 월 300만 GPTs 생성
+  - Zapier: Community templates → 사용자 10배 증가
+  - **AgentHQ: 커뮤니티 기능 없음** ❌
+
+**제안 아이디어**:
+```
+"Agent Marketplace & Community Hub" - 사용자가 Custom Agent를 만들고 공유/판매하는 생태계
+```
+
+**핵심 기능**:
+1. **Agent Builder (No-Code)**
+   - 드래그앤드롭으로 Agent 생성 (Idea #9 Visual Workflow Builder 통합)
+   - Prompt Engineering GUI (예시 입력 → 출력 학습)
+   - 테스트 모드 (실제 실행 전 시뮬레이션)
+   - 예: "법률 계약서 검토 Agent" (특정 조항 체크리스트)
+
+2. **Marketplace**
+   - Agent 검색 & 카테고리 (법률, 재무, HR, 마케팅, 교육...)
+   - 평가 & 리뷰 시스템 (5-star rating)
+   - 무료 vs 유료 Agent ($5-50/month)
+   - 인기 순위 (Top 100 Agents)
+   - 예: "세무 신고 자동화 Agent" (세무사가 제작, $15/month)
+
+3. **Revenue Sharing**
+   - Creator 수익 70% (AgentHQ 30% 수수료)
+   - 구독 기반 수익 모델 (월 $X × 구독자 수)
+   - Creator 대시보드 (판매 통계, 수익 추이)
+   - Payout via Stripe/PayPal
+
+4. **Community Hub**
+   - Agent 토론 포럼 (질문 & 답변)
+   - 튜토리얼 & 가이드 (우수 Agent 제작법)
+   - Featured Creators (월간 spotlight)
+   - Hackathon 이벤트 (최고 Agent 시상)
+
+5. **Quality Control**
+   - 자동 검증 (security scan, performance test)
+   - 사람 리뷰 (악의적 Agent 차단)
+   - 라이선스 관리 (GPL, MIT, Commercial)
+   - 버전 관리 (Agent v1.0, v1.1...)
+
+**기술 구현**:
+- **Backend**:
+  - AgentBuilder API (YAML 기반 Agent 정의)
+  - Marketplace DB (agents, reviews, transactions)
+  - Payment Integration (Stripe Connect)
+- **Frontend**:
+  - Agent Builder UI (drag-drop workflow)
+  - Marketplace storefront (카테고리, 검색)
+  - Creator Dashboard (analytics, earnings)
+
+**예상 임팩트**:
+- 🚀 **네트워크 효과**: 
+  - 사용자 → Creator → 더 많은 Agent → 더 많은 사용자 (선순환)
+  - ChatGPT GPTs: 3M agents in 3 months → AgentHQ 목표: 100K agents in 1 year
+- 💰 **수익 다각화**: 
+  - 30% 마켓플레이스 수수료 → MRR +$150K (10K paid agents × $50 avg)
+  - Creator 생태계 → 외부 개발자가 Agent 제작 (내부 R&D 부담 감소)
+- 🎯 **차별화**: 
+  - Zapier: No-code automation (단순 연결)
+  - ChatGPT GPTs: 대화만 (Google Workspace 통합 X)
+  - **AgentHQ Marketplace**: AI Agent + 실제 작업 실행 + 수익 모델 ⭐
+- 📈 **비즈니스**: 
+  - MAU +500% (커뮤니티 기여 → 바이럴)
+  - Creator 수입 창출 → 플랫폼 충성도 극대화
+  - Enterprise 확보 (업계별 특화 Agent)
+
+**개발 난이도**: ⭐⭐⭐⭐⭐ (HARD, 12주)
+- Agent Builder (4주)
+- Marketplace (3주)
+- Payment Integration (2주)
+- Community Features (3주)
+
+**우선순위**: 🔥 CRITICAL (Phase 10, 생태계 구축)
+
+**전제 조건**:
+- Idea #9 (Visual Workflow Builder) 완성 필요
+- Idea #24 (Agent Code Generator) 일부 통합
+
+---
+
+### 🔄 Idea #33: "Seamless Context Handoff" - 크로스 플랫폼 작업 이어하기
+
+**문제점**:
+- 현대인은 평균 **3.2개 디바이스** 사용 (데스크톱, 태블릿, 모바일)
+  - 출근길 지하철: 모바일로 이메일 확인
+  - 회사: 데스크톱으로 작업
+  - 집: 태블릿으로 최종 검토
+- **작업 중단점 문제** (Context Switching Cost)
+  - 데스크톱에서 리포트 50% 완성 → 퇴근 → 다음날 "어디까지 했더라?" (10분 낭비)
+  - 모바일에서 시작 → 데스크톱에서 이어하기 어려움 (파일 어디? 프롬프트 뭐였지?)
+- 경쟁사 동향:
+  - **Notion**: 실시간 sync (✅) but no intelligent context (❌)
+  - **Apple Handoff**: 디바이스 전환 (✅) but app-specific (Safari만 등)
+  - **Google Docs**: sync (✅) but manual "where was I?" (❌)
+  - **AgentHQ**: 현재 sync만, context handoff 없음 ❌
+
+**제안 아이디어**:
+```
+"Seamless Context Handoff" - AI가 어디까지 했는지 요약하고, 다음 디바이스에서 이어하기 쉽게
+```
+
+**핵심 기능**:
+1. **Smart Resume**
+   - 다른 디바이스에서 열면 자동 요약 표시
+   - 예: "지난밤 모바일에서 'Q4 매출 리포트' 50% 완성했어요. 이어서 차트 추가할까요?"
+   - AI가 다음 액션 제안 (Next Best Action)
+   - "Resume" 버튼 클릭 → 정확히 중단 지점부터
+
+2. **Live Presence Sync**
+   - 실시간 디바이스 상태 표시
+   - 예: "현재 iPhone에서 작업 중..." (다른 디바이스에서 확인 가능)
+   - 디바이스 간 충돌 방지 (동시 편집 경고)
+
+3. **Context Timeline**
+   - 작업 히스토리 타임라인 (디바이스별 색상 구분)
+   - 예: 
+     - 09:00 (모바일): Research Agent 실행
+     - 10:30 (데스크톱): Docs 작성 시작
+     - 14:00 (태블릿): 최종 검토
+   - 클릭하면 해당 시점으로 "Time Travel" (Idea #30 통합)
+
+4. **Smart Suggestions**
+   - 디바이스별 최적 작업 추천
+   - 예: 모바일 → "간단 검토", 데스크톱 → "복잡한 작업"
+   - "지금 데스크톱으로 전환하면 차트 작업이 더 편해요" (알림)
+
+5. **Quick Handoff QR Code**
+   - 데스크톱 화면에 QR 표시
+   - 모바일로 스캔 → 즉시 같은 작업 열림
+   - Apple Universal Clipboard처럼 매끄러운 전환
+
+**기술 구현**:
+- **Backend**:
+  - Context Snapshot Service (작업 상태 저장)
+  - Real-time Presence Service (WebSocket)
+  - Resume Prompt Generator (GPT-3.5로 요약)
+- **Frontend**:
+  - Cross-device sync (실시간 상태 동기화)
+  - Timeline UI (작업 히스토리 시각화)
+  - QR Code generator (빠른 핸드오프)
+
+**예상 임팩트**:
+- 🚀 **생산성**: 
+  - 작업 재개 시간 90% 단축 (10분 → 1분)
+  - 디바이스 전환 빈도 +300% (부담 없어짐)
+  - "어디까지 했더라?" 고민 제거
+- 🎯 **차별화**: 
+  - Notion: Sync만 (AI context X)
+  - Apple Handoff: 앱별 제한 (Safari, Mail만)
+  - **AgentHQ**: AI-powered intelligent handoff ⭐
+- 📈 **비즈니스**: 
+  - 크로스 플랫폼 사용률 +250% (모든 디바이스 활용)
+  - Session 길이 +40% (중단 없이 계속)
+  - Premium 기능: "Unlimited Handoff History" ($7/month)
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (HARD, 7주)
+- Context Snapshot (2주)
+- Real-time Presence (2주)
+- Timeline UI (2주)
+- Smart Suggestions (1주)
+
+**우선순위**: 🔥 HIGH (Phase 9, 멀티 디바이스 UX)
+
+**전제 조건**:
+- Idea #30 (Version Control) 일부 활용 가능
+
+---
+
+### 🔗 Idea #34: "Intelligent Workflow Auto-Detection" - AI가 작업 순서를 자동 추론
+
+**문제점**:
+- 복잡한 작업은 **여러 단계** 필요 (Research → 분석 → 시각화 → 보고서)
+  - 예: "Q4 실적 보고서 만들어줘"
+    1. Research Agent: 데이터 수집 (15분)
+    2. Sheets Agent: 데이터 분석 + 차트 (10분)
+    3. Slides Agent: 프레젠테이션 제작 (5분)
+    4. Docs Agent: 상세 리포트 작성 (20분)
+  - 사용자가 **수동으로 4번 실행** → 총 50분 대기
+- **Zapier 문제**: 
+  - 워크플로우를 미리 설정해야 함 (수동 연결)
+  - 변화 대응 불가 (데이터 형식 변경 시 오류)
+- **AgentHQ 현재 상태**:
+  - Multi-Agent Orchestrator 존재 (✅)
+  - But: 사용자가 명시적으로 "복잡한 작업" 선택해야 함
+  - 자동 감지 & 실행 없음 ❌
+
+**제안 아이디어**:
+```
+"Intelligent Workflow Auto-Detection" - AI가 작업 간 의존성을 자동 감지하고 파이프라인으로 실행
+```
+
+**핵심 기능**:
+1. **Dependency Auto-Detection**
+   - 사용자 프롬프트 분석 → 필요한 Agent 자동 추론
+   - 예: "Q4 실적 보고서" → Research(데이터) → Sheets(분석) → Slides(발표) → Docs(리포트)
+   - GPT-4로 작업 분해 (Task Decomposition)
+   - 의존성 그래프 생성 (DAG: Directed Acyclic Graph)
+
+2. **Smart Pipeline Execution**
+   - 병렬 실행 가능한 작업은 동시 처리
+   - 예: Research(회사 데이터) + Research(경쟁사 데이터) 동시 실행 → Sheets 분석
+   - 실시간 진행 상황 표시 (Progress Bar)
+   - 중간 결과물 미리보기 ("Sheets 완성, Slides 제작 중...")
+
+3. **Adaptive Workflow**
+   - 중간 결과에 따라 다음 단계 동적 조정
+   - 예: Research 결과가 부족 → "추가 데이터 필요" 알림 → 재실행
+   - 에러 시 자동 retry (최대 3회)
+   - Alternative path 제안 ("Sheets 대신 Docs 표로 대체할까요?")
+
+4. **Workflow Templates**
+   - 자주 쓰는 패턴을 자동 저장 & 재사용
+   - 예: "실적 보고서" 워크플로우 저장 → 다음에 한 번에 실행
+   - Community Templates (Idea #32 Marketplace 통합)
+   - 예: "경쟁사 분석 워크플로우" (다른 사용자가 만듦)
+
+5. **Explainable AI**
+   - 왜 이 순서로 실행하는지 설명
+   - 예: "먼저 데이터를 수집해야 분석할 수 있어요"
+   - 사용자가 순서 수정 가능 (Override)
+   - 학습: 사용자 피드백 → 다음에 더 정확한 추론
+
+**기술 구현**:
+- **Backend**:
+  - Task Decomposition Engine (GPT-4 기반)
+  - Dependency Resolver (DAG 생성)
+  - Workflow Orchestrator (확장: 기존 Multi-Agent Orchestrator)
+  - Template Storage (workflow DB)
+- **AI Model**:
+  - Few-shot Learning (예시 워크플로우 → 새 작업 추론)
+  - Reinforcement Learning (사용자 피드백 → 정확도 향상)
+
+**예상 임팩트**:
+- 🚀 **생산성**: 
+  - 복잡한 작업 시간 80% 단축 (수동 4단계 → 자동 1단계)
+  - 대기 시간 제거 (병렬 실행)
+  - "다음 뭐 해야 하지?" 고민 제거
+- 🎯 **차별화**: 
+  - Zapier: 수동 설정 (정적 workflow)
+  - ChatGPT: 한 번에 한 작업만 (sequential)
+  - **AgentHQ**: AI 자동 감지 + 동적 조정 ⭐
+- 📈 **비즈니스**: 
+  - 복잡한 작업 사용률 +600% (쉬워짐)
+  - 작업당 Agent 사용 횟수 3배 → 매출 3배
+  - Premium 기능: "Unlimited Pipeline History" ($12/month)
+- 🧠 **기술 우위**:
+  - 특허 가능 (AI-powered workflow auto-detection)
+  - 경쟁사 따라잡기 어려움 (GPT-4 fine-tuning 필요)
+
+**개발 난이도**: ⭐⭐⭐⭐⭐ (VERY HARD, 10주)
+- Task Decomposition Engine (4주)
+- Dependency Resolver (2주)
+- Adaptive Workflow (3주)
+- Template System (1주)
+
+**우선순위**: 🔥 CRITICAL (Phase 9-10, 핵심 기술 차별화)
+
+**전제 조건**:
+- 기존 Multi-Agent Orchestrator 확장 (이미 구현됨 ✅)
+- GPT-4 API 사용 (추가 비용)
+
+---
+
 ## 2026-02-13 (AM 2차) | 기획자 에이전트 - 모바일 & 협업 강화 제안 📱🔔
 
 ### 🔔 Idea #29: "Smart Notifications & Digest" - AI 큐레이션 알림 시스템
