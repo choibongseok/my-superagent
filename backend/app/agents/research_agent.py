@@ -32,7 +32,7 @@ class ResearchAgent(BaseAgent):
             session_id="research_session",
         )
         result = await agent.run("Research latest AI developments in 2024")
-        
+
         # Result includes:
         # - synthesized_info: Key findings and analysis
         # - citations: List of sources with URLs
@@ -58,10 +58,10 @@ class ResearchAgent(BaseAgent):
             session_id=session_id or f"research_{user_id}",
             **kwargs,
         )
-        
+
         # Initialize Citation Tracker
         self.citation_tracker = CitationTracker()
-        
+
         logger.info(f"ResearchAgent initialized for user {user_id}")
 
     def _get_metadata(self) -> Dict[str, Any]:
@@ -82,7 +82,7 @@ class ResearchAgent(BaseAgent):
         tools = [
             DuckDuckGoSearchTool(),
         ]
-        
+
         logger.debug(f"Created {len(tools)} tools for ResearchAgent")
         return tools
 
@@ -121,12 +121,14 @@ Output format:
 Note: Use the web_search tool for each distinct query needed to answer the user's question thoroughly.
 """
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_message),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("human", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system_message),
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("human", "{input}"),
+                MessagesPlaceholder(variable_name="agent_scratchpad"),
+            ]
+        )
 
         return prompt
 
@@ -146,95 +148,121 @@ Note: Use the web_search tool for each distinct query needed to answer the user'
             Research results with citations
         """
         logger.info(f"Starting research: {query}")
-        
+
         # Run the agent
         result = await self.run(query)
-        
+
         if not result["success"]:
             logger.error(f"Research failed: {result.get('error')}")
             return result
 
         # Extract and track citations from intermediate steps
-        self._process_citations(result.get("intermediate_steps", []))
-        
-        # Get formatted citations
+        self._process_citations(
+            result.get("intermediate_steps", []),
+            max_sources=max_sources,
+        )
+
+        # Get formatted citations and validation report
         citations = self.citation_tracker.get_bibliography(style="apa")
-        
-        # Add citations to result
+        validation_report = self.citation_tracker.get_validation_report(
+            min_sources=max(1, min(max_sources, 3))
+        )
+
+        # Add citation outputs to result
         result["citations"] = citations
         result["citation_count"] = len(citations)
         result["tracker_stats"] = self.citation_tracker.get_statistics()
-        
+        result["validation_report"] = validation_report
+
         logger.info(f"Research completed with {len(citations)} sources")
-        
+
         return result
 
     def _process_citations(
         self,
         intermediate_steps: List[tuple],
+        max_sources: int = 5,
     ) -> None:
-        """
-        Process intermediate steps and add sources to citation tracker.
+        """Process intermediate steps and add sources to citation tracker.
 
         Args:
-            intermediate_steps: List of (action, observation) tuples
+            intermediate_steps: List of ``(action, observation)`` tuples.
+            max_sources: Maximum total source entries tracked for the run.
         """
+        if max_sources <= 0:
+            raise ValueError("max_sources must be greater than 0")
+
         for action, observation in intermediate_steps:
-            if hasattr(action, 'tool') and action.tool == 'web_search':
-                # Extract query
-                query = action.tool_input if isinstance(action.tool_input, str) else action.tool_input.get("query", "")
-                
-                # Parse observation to extract URLs and titles
-                # The observation is the search results from DuckDuckGo
-                if isinstance(observation, str):
-                    # Try to parse structured results
-                    try:
-                        # Simple parsing: look for URLs in the text
-                        import re
-                        urls = re.findall(r'https?://[^\s<>"]+', observation)
-                        
-                        # Add each URL as a source
-                        for url in urls[:5]:  # Limit to 5 sources per search
-                            source_id = self.citation_tracker.add_source(
-                                title=f"Web Search Result: {query}",
-                                url=url,
-                                type=SourceType.WEB,
-                                author="DuckDuckGo Search",
-                                published_date=datetime.utcnow(),
-                                description=f"Search result for query: {query}",
-                                metadata={
-                                    "query": query,
-                                    "search_engine": "duckduckgo",
-                                },
-                            )
-                            
-                            # Create citation
-                            self.citation_tracker.cite(
-                                source_id=source_id,
-                                context=f"Found via web search for: {query}",
-                                metadata={
-                                    "query": query,
-                                    "timestamp": datetime.utcnow().isoformat(),
-                                },
-                            )
-                    except Exception as e:
-                        logger.warning(f"Failed to parse search results: {e}")
-                        
-                        # Fallback: add the search itself as a source
-                        source_id = self.citation_tracker.add_source(
-                            title=f"Web Search: {query}",
-                            type=SourceType.WEB,
-                            author="DuckDuckGo",
-                            description=observation[:200] + "..." if len(observation) > 200 else observation,
-                            metadata={"query": query},
-                        )
-                        
-                        self.citation_tracker.cite(
-                            source_id=source_id,
-                            quoted_text=observation[:500],
-                            context=f"Search query: {query}",
-                        )
-        
+            if len(self.citation_tracker.sources) >= max_sources:
+                break
+
+            if not (hasattr(action, "tool") and action.tool == "web_search"):
+                continue
+
+            # Extract query text from either raw string input or structured payload.
+            if isinstance(action.tool_input, str):
+                query = action.tool_input
+            else:
+                query = action.tool_input.get("query", "")
+
+            if not isinstance(observation, str):
+                continue
+
+            try:
+                # Simple parsing: look for URLs in the text.
+                import re
+
+                urls = re.findall(r'https?://[^\s<>"]+', observation)
+
+                remaining_budget = max_sources - len(self.citation_tracker.sources)
+                for url in urls[:remaining_budget]:
+                    source_id = self.citation_tracker.add_source(
+                        title=f"Web Search Result: {query}",
+                        url=url,
+                        type=SourceType.WEB,
+                        author="DuckDuckGo Search",
+                        published_date=datetime.utcnow(),
+                        description=f"Search result for query: {query}",
+                        metadata={
+                            "query": query,
+                            "search_engine": "duckduckgo",
+                        },
+                    )
+
+                    self.citation_tracker.cite(
+                        source_id=source_id,
+                        context=f"Found via web search for: {query}",
+                        metadata={
+                            "query": query,
+                            "timestamp": datetime.utcnow().isoformat(),
+                        },
+                    )
+
+            except Exception as exc:
+                logger.warning(f"Failed to parse search results: {exc}")
+
+                if len(self.citation_tracker.sources) >= max_sources:
+                    continue
+
+                # Fallback: add the search itself as a source.
+                source_id = self.citation_tracker.add_source(
+                    title=f"Web Search: {query}",
+                    type=SourceType.WEB,
+                    author="DuckDuckGo",
+                    description=(
+                        observation[:200] + "..."
+                        if len(observation) > 200
+                        else observation
+                    ),
+                    metadata={"query": query},
+                )
+
+                self.citation_tracker.cite(
+                    source_id=source_id,
+                    quoted_text=observation[:500],
+                    context=f"Search query: {query}",
+                )
+
         logger.debug(f"Processed {len(intermediate_steps)} intermediate steps")
 
     def get_citations(self, format: str = "apa") -> List[str]:
@@ -250,19 +278,25 @@ Note: Use the web_search tool for each distinct query needed to answer the user'
         return self.citation_tracker.get_bibliography(style=format, sort_by="author")
 
     def get_citation_statistics(self) -> Dict[str, Any]:
-        """
-        Get citation statistics from tracker.
-
-        Returns:
-            Dictionary with citation statistics
-        """
+        """Get citation statistics from tracker."""
         return self.citation_tracker.get_statistics()
+
+    def get_validation_report(
+        self,
+        min_sources: int = 3,
+        recency_window_days: int = 730,
+    ) -> Dict[str, Any]:
+        """Get source validation confidence metrics for current research context."""
+        return self.citation_tracker.get_validation_report(
+            min_sources=min_sources,
+            recency_window_days=recency_window_days,
+        )
 
     def clear_citations(self):
         """Clear citation history."""
         self.citation_tracker.clear()
         logger.debug("Citations cleared")
-    
+
     def get_all_sources(self) -> List[Any]:
         """
         Get all sources from the citation tracker.
@@ -271,7 +305,7 @@ Note: Use the web_search tool for each distinct query needed to answer the user'
             List of Source objects
         """
         return self.citation_tracker.get_all_sources()
-    
+
     def add_manual_source(
         self,
         title: str,

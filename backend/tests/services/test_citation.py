@@ -619,6 +619,96 @@ class TestCitationTracker:
         assert stats["unique_urls"] == 2
         assert stats["unique_source_fingerprints"] == 3
 
+    def test_get_validation_report_returns_low_confidence_when_no_sources(self):
+        """Validation report should clearly explain empty evidence state."""
+        tracker = CitationTracker()
+
+        report = tracker.get_validation_report(min_sources=2)
+
+        assert report["confidence_score"] == 0.0
+        assert report["confidence_level"] == "low"
+        assert report["meets_minimum_sources"] is False
+        assert report["metrics"]["total_sources"] == 0
+        assert report["gaps"]
+
+    def test_get_validation_report_scores_diverse_recent_cited_sources_high(self):
+        """Diverse and well-cited fresh sources should produce high confidence."""
+        tracker = CitationTracker()
+
+        api_source_id = tracker.add_source(
+            title="Official API Reference",
+            url="https://docs.example.com/api/reference",
+            type=SourceType.API,
+            published_date=datetime.utcnow(),
+            author="Example API Team",
+        )
+        article_source_id = tracker.add_source(
+            title="Peer Reviewed AI Study",
+            url="https://journal.example.org/ai-study",
+            type=SourceType.ARTICLE,
+            published_date=datetime.utcnow(),
+            author="Kim et al.",
+        )
+        db_source_id = tracker.add_source(
+            title="Regulatory Database Update",
+            url="https://data.example.net/updates/2026",
+            type=SourceType.DATABASE,
+            published_date=datetime.utcnow(),
+            author="Gov Data Portal",
+        )
+
+        for source_id in (api_source_id, article_source_id, db_source_id):
+            tracker.cite(source_id, quoted_text="Validated statement")
+
+        report = tracker.get_validation_report(min_sources=3)
+
+        assert report["confidence_level"] == "high"
+        assert report["confidence_score"] >= 80
+        assert report["meets_minimum_sources"] is True
+        assert report["metrics"]["unique_domains"] == 3
+        assert report["gaps"] == []
+
+    def test_get_validation_report_highlights_low_coverage_and_stale_sources(self):
+        """Report should explain confidence gaps when evidence quality is weak."""
+        tracker = CitationTracker()
+
+        cited_source_id = tracker.add_source(
+            title="Old Blog Post",
+            url="https://blog.example.com/legacy-ai",
+            type=SourceType.WEB,
+            published_date=datetime(2018, 1, 1),
+        )
+        tracker.add_source(
+            title="Another Old Blog",
+            url="https://blog.example.com/old-entry",
+            type=SourceType.WEB,
+            published_date=datetime(2017, 1, 1),
+        )
+
+        tracker.cite(cited_source_id, quoted_text="Single supporting quote")
+
+        report = tracker.get_validation_report(min_sources=3, recency_window_days=365)
+
+        assert report["confidence_level"] == "low"
+        assert report["metrics"]["citation_coverage"] == pytest.approx(0.5)
+        assert any("target is at least 3" in gap for gap in report["gaps"])
+        assert any("Citation coverage is low" in gap for gap in report["gaps"])
+        assert any("Source diversity is low" in gap for gap in report["gaps"])
+        assert any("outdated" in gap for gap in report["gaps"])
+
+    def test_get_validation_report_rejects_invalid_arguments(self):
+        """Validation report inputs must enforce positive bounds."""
+        tracker = CitationTracker()
+
+        with pytest.raises(ValueError, match="min_sources must be greater than 0"):
+            tracker.get_validation_report(min_sources=0)
+
+        with pytest.raises(
+            ValueError,
+            match="recency_window_days must be greater than 0",
+        ):
+            tracker.get_validation_report(recency_window_days=0)
+
     def test_to_dict_and_from_dict(self):
         """Test serialization and deserialization."""
         tracker = CitationTracker()

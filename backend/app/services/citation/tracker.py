@@ -53,6 +53,17 @@ class CitationTracker:
         "mc_eid",
     }
 
+    SOURCE_AUTHORITY_WEIGHTS: Dict[SourceType, float] = {
+        SourceType.DATABASE: 1.0,
+        SourceType.API: 0.9,
+        SourceType.ARTICLE: 0.85,
+        SourceType.BOOK: 0.8,
+        SourceType.DOCUMENT: 0.75,
+        SourceType.WEB: 0.65,
+        SourceType.VIDEO: 0.6,
+        SourceType.OTHER: 0.5,
+    }
+
     def __init__(self):
         """Initialize citation tracker."""
         self.sources: Dict[str, Source] = {}
@@ -753,6 +764,155 @@ class CitationTracker:
         self.source_url_map.clear()
         self.source_fingerprint_map.clear()
         logger.info("Cleared all citations and sources")
+
+    @staticmethod
+    def _confidence_level_from_score(score: float) -> str:
+        """Convert numeric confidence score into a human-friendly label."""
+        if score >= 80:
+            return "high"
+        if score >= 60:
+            return "medium"
+        return "low"
+
+    def get_validation_report(
+        self,
+        *,
+        min_sources: int = 3,
+        recency_window_days: int = 730,
+    ) -> Dict[str, Any]:
+        """Generate a lightweight fact-check confidence report for current sources.
+
+        The report uses deterministic heuristics so downstream consumers can show
+        a trust score and explainability details without an additional LLM call.
+
+        Args:
+            min_sources: Minimum source count required for strong confidence.
+            recency_window_days: Publication age window used for recency scoring.
+
+        Returns:
+            Dictionary with aggregate confidence score, level, gaps, and metrics.
+        """
+        if min_sources <= 0:
+            raise ValueError("min_sources must be greater than 0")
+        if recency_window_days <= 0:
+            raise ValueError("recency_window_days must be greater than 0")
+
+        total_sources = len(self.sources)
+        if total_sources == 0:
+            return {
+                "confidence_score": 0.0,
+                "confidence_level": "low",
+                "summary": "No sources available for validation yet.",
+                "meets_minimum_sources": False,
+                "gaps": [
+                    f"Add at least {min_sources} independent sources before trusting conclusions."
+                ],
+                "metrics": {
+                    "total_sources": 0,
+                    "unique_domains": 0,
+                    "cited_sources": 0,
+                    "citation_coverage": 0.0,
+                    "source_count_score": 0.0,
+                    "domain_diversity_score": 0.0,
+                    "authority_score": 0.0,
+                    "recency_score": 0.0,
+                },
+            }
+
+        now = datetime.utcnow()
+        source_ids_with_citations = {
+            citation.source.id for citation in self.citations.values()
+        }
+        cited_sources = sum(
+            1 for source_id in self.sources if source_id in source_ids_with_citations
+        )
+        citation_coverage = cited_sources / total_sources
+
+        unique_domains = {
+            parsed.hostname.casefold()
+            for source in self.sources.values()
+            if source.url
+            for parsed in [urlparse(str(source.url))]
+            if parsed.hostname
+        }
+
+        authority_weights = []
+        recency_scores = []
+
+        for source in self.sources.values():
+            authority_weights.append(
+                self.SOURCE_AUTHORITY_WEIGHTS.get(source.type, 0.5)
+            )
+
+            if source.published_date is None:
+                recency_scores.append(0.5)
+                continue
+
+            age_days = max(0.0, (now - source.published_date).total_seconds() / 86400)
+            freshness = max(0.0, 1.0 - (age_days / recency_window_days))
+            recency_scores.append(freshness)
+
+        source_count_score = min(total_sources / min_sources, 1.0)
+        domain_diversity_score = min(len(unique_domains) / total_sources, 1.0)
+        authority_score = (
+            sum(authority_weights) / len(authority_weights)
+            if authority_weights
+            else 0.0
+        )
+        recency_score = (
+            sum(recency_scores) / len(recency_scores) if recency_scores else 0.0
+        )
+
+        weighted_confidence = (
+            (0.25 * source_count_score)
+            + (0.25 * citation_coverage)
+            + (0.20 * domain_diversity_score)
+            + (0.15 * authority_score)
+            + (0.15 * recency_score)
+        )
+        confidence_score = round(weighted_confidence * 100, 1)
+
+        gaps: List[str] = []
+        if total_sources < min_sources:
+            gaps.append(
+                f"Only {total_sources} sources collected; target is at least {min_sources}."
+            )
+        if citation_coverage < 0.7:
+            gaps.append(
+                "Citation coverage is low; cite each claim with specific supporting sources."
+            )
+        if total_sources > 1 and len(unique_domains) < min(2, total_sources):
+            gaps.append(
+                "Source diversity is low; include evidence from additional domains."
+            )
+        if recency_score < 0.5:
+            gaps.append(
+                "Most sources are outdated relative to the configured recency window."
+            )
+
+        confidence_level = self._confidence_level_from_score(confidence_score)
+        summary = (
+            f"Validation confidence is {confidence_level} ({confidence_score}/100) "
+            f"across {total_sources} sources."
+        )
+
+        return {
+            "confidence_score": confidence_score,
+            "confidence_level": confidence_level,
+            "summary": summary,
+            "meets_minimum_sources": total_sources >= min_sources,
+            "gaps": gaps,
+            "metrics": {
+                "total_sources": total_sources,
+                "unique_domains": len(unique_domains),
+                "cited_sources": cited_sources,
+                "citation_coverage": round(citation_coverage, 3),
+                "source_count_score": round(source_count_score, 3),
+                "domain_diversity_score": round(domain_diversity_score, 3),
+                "authority_score": round(authority_score, 3),
+                "recency_score": round(recency_score, 3),
+            },
+        }
 
     def get_statistics(self) -> Dict[str, Any]:
         """
