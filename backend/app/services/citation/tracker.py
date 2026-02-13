@@ -4,7 +4,7 @@ import logging
 import re
 import uuid
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -173,6 +173,58 @@ class CitationTracker:
             )
 
         return normalized_filters
+
+    @staticmethod
+    def _normalize_domain(value: str) -> str:
+        """Normalize domain filters and source hostnames for matching."""
+        if not isinstance(value, str):
+            raise ValueError("domains must contain only string values")
+
+        candidate = value.strip()
+        if not candidate:
+            raise ValueError("domains must contain non-empty domain values")
+
+        parsed = urlparse(candidate if "://" in candidate else f"https://{candidate}")
+        hostname = (parsed.hostname or "").casefold().strip(".")
+        if hostname.startswith("www."):
+            hostname = hostname[4:]
+
+        if not hostname:
+            raise ValueError("domains must contain valid domain values")
+
+        return hostname
+
+    @classmethod
+    def _normalize_domains(
+        cls,
+        domains: Optional[str | Iterable[str]],
+    ) -> Optional[set[str]]:
+        """Normalize optional domain filters into a comparable hostname set."""
+        if domains is None:
+            return None
+
+        raw_domains: list[str]
+        if isinstance(domains, str):
+            raw_domains = [domains]
+        else:
+            raw_domains = list(domains)
+
+        if not raw_domains:
+            raise ValueError("domains must include at least one domain value")
+
+        normalized_domains = {cls._normalize_domain(domain) for domain in raw_domains}
+        if not normalized_domains:
+            raise ValueError("domains must include at least one domain value")
+
+        return normalized_domains
+
+    @staticmethod
+    def _domain_matches_allowed(hostname: str, allowed_domains: set[str]) -> bool:
+        """Return True when hostname is an allowed domain or its subdomain."""
+        return any(
+            hostname == allowed or hostname.endswith(f".{allowed}")
+            for allowed in allowed_domains
+        )
 
     @classmethod
     def _matches_metadata_filters(
@@ -451,6 +503,7 @@ class CitationTracker:
         published_after: Optional[datetime] = None,
         published_before: Optional[datetime] = None,
         metadata_filters: Optional[Mapping[str, Any]] = None,
+        domains: Optional[str | Iterable[str]] = None,
         min_citations: Optional[int] = None,
         max_citations: Optional[int] = None,
         sort_by: Literal[
@@ -478,6 +531,10 @@ class CitationTracker:
             metadata_filters: Optional metadata constraints where each key/value
                 pair must match source metadata exactly (case-insensitive). Values
                 may be scalars or iterables of accepted values.
+            domains: Optional domain filter(s). Accepts a single domain string
+                or an iterable of domains. Matching is case-insensitive and
+                includes subdomains (e.g. ``news.example.com`` matches
+                ``example.com``).
             min_citations: Optional inclusive lower bound for citation count per
                 source.
             max_citations: Optional inclusive upper bound for citation count per
@@ -547,6 +604,7 @@ class CitationTracker:
             normalized_source_type = self._normalize_text(normalized_source_type)
 
         normalized_metadata_filters = self._normalize_metadata_filters(metadata_filters)
+        normalized_domains = self._normalize_domains(domains)
         citation_counts = Counter(
             citation.source.id for citation in self.citations.values()
         )
@@ -565,6 +623,17 @@ class CitationTracker:
                 and source_type_value != normalized_source_type
             ):
                 continue
+
+            if normalized_domains is not None:
+                source_hostname = ""
+                if source.url:
+                    source_hostname = self._normalize_domain(str(source.url))
+
+                if not source_hostname or not self._domain_matches_allowed(
+                    source_hostname,
+                    normalized_domains,
+                ):
+                    continue
 
             if not self._matches_metadata_filters(
                 source.metadata or {},

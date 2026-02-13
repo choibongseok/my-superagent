@@ -459,6 +459,55 @@ class TestCitationTracker:
 
         assert [source.id for source in matches] == [kr_id, jp_id]
 
+    def test_search_sources_supports_domain_filters_with_subdomain_matching(self):
+        """Domain filters should match configured domains and their subdomains."""
+        tracker = CitationTracker()
+
+        example_id = tracker.add_source(
+            title="AI Operations Update",
+            url="https://news.example.com/ai-ops",
+        )
+        research_id = tracker.add_source(
+            title="AI Research Digest",
+            url="https://www.research.org/posts/weekly",
+        )
+        tracker.add_source(
+            title="AI Community Notes",
+            url="https://community.other.net/ai",
+        )
+        tracker.add_source(
+            title="AI Internal Memo",
+        )
+
+        matches = tracker.search_sources(
+            "ai",
+            domains=["example.com", "https://RESEARCH.org"],
+        )
+
+        assert {source.id for source in matches} == {example_id, research_id}
+
+    def test_search_sources_rejects_invalid_domains_filters(self):
+        """Domain filters should validate payload shape and non-empty values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="domains must include at least one domain value",
+        ):
+            tracker.search_sources("ai", domains=[])
+
+        with pytest.raises(
+            ValueError,
+            match="domains must contain non-empty domain values",
+        ):
+            tracker.search_sources("ai", domains=["   "])
+
+        with pytest.raises(
+            ValueError,
+            match="domains must contain only string values",
+        ):
+            tracker.search_sources("ai", domains=[123])  # type: ignore[list-item]
+
     def test_search_sources_rejects_invalid_metadata_filters(self):
         """Search should validate metadata filter payload shape and values."""
         tracker = CitationTracker()
