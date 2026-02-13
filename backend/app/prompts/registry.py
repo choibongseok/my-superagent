@@ -146,7 +146,162 @@ class PromptRegistry:
         self._cache[name] = versions
 
         return list(versions)
+    
+    def update_performance_score(
+        self,
+        name: str,
+        version: str,
+        score: float,
+    ) -> bool:
+        """Update performance score for a specific prompt version.
+        
+        Args:
+            name: Prompt name.
+            version: Version identifier.
+            score: Performance score (0.0-1.0 recommended, but not enforced).
+            
+        Returns:
+            True if updated successfully, False if version not found.
+        """
+        versions = self.list_versions(name)
+        
+        for prompt_version in versions:
+            if prompt_version.version == version:
+                prompt_version.performance_score = score
+                self._save_versions(name, versions)
+                self._cache[name] = versions
+                logger.info(
+                    f"Updated performance score for '{name}' version '{version}': {score}"
+                )
+                return True
+        
+        logger.warning(
+            f"Prompt '{name}' version '{version}' not found for score update"
+        )
+        return False
+    
+    def get_best_performing(
+        self,
+        name: str,
+        min_score: Optional[float] = None,
+    ) -> Optional[PromptVersion]:
+        """Get the highest-performing version of a prompt.
+        
+        Args:
+            name: Prompt name.
+            min_score: Optional minimum score threshold. If provided, only
+                versions with scores >= min_score are considered.
+        
+        Returns:
+            Best performing prompt version, or None if no scored versions exist.
+        """
+        versions = self.list_versions(name)
+        
+        # Filter versions that have performance scores
+        scored_versions = [
+            v for v in versions 
+            if v.performance_score is not None
+        ]
+        
+        if not scored_versions:
+            return None
+        
+        # Apply minimum score filter if provided
+        if min_score is not None:
+            scored_versions = [
+                v for v in scored_versions 
+                if v.performance_score >= min_score
+            ]
+        
+        if not scored_versions:
+            return None
+        
+        # Return version with highest score
+        best_version = max(scored_versions, key=lambda v: v.performance_score)
+        
+        logger.debug(
+            f"Best performing version for '{name}': {best_version.version} "
+            f"(score: {best_version.performance_score})"
+        )
+        
+        return best_version
 
+    def get_performance_analytics(
+        self,
+        name: str,
+    ) -> Dict[str, Any]:
+        """Get performance analytics for all versions of a prompt.
+        
+        Args:
+            name: Prompt name.
+            
+        Returns:
+            Dictionary with performance statistics including:
+            - version_count: Total number of versions
+            - scored_versions: Number of versions with performance scores
+            - best_version: Best performing version info
+            - average_score: Average performance score across all scored versions
+            - score_range: (min, max) score tuple
+        """
+        versions = self.list_versions(name)
+        
+        if not versions:
+            return {
+                "version_count": 0,
+                "scored_versions": 0,
+                "best_version": None,
+                "worst_version": None,
+                "average_score": None,
+                "score_range": None,
+                "score_distribution": {},
+            }
+        
+        scored_versions = [
+            v for v in versions 
+            if v.performance_score is not None
+        ]
+        
+        analytics = {
+            "version_count": len(versions),
+            "scored_versions": len(scored_versions),
+        }
+        
+        if scored_versions:
+            scores = [v.performance_score for v in scored_versions]
+            best = max(scored_versions, key=lambda v: v.performance_score)
+            worst = min(scored_versions, key=lambda v: v.performance_score)
+            
+            analytics.update({
+                "best_version": {
+                    "version": best.version,
+                    "score": best.performance_score,
+                    "created_at": best.created_at.isoformat(),
+                },
+                "worst_version": {
+                    "version": worst.version,
+                    "score": worst.performance_score,
+                    "created_at": worst.created_at.isoformat(),
+                },
+                "average_score": round(sum(scores) / len(scores), 3),
+                "score_range": (min(scores), max(scores)),
+                "score_distribution": {
+                    "excellent (>= 0.9)": len([s for s in scores if s >= 0.9]),
+                    "good (0.7-0.9)": len([s for s in scores if 0.7 <= s < 0.9]),
+                    "fair (0.5-0.7)": len([s for s in scores if 0.5 <= s < 0.7]),
+                    "poor (< 0.5)": len([s for s in scores if s < 0.5]),
+                },
+            })
+        else:
+            analytics.update({
+                "best_version": None,
+                "worst_version": None,
+                "average_score": None,
+                "score_range": None,
+                "score_distribution": {},
+            })
+        
+        return analytics
+    
     def load_builtin_templates(self) -> None:
         """Load built-in prompt templates once.
 
