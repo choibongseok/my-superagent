@@ -3,6 +3,7 @@
 import logging
 import re
 import uuid
+from collections import Counter
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
@@ -439,6 +440,8 @@ class CitationTracker:
         published_after: Optional[datetime] = None,
         published_before: Optional[datetime] = None,
         metadata_filters: Optional[Mapping[str, Any]] = None,
+        min_citations: Optional[int] = None,
+        max_citations: Optional[int] = None,
     ) -> List[Source]:
         """Search sources with lightweight relevance ranking.
 
@@ -457,6 +460,10 @@ class CitationTracker:
             metadata_filters: Optional metadata constraints where each key/value
                 pair must match source metadata exactly (case-insensitive). Values
                 may be scalars or iterables of accepted values.
+            min_citations: Optional inclusive lower bound for citation count per
+                source.
+            max_citations: Optional inclusive upper bound for citation count per
+                source.
 
         Returns:
             Ranked list of matching sources.
@@ -470,6 +477,19 @@ class CitationTracker:
             and published_after > published_before
         ):
             raise ValueError("published_after cannot be later than published_before")
+
+        if min_citations is not None and min_citations < 0:
+            raise ValueError("min_citations cannot be negative")
+
+        if max_citations is not None and max_citations < 0:
+            raise ValueError("max_citations cannot be negative")
+
+        if (
+            min_citations is not None
+            and max_citations is not None
+            and min_citations > max_citations
+        ):
+            raise ValueError("min_citations cannot be greater than max_citations")
 
         normalized_match_mode = self._normalize_text(match_mode)
         if normalized_match_mode not in {"all", "any"}:
@@ -488,10 +508,18 @@ class CitationTracker:
             normalized_source_type = self._normalize_text(normalized_source_type)
 
         normalized_metadata_filters = self._normalize_metadata_filters(metadata_filters)
+        citation_counts = Counter(
+            citation.source.id for citation in self.citations.values()
+        )
 
         ranked_matches: List[tuple[int, Source]] = []
 
         for source in self.sources.values():
+            citation_count = citation_counts.get(source.id, 0)
+            if min_citations is not None and citation_count < min_citations:
+                continue
+            if max_citations is not None and citation_count > max_citations:
+                continue
             source_type_value = self._normalize_text(str(source.type))
             if (
                 normalized_source_type is not None

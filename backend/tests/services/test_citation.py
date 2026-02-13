@@ -282,6 +282,49 @@ class TestCitationTracker:
                 published_before=datetime(2024, 12, 31),
             )
 
+    def test_search_sources_supports_min_and_max_citations_filters(self):
+        """Citation count bounds should filter sources by how often they are cited."""
+        tracker = CitationTracker()
+
+        heavily_cited_id = tracker.add_source(title="Heavily Cited")
+        lightly_cited_id = tracker.add_source(title="Lightly Cited")
+        uncited_id = tracker.add_source(title="Uncited")
+
+        tracker.cite(heavily_cited_id, quoted_text="One")
+        tracker.cite(heavily_cited_id, quoted_text="Two")
+        tracker.cite(lightly_cited_id, quoted_text="One")
+
+        at_least_one = tracker.search_sources("cited", min_citations=1)
+        assert [source.id for source in at_least_one] == [
+            heavily_cited_id,
+            lightly_cited_id,
+        ]
+
+        at_most_one = tracker.search_sources("cited", max_citations=1)
+        assert [source.id for source in at_most_one] == [
+            lightly_cited_id,
+            uncited_id,
+        ]
+
+        bounded = tracker.search_sources("cited", min_citations=1, max_citations=1)
+        assert [source.id for source in bounded] == [lightly_cited_id]
+
+    def test_search_sources_rejects_invalid_citation_bound_filters(self):
+        """Citation bounds should reject negative values and invalid ranges."""
+        tracker = CitationTracker()
+
+        with pytest.raises(ValueError, match="min_citations cannot be negative"):
+            tracker.search_sources("ai", min_citations=-1)
+
+        with pytest.raises(ValueError, match="max_citations cannot be negative"):
+            tracker.search_sources("ai", max_citations=-1)
+
+        with pytest.raises(
+            ValueError,
+            match="min_citations cannot be greater than max_citations",
+        ):
+            tracker.search_sources("ai", min_citations=2, max_citations=1)
+
     def test_search_sources_supports_case_insensitive_metadata_filters(self):
         """Metadata filters should match keys/values regardless of casing."""
         tracker = CitationTracker()
