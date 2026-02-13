@@ -1182,10 +1182,17 @@ class CitationTracker:
             return 0.3
 
         normalized_published_date = cls._normalize_datetime(published_date)
-        age_days = max(
-            0.0,
-            (reference_time - normalized_published_date).total_seconds() / 86400,
-        )
+        raw_age_days = (reference_time - normalized_published_date).total_seconds() / 86400
+        
+        # Handle future dates - sources with future publication dates are suspicious
+        # and should be penalized similar to undated sources
+        if raw_age_days < 0:
+            logger.warning(
+                f"Source has future publication date: {published_date.isoformat()}"
+            )
+            return 0.3  # Same penalty as undated sources
+        
+        age_days = raw_age_days
 
         # Use a more realistic decay curve instead of linear decay.
         if age_days <= recency_window_days * 0.1:
