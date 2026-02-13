@@ -263,7 +263,26 @@ class VectorStoreMemory:
 
         # Apply adaptive threshold if requested and no explicit threshold provided
         applied_threshold = score_threshold
-        if adaptive_threshold and score_threshold is None and len(results) > 1:
+        
+        # Handle single-result edge case first
+        if adaptive_threshold and score_threshold is None and len(results) == 1:
+            single_score = results[0][1]
+            # For single results, use a more conservative threshold
+            # Accept if score is reasonably high, reject if very low
+            if single_score < min_adaptive_threshold:
+                results = []
+                applied_threshold = min_adaptive_threshold
+                logger.debug(
+                    f"Single result rejected: score {single_score:.3f} below "
+                    f"minimum threshold {min_adaptive_threshold:.3f}"
+                )
+            else:
+                applied_threshold = min(single_score * 0.9, min_adaptive_threshold)
+                logger.debug(
+                    f"Single result accepted: score {single_score:.3f} "
+                    f"(threshold: {applied_threshold:.3f})"
+                )
+        elif adaptive_threshold and score_threshold is None and len(results) > 1:
             scores = [score for _, score in results]
             mean_score = sum(scores) / len(scores)
             
@@ -288,7 +307,20 @@ class VectorStoreMemory:
             # Special case: if std_dev is 0 (all scores identical), use mean as threshold
             if std_dev < 1e-6:
                 # All scores are virtually identical, use a permissive threshold
-                adaptive_threshold_value = max(min_adaptive_threshold, mean_score * 0.95)
+                # But ensure we still filter out uniformly low-quality results
+                if mean_score >= 0.7:
+                    # High uniform quality - accept all
+                    adaptive_threshold_value = max(min_adaptive_threshold, mean_score * 0.95)
+                elif mean_score >= 0.5:
+                    # Medium uniform quality - be slightly more selective
+                    adaptive_threshold_value = max(min_adaptive_threshold, mean_score * 0.9)
+                else:
+                    # Low uniform quality - use minimum threshold to filter
+                    adaptive_threshold_value = min_adaptive_threshold
+                    logger.debug(
+                        f"Uniform low-quality results detected (mean={mean_score:.3f}), "
+                        f"applying strict minimum threshold"
+                    )
             else:
                 adaptive_threshold_value = max(
                     min_adaptive_threshold,

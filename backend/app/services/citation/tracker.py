@@ -786,10 +786,23 @@ class CitationTracker:
                 # Normalize score by query length to prevent long queries from dominating
                 # Use logarithmic scaling to balance single-term vs multi-term queries
                 # Logarithmic approach is more balanced than linear scaling
-                query_length_factor = 1 + math.log(len(query_tokens)) * 0.2
+                # For very short queries (1-2 tokens), apply minimal normalization
+                # to avoid over-penalizing focused searches
+                if len(query_tokens) <= 2:
+                    # Short queries: use gentler normalization
+                    query_length_factor = 1 + math.log(len(query_tokens) + 1) * 0.1
+                else:
+                    # Longer queries: standard logarithmic normalization
+                    query_length_factor = 1 + math.log(len(query_tokens)) * 0.2
+                
                 score = score / query_length_factor
+                
+                # Apply score bucketing for stability across repeated searches
+                # Round to 2 decimal places to prevent micro-variations from affecting ranking
+                # This ensures consistent ordering when scores are very close
+                score = round(score, 2)
             else:
-                score = 0
+                score = 0.0
 
             ranked_matches.append((score, citation_count, source))
 
