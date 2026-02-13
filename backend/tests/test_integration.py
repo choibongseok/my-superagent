@@ -1,7 +1,11 @@
 """Integration tests for agent system."""
 
-import pytest
+import shutil
+import tempfile
 from unittest.mock import patch
+
+import pytest
+
 from app.agents.research_agent import ResearchAgent
 from app.prompts.registry import prompt_registry
 
@@ -59,44 +63,47 @@ async def test_prompt_registry_operations():
     """Test prompt registry CRUD operations."""
     from app.prompts.registry import PromptRegistry
 
-    # Create temporary registry for testing
-    registry = PromptRegistry(storage_path="/tmp/test_prompts")
+    temp_dir = tempfile.mkdtemp()
+    try:
+        registry = PromptRegistry(storage_path=temp_dir)
 
-    # Register new prompt
-    prompt_v1 = registry.register(
-        name="test_prompt",
-        template="Test template with {variable1} and {variable2}",
-        variables=["variable1", "variable2"],
-        metadata={"test": True},
-        version="v1",
-    )
+        # Register new prompt
+        prompt_v1 = registry.register(
+            name="test_prompt",
+            template="Test template with {variable1} and {variable2}",
+            variables=["variable1", "variable2"],
+            metadata={"test": True},
+            version="v1",
+        )
 
-    assert prompt_v1.version == "v1"
-    assert len(prompt_v1.variables) == 2
+        assert prompt_v1.version == "v1"
+        assert len(prompt_v1.variables) == 2
 
-    # Get prompt
-    retrieved = registry.get("test_prompt", version="v1")
-    assert retrieved is not None
-    assert retrieved.version == "v1"
+        # Get prompt
+        retrieved = registry.get("test_prompt", version="v1")
+        assert retrieved is not None
+        assert retrieved.version == "v1"
 
-    # Register new version
-    prompt_v2 = registry.register(
-        name="test_prompt",
-        template="Updated template with {variable1}",
-        variables=["variable1"],
-        metadata={"test": True, "updated": True},
-        version="v2",
-    )
+        # Register new version
+        prompt_v2 = registry.register(
+            name="test_prompt",
+            template="Updated template with {variable1}",
+            variables=["variable1"],
+            metadata={"test": True, "updated": True},
+            version="v2",
+        )
 
-    assert prompt_v2.version == "v2"
+        assert prompt_v2.version == "v2"
 
-    # List all versions
-    versions = registry.list_versions("test_prompt")
-    assert len(versions) == 2
+        # List all versions
+        versions = registry.list_versions("test_prompt")
+        assert len(versions) == 2
 
-    # Get latest version
-    latest = registry.get("test_prompt")
-    assert latest.version == "v2"
+        # Get latest version
+        latest = registry.get("test_prompt")
+        assert latest.version == "v2"
+    finally:
+        shutil.rmtree(temp_dir)
 
 
 if __name__ == "__main__":

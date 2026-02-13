@@ -34,4 +34,6 @@ Output format:
         "language": "en",
     },
     version="v1",
+    allow_overwrite=True,
+    persist=False,
 )

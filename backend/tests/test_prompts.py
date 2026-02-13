@@ -3,8 +3,7 @@
 import pytest
 import tempfile
 import shutil
-from pathlib import Path
-from app.prompts.registry import PromptRegistry, PromptVersion
+from app.prompts.registry import PromptRegistry, prompt_registry
 
 
 @pytest.fixture
@@ -134,6 +133,75 @@ def test_prompt_persistence(temp_registry):
     prompt = new_registry.get("test_prompt", version="v1")
     assert prompt is not None
     assert prompt.version == "v1"
+
+
+def test_duplicate_version_requires_explicit_overwrite(temp_registry):
+    """Test duplicate version registration raises unless overwrite is enabled."""
+    temp_registry.register(
+        name="test_prompt",
+        template="Original",
+        variables=[],
+        version="v1",
+    )
+
+    with pytest.raises(ValueError, match="already exists"):
+        temp_registry.register(
+            name="test_prompt",
+            template="Updated",
+            variables=[],
+            version="v1",
+        )
+
+
+def test_duplicate_version_can_be_overwritten(temp_registry):
+    """Test duplicate version registration can intentionally replace content."""
+    temp_registry.register(
+        name="test_prompt",
+        template="Original",
+        variables=["foo"],
+        metadata={"source": "initial"},
+        version="v1",
+    )
+
+    overwritten = temp_registry.register(
+        name="test_prompt",
+        template="Updated",
+        variables=["foo", "bar"],
+        metadata={"source": "overwrite"},
+        version="v1",
+        allow_overwrite=True,
+    )
+
+    assert overwritten.template == "Updated"
+
+    versions = temp_registry.list_versions("test_prompt")
+    assert len(versions) == 1
+    assert versions[0].template == "Updated"
+    assert versions[0].variables == ["foo", "bar"]
+    assert versions[0].metadata["source"] == "overwrite"
+
+
+def test_non_persistent_registration_stays_in_memory_only(temp_registry):
+    """Test persist=False skips file writes but keeps cache entries available."""
+    temp_registry.register(
+        name="ephemeral_prompt",
+        template="Draft",
+        variables=[],
+        version="v1",
+        persist=False,
+    )
+
+    assert temp_registry.get("ephemeral_prompt", version="v1") is not None
+    assert not (temp_registry.storage_path / "ephemeral_prompt.json").exists()
+
+
+def test_builtin_templates_are_bootstrapped():
+    """Test global prompt registry auto-loads built-in templates."""
+    prompt = prompt_registry.get("research_agent", version="v1")
+
+    assert prompt is not None
+    assert prompt.version == "v1"
+    assert "topic" in prompt.variables
 
 
 if __name__ == "__main__":

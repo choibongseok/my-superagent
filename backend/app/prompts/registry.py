@@ -1,15 +1,22 @@
 """Prompt Registry for version management."""
 
+import importlib
 import json
+import logging
+import pkgutil
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
+logger = logging.getLogger(__name__)
+
 
 class PromptVersion(BaseModel):
     """Prompt version model."""
+
     version: str
     template: str
     variables: List[str]
@@ -18,9 +25,7 @@ class PromptVersion(BaseModel):
     performance_score: Optional[float] = None
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 class PromptRegistry:
@@ -34,10 +39,17 @@ class PromptRegistry:
         - Rollback capability
     """
 
-    def __init__(self, storage_path: str = "backend/app/prompts/templates"):
-        self.storage_path = Path(storage_path)
+    VERSION_NUMBER_PATTERN = re.compile(r"^v(\d+)$", re.IGNORECASE)
+    DEFAULT_STORAGE_PATH = Path(__file__).resolve().parent / "templates"
+
+    def __init__(self, storage_path: str | Path | None = None):
+        resolved_storage_path = (
+            Path(storage_path) if storage_path is not None else self.DEFAULT_STORAGE_PATH
+        )
+        self.storage_path = resolved_storage_path
         self.storage_path.mkdir(parents=True, exist_ok=True)
         self._cache: Dict[str, List[PromptVersion]] = {}
+        self._builtin_templates_loaded = False
 
     def register(
         self,
@@ -46,12 +58,26 @@ class PromptRegistry:
         variables: List[str],
         metadata: Optional[Dict[str, Any]] = None,
         version: Optional[str] = None,
+        allow_overwrite: bool = False,
+        persist: bool = True,
     ) -> PromptVersion:
-        """Register new prompt or version."""
-        # Auto-generate version if not provided
+        """Register a new prompt or version.
+
+        Args:
+            name: Prompt name.
+            template: Prompt template text.
+            variables: Prompt variables.
+            metadata: Optional metadata.
+            version: Optional explicit version label (e.g. v1).
+            allow_overwrite: When True and the given version already exists,
+                replace it in-place instead of raising an error.
+            persist: When False, keep the version in memory/cache only.
+        """
+        versions = self.list_versions(name)
+
+        # Auto-generate version if not provided.
         if version is None:
-            existing = self.list_versions(name)
-            version = f"v{len(existing) + 1}"
+            version = self._next_version(versions)
 
         prompt_version = PromptVersion(
             version=version,
@@ -61,13 +87,24 @@ class PromptRegistry:
             created_at=datetime.now(),
         )
 
-        # Save to file
-        self._save_version(name, prompt_version)
+        existing_index = next(
+            (i for i, current in enumerate(versions) if current.version == version),
+            None,
+        )
 
-        # Update cache
-        if name not in self._cache:
-            self._cache[name] = []
-        self._cache[name].append(prompt_version)
+        if existing_index is not None:
+            if not allow_overwrite:
+                raise ValueError(
+                    f"Prompt '{name}' version '{version}' already exists. "
+                    "Set allow_overwrite=True to replace it."
+                )
+            versions[existing_index] = prompt_version
+        else:
+            versions.append(prompt_version)
+
+        if persist:
+            self._save_versions(name, versions)
+        self._cache[name] = versions
 
         return prompt_version
 
@@ -87,47 +124,84 @@ class PromptRegistry:
             return versions[-1]
 
         # Find specific version
-        for v in versions:
-            if v.version == version:
-                return v
+        for prompt_version in versions:
+            if prompt_version.version == version:
+                return prompt_version
 
         return None
 
     def list_versions(self, name: str) -> List[PromptVersion]:
         """List all versions of a prompt."""
         if name in self._cache:
-            return self._cache[name]
+            return list(self._cache[name])
 
-        # Load from file
         file_path = self.storage_path / f"{name}.json"
         if not file_path.exists():
             return []
 
-        with open(file_path, "r") as f:
-            data = json.load(f)
+        with open(file_path, "r", encoding="utf-8") as file:
+            data = json.load(file)
 
-        versions = [PromptVersion(**v) for v in data]
+        versions = [PromptVersion(**value) for value in data]
         self._cache[name] = versions
 
-        return versions
+        return list(versions)
 
-    def _save_version(self, name: str, version: PromptVersion):
-        """Save prompt version to file."""
-        versions = self.list_versions(name)
-        versions.append(version)
+    def load_builtin_templates(self) -> None:
+        """Load built-in prompt templates once.
 
+        Built-ins are Python modules under ``app.prompts.templates`` that register
+        their defaults through the global ``prompt_registry`` instance at import time.
+        """
+        if self._builtin_templates_loaded:
+            return
+
+        try:
+            templates_package = importlib.import_module("app.prompts.templates")
+        except Exception:
+            logger.exception("Failed to import built-in prompt templates package")
+            return
+
+        for _, module_name, is_pkg in pkgutil.iter_modules(templates_package.__path__):
+            if is_pkg or module_name.startswith("_"):
+                continue
+
+            full_module_name = f"{templates_package.__name__}.{module_name}"
+            try:
+                importlib.import_module(full_module_name)
+            except Exception:
+                logger.exception("Failed to import prompt template module: %s", full_module_name)
+
+        self._builtin_templates_loaded = True
+
+    def _next_version(self, versions: List[PromptVersion]) -> str:
+        """Generate next numeric version label (vN)."""
+        highest_version_number = 0
+
+        for version in versions:
+            match = self.VERSION_NUMBER_PATTERN.match(version.version.strip())
+            if not match:
+                continue
+            highest_version_number = max(highest_version_number, int(match.group(1)))
+
+        return f"v{highest_version_number + 1}"
+
+    def _save_versions(self, name: str, versions: List[PromptVersion]) -> None:
+        """Persist all versions for a prompt name."""
         file_path = self.storage_path / f"{name}.json"
-        with open(file_path, "w") as f:
+
+        with open(file_path, "w", encoding="utf-8") as file:
             json.dump(
-                [v.dict() for v in versions],
-                f,
+                [version.model_dump(mode="json") for version in versions],
+                file,
                 indent=2,
-                default=str,
+                ensure_ascii=False,
             )
 
 
 # Global registry instance
 prompt_registry = PromptRegistry()
+prompt_registry.load_builtin_templates()
 
 
 __all__ = ["PromptRegistry", "PromptVersion", "prompt_registry"]
