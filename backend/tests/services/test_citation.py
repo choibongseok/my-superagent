@@ -192,6 +192,50 @@ class TestCitationTracker:
         assert matches[0].id == article_id
         assert matches[0].type == SourceType.ARTICLE
 
+    def test_search_sources_supports_source_types_allow_list(self):
+        """source_types should allow filtering by multiple source categories."""
+        tracker = CitationTracker()
+
+        article_id = tracker.add_source(
+            title="Article Insight", type=SourceType.ARTICLE
+        )
+        tracker.add_source(title="Web Insight", type=SourceType.WEB)
+        api_id = tracker.add_source(title="API Insight", type=SourceType.API)
+
+        matches = tracker.search_sources(
+            "insight",
+            source_types=[SourceType.ARTICLE, "API"],
+            sort_by="title",
+        )
+
+        assert [source.id for source in matches] == [api_id, article_id]
+
+    def test_search_sources_source_type_filters_validate_input(self):
+        """source_type/source_types should reject conflicting or invalid payloads."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="source_type and source_types cannot be used together",
+        ):
+            tracker.search_sources(
+                "agent",
+                source_type=SourceType.WEB,
+                source_types=[SourceType.ARTICLE],
+            )
+
+        with pytest.raises(
+            ValueError,
+            match="source_types must include at least one source type",
+        ):
+            tracker.search_sources("agent", source_types=[])
+
+        with pytest.raises(
+            ValueError,
+            match="source_types must contain only SourceType or string values",
+        ):
+            tracker.search_sources("agent", source_types=[123])
+
     def test_search_sources_blank_query_returns_all_sorted_by_title(self):
         """Blank search query should return all sources in stable title order."""
         tracker = CitationTracker()
@@ -451,6 +495,20 @@ class TestCitationTracker:
             "async",
             include_source_ids=[include_id, excluded_id],
             exclude_source_ids=[excluded_id],
+        )
+
+        assert [item["source"].id for item in detailed] == [include_id]
+
+    def test_search_sources_with_details_supports_source_types_allow_list(self):
+        """Detailed search should pass source_types filters through."""
+        tracker = CitationTracker()
+
+        include_id = tracker.add_source(title="Agent API Guide", type=SourceType.API)
+        tracker.add_source(title="Agent Web Guide", type=SourceType.WEB)
+
+        detailed = tracker.search_sources_with_details(
+            "agent guide",
+            source_types=["api"],
         )
 
         assert [item["source"].id for item in detailed] == [include_id]
@@ -1205,9 +1263,7 @@ class TestCitationTracker:
         assert "source_breakdown" in report
         assert len(report["source_breakdown"]) == 2
 
-        by_source_id = {
-            item["source_id"]: item for item in report["source_breakdown"]
-        }
+        by_source_id = {item["source_id"]: item for item in report["source_breakdown"]}
         cited_entry = by_source_id[cited_source_id]
         uncited_entry = by_source_id[uncited_source_id]
 

@@ -262,19 +262,56 @@ class CitationTracker:
         normalized_source_ids: set[str] = set()
         for source_id in raw_source_ids:
             if not isinstance(source_id, str):
-                raise ValueError(
-                    f"{argument_name} must contain only string source ids"
-                )
+                raise ValueError(f"{argument_name} must contain only string source ids")
 
             normalized_source_id = source_id.strip()
             if not normalized_source_id:
-                raise ValueError(
-                    f"{argument_name} must contain non-empty source ids"
-                )
+                raise ValueError(f"{argument_name} must contain non-empty source ids")
 
             normalized_source_ids.add(normalized_source_id)
 
         return normalized_source_ids
+
+    @classmethod
+    def _normalize_source_types(
+        cls,
+        source_types: Optional[SourceType | str | Iterable[SourceType | str]],
+        *,
+        argument_name: str,
+    ) -> Optional[set[str]]:
+        """Normalize optional source-type filters into a stable set."""
+        if source_types is None:
+            return None
+
+        raw_source_types: list[Any]
+        if isinstance(source_types, (SourceType, str)):
+            raw_source_types = [source_types]
+        else:
+            raw_source_types = list(source_types)
+
+        if not raw_source_types:
+            raise ValueError(f"{argument_name} must include at least one source type")
+
+        normalized_source_types: set[str] = set()
+        for source_type in raw_source_types:
+            if isinstance(source_type, SourceType):
+                source_type_value = source_type.value
+            elif isinstance(source_type, str):
+                source_type_value = source_type
+            else:
+                raise ValueError(
+                    f"{argument_name} must contain only SourceType or string values"
+                )
+
+            normalized_source_type = cls._normalize_text(source_type_value)
+            if not normalized_source_type:
+                raise ValueError(
+                    f"{argument_name} must contain non-empty source type values"
+                )
+
+            normalized_source_types.add(normalized_source_type)
+
+        return normalized_source_types
 
     @staticmethod
     def _domain_matches_allowed(hostname: str, allowed_domains: set[str]) -> bool:
@@ -632,6 +669,7 @@ class CitationTracker:
         query: str,
         *,
         source_type: Optional[SourceType | str] = None,
+        source_types: Optional[SourceType | str | Iterable[SourceType | str]] = None,
         limit: Optional[int] = None,
         match_mode: Literal["all", "any"] = "all",
         published_after: Optional[datetime] = None,
@@ -662,6 +700,9 @@ class CitationTracker:
         Args:
             query: Search text. Blank query returns all sources.
             source_type: Optional source type filter.
+            source_types: Optional source type allow-list. Accepts a single
+                source type or an iterable of source types. Cannot be used
+                together with ``source_type``.
             limit: Optional max number of results. Must be > 0 when set.
             match_mode: Token matching strategy. ``"all"`` requires every
                 query token to appear in the searchable source text, while
@@ -709,6 +750,9 @@ class CitationTracker:
         """
         if limit is not None and limit <= 0:
             raise ValueError("limit must be greater than 0")
+
+        if source_type is not None and source_types is not None:
+            raise ValueError("source_type and source_types cannot be used together")
 
         if (
             published_after is not None
@@ -769,14 +813,10 @@ class CitationTracker:
         normalized_query = self._normalize_text(query)
         query_tokens = [token for token in normalized_query.split(" ") if token]
 
-        normalized_source_type: Optional[str] = None
-        if source_type is not None:
-            normalized_source_type = (
-                source_type.value
-                if isinstance(source_type, SourceType)
-                else str(source_type)
-            )
-            normalized_source_type = self._normalize_text(normalized_source_type)
+        normalized_source_types = self._normalize_source_types(
+            source_types if source_types is not None else source_type,
+            argument_name="source_types" if source_types is not None else "source_type",
+        )
 
         normalized_metadata_filters = self._normalize_metadata_filters(metadata_filters)
         normalized_domains = self._normalize_domains(domains)
@@ -828,8 +868,8 @@ class CitationTracker:
 
             source_type_value = self._normalize_text(str(source.type))
             if (
-                normalized_source_type is not None
-                and source_type_value != normalized_source_type
+                normalized_source_types is not None
+                and source_type_value not in normalized_source_types
             ):
                 continue
 
@@ -1024,6 +1064,7 @@ class CitationTracker:
         query: str,
         *,
         source_type: Optional[SourceType | str] = None,
+        source_types: Optional[SourceType | str | Iterable[SourceType | str]] = None,
         limit: Optional[int] = None,
         match_mode: Literal["all", "any"] = "all",
         published_after: Optional[datetime] = None,
@@ -1054,6 +1095,7 @@ class CitationTracker:
         matched_sources = self.search_sources(
             query,
             source_type=source_type,
+            source_types=source_types,
             limit=limit,
             match_mode=match_mode,
             published_after=published_after,
@@ -1296,8 +1338,10 @@ class CitationTracker:
             return 0.3
 
         normalized_published_date = cls._normalize_datetime(published_date)
-        raw_age_days = (reference_time - normalized_published_date).total_seconds() / 86400
-        
+        raw_age_days = (
+            reference_time - normalized_published_date
+        ).total_seconds() / 86400
+
         # Handle future dates - sources with future publication dates are suspicious
         # and should be penalized similar to undated sources
         if raw_age_days < 0:
@@ -1305,7 +1349,7 @@ class CitationTracker:
                 f"Source has future publication date: {published_date.isoformat()}"
             )
             return 0.3  # Same penalty as undated sources
-        
+
         age_days = raw_age_days
 
         # Use a more realistic decay curve instead of linear decay.
