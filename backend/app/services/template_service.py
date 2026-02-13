@@ -142,9 +142,7 @@ class TemplateService:
 
         return template
 
-    async def delete_template(
-        self, template_id: UUID, user_id: UUID
-    ) -> bool:
+    async def delete_template(self, template_id: UUID, user_id: UUID) -> bool:
         """
         Delete template.
 
@@ -202,9 +200,7 @@ class TemplateService:
         if search_request.tags:
             # Filter by tags (JSON array contains)
             for tag in search_request.tags:
-                query = query.where(
-                    func.jsonb_exists(Template.tags, f"tags.{tag}")
-                )
+                query = query.where(func.jsonb_exists(Template.tags, f"tags.{tag}"))
 
         if search_request.author_id:
             query = query.where(Template.author_id == search_request.author_id)
@@ -237,22 +233,37 @@ class TemplateService:
         result = await self.db.execute(query)
         templates = list(result.scalars().all())
 
-        logger.info(
-            f"Template search: {len(templates)} results (total: {total})"
-        )
+        logger.info(f"Template search: {len(templates)} results (total: {total})")
 
         return templates, total
 
     @staticmethod
-    def _extract_template_variables(prompt_template: str) -> set[str]:
-        """Extract top-level variable names from a format-style prompt template."""
+    def _split_field_default(field_name: str) -> tuple[str, str | None]:
+        """Split ``field|default`` syntax into field path and optional default."""
+        if "|" not in field_name:
+            return field_name, None
+
+        field_path, default_value = field_name.split("|", 1)
+        return field_path.strip(), default_value.strip()
+
+    @classmethod
+    def _extract_template_variables(cls, prompt_template: str) -> set[str]:
+        """Extract required top-level variables from a format-style template.
+
+        Fields declared with ``|`` default syntax (e.g. ``{audience|general}``)
+        are treated as optional and excluded from the required input set.
+        """
         variables: set[str] = set()
         for _, field_name, _, _ in Formatter().parse(prompt_template):
             if not field_name:
                 continue
 
+            resolved_field, default_value = cls._split_field_default(field_name)
+            if default_value is not None:
+                continue
+
             # Handle nested field access like {user.name} or {user[name]}
-            base_field = field_name.split(".", 1)[0].split("[", 1)[0]
+            base_field = resolved_field.split(".", 1)[0].split("[", 1)[0]
             if base_field:
                 variables.add(base_field)
 
@@ -265,6 +276,9 @@ class TemplateService:
         Supports nested input interpolation via dot notation (``{user.name}``) and
         bracket access (``{items[0][title]}``) when ``inputs`` contains nested
         dictionaries/lists.
+
+        Also supports optional defaults via ``field|default`` syntax, for example
+        ``{audience|general audience}``.
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)
@@ -272,9 +286,41 @@ class TemplateService:
             missing = ", ".join(missing_inputs)
             raise ValueError(f"Missing template inputs: {missing}")
 
+        formatter = Formatter()
+        context = _to_template_context(inputs)
+        rewritten_parts: list[str] = []
+        resolved_values: dict[str, object] = {}
+
+        for index, (literal, field_name, format_spec, conversion) in enumerate(
+            formatter.parse(prompt_template)
+        ):
+            rewritten_parts.append(literal.replace("{", "{{").replace("}", "}}"))
+            if field_name is None:
+                continue
+
+            resolved_field, default_value = cls._split_field_default(field_name)
+            placeholder = f"__field_{index}__"
+
+            rebuilt_field = "{" + placeholder
+            if conversion:
+                rebuilt_field += f"!{conversion}"
+            if format_spec:
+                rebuilt_field += f":{format_spec}"
+            rebuilt_field += "}"
+            rewritten_parts.append(rebuilt_field)
+
+            try:
+                value, _ = formatter.get_field(resolved_field, (), context)
+            except (KeyError, ValueError, AttributeError, IndexError, TypeError) as exc:
+                if default_value is None:
+                    raise ValueError(f"Failed to render template: {exc}") from exc
+                value = default_value
+
+            resolved_values[placeholder] = value
+
         try:
-            context = _to_template_context(inputs)
-            return prompt_template.format_map(context)
+            rewritten_template = "".join(rewritten_parts)
+            return rewritten_template.format_map(_to_template_context(resolved_values))
         except (KeyError, ValueError, AttributeError, IndexError, TypeError) as exc:
             raise ValueError(f"Failed to render template: {exc}") from exc
 

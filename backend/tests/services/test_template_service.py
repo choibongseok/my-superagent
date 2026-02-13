@@ -74,9 +74,7 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_use_template_handles_escaped_braces(
-        self, service_with_mock_db
-    ):
+    async def test_use_template_handles_escaped_braces(self, service_with_mock_db):
         """Escaped braces should stay literal and not count as variables."""
         service, db = service_with_mock_db
         template_id = uuid4()
@@ -164,4 +162,85 @@ class TestTemplateServiceUseTemplate:
 
         assert result["prompt"] == "Top insight: Agent quality (owner: Jin)"
         assert template.usage_count == 8
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_applies_default_value_for_missing_optional_field(
+        self, service_with_mock_db
+    ):
+        """Optional fields can define defaults via the field|default syntax."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Summarize {topic} for {audience|general audience}",
+            category="research",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"topic": "agent orchestration"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Summarize agent orchestration for general audience"
+        assert template.usage_count == 2
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_prefers_explicit_value_over_default(
+        self, service_with_mock_db
+    ):
+        """Provided inputs should override fallback defaults."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Summarize {topic} for {audience|general audience}",
+            category="research",
+            usage_count=4,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "topic": "agent orchestration",
+                    "audience": "backend engineers",
+                },
+                user_id,
+            )
+
+        assert result["prompt"] == "Summarize agent orchestration for backend engineers"
+        assert template.usage_count == 5
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_default_for_missing_nested_value(
+        self, service_with_mock_db
+    ):
+        """Nested field lookups should fall back to defaults when data is absent."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Hi {user.name|there}, your plan is ready.",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {},
+                user_id,
+            )
+
+        assert result["prompt"] == "Hi there, your plan is ready."
+        assert template.usage_count == 1
         db.commit.assert_awaited_once()
