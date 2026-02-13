@@ -22,10 +22,110 @@ from app.schemas.template import (
     TemplateUseRequest,
     TemplateUseResponse,
 )
+from app.agents.celery_app import (
+    process_docs_task,
+    process_research_task,
+    process_sheets_task,
+    process_slides_task,
+)
+from app.models.task import Task as TaskModel
+from app.models.task import TaskStatus
 from app.services.template_service import TemplateService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+CATEGORY_TO_TASK_TYPE = {
+    "research": "research",
+    "document": "docs",
+    "docs": "docs",
+    "spreadsheet": "sheets",
+    "sheets": "sheets",
+    "presentation": "slides",
+    "slides": "slides",
+}
+
+TASK_TITLE_DEFAULTS = {
+    "docs": "Template Document",
+    "sheets": "Template Spreadsheet",
+    "slides": "Template Presentation",
+}
+
+
+def _resolve_task_type(output_type: str | None) -> str:
+    """Resolve template output type to internal task type."""
+    return CATEGORY_TO_TASK_TYPE.get((output_type or "research").lower(), "research")
+
+
+def _build_task_kwargs(
+    *,
+    user_id,
+    prompt: str,
+    task_type: str,
+    template_id: UUID,
+    inputs: dict,
+) -> dict:
+    """Build Task model kwargs with metadata field compatibility."""
+    metadata_payload = {
+        "template_id": str(template_id),
+        "inputs": inputs,
+    }
+
+    task_kwargs = {
+        "user_id": user_id,
+        "prompt": prompt,
+        "task_type": task_type,
+        "status": TaskStatus.PENDING,
+    }
+
+    # SQLAlchemy model uses task_metadata, but keep metadata fallback for mocks/tests.
+    task_model_dict = getattr(TaskModel, "__dict__", {})
+    metadata_field = (
+        "task_metadata" if "task_metadata" in task_model_dict else "metadata"
+    )
+    task_kwargs[metadata_field] = metadata_payload
+
+    return task_kwargs
+
+
+def _queue_task(
+    *, task_type: str, task_id: str, prompt: str, user_id: str, inputs: dict
+):
+    """Queue a Celery task based on normalized task type."""
+    if task_type == "research":
+        return process_research_task.apply_async(args=[task_id, prompt, user_id])
+
+    if task_type == "docs":
+        return process_docs_task.apply_async(
+            args=[
+                task_id,
+                prompt,
+                user_id,
+                inputs.get("title", TASK_TITLE_DEFAULTS["docs"]),
+            ]
+        )
+
+    if task_type == "sheets":
+        return process_sheets_task.apply_async(
+            args=[
+                task_id,
+                prompt,
+                user_id,
+                inputs.get("title", TASK_TITLE_DEFAULTS["sheets"]),
+            ]
+        )
+
+    if task_type == "slides":
+        return process_slides_task.apply_async(
+            args=[
+                task_id,
+                prompt,
+                user_id,
+                inputs.get("title", TASK_TITLE_DEFAULTS["slides"]),
+            ]
+        )
+
+    raise ValueError(f"Unknown task type: {task_type}")
 
 
 @router.post("/", response_model=TemplateResponse, status_code=status.HTTP_201_CREATED)
@@ -115,7 +215,9 @@ async def update_template(
         Updated template
     """
     service = TemplateService(db)
-    template = await service.update_template(template_id, template_data, current_user.id)
+    template = await service.update_template(
+        template_id, template_data, current_user.id
+    )
 
     if not template:
         raise HTTPException(
@@ -214,15 +316,6 @@ async def use_template(
         Generated prompt and task info
     """
     try:
-        from app.models.task import Task as TaskModel
-        from app.models.task import TaskStatus
-        from app.agents.celery_app import (
-            process_research_task,
-            process_docs_task,
-            process_sheets_task,
-            process_slides_task,
-        )
-        
         service = TemplateService(db)
         result = await service.use_template(
             template_id,
@@ -231,68 +324,44 @@ async def use_template(
             use_request.output_type,
         )
 
-        # Map template category to task type
-        category_to_task_type = {
-            "research": "research",
-            "document": "docs",
-            "docs": "docs",
-            "spreadsheet": "sheets",
-            "sheets": "sheets",
-            "presentation": "slides",
-            "slides": "slides",
-        }
-        
-        output_type = result.get("output_type", "research").lower()
-        task_type = category_to_task_type.get(output_type, "research")
-        
+        task_type = _resolve_task_type(result.get("output_type"))
+
         # Create task in database
         task = TaskModel(
-            user_id=current_user.id,
-            prompt=result["prompt"],
-            task_type=task_type,
-            status=TaskStatus.PENDING,
-            metadata={"template_id": str(template_id), "inputs": use_request.inputs},
+            **_build_task_kwargs(
+                user_id=current_user.id,
+                prompt=result["prompt"],
+                task_type=task_type,
+                template_id=template_id,
+                inputs=use_request.inputs,
+            )
         )
-        
+
         db.add(task)
         await db.commit()
         await db.refresh(task)
-        
+
         # Queue task to Celery
         try:
             task_id_str = str(task.id)
             user_id_str = str(current_user.id)
-            
-            if task_type == "research":
-                celery_task = process_research_task.apply_async(
-                    args=[task_id_str, result["prompt"], user_id_str]
-                )
-            elif task_type == "docs":
-                title = use_request.inputs.get("title", "Template Document")
-                celery_task = process_docs_task.apply_async(
-                    args=[task_id_str, result["prompt"], user_id_str, title]
-                )
-            elif task_type == "sheets":
-                title = use_request.inputs.get("title", "Template Spreadsheet")
-                celery_task = process_sheets_task.apply_async(
-                    args=[task_id_str, result["prompt"], user_id_str, title]
-                )
-            elif task_type == "slides":
-                title = use_request.inputs.get("title", "Template Presentation")
-                celery_task = process_slides_task.apply_async(
-                    args=[task_id_str, result["prompt"], user_id_str, title]
-                )
-            else:
-                raise ValueError(f"Unknown task type: {task_type}")
-            
+
+            celery_task = _queue_task(
+                task_type=task_type,
+                task_id=task_id_str,
+                prompt=result["prompt"],
+                user_id=user_id_str,
+                inputs=use_request.inputs,
+            )
+
             # Store Celery task ID and update status
             task.celery_task_id = celery_task.id
-            task.status = TaskStatus.IN_PROGRESS
+            task.status = TaskStatus.PROCESSING
             await db.commit()
             await db.refresh(task)
-            
+
             logger.info(f"Created task {task.id} from template {template_id}")
-            
+
         except Exception as celery_error:
             # If Celery queuing fails, mark task as failed
             task.status = TaskStatus.FAILED
@@ -339,9 +408,7 @@ async def get_my_templates(
         User's templates with pagination
     """
     service = TemplateService(db)
-    templates, total = await service.get_user_templates(
-        current_user.id, limit, offset
-    )
+    templates, total = await service.get_user_templates(current_user.id, limit, offset)
 
     return TemplateSearchResponse(
         total=total,
@@ -352,6 +419,7 @@ async def get_my_templates(
 
 
 # Rating endpoints
+
 
 @router.post("/{template_id}/ratings", response_model=TemplateRatingResponse)
 async def create_rating(
@@ -374,9 +442,7 @@ async def create_rating(
     """
     try:
         service = TemplateService(db)
-        rating = await service.create_rating(
-            template_id, current_user.id, rating_data
-        )
+        rating = await service.create_rating(template_id, current_user.id, rating_data)
 
         return TemplateRatingResponse.model_validate(rating)
 

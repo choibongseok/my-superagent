@@ -15,6 +15,8 @@ class TaskStatus(str, Enum):
 
     PENDING = "pending"
     PROCESSING = "processing"
+    # Backward-compatible alias used by older API/tests.
+    IN_PROGRESS = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -36,7 +38,7 @@ class Task(Base, TimestampMixin):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
-    
+
     # Task details
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     task_type: Mapped[TaskType] = mapped_column(
@@ -45,18 +47,18 @@ class Task(Base, TimestampMixin):
     status: Mapped[TaskStatus] = mapped_column(
         SQLEnum(TaskStatus, native_enum=False), default=TaskStatus.PENDING, index=True
     )
-    
+
     # Results
     result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    
+
     # Google Drive links
     document_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     document_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    
+
     # Task metadata (renamed from 'metadata' to avoid SQLAlchemy conflict)
     task_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    
+
     # Celery task ID
     celery_task_id: Mapped[Optional[str]] = mapped_column(
         String(255), nullable=True, index=True
@@ -64,9 +66,9 @@ class Task(Base, TimestampMixin):
 
     # Composite indexes for common queries
     __table_args__ = (
-        Index('ix_tasks_user_status', 'user_id', 'status'),
-        Index('ix_tasks_user_type', 'user_id', 'task_type'),
-        Index('ix_tasks_status_created', 'status', 'created_at'),
+        Index("ix_tasks_user_status", "user_id", "status"),
+        Index("ix_tasks_user_type", "user_id", "task_type"),
+        Index("ix_tasks_status_created", "status", "created_at"),
     )
 
     def __repr__(self) -> str:
