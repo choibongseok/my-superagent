@@ -1,0 +1,47 @@
+"""Tests for MemoryManager context retrieval behavior."""
+
+from app.memory.manager import MemoryManager
+
+
+class DummyVectorMemory:
+    """Simple test double for vector memory."""
+
+    def get_relevant_context(self, query: str, k: int = 3) -> str:
+        return f"vector match for: {query} (k={k})"
+
+
+class TestMemoryManagerContext:
+    """Regression tests for get_context API compatibility."""
+
+    def test_get_context_without_query_returns_conversation_context(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="test_session",
+            use_vector_memory=False,
+        )
+
+        manager.add_user_message("Hello")
+        manager.add_ai_message("Hi there")
+
+        context = manager.get_context()
+
+        assert "=== Recent Conversation ===" in context
+        assert "Human: Hello" in context
+        assert "AI: Hi there" in context
+
+    def test_get_context_with_query_includes_vector_context(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="test_session",
+            use_vector_memory=False,
+        )
+        manager.vector_memory = DummyVectorMemory()
+
+        manager.add_user_message("Talk about weather")
+        manager.add_ai_message("Sure, let's discuss weather")
+
+        context = manager.get_context(query="weather", include_vector=True, vector_k=2)
+
+        assert "=== Recent Conversation ===" in context
+        assert "=== Relevant Past Memories ===" in context
+        assert "vector match for: weather (k=2)" in context

@@ -217,20 +217,22 @@ class MemoryManager:
 
     def get_context(
         self,
-        query: str,
+        query: Optional[str] = None,
         include_conversation: bool = True,
         include_vector: bool = True,
         vector_k: int = 3,
     ) -> str:
         """
-        Get comprehensive context for a query.
+        Get conversation context, optionally enriched with vector memory.
 
-        Combines recent conversation history and relevant long-term memories.
+        Backward compatibility:
+            - BaseAgent calls get_context() with no arguments (conversation only)
+            - Phase 2 docs/examples call get_context(query=...) for merged context
 
         Args:
-            query: Context query
+            query: Optional query used for vector memory retrieval
             include_conversation: Include recent conversation
-            include_vector: Include vector search results
+            include_vector: Include vector search results (requires query)
             vector_k: Number of vector results
 
         Returns:
@@ -243,6 +245,10 @@ class MemoryManager:
             conv_context = self.get_conversation_context()
             if conv_context:
                 context_parts.append("=== Recent Conversation ===\n" + conv_context)
+
+        # If no query is provided, preserve legacy behavior (conversation-only context)
+        if query is None:
+            return "\n\n".join(context_parts)
 
         # Add relevant memories from vector store
         if include_vector and self.vector_memory:
@@ -356,15 +362,6 @@ class MemoryManager:
         }
 
     # Compatibility methods for BaseAgent integration
-
-    def get_context(self) -> str:
-        """
-        Get conversation context (alias for get_conversation_context).
-
-        Returns:
-            Conversation history as string
-        """
-        return self.get_conversation_context()
 
     def clear(self) -> None:
         """
