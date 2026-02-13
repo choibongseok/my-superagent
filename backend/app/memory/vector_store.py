@@ -277,7 +277,7 @@ class VectorStoreMemory:
                     f"minimum threshold {min_adaptive_threshold:.3f}"
                 )
             else:
-                applied_threshold = min(single_score * 0.9, min_adaptive_threshold)
+                applied_threshold = max(single_score * 0.9, min_adaptive_threshold)
                 logger.debug(
                     f"Single result accepted: score {single_score:.3f} "
                     f"(threshold: {applied_threshold:.3f})"
