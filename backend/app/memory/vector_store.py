@@ -20,6 +20,10 @@ from app.core.database import engine
 
 logger = logging.getLogger(__name__)
 
+# Floating-point comparison epsilon for score calculations
+# Used to determine when standard deviation is effectively zero
+SCORE_EPSILON = 1e-6
+
 
 class VectorStoreMemory:
     """
@@ -172,6 +176,49 @@ class VectorStoreMemory:
 
         return ids
 
+    def _classify_relevance(
+        self, 
+        score: float, 
+        adaptive_threshold: Optional[float] = None
+    ) -> tuple[str, str]:
+        """
+        Classify relevance and confidence levels based on similarity score.
+        
+        Args:
+            score: Similarity score (0-1)
+            adaptive_threshold: Optional adaptive threshold for dynamic classification
+            
+        Returns:
+            Tuple of (relevance_level, confidence_level)
+            - relevance: "high", "medium", "low", "very_low"
+            - confidence: "strong", "moderate", "weak"
+        """
+        # Dynamic relevance classification based on score distribution
+        # Combines adaptive threshold awareness with absolute quality bounds
+        dynamic_high = (
+            adaptive_threshold is not None 
+            and score >= max(adaptive_threshold * 1.3, 0.8)
+        )
+        
+        if dynamic_high or score >= 0.85:
+            relevance = "high"
+        elif score >= 0.7:
+            relevance = "medium"
+        elif score >= 0.5:
+            relevance = "low"
+        else:
+            relevance = "very_low"
+        
+        # Confidence classification
+        if score >= 0.85:
+            confidence = "strong"
+        elif score >= 0.7:
+            confidence = "moderate"
+        else:
+            confidence = "weak"
+            
+        return relevance, confidence
+
     def search(
         self,
         query: str,
@@ -248,7 +295,20 @@ class VectorStoreMemory:
 
         Returns:
             List of memories with scores and enhanced relevance metadata
+            
+        Raises:
+            ValueError: If score_threshold is not in [0, 1] range or if parameters are invalid
         """
+        # Input validation
+        if score_threshold is not None and not (0.0 <= score_threshold <= 1.0):
+            raise ValueError(f"score_threshold must be in [0, 1], got {score_threshold}")
+        
+        if not (0.0 <= min_adaptive_threshold <= 1.0):
+            raise ValueError(f"min_adaptive_threshold must be in [0, 1], got {min_adaptive_threshold}")
+        
+        if adaptive_std_multiplier < 0:
+            raise ValueError(f"adaptive_std_multiplier must be non-negative, got {adaptive_std_multiplier}")
+        
         k = k or self.top_k
 
         # Use a low initial threshold or None to get all candidates
@@ -260,6 +320,23 @@ class VectorStoreMemory:
             score_threshold=initial_threshold,
             filter={"user_id": self.user_id},
         )
+
+        # Validate and sanitize scores from vector store
+        # Scores should be in [0, 1] but we guard against malformed results
+        sanitized_results = []
+        for doc, score in results:
+            if not isinstance(score, (int, float)):
+                logger.warning(f"Invalid score type: {type(score)}, skipping result")
+                continue
+            # Clamp score to valid range
+            clamped_score = min(max(float(score), 0.0), 1.0)
+            if abs(clamped_score - score) > SCORE_EPSILON:
+                logger.warning(
+                    f"Score {score} out of [0, 1] range, clamped to {clamped_score}"
+                )
+            sanitized_results.append((doc, clamped_score))
+        
+        results = sanitized_results
 
         # Apply adaptive threshold if requested and no explicit threshold provided
         applied_threshold = score_threshold
@@ -310,8 +387,7 @@ class VectorStoreMemory:
             
             # Keep results within dynamic standard deviations below mean
             # Special case: if std_dev is near-zero (all scores virtually identical)
-            # Use epsilon of 1e-6 for floating-point comparison tolerance
-            if std_dev < 1e-6:
+            if std_dev < SCORE_EPSILON:
                 # All scores are virtually identical, use a permissive threshold
                 # But ensure we still filter out uniformly low-quality results
                 if mean_score >= 0.7:
@@ -336,10 +412,15 @@ class VectorStoreMemory:
             # Additional safeguard: if top score is very high, be more selective
             # Use a smooth transition based on top score quality
             top_score = max(scores)
+            # Clamp top_score to [0, 1] as a safety guard (shouldn't exceed 1.0 in normal operation)
+            top_score = min(max(top_score, 0.0), 1.0)
+            
             if top_score >= 0.85:
                 # Scale selectivity based on top score quality
                 # High scores (0.85-1.0) require proportionally higher threshold
-                selectivity_factor = 0.65 + (top_score - 0.85) * 0.33  # 0.65 to 0.70
+                # Linear interpolation: 0.85->0.65, 1.0->0.70 (clamped to prevent overflow)
+                score_range = min(top_score - 0.85, 0.15)  # Max 0.15 for top_score=1.0
+                selectivity_factor = 0.65 + score_range * (0.33 / 0.15)  # Normalized multiplier
                 top_score_threshold = top_score * selectivity_factor
                 adaptive_threshold_value = max(
                     adaptive_threshold_value,
@@ -360,21 +441,7 @@ class VectorStoreMemory:
 
         formatted_results = []
         for doc, score in results:
-            # Dynamic relevance classification based on score distribution
-            # Combines adaptive threshold awareness with absolute quality bounds
-            dynamic_high = (
-                applied_threshold is not None 
-                and score >= max(applied_threshold * 1.3, 0.8)
-            )
-            
-            if dynamic_high or score >= 0.85:
-                relevance = "high"
-            elif score >= 0.7:
-                relevance = "medium"
-            elif score >= 0.5:
-                relevance = "low"
-            else:
-                relevance = "very_low"
+            relevance, confidence = self._classify_relevance(score, applied_threshold)
             
             formatted_results.append(
                 {
@@ -382,7 +449,7 @@ class VectorStoreMemory:
                     "metadata": doc.metadata,
                     "score": score,
                     "relevance": relevance,
-                    "confidence": "strong" if score >= 0.85 else "moderate" if score >= 0.7 else "weak",
+                    "confidence": confidence,
                 }
             )
 
