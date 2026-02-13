@@ -75,6 +75,29 @@ def _to_json(value: object, *, pretty: bool = False) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
+def _truncate_text(value: object, max_length_spec: str) -> str:
+    """Truncate text to a max length using an ellipsis when needed."""
+    try:
+        max_length = int(max_length_spec.strip())
+    except ValueError as exc:
+        raise ValueError("truncate expects an integer max length") from exc
+
+    if max_length < 0:
+        raise ValueError("truncate max length must be non-negative")
+
+    text = str(value)
+    if len(text) <= max_length:
+        return text
+
+    if max_length == 0:
+        return ""
+
+    if max_length == 1:
+        return "…"
+
+    return text[: max_length - 1].rstrip() + "…"
+
+
 class TemplateService:
     """Service for template management."""
 
@@ -278,6 +301,7 @@ class TemplateService:
         - ``{field|default value}``
         - ``{field->upper}``
         - ``{field|default value->strip->title}``
+        - ``{summary->truncate(120)}``
 
         Returns:
             Tuple of ``(field_path, default_value, transforms)``.
@@ -315,12 +339,21 @@ class TemplateService:
             "json": lambda raw: _to_json(raw, pretty=False),
             "json_pretty": lambda raw: _to_json(raw, pretty=True),
         }
+        supported_transforms = sorted(
+            [*available_transforms.keys(), "truncate(<max_length>)"]
+        )
 
         transformed = value
         for transform in transforms:
             operation = available_transforms.get(transform)
+
+            truncate_match = re.fullmatch(r"truncate\((.+)\)", transform)
+            if operation is None and truncate_match is not None:
+                max_length_spec = truncate_match.group(1)
+                operation = lambda raw, spec=max_length_spec: _truncate_text(raw, spec)
+
             if operation is None:
-                supported = ", ".join(sorted(available_transforms))
+                supported = ", ".join(supported_transforms)
                 raise ValueError(
                     f"Unsupported template transform: {transform}. "
                     f"Supported transforms: {supported}"
@@ -385,7 +418,8 @@ class TemplateService:
         ``{project_name->snake_case}``, ``{release_title->kebab_case}``,
         ``{service->dot_case}``, ``{build_target->constant_case}``,
         ``{variable->camel_case}``, ``{variable->pascal_case}``,
-        ``{payload->json}``, or ``{payload->json_pretty}``).
+        ``{summary->truncate(120)}``, ``{payload->json}``, or
+        ``{payload->json_pretty}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)
