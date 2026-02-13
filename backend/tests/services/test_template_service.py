@@ -350,6 +350,58 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_snake_case_transform(
+        self, service_with_mock_db
+    ):
+        """snake_case transform should normalize words and camelCase inputs."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Slug: {name->snake_case}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"name": "AgentHQ Launch Plan"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Slug: agent_hq_launch_plan"
+        assert template.usage_count == 3
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_kebab_case_transform(
+        self, service_with_mock_db
+    ):
+        """kebab_case transform should normalize punctuation and spacing."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Route: {title->kebab_case}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"title": "  AI @ Scale: Q1 Update!  "},
+                user_id,
+            )
+
+        assert result["prompt"] == "Route: ai-scale-q1-update"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_use_template_rejects_unsupported_transform(
         self, service_with_mock_db
     ):
@@ -359,7 +411,7 @@ class TestTemplateServiceUseTemplate:
         user_id = uuid4()
         template = SimpleNamespace(
             id=template_id,
-            prompt_template="Name: {name->snake_case}",
+            prompt_template="Name: {name->rot13}",
             category="docs",
             usage_count=2,
         )
@@ -367,7 +419,7 @@ class TestTemplateServiceUseTemplate:
         with patch.object(service, "get_template", AsyncMock(return_value=template)):
             with pytest.raises(
                 ValueError,
-                match="Unsupported template transform: snake_case",
+                match="Unsupported template transform: rot13",
             ):
                 await service.use_template(
                     template_id,

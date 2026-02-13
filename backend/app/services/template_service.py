@@ -1,6 +1,7 @@
 """Service for template marketplace management."""
 
 import logging
+import re
 from string import Formatter
 from typing import List, Optional
 from uuid import UUID
@@ -41,6 +42,14 @@ def _to_template_context(value):
         return [_to_template_context(item) for item in value]
 
     return value
+
+
+def _tokenize_case_transform(value: object) -> list[str]:
+    """Split values into normalized lowercase word tokens for case transforms."""
+    text = str(value)
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    text = re.sub(r"[^0-9A-Za-z]+", " ", text)
+    return [token.lower() for token in text.strip().split() if token]
 
 
 class TemplateService:
@@ -267,11 +276,13 @@ class TemplateService:
             return value
 
         available_transforms = {
-            "strip": str.strip,
-            "upper": str.upper,
-            "lower": str.lower,
-            "title": str.title,
-            "capitalize": str.capitalize,
+            "strip": lambda raw: str(raw).strip(),
+            "upper": lambda raw: str(raw).upper(),
+            "lower": lambda raw: str(raw).lower(),
+            "title": lambda raw: str(raw).title(),
+            "capitalize": lambda raw: str(raw).capitalize(),
+            "snake_case": lambda raw: "_".join(_tokenize_case_transform(raw)),
+            "kebab_case": lambda raw: "-".join(_tokenize_case_transform(raw)),
         }
 
         transformed = value
@@ -283,7 +294,7 @@ class TemplateService:
                     f"Unsupported template transform: {transform}. "
                     f"Supported transforms: {supported}"
                 )
-            transformed = operation(str(transformed))
+            transformed = operation(transformed)
 
         return transformed
 
@@ -333,7 +344,8 @@ class TemplateService:
 
         Also supports optional defaults via ``field|default`` syntax (for example
         ``{audience|general audience}``) and text transforms via ``->`` (for
-        example ``{audience->upper}`` or ``{name|friend->title}``).
+        example ``{audience->upper}``, ``{name|friend->title}``,
+        ``{project_name->snake_case}``, or ``{release_title->kebab_case}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)
