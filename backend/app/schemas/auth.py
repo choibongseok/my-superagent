@@ -33,6 +33,12 @@ class TokenPayload(BaseModel):
     type: Optional[str] = None
 
 
+class RefreshTokenRequest(BaseModel):
+    """Refresh token request schema."""
+
+    refresh_token: str
+
+
 class GoogleAuthURL(BaseModel):
     """Google OAuth URL response."""
 

@@ -20,6 +20,7 @@ from app.schemas.auth import (
     GoogleCallback,
     GoogleMobileAuth,
     GuestAuth,
+    RefreshTokenRequest,
     Token,
     UserInfo,
 )
@@ -320,16 +321,16 @@ async def logout(
 
 @router.post("/refresh", response_model=Token)
 async def refresh_token(
-    token_data: Token,
+    token_data: RefreshTokenRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """
     Refresh access token.
-    
+
     Args:
-        token_data: Token with refresh token
+        token_data: Refresh token payload
         db: Database session
-        
+
     Returns:
         Token: New access and refresh tokens
     """
