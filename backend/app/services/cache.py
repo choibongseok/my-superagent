@@ -7,8 +7,9 @@ small ergonomics for bulk and lazy caching workflows.
 
 from __future__ import annotations
 
+import inspect
 import time
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any
 
 
@@ -81,6 +82,29 @@ class LocalCacheService:
             return value
 
         value = factory()
+        self.set(key, value, ttl_seconds=ttl_seconds)
+        return value
+
+    async def get_or_set_async(
+        self,
+        key: str,
+        factory: Callable[[], Awaitable[Any] | Any],
+        ttl_seconds: int | None = None,
+    ) -> Any:
+        """Async-friendly variant of :meth:`get_or_set`.
+
+        The ``factory`` may return either a direct value or an awaitable.
+        This lets async workflows memoize expensive coroutines without
+        duplicating cache helper code.
+        """
+        item = self._get_entry(key)
+        if item is not None:
+            value, _ = item
+            return value
+
+        produced = factory()
+        value = await produced if inspect.isawaitable(produced) else produced
+
         self.set(key, value, ttl_seconds=ttl_seconds)
         return value
 

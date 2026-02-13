@@ -2,6 +2,8 @@
 
 import time
 
+import pytest
+
 from app.services.cache import LocalCacheService
 
 
@@ -55,3 +57,30 @@ def test_local_cache_get_or_set_populates_once():
     assert first == "computed-value"
     assert second == "computed-value"
     assert calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_local_cache_get_or_set_async_populates_once():
+    cache = LocalCacheService()
+    calls = {"count": 0}
+
+    async def factory() -> str:
+        calls["count"] += 1
+        return "computed-async-value"
+
+    first = await cache.get_or_set_async("lazy-async", factory)
+    second = await cache.get_or_set_async("lazy-async", factory)
+
+    assert first == "computed-async-value"
+    assert second == "computed-async-value"
+    assert calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_local_cache_get_or_set_async_accepts_sync_factory():
+    cache = LocalCacheService()
+
+    result = await cache.get_or_set_async("sync-factory", lambda: "sync-value")
+
+    assert result == "sync-value"
+    assert cache.get("sync-factory") == "sync-value"
