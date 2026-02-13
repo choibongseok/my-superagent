@@ -52,6 +52,20 @@ def _tokenize_case_transform(value: object) -> list[str]:
     return [token.lower() for token in text.strip().split() if token]
 
 
+def _to_pascal_case(value: object) -> str:
+    """Convert values to PascalCase using normalized word tokens."""
+    return "".join(token.capitalize() for token in _tokenize_case_transform(value))
+
+
+def _to_camel_case(value: object) -> str:
+    """Convert values to camelCase using normalized word tokens."""
+    pascal_case = _to_pascal_case(value)
+    if not pascal_case:
+        return ""
+
+    return pascal_case[0].lower() + pascal_case[1:]
+
+
 class TemplateService:
     """Service for template management."""
 
@@ -283,6 +297,8 @@ class TemplateService:
             "capitalize": lambda raw: str(raw).capitalize(),
             "snake_case": lambda raw: "_".join(_tokenize_case_transform(raw)),
             "kebab_case": lambda raw: "-".join(_tokenize_case_transform(raw)),
+            "camel_case": _to_camel_case,
+            "pascal_case": _to_pascal_case,
         }
 
         transformed = value
@@ -345,7 +361,8 @@ class TemplateService:
         Also supports optional defaults via ``field|default`` syntax (for example
         ``{audience|general audience}``) and text transforms via ``->`` (for
         example ``{audience->upper}``, ``{name|friend->title}``,
-        ``{project_name->snake_case}``, or ``{release_title->kebab_case}``).
+        ``{project_name->snake_case}``, ``{release_title->kebab_case}``,
+        ``{variable->camel_case}``, or ``{variable->pascal_case}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)

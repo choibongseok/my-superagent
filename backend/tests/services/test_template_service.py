@@ -402,6 +402,58 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_camel_case_transform(
+        self, service_with_mock_db
+    ):
+        """camel_case transform should normalize mixed spacing and casing."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Identifier: {name->camel_case}",
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"name": " AgentHQ launch_plan "},
+                user_id,
+            )
+
+        assert result["prompt"] == "Identifier: agentHqLaunchPlan"
+        assert template.usage_count == 2
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_pascal_case_transform(
+        self, service_with_mock_db
+    ):
+        """pascal_case transform should normalize punctuation and casing."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Class: {name->pascal_case}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"name": "agent_hq launch-plan"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Class: AgentHqLaunchPlan"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_use_template_rejects_unsupported_transform(
         self, service_with_mock_db
     ):
