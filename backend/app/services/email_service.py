@@ -1,10 +1,13 @@
 """Email service for sending notifications and invitations."""
 
+from __future__ import annotations
+
+import logging
 import smtplib
+from collections.abc import Sequence
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import List, Optional
-import logging
+from typing import Optional
 
 from app.core.config import settings
 
@@ -13,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class EmailService:
     """Service for sending emails via SMTP."""
-    
+
     def __init__(self):
         """Initialize email service with settings."""
         self.smtp_host = settings.SMTP_HOST
@@ -23,70 +26,138 @@ class EmailService:
         self.from_email = settings.FROM_EMAIL
         self.from_name = settings.FROM_NAME
         self.enabled = settings.EMAIL_ENABLED
-    
+
+    @staticmethod
+    def _normalize_recipients(
+        recipients: str | Sequence[str],
+        *,
+        field_name: str,
+    ) -> list[str]:
+        """Normalize recipient input into a unique, ordered email list."""
+        if isinstance(recipients, str):
+            candidate_recipients = [recipients]
+        elif isinstance(recipients, Sequence):
+            candidate_recipients = list(recipients)
+        else:
+            raise TypeError(f"{field_name} must be a string or sequence of strings")
+
+        normalized: list[str] = []
+        for recipient in candidate_recipients:
+            if not isinstance(recipient, str):
+                raise TypeError(f"{field_name} entries must be strings")
+
+            email = recipient.strip()
+            if not email:
+                continue
+
+            if email not in normalized:
+                normalized.append(email)
+
+        if not normalized:
+            raise ValueError(f"{field_name} must include at least one email address")
+
+        return normalized
+
     def _create_message(
         self,
-        to_email: str,
+        to_emails: Sequence[str],
         subject: str,
         html_body: str,
         text_body: Optional[str] = None,
+        cc_emails: Optional[Sequence[str]] = None,
     ) -> MIMEMultipart:
-        """Create email message."""
+        """Create an email message with optional CC recipients."""
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"] = f"{self.from_name} <{self.from_email}>"
-        msg["To"] = to_email
-        
+        msg["To"] = ", ".join(to_emails)
+
+        if cc_emails:
+            msg["Cc"] = ", ".join(cc_emails)
+
         # Add plain text version if provided
         if text_body:
             msg.attach(MIMEText(text_body, "plain"))
-        
+
         # Add HTML version
         msg.attach(MIMEText(html_body, "html"))
-        
+
         return msg
-    
+
     def send_email(
         self,
-        to_email: str,
+        to_email: str | Sequence[str],
         subject: str,
         html_body: str,
         text_body: Optional[str] = None,
+        cc_emails: Optional[Sequence[str]] = None,
+        bcc_emails: Optional[Sequence[str]] = None,
     ) -> bool:
         """
         Send an email.
-        
+
         Args:
-            to_email: Recipient email address
+            to_email: Recipient email address (single) or list of addresses
             subject: Email subject
             html_body: HTML content
             text_body: Plain text content (optional)
-            
+            cc_emails: Carbon-copy recipients shown in email headers
+            bcc_emails: Blind carbon-copy recipients hidden from headers
+
         Returns:
             True if sent successfully, False otherwise
         """
         if not self.enabled:
-            logger.warning(
-                f"Email disabled. Would send to {to_email}: {subject}"
-            )
+            logger.warning(f"Email disabled. Would send to {to_email}: {subject}")
             return False
-        
+
         try:
-            msg = self._create_message(to_email, subject, html_body, text_body)
-            
+            to_recipients = self._normalize_recipients(
+                to_email,
+                field_name="to_email",
+            )
+            cc_recipients = (
+                self._normalize_recipients(cc_emails, field_name="cc_emails")
+                if cc_emails
+                else []
+            )
+            bcc_recipients = (
+                self._normalize_recipients(bcc_emails, field_name="bcc_emails")
+                if bcc_emails
+                else []
+            )
+
+            delivery_recipients = [
+                *to_recipients,
+                *[email for email in cc_recipients if email not in to_recipients],
+                *[
+                    email
+                    for email in bcc_recipients
+                    if email not in to_recipients and email not in cc_recipients
+                ],
+            ]
+
+            msg = self._create_message(
+                to_recipients,
+                subject,
+                html_body,
+                text_body,
+                cc_emails=cc_recipients,
+            )
+
             # Connect to SMTP server
             with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
                 server.starttls()
                 server.login(self.smtp_user, self.smtp_password)
-                server.send_message(msg)
-            
-            logger.info(f"Email sent to {to_email}: {subject}")
+                server.send_message(msg, to_addrs=delivery_recipients)
+
+            logger.info(f"Email sent to {delivery_recipients}: {subject}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to send email to {to_email}: {e}")
             return False
-    
+
     def send_workspace_invitation(
         self,
         to_email: str,
@@ -98,7 +169,7 @@ class EmailService:
     ) -> bool:
         """
         Send workspace invitation email.
-        
+
         Args:
             to_email: Invitee email
             workspace_name: Name of workspace
@@ -106,12 +177,12 @@ class EmailService:
             invitation_link: Link to accept invitation
             role: Role being invited to
             expires_in_days: Days until invitation expires
-            
+
         Returns:
             True if sent successfully
         """
         subject = f"You've been invited to join {workspace_name}"
-        
+
         text_body = f"""
 Hi!
 
@@ -125,7 +196,7 @@ This invitation will expire in {expires_in_days} days.
 ---
 My SuperAgent
 """
-        
+
         html_body = f"""
 <!DOCTYPE html>
 <html>
@@ -213,7 +284,7 @@ My SuperAgent
 </body>
 </html>
 """
-        
+
         return self.send_email(to_email, subject, html_body, text_body)
 
 
