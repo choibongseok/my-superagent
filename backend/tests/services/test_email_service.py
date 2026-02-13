@@ -170,6 +170,28 @@ class TestEmailService:
             "bcc@test.com",
         ]
 
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_sets_reply_to_header_when_requested(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Test optional Reply-To header support."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Support",
+            html_body="<p>Reply to support team</p>",
+            reply_to_email="support@test.com",
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        assert sent_message["Reply-To"] == "support@test.com"
+
     def test_send_email_returns_false_for_empty_recipient_values(self, email_service):
         """Test invalid recipients are handled as send failures."""
         result = email_service.send_email(

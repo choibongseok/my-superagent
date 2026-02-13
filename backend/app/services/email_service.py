@@ -58,6 +58,21 @@ class EmailService:
 
         return normalized
 
+    @staticmethod
+    def _normalize_optional_email(
+        email: str | None,
+        *,
+        field_name: str,
+    ) -> str | None:
+        """Normalize an optional single-email field such as Reply-To."""
+        if email is None:
+            return None
+        if not isinstance(email, str):
+            raise TypeError(f"{field_name} must be a string")
+
+        normalized = email.strip()
+        return normalized or None
+
     def _create_message(
         self,
         to_emails: Sequence[str],
@@ -65,8 +80,9 @@ class EmailService:
         html_body: str,
         text_body: Optional[str] = None,
         cc_emails: Optional[Sequence[str]] = None,
+        reply_to_email: str | None = None,
     ) -> MIMEMultipart:
-        """Create an email message with optional CC recipients."""
+        """Create an email message with optional CC and Reply-To headers."""
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"] = f"{self.from_name} <{self.from_email}>"
@@ -74,6 +90,9 @@ class EmailService:
 
         if cc_emails:
             msg["Cc"] = ", ".join(cc_emails)
+
+        if reply_to_email:
+            msg["Reply-To"] = reply_to_email
 
         # Add plain text version if provided
         if text_body:
@@ -92,6 +111,7 @@ class EmailService:
         text_body: Optional[str] = None,
         cc_emails: Optional[Sequence[str]] = None,
         bcc_emails: Optional[Sequence[str]] = None,
+        reply_to_email: str | None = None,
     ) -> bool:
         """
         Send an email.
@@ -103,6 +123,7 @@ class EmailService:
             text_body: Plain text content (optional)
             cc_emails: Carbon-copy recipients shown in email headers
             bcc_emails: Blind carbon-copy recipients hidden from headers
+            reply_to_email: Optional Reply-To email address for recipient responses
 
         Returns:
             True if sent successfully, False otherwise
@@ -126,6 +147,10 @@ class EmailService:
                 if bcc_emails
                 else []
             )
+            reply_to_recipient = self._normalize_optional_email(
+                reply_to_email,
+                field_name="reply_to_email",
+            )
 
             delivery_recipients = [
                 *to_recipients,
@@ -143,6 +168,7 @@ class EmailService:
                 html_body,
                 text_body,
                 cc_emails=cc_recipients,
+                reply_to_email=reply_to_recipient,
             )
 
             # Connect to SMTP server
