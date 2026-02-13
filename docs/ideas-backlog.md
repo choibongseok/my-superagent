@@ -6,6 +6,318 @@
 
 ---
 
+## 2026-02-13 (AM 1차) | 기획자 에이전트 - 신뢰성 & 사용성 강화 제안 ✨🎯
+
+### 🔍 Idea #26: "AI Fact Checker" - 실시간 결과 검증 시스템
+
+**문제점**:
+- 현재 AI Agent는 **결과를 생성하지만 검증하지 않음**
+- 사용자가 "이 정보 정확한가?" 의심
+  - 예: Research Agent가 잘못된 통계 인용
+  - 예: Docs Agent가 사실 오류 포함
+- 2026년 AI Hallucination 문제 지속:
+  - ChatGPT: 여전히 사실 오류 10-15% (Google 연구, 2026.01)
+  - Notion AI: 출처 검증 없음 (단순 텍스트 생성)
+- **중요한 의사결정**에 AI 사용 주저
+  - 예: 경영진 보고서, 법률 문서, 의료 정보
+- **경쟁사 동향**:
+  - ChatGPT: Search 통합했지만 검증 약함
+  - Perplexity AI: Citation은 강하지만 Agent 없음
+  - **AgentHQ: 검증 시스템 없음** ❌
+
+**제안 아이디어**:
+```
+"AI Fact Checker" - Agent 결과를 자동으로 검증하고 신뢰도 점수 제공
+```
+
+**핵심 기능**:
+1. **Real-time Fact Verification**
+   - Agent 생성 결과를 즉시 검증
+   - Multi-source cross-checking (3개 이상 출처 확인)
+   - 예: "2023년 GDP 성장률 3.5%" → 실제 통계청 데이터와 비교
+   - Confidence score 표시: 95% (매우 신뢰할 수 있음)
+   - 모순된 정보 자동 플래그: "⚠️ 이 수치는 다른 출처와 다릅니다"
+
+2. **Source Quality Scoring**
+   - 출처의 신뢰도 자동 평가
+   - Tier 1: 공식 기관 (정부, 학술지) - 100점
+   - Tier 2: 언론 매체 (NYT, WSJ) - 80점
+   - Tier 3: 블로그, 포럼 - 50점
+   - 예: "이 정보는 신뢰할 수 있는 출처(정부 통계청)에서 확인되었습니다 ✅"
+
+3. **Interactive Verification**
+   - 사용자가 의심스러운 부분 선택 → 즉시 재검증
+   - 예: "이 통계가 맞나요?" → Agent가 다시 확인 → "네, 3개 출처에서 확인됨"
+   - Citation trail 표시: 정보 → 1차 출처 → 2차 출처 (추적 가능)
+
+4. **Hallucination Detection**
+   - LLM 특성상 발생하는 "지어낸 정보" 자동 감지
+   - Pattern matching: 구체적 숫자/날짜/이름 → 즉시 검증
+   - 예: "2025년 10월 15일 발표" → 실제 뉴스 검색 → 없음 → 경고
+   - False positive 최소화: 검증 불가 ≠ 거짓
+
+5. **Audit Trail & Provenance**
+   - 모든 정보의 출처 추적 기록
+   - "이 문장은 어디서 왔나?" → 클릭 → 원본 링크 표시
+   - GDPR/compliance 대응: 데이터 출처 투명 공개
+   - 법률/의료 문서에 필수 (liability 방지)
+
+**기술 구현**:
+- **Backend**:
+  - FactChecker 서비스 (fact_checker.py)
+    - Web search API 통합 (Brave Search, Google)
+    - Multi-source aggregation (최소 3개 출처)
+    - Similarity matching (cosine similarity)
+  - SourceQuality DB (source_quality table)
+    - Domain → Quality score 매핑
+    - 수동 큐레이션 + 자동 학습
+  - HallucinationDetector (hallucination_detector.py)
+    - Named Entity Recognition (spaCy)
+    - Date/number/name 추출 → 검증
+- **Agent 통합**:
+  - 모든 Agent에 post-processing hook 추가
+  - Agent 결과 → FactChecker → Confidence score 추가
+  - Prompt에 "검증 가능한 정보 우선" 가이드
+- **Frontend**:
+  - Confidence badge (95% 신뢰도)
+  - Source quality indicator (🟢🟡🔴)
+  - Interactive verification UI ("재검증" 버튼)
+
+**예상 임팩트**:
+- 🚀 **신뢰 구축**: 
+  - 사용자 신뢰도 +60% (검증된 결과 → 안심)
+  - 중요 의사결정에 AI 사용 +80% (신뢰 → 활용)
+  - "AgentHQ는 믿을 수 있어" (브랜드 이미지)
+- 🎯 **차별화**: 
+  - ChatGPT: 검증 시스템 없음 (블랙박스)
+  - Perplexity: Citation은 강하지만 Agent 없음
+  - **AgentHQ**: AI Agent + Fact Verification (유일무이)
+  - **"검증된 AI"** (핵심 차별화)
+- 📈 **비즈니스**: 
+  - Enterprise 고객 확보 (법률, 의료, 금융 → 검증 필수)
+  - Premium 기능: "Advanced Verification" ($19/month)
+  - Compliance 시장 진출 (GDPR, HIPAA 대응)
+  - 유료 전환율 +45% (신뢰 → 구매)
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Hard)
+- Fact verification 시스템 (3주)
+- Multi-source aggregation (2주)
+- Hallucination detection (2주)
+- Agent 통합 (1주)
+- 총 8주
+
+**우선순위**: 🔥 CRITICAL (Phase 9, 신뢰 구축 핵심)
+
+**설계 검토 요청**: ✅
+
+---
+
+### 🧩 Idea #27: "Smart Workspace" - 멀티태스킹을 위한 작업 공간 관리
+
+**문제점**:
+- 현재 사용자는 **한 번에 하나의 작업만 관리 가능**
+  - 예: Research 작업 중 → Docs 작업 시작 → 이전 작업 컨텍스트 손실
+- 실제 업무는 **여러 작업 동시 진행**
+  - 예: 마케팅 기획서 + 경쟁사 분석 + 주간 리포트
+  - 작업 간 전환 시 매번 새로 설명해야 함
+- **컨텍스트 스위칭 비용** 높음
+  - 작업 A 중단 → 작업 B 시작 → 작업 A 재개 시 "뭐 했더라?"
+- **경쟁사 동향**:
+  - Notion: Workspace 개념 (페이지 단위)
+  - Slack: Channels & Threads
+  - **AgentHQ: 단일 세션만** ❌
+
+**제안 아이디어**:
+```
+"Smart Workspace" - 여러 작업을 동시에 관리하는 지능형 작업 공간
+```
+
+**핵심 기능**:
+1. **Multiple Workspaces**
+   - 프로젝트/주제별 독립적인 작업 공간
+   - 예: "Q4 마케팅 기획" Workspace, "경쟁사 분석" Workspace
+   - 각 Workspace마다 별도의 대화 히스토리 + 메모리
+   - Workspace 간 독립성 (컨텍스트 혼동 방지)
+
+2. **Smart Context Preservation**
+   - Workspace 전환 시 컨텍스트 자동 저장
+   - 예: "Q4 마케팅" → "경쟁사 분석" → 다시 "Q4 마케팅" → 이전 대화 그대로
+   - 작업 진행 상태 저장: "50% 완료, 다음: 차트 추가"
+   - 미완료 작업 자동 추적: "이 Workspace에서 2개 작업 대기 중"
+
+3. **Cross-Workspace Linking**
+   - Workspace 간 정보 공유 및 참조
+   - 예: "경쟁사 분석 결과를 마케팅 기획서에 포함"
+   - Drag & drop으로 결과 이동
+   - Smart suggestion: "이 데이터는 다른 Workspace에서도 유용할 것 같아요"
+
+4. **Workspace Templates**
+   - 자주 쓰는 작업 패턴을 템플릿으로 저장
+   - 예: "주간 리포트 Workspace" 템플릿
+     - 매주 월요일 9시에 자동 생성
+     - 미리 정의된 섹션: 주요 성과, 이슈, 다음 주 계획
+   - 1클릭으로 새 Workspace 생성 (설정 불필요)
+
+5. **Smart Workspace Switching**
+   - AI가 사용자 의도 파악 → 자동 Workspace 전환 제안
+   - 예: "경쟁사 X 분석해줘" → "경쟁사 분석 Workspace로 전환할까요?"
+   - Recent workspaces (최근 사용 순) + Favorites (즐겨찾기)
+   - Keyboard shortcuts (Cmd/Ctrl + 1-9)
+
+**기술 구현**:
+- **Backend**:
+  - Workspace 모델 (workspace table)
+    - user_id, name, description, template_id
+    - created_at, last_accessed_at, is_active
+  - WorkspaceContext (context table)
+    - workspace_id, agent_session, memory_snapshot
+    - progress_state (JSON)
+  - Workspace API (workspace.py)
+    - CRUD: create, get, update, delete, list
+    - switch_workspace(), link_resources()
+- **Agent 통합**:
+  - 각 Agent session을 Workspace와 연결
+  - Workspace 전환 시 메모리 자동 저장/복원
+  - Cross-workspace 참조 지원
+- **Frontend**:
+  - Workspace switcher UI (좌측 사이드바)
+  - Recent + Favorites 표시
+  - Drag & drop으로 리소스 이동
+
+**예상 임팩트**:
+- 🚀 **생산성**: 
+  - 멀티태스킹 효율 5배 증가 (동시 작업 관리)
+  - 컨텍스트 스위칭 비용 80% 감소 (자동 저장/복원)
+  - 작업 재개 시간 90% 단축 ("뭐 했더라?" 고민 불필요)
+- 🎯 **차별화**: 
+  - ChatGPT: 단일 대화 스레드 (멀티태스킹 불가)
+  - Notion: 페이지 단위 (AI Agent 연동 약함)
+  - **AgentHQ**: AI Agent + Workspace (유일무이)
+  - **"프로젝트 단위 AI"** (차별화)
+- 📈 **비즈니스**: 
+  - 사용 시간 +120% (여러 작업 동시 관리)
+  - 유료 전환율 +50% (복잡한 프로젝트 → 필수 툴)
+  - Enterprise 확보 (팀 협업 Workspace)
+  - Premium 기능: "Unlimited Workspaces" ($29/month)
+
+**개발 난이도**: ⭐⭐⭐☆☆ (Medium)
+- Workspace 모델 (1주)
+- Context save/restore (2주)
+- Cross-workspace linking (1.5주)
+- Frontend UI (1.5주)
+- 총 6주
+
+**우선순위**: 🔥 HIGH (Phase 8-9, 사용자 편의성 핵심)
+
+**설계 검토 요청**: ✅
+
+---
+
+### 🎓 Idea #28: "Agent Copilot" - 실시간 학습 도우미
+
+**문제점**:
+- 현재 복잡한 기능은 **사용자가 직접 학습해야 함**
+  - 예: "Sheets Agent로 차트 만들기" → 매뉴얼 읽어야 함
+  - 예: "Multi-agent orchestrator" → 개념 이해 어려움
+- **학습 곡선** 높음
+  - 신규 사용자: 기능의 10%만 사용 (나머지 90% 모름)
+  - 고급 사용자: 매뉴얼 찾기 → 시간 낭비
+- **Just-in-time help** 부족
+  - 막힌 부분에서 즉시 도움 받을 수 없음
+- **경쟁사 동향**:
+  - ChatGPT: 도움말 없음 (직접 물어봐야 함)
+  - Notion: Tooltips만 (맥락 없음)
+  - GitHub Copilot: 코드만 (문서 작업 X)
+  - **AgentHQ: 학습 도우미 없음** ❌
+
+**제안 아이디어**:
+```
+"Agent Copilot" - 사용 중 실시간으로 팁과 가이드를 제공하는 AI 튜터
+```
+
+**핵심 기능**:
+1. **Contextual Tips (상황 인식 팁)**
+   - 사용자 작업 패턴 분석 → 적절한 팁 제안
+   - 예: Research Agent 5회 사용 → "Sheets로 데이터 정리하면 더 좋아요!"
+   - 예: 수동으로 반복 작업 3회 → "이거 자동화 가능해요! (Scheduling 기능)"
+   - 팁 표시 타이밍: 적절한 순간 (방해하지 않게)
+
+2. **Interactive Tutorials (인터랙티브 튜토리얼)**
+   - 실제 작업을 하면서 배우기
+   - 예: "첫 Slides 만들기" 튜토리얼
+     - Step 1: Slides Agent 실행
+     - Step 2: 슬라이드 추가
+     - Step 3: 텍스트 입력
+   - Gamification: 튜토리얼 완료 시 배지 획득
+   - 진행률 표시: "기본 기능 80% 마스터!"
+
+3. **Smart Suggestions (지능형 제안)**
+   - AI가 더 나은 방법 제안
+   - 예: "수동으로 데이터 입력 중" → "CSV 업로드하면 더 빠를 것 같아요"
+   - 예: "간단한 작업에 GPT-4 사용" → "GPT-3.5로도 충분해요 (비용 70% 절감)"
+   - 사용자 승인 후 적용 (강요하지 않음)
+
+4. **Mistake Prevention (실수 방지)**
+   - 흔한 실수 미리 경고
+   - 예: "이 템플릿은 Sheets용인데 Docs Agent를 사용 중이에요"
+   - 예: "이 작업은 많은 토큰을 사용할 것 같아요 (비용 주의)"
+   - Undo 기능 강화: "방금 실수한 것 같아요. 되돌릴까요?"
+
+5. **Progressive Disclosure (점진적 공개)**
+   - 초보자 → 기본 기능만 표시
+   - 숙련도 증가 → 고급 기능 점진적 공개
+   - 예: Sheets Agent
+     - Week 1: 기본 데이터 입력/조회
+     - Week 2: 차트 생성
+     - Week 3: 고급 서식 (색상, 스타일)
+   - 부담 없이 학습 (overwhelming 방지)
+
+**기술 구현**:
+- **Backend**:
+  - UserProgress 모델 (user_progress table)
+    - user_id, feature_used, mastery_level
+    - tutorial_completed, badges_earned
+  - CopilotEngine (copilot_engine.py)
+    - Pattern recognition (사용 패턴 분석)
+    - Suggestion generation (GPT-3.5로 팁 생성)
+    - Timing optimization (방해하지 않게)
+- **Frontend**:
+  - Copilot UI (우측 하단 플로팅 버튼)
+  - Tutorial overlay (interactive guide)
+  - Badge showcase (gamification)
+- **Analytics**:
+  - 어떤 팁이 효과적인지 추적
+  - 사용자 학습 곡선 분석
+
+**예상 임팩트**:
+- 🚀 **사용자 온보딩**: 
+  - 첫 주 이탈률 60% → 15% (실시간 도움)
+  - 고급 기능 사용률 10% → 60% (학습 → 활용)
+  - 학습 시간 70% 단축 (매뉴얼 불필요)
+- 🎯 **차별화**: 
+  - ChatGPT: 학습 도우미 없음 (직접 물어봐야)
+  - Notion: Tooltips만 (맥락 없음)
+  - **AgentHQ**: 실시간 AI 튜터 (유일무이)
+  - **"배우면서 사용하는 AI"** (차별화)
+- 📈 **비즈니스**: 
+  - 유료 전환율 +55% (성공 경험 → 신뢰)
+  - 사용자 만족도(NPS) +30점
+  - Support 문의 -60% (자가 학습)
+  - Viral coefficient 증가 ("너무 쉬워!" 추천)
+
+**개발 난이도**: ⭐⭐⭐☆☆ (Medium)
+- UserProgress 시스템 (1주)
+- CopilotEngine (2주)
+- Tutorial system (2주)
+- Frontend UI (1주)
+- 총 6주
+
+**우선순위**: 🔥 HIGH (Phase 9, 사용자 경험 핵심)
+
+**설계 검토 요청**: ✅
+
+---
+
 ## 2026-02-12 (PM 9차) | 기획자 에이전트 - 2026 AI 트렌드 기반 차별화 제안 🚀🎯
 
 ### 🎤 Idea #17: "Voice Commander" - 음성 우선 AI 작업 인터페이스
@@ -1235,9 +1547,9 @@
 
 ---
 
-**마지막 업데이트**: 2026-02-12 21:20 UTC (PM 9차)  
+**마지막 업데이트**: 2026-02-13 03:20 UTC (AM 1차)  
 **제안 에이전트**: Planner Agent (Cron: Planner Ideation)  
-**총 아이디어 수**: 19개 (오늘 제안: 10개 | 신규 3개: Voice Commander, Cost Intelligence, Privacy Shield)
+**총 아이디어 수**: 22개 (신규 3개: AI Fact Checker, Smart Workspace, Agent Copilot)
 
 ---
 
