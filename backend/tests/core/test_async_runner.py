@@ -37,3 +37,25 @@ async def test_run_async_propagates_exceptions_with_existing_event_loop():
 
     with pytest.raises(RuntimeError, match="loop-boom"):
         run_async(_raise_error)
+
+
+def test_run_async_timeout_without_existing_event_loop():
+    async def _sleep() -> None:
+        await asyncio.sleep(0.1)
+
+    with pytest.raises(TimeoutError, match="timed out"):
+        run_async(_sleep, timeout=0.01)
+
+
+@pytest.mark.asyncio
+async def test_run_async_timeout_with_existing_event_loop():
+    async def _sleep() -> None:
+        await asyncio.sleep(0.1)
+
+    with pytest.raises(TimeoutError, match="timed out"):
+        run_async(_sleep, timeout=0.01)
+
+
+def test_run_async_rejects_non_positive_timeout():
+    with pytest.raises(ValueError, match="timeout must be greater than 0"):
+        run_async(_compute_value, timeout=0)
