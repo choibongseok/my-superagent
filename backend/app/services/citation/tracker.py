@@ -684,6 +684,7 @@ class CitationTracker:
         min_authority_score: Optional[float] = None,
         max_authority_score: Optional[float] = None,
         min_relevance_score: Optional[float] = None,
+        max_relevance_score: Optional[float] = None,
         sort_by: Literal[
             "relevance",
             "title",
@@ -737,6 +738,9 @@ class CitationTracker:
             min_relevance_score: Optional inclusive lower bound for computed
                 relevance score. Useful when filtering out weak lexical matches
                 from broad ``match_mode='any'`` searches.
+            max_relevance_score: Optional inclusive upper bound for computed
+                relevance score. Useful when isolating weaker/secondary matches
+                for fallback or diversity logic.
             sort_by: Result ordering strategy. ``"relevance"`` favors textual
                 score, ``"title"`` sorts alphabetically, ``"published_date"``
                 sorts newest-first with undated sources last,
@@ -791,6 +795,18 @@ class CitationTracker:
 
         if min_relevance_score is not None and min_relevance_score < 0:
             raise ValueError("min_relevance_score cannot be negative")
+
+        if max_relevance_score is not None and max_relevance_score < 0:
+            raise ValueError("max_relevance_score cannot be negative")
+
+        if (
+            min_relevance_score is not None
+            and max_relevance_score is not None
+            and min_relevance_score > max_relevance_score
+        ):
+            raise ValueError(
+                "min_relevance_score cannot be greater than max_relevance_score"
+            )
 
         normalized_match_mode = self._normalize_text(match_mode)
         if normalized_match_mode not in {"all", "any"}:
@@ -945,6 +961,9 @@ class CitationTracker:
             if min_relevance_score is not None and score < min_relevance_score:
                 continue
 
+            if max_relevance_score is not None and score > max_relevance_score:
+                continue
+
             ranked_matches.append((score, citation_count, source))
 
         if normalized_sort_by == "title":
@@ -1079,6 +1098,7 @@ class CitationTracker:
         min_authority_score: Optional[float] = None,
         max_authority_score: Optional[float] = None,
         min_relevance_score: Optional[float] = None,
+        max_relevance_score: Optional[float] = None,
         sort_by: Literal[
             "relevance",
             "title",
@@ -1110,6 +1130,7 @@ class CitationTracker:
             min_authority_score=min_authority_score,
             max_authority_score=max_authority_score,
             min_relevance_score=min_relevance_score,
+            max_relevance_score=max_relevance_score,
             sort_by=sort_by,
         )
 

@@ -679,21 +679,61 @@ class TestCitationTracker:
         with pytest.raises(ValueError, match="min_relevance_score cannot be negative"):
             tracker.search_sources("agent", min_relevance_score=-0.1)
 
-    def test_search_sources_with_details_supports_min_relevance_score_filter(self):
-        """Detailed search should pass through min_relevance_score constraints."""
+    def test_search_sources_supports_max_relevance_score_filter(self):
+        """max_relevance_score should remove strongest matches above threshold."""
+        tracker = CitationTracker()
+
+        weak_id = tracker.add_source(
+            title="Operational Notes",
+            metadata={"topic": "agentic"},
+        )
+        tracker.add_source(title="Agentic Workflow Handbook")
+
+        matches = tracker.search_sources(
+            "agentic workflow",
+            match_mode="any",
+            max_relevance_score=5.0,
+        )
+
+        assert [source.id for source in matches] == [weak_id]
+
+    def test_search_sources_rejects_invalid_max_relevance_score_filters(self):
+        """Relevance score bounds should enforce non-negative and valid ranges."""
+        tracker = CitationTracker()
+
+        with pytest.raises(ValueError, match="max_relevance_score cannot be negative"):
+            tracker.search_sources("agent", max_relevance_score=-0.1)
+
+        with pytest.raises(
+            ValueError,
+            match="min_relevance_score cannot be greater than max_relevance_score",
+        ):
+            tracker.search_sources(
+                "agent",
+                min_relevance_score=10.0,
+                max_relevance_score=5.0,
+            )
+
+    def test_search_sources_with_details_supports_relevance_score_range_filters(self):
+        """Detailed search should pass through min/max relevance constraints."""
         tracker = CitationTracker()
 
         strong_id = tracker.add_source(title="Agent Reliability Handbook")
-        tracker.add_source(title="Reliability digest", metadata={"tag": "agent"})
+        weak_id = tracker.add_source(
+            title="Reliability digest",
+            metadata={"tag": "agent"},
+        )
 
         detailed = tracker.search_sources_with_details(
             "agent reliability",
             match_mode="any",
-            min_relevance_score=8.0,
+            min_relevance_score=0.5,
+            max_relevance_score=8.0,
         )
 
-        assert [item["source"].id for item in detailed] == [strong_id]
-        assert detailed[0]["relevance_score"] >= 8.0
+        assert [item["source"].id for item in detailed] == [weak_id]
+        assert strong_id not in {item["source"].id for item in detailed}
+        assert 0.5 <= detailed[0]["relevance_score"] <= 8.0
 
     def test_search_sources_supports_case_insensitive_metadata_filters(self):
         """Metadata filters should match keys/values regardless of casing."""
