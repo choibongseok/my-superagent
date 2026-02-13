@@ -241,7 +241,10 @@ class PromptRegistry:
             - scored_versions: Number of versions with performance scores
             - best_version: Best performing version info
             - average_score: Average performance score across all scored versions
+            - median_score: Median score for better central tendency
             - score_range: (min, max) score tuple
+            - score_std_dev: Standard deviation of scores
+            - percentiles: 25th, 50th, 75th, 90th percentile scores
         """
         versions = self.list_versions(name)
         
@@ -252,8 +255,12 @@ class PromptRegistry:
                 "best_version": None,
                 "worst_version": None,
                 "average_score": None,
+                "median_score": None,
                 "score_range": None,
+                "score_std_dev": None,
+                "percentiles": None,
                 "score_distribution": {},
+                "trend": None,
             }
         
         scored_versions = [
@@ -267,9 +274,52 @@ class PromptRegistry:
         }
         
         if scored_versions:
-            scores = [v.performance_score for v in scored_versions]
+            scores = sorted([v.performance_score for v in scored_versions])
             best = max(scored_versions, key=lambda v: v.performance_score)
             worst = min(scored_versions, key=lambda v: v.performance_score)
+            
+            # Calculate median
+            n = len(scores)
+            median = (
+                scores[n // 2] if n % 2 == 1
+                else (scores[n // 2 - 1] + scores[n // 2]) / 2
+            )
+            
+            # Calculate standard deviation
+            mean = sum(scores) / len(scores)
+            variance = sum((s - mean) ** 2 for s in scores) / len(scores)
+            std_dev = variance ** 0.5
+            
+            # Calculate percentiles
+            def percentile(data: List[float], p: float) -> float:
+                """Calculate percentile using linear interpolation."""
+                k = (len(data) - 1) * p
+                f = int(k)
+                c = k - f
+                if f + 1 < len(data):
+                    return data[f] + c * (data[f + 1] - data[f])
+                return data[f]
+            
+            percentiles = {
+                "p25": round(percentile(scores, 0.25), 3),
+                "p50": round(percentile(scores, 0.50), 3),
+                "p75": round(percentile(scores, 0.75), 3),
+                "p90": round(percentile(scores, 0.90), 3),
+            }
+            
+            # Detect trend (improving/declining) based on recent versions
+            trend = None
+            if len(scored_versions) >= 3:
+                recent_scores = [
+                    v.performance_score 
+                    for v in sorted(scored_versions, key=lambda x: x.created_at)[-3:]
+                ]
+                if recent_scores[-1] > recent_scores[0]:
+                    trend = "improving"
+                elif recent_scores[-1] < recent_scores[0]:
+                    trend = "declining"
+                else:
+                    trend = "stable"
             
             analytics.update({
                 "best_version": {
@@ -282,22 +332,30 @@ class PromptRegistry:
                     "score": worst.performance_score,
                     "created_at": worst.created_at.isoformat(),
                 },
-                "average_score": round(sum(scores) / len(scores), 3),
+                "average_score": round(mean, 3),
+                "median_score": round(median, 3),
                 "score_range": (min(scores), max(scores)),
+                "score_std_dev": round(std_dev, 3),
+                "percentiles": percentiles,
                 "score_distribution": {
                     "excellent (>= 0.9)": len([s for s in scores if s >= 0.9]),
                     "good (0.7-0.9)": len([s for s in scores if 0.7 <= s < 0.9]),
                     "fair (0.5-0.7)": len([s for s in scores if 0.5 <= s < 0.7]),
                     "poor (< 0.5)": len([s for s in scores if s < 0.5]),
                 },
+                "trend": trend,
             })
         else:
             analytics.update({
                 "best_version": None,
                 "worst_version": None,
                 "average_score": None,
+                "median_score": None,
                 "score_range": None,
+                "score_std_dev": None,
+                "percentiles": None,
                 "score_distribution": {},
+                "trend": None,
             })
         
         return analytics

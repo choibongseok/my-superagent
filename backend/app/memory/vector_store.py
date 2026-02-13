@@ -228,6 +228,8 @@ class VectorStoreMemory:
         k: Optional[int] = None,
         score_threshold: Optional[float] = None,
         adaptive_threshold: bool = True,
+        adaptive_std_multiplier: float = 1.5,
+        min_adaptive_threshold: float = 0.5,
     ) -> List[Dict[str, Any]]:
         """
         Search memories with similarity scores.
@@ -238,11 +240,14 @@ class VectorStoreMemory:
             score_threshold: Minimum similarity score (0-1). If None and
                 adaptive_threshold is True, will be calculated based on result quality.
             adaptive_threshold: When True and score_threshold is None, automatically
-                filters results based on score distribution (keeps results within
-                1.5 std deviations of the mean)
+                filters results based on score distribution.
+            adaptive_std_multiplier: Standard deviation multiplier for adaptive threshold
+                (default 1.5). Higher values are more permissive, lower are stricter.
+            min_adaptive_threshold: Minimum floor for adaptive threshold (default 0.5).
+                Prevents accepting very low-quality results even if they're relatively good.
 
         Returns:
-            List of memories with scores
+            List of memories with scores and enhanced relevance metadata
         """
         k = k or self.top_k
 
@@ -257,6 +262,7 @@ class VectorStoreMemory:
         )
 
         # Apply adaptive threshold if requested and no explicit threshold provided
+        applied_threshold = score_threshold
         if adaptive_threshold and score_threshold is None and len(results) > 1:
             scores = [score for _, score in results]
             mean_score = sum(scores) / len(scores)
@@ -265,33 +271,70 @@ class VectorStoreMemory:
             variance = sum((s - mean_score) ** 2 for s in scores) / len(scores)
             std_dev = variance ** 0.5
             
-            # Keep results within 1.5 standard deviations below mean
-            # This filters out low-quality matches while keeping good ones
-            adaptive_threshold_value = max(0.5, mean_score - 1.5 * std_dev)
+            # Dynamic threshold based on score distribution
+            # Uses coefficient of variation (CV) to adjust sensitivity:
+            # - High CV (diverse scores) -> more selective
+            # - Low CV (similar scores) -> less selective
+            cv = std_dev / mean_score if mean_score > 0 else 0
+            
+            # Adjust multiplier based on variation
+            # More variation = stricter filtering
+            dynamic_multiplier = adaptive_std_multiplier * (1 + cv * 0.5)
+            
+            # Keep results within dynamic standard deviations below mean
+            adaptive_threshold_value = max(
+                min_adaptive_threshold,
+                mean_score - dynamic_multiplier * std_dev
+            )
+            
+            # Additional safeguard: if top score is very high (>0.9), be more selective
+            top_score = max(scores)
+            if top_score > 0.9:
+                adaptive_threshold_value = max(
+                    adaptive_threshold_value,
+                    top_score * 0.7  # Require at least 70% of top score
+                )
             
             # Filter results
             results = [(doc, score) for doc, score in results 
                       if score >= adaptive_threshold_value][:k]
             
+            applied_threshold = adaptive_threshold_value
+            
             logger.debug(
                 f"Applied adaptive threshold: {adaptive_threshold_value:.3f} "
-                f"(mean={mean_score:.3f}, std={std_dev:.3f})"
+                f"(mean={mean_score:.3f}, std={std_dev:.3f}, cv={cv:.3f}, "
+                f"multiplier={dynamic_multiplier:.2f}, top={top_score:.3f})"
             )
 
         formatted_results = []
         for doc, score in results:
+            # Dynamic relevance classification based on score distribution
+            if applied_threshold and score >= applied_threshold * 1.2:
+                relevance = "high"
+            elif score >= 0.85:
+                relevance = "high"
+            elif score >= 0.7:
+                relevance = "medium"
+            elif score >= 0.5:
+                relevance = "low"
+            else:
+                relevance = "very_low"
+            
             formatted_results.append(
                 {
                     "content": doc.page_content,
                     "metadata": doc.metadata,
                     "score": score,
-                    "relevance": "high" if score >= 0.85 else "medium" if score >= 0.7 else "low",
+                    "relevance": relevance,
+                    "confidence": "strong" if score >= 0.85 else "moderate" if score >= 0.7 else "weak",
                 }
             )
 
         logger.debug(
             f"Found {len(formatted_results)} memories above threshold "
-            f"{score_threshold} for query: '{query[:50]}...'"
+            f"{applied_threshold:.3f if applied_threshold else 'N/A'} "
+            f"for query: '{query[:50]}...'"
         )
 
         return formatted_results

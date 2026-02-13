@@ -712,43 +712,80 @@ class CitationTracker:
                     continue
 
                 # Enhanced scoring with phrase matching and term frequency
-                score = 0
+                # Using weighted scoring with diminishing returns for repeated terms
+                score = 0.0
+                
+                # Configurable scoring weights for maintainability
+                PHRASE_WEIGHTS = {
+                    "title": 20.0,
+                    "description": 10.0,
+                    "other": 5.0,
+                }
+                
+                TOKEN_WEIGHTS = {
+                    "title": 5.0,
+                    "author": 3.0,
+                    "description": 2.0,
+                    "url": 1.0,
+                    "metadata": 1.0,
+                }
+                
+                # Cap frequencies to prevent keyword stuffing from dominating
+                MAX_OCCURRENCES = {
+                    "title": 3,
+                    "author": 2,
+                    "description": 3,
+                }
 
                 # Bonus for exact phrase match (significantly boosts relevance)
                 if len(query_tokens) > 1 and normalized_query in searchable_text:
+                    # Phrase length bonus (longer phrases are more specific)
+                    phrase_specificity = min(len(query_tokens) / 5.0, 1.0)
+                    
                     if normalized_query in title:
-                        score += 20  # Exact phrase in title is highly relevant
+                        score += PHRASE_WEIGHTS["title"] * (1 + phrase_specificity)
                     elif normalized_query in description:
-                        score += 10  # Exact phrase in description is very relevant
+                        score += PHRASE_WEIGHTS["description"] * (1 + phrase_specificity)
                     else:
-                        score += 5  # Exact phrase anywhere is moderately relevant
+                        score += PHRASE_WEIGHTS["other"] * (1 + phrase_specificity)
 
-                # Individual token scoring with term frequency
+                # Individual token scoring with term frequency and diminishing returns
                 for token in query_tokens:
+                    token_contribution = 0.0
+                    
                     # Title matches are most important
                     if token in title:
-                        title_count = title.count(token)
-                        score += 5 * min(
-                            title_count, 3
-                        )  # Cap at 3 occurrences to avoid spam
+                        title_count = min(title.count(token), MAX_OCCURRENCES["title"])
+                        # Diminishing returns: 1st occurrence worth full, subsequent worth less
+                        for i in range(title_count):
+                            token_contribution += TOKEN_WEIGHTS["title"] / (1 + i * 0.5)
 
                     # Author matches indicate topical expertise
                     if token in author:
-                        author_count = author.count(token)
-                        score += 3 * min(author_count, 2)
+                        author_count = min(author.count(token), MAX_OCCURRENCES["author"])
+                        for i in range(author_count):
+                            token_contribution += TOKEN_WEIGHTS["author"] / (1 + i * 0.5)
 
                     # Description matches provide context
                     if token in description:
-                        desc_count = description.count(token)
-                        score += 2 * min(desc_count, 3)
+                        desc_count = min(description.count(token), MAX_OCCURRENCES["description"])
+                        for i in range(desc_count):
+                            token_contribution += TOKEN_WEIGHTS["description"] / (1 + i * 0.5)
 
                     # URL matches suggest relevant domain
                     if token in source_url:
-                        score += 1
+                        token_contribution += TOKEN_WEIGHTS["url"]
 
                     # Metadata matches add supporting evidence
                     if token in metadata_text:
-                        score += 1
+                        token_contribution += TOKEN_WEIGHTS["metadata"]
+                    
+                    score += token_contribution
+                
+                # Normalize score by query length to prevent long queries from dominating
+                # Use logarithmic scaling to balance single-term vs multi-term queries
+                query_length_factor = 1 + (len(query_tokens) - 1) * 0.3
+                score = score / query_length_factor
             else:
                 score = 0
 
