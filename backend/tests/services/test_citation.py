@@ -239,6 +239,61 @@ class TestCitationTracker:
         with pytest.raises(ValueError, match="match_mode must be 'all' or 'any'"):
             tracker.search_sources("agent", match_mode="partial")
 
+    def test_search_sources_supports_include_source_ids_filter(self):
+        """include_source_ids should restrict results to the provided IDs."""
+        tracker = CitationTracker()
+
+        included_first = tracker.add_source(title="Agentic Architecture")
+        excluded = tracker.add_source(title="Agentic Reliability")
+        included_second = tracker.add_source(title="Agentic Operations")
+
+        matches = tracker.search_sources(
+            "agentic",
+            include_source_ids=[included_first, included_second],
+        )
+
+        assert [source.id for source in matches] == [
+            included_first,
+            included_second,
+        ]
+        assert excluded not in {source.id for source in matches}
+
+    def test_search_sources_supports_exclude_source_ids_filter(self):
+        """exclude_source_ids should remove matching IDs from otherwise valid results."""
+        tracker = CitationTracker()
+
+        kept_id = tracker.add_source(title="Prompt Engineering Handbook")
+        excluded_id = tracker.add_source(title="Prompt Injection Notes")
+
+        matches = tracker.search_sources(
+            "prompt",
+            exclude_source_ids=[excluded_id],
+        )
+
+        assert [source.id for source in matches] == [kept_id]
+
+    def test_search_sources_source_id_filters_validate_input(self):
+        """Source ID filters should reject empty and non-string values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="include_source_ids must include at least one source id",
+        ):
+            tracker.search_sources("agent", include_source_ids=[])
+
+        with pytest.raises(
+            ValueError,
+            match="exclude_source_ids must contain only string source ids",
+        ):
+            tracker.search_sources("agent", exclude_source_ids=[123])
+
+        with pytest.raises(
+            ValueError,
+            match="exclude_source_ids must contain non-empty source ids",
+        ):
+            tracker.search_sources("agent", exclude_source_ids=["   "])
+
     def test_search_sources_supports_sort_by_citation_count(self):
         """sort_by='citation_count' should prioritize most-cited sources first."""
         tracker = CitationTracker()
@@ -382,6 +437,21 @@ class TestCitationTracker:
         assert all(item["matched_tokens"] == {} for item in detailed)
         assert all(item["query_phrase_match"] is False for item in detailed)
         assert all(item["token_hit_count"] == 0 for item in detailed)
+
+    def test_search_sources_with_details_supports_source_id_filters(self):
+        """Detailed search should pass include/exclude source filters through."""
+        tracker = CitationTracker()
+
+        include_id = tracker.add_source(title="Async Python Handbook")
+        excluded_id = tracker.add_source(title="Async Runtime Notes")
+
+        detailed = tracker.search_sources_with_details(
+            "async",
+            include_source_ids=[include_id, excluded_id],
+            exclude_source_ids=[excluded_id],
+        )
+
+        assert [item["source"].id for item in detailed] == [include_id]
 
     def test_search_sources_supports_publication_date_range_filters(self):
         """Date range filters should include only sources published in-range."""

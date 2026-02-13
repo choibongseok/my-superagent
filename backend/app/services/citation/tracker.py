@@ -219,6 +219,43 @@ class CitationTracker:
 
         return normalized_domains
 
+    @classmethod
+    def _normalize_source_ids(
+        cls,
+        source_ids: Optional[str | Iterable[str]],
+        *,
+        argument_name: str,
+    ) -> Optional[set[str]]:
+        """Normalize optional source-id filters into a stable set."""
+        if source_ids is None:
+            return None
+
+        raw_source_ids: list[Any]
+        if isinstance(source_ids, str):
+            raw_source_ids = [source_ids]
+        else:
+            raw_source_ids = list(source_ids)
+
+        if not raw_source_ids:
+            raise ValueError(f"{argument_name} must include at least one source id")
+
+        normalized_source_ids: set[str] = set()
+        for source_id in raw_source_ids:
+            if not isinstance(source_id, str):
+                raise ValueError(
+                    f"{argument_name} must contain only string source ids"
+                )
+
+            normalized_source_id = source_id.strip()
+            if not normalized_source_id:
+                raise ValueError(
+                    f"{argument_name} must contain non-empty source ids"
+                )
+
+            normalized_source_ids.add(normalized_source_id)
+
+        return normalized_source_ids
+
     @staticmethod
     def _domain_matches_allowed(hostname: str, allowed_domains: set[str]) -> bool:
         """Return True when hostname is an allowed domain or its subdomain."""
@@ -506,6 +543,8 @@ class CitationTracker:
         metadata_filters: Optional[Mapping[str, Any]] = None,
         domains: Optional[str | Iterable[str]] = None,
         exclude_domains: Optional[str | Iterable[str]] = None,
+        include_source_ids: Optional[str | Iterable[str]] = None,
+        exclude_source_ids: Optional[str | Iterable[str]] = None,
         min_citations: Optional[int] = None,
         max_citations: Optional[int] = None,
         min_authority_score: Optional[float] = None,
@@ -542,6 +581,11 @@ class CitationTracker:
             exclude_domains: Optional domain deny-list filter(s). Sources whose
                 hostnames match any configured domain (including subdomains)
                 are excluded from results.
+            include_source_ids: Optional source-id allow-list. When provided,
+                only matching source IDs are considered.
+            exclude_source_ids: Optional source-id deny-list. Matching source
+                IDs are excluded even when also included via
+                ``include_source_ids``.
             min_citations: Optional inclusive lower bound for citation count per
                 source.
             max_citations: Optional inclusive upper bound for citation count per
@@ -634,6 +678,14 @@ class CitationTracker:
         normalized_metadata_filters = self._normalize_metadata_filters(metadata_filters)
         normalized_domains = self._normalize_domains(domains)
         normalized_exclude_domains = self._normalize_domains(exclude_domains)
+        normalized_include_source_ids = self._normalize_source_ids(
+            include_source_ids,
+            argument_name="include_source_ids",
+        )
+        normalized_exclude_source_ids = self._normalize_source_ids(
+            exclude_source_ids,
+            argument_name="exclude_source_ids",
+        )
         citation_counts = Counter(
             citation.source.id for citation in self.citations.values()
         )
@@ -641,6 +693,18 @@ class CitationTracker:
         ranked_matches: List[tuple[int, int, Source]] = []
 
         for source in self.sources.values():
+            if (
+                normalized_include_source_ids is not None
+                and source.id not in normalized_include_source_ids
+            ):
+                continue
+
+            if (
+                normalized_exclude_source_ids is not None
+                and source.id in normalized_exclude_source_ids
+            ):
+                continue
+
             citation_count = citation_counts.get(source.id, 0)
             if min_citations is not None and citation_count < min_citations:
                 continue
@@ -947,6 +1011,8 @@ class CitationTracker:
         metadata_filters: Optional[Mapping[str, Any]] = None,
         domains: Optional[str | Iterable[str]] = None,
         exclude_domains: Optional[str | Iterable[str]] = None,
+        include_source_ids: Optional[str | Iterable[str]] = None,
+        exclude_source_ids: Optional[str | Iterable[str]] = None,
         min_citations: Optional[int] = None,
         max_citations: Optional[int] = None,
         min_authority_score: Optional[float] = None,
@@ -974,6 +1040,8 @@ class CitationTracker:
             metadata_filters=metadata_filters,
             domains=domains,
             exclude_domains=exclude_domains,
+            include_source_ids=include_source_ids,
+            exclude_source_ids=exclude_source_ids,
             min_citations=min_citations,
             max_citations=max_citations,
             min_authority_score=min_authority_score,
