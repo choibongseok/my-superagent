@@ -14,8 +14,9 @@ class PluginManifest:
         description: str,
         author: str,
         permissions: List[str],
-        inputs: Dict[str, str],
-        outputs: Dict[str, str],
+        inputs: Dict[str, Any],
+        outputs: Dict[str, Any],
+        config_schema: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize plugin manifest.
@@ -26,8 +27,9 @@ class PluginManifest:
             description: Plugin description
             author: Plugin author
             permissions: Required permissions
-            inputs: Input schema (name: type)
-            outputs: Output schema (name: type)
+            inputs: Input schema (name: schema)
+            outputs: Output schema (name: schema)
+            config_schema: Optional plugin configuration schema
         """
         self.name = name
         self.version = version
@@ -36,6 +38,7 @@ class PluginManifest:
         self.permissions = permissions
         self.inputs = inputs
         self.outputs = outputs
+        self.config_schema = config_schema or {}
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert manifest to dictionary."""
@@ -45,6 +48,7 @@ class PluginManifest:
             "description": self.description,
             "author": self.author,
             "permissions": self.permissions,
+            "config_schema": self.config_schema,
             "inputs": self.inputs,
             "outputs": self.outputs,
         }
@@ -117,6 +121,9 @@ class BasePlugin(ABC):
         """
         Validate inputs against plugin schema.
 
+        Supports both string-based schemas (e.g. "string (optional)") and
+        structured schemas (e.g. {"type": "string", "required": False}).
+
         Args:
             inputs: Input parameters
 
@@ -124,7 +131,11 @@ class BasePlugin(ABC):
             True if valid, False otherwise
         """
         manifest = self.get_manifest()
-        required_keys = set(manifest.inputs.keys())
+        required_keys = {
+            key
+            for key, schema in manifest.inputs.items()
+            if self._is_input_required(schema)
+        }
         provided_keys = set(inputs.keys())
 
         # Check all required inputs are provided
@@ -132,6 +143,22 @@ class BasePlugin(ABC):
             missing = required_keys - provided_keys
             raise ValueError(f"Missing required inputs: {missing}")
 
+        return True
+
+    @staticmethod
+    def _is_input_required(schema: Any) -> bool:
+        """Determine if an input schema marks a field as required."""
+        if isinstance(schema, dict) and "required" in schema:
+            return bool(schema["required"])
+
+        if isinstance(schema, str):
+            lowered = schema.lower()
+            if "optional" in lowered:
+                return False
+            if "required" in lowered:
+                return True
+
+        # Backward compatible default: fields are required unless marked optional
         return True
 
     async def cleanup(self) -> None:

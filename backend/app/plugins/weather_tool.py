@@ -1,5 +1,6 @@
 """Example plugin: Weather information tool."""
 
+import inspect
 import logging
 from typing import Any, Dict
 
@@ -88,10 +89,17 @@ class Plugin(ToolPlugin):
                     params=params,
                     timeout=10.0,
                 )
-                response.raise_for_status()
-                
+
+                # httpx response methods are synchronous, but tests and adapters
+                # may provide awaitable mocks. Support both for robustness.
+                status_result = response.raise_for_status()
+                if inspect.isawaitable(status_result):
+                    await status_result
+
                 data = response.json()
-                
+                if inspect.isawaitable(data):
+                    data = await data
+
                 # Parse OpenWeatherMap response
                 return {
                     "location": data["name"],
@@ -128,12 +136,15 @@ class Plugin(ToolPlugin):
         """
         result = await self.execute({"location": tool_input})
 
+        temperature_unit = "°C" if self.units == "metric" else "°F"
+        wind_unit = "km/h" if self.units == "metric" else "mph"
+
         return (
             f"Weather in {result['location']}:\n"
-            f"Temperature: {result['temperature']}°C\n"
+            f"Temperature: {result['temperature']}{temperature_unit}\n"
             f"Condition: {result['condition']}\n"
             f"Humidity: {result['humidity']}%\n"
-            f"Wind Speed: {result['wind_speed']} km/h"
+            f"Wind Speed: {result['wind_speed']} {wind_unit}"
         )
 
     def get_tool_description(self) -> str:

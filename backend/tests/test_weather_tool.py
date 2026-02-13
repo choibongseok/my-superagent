@@ -139,7 +139,7 @@ class TestWeatherTool:
     async def test_imperial_units(self):
         """Test imperial units configuration."""
         plugin = WeatherPlugin(config={"api_key": "test_key", "units": "imperial"})
-        
+
         mock_response = AsyncMock()
         mock_response.json.return_value = {
             "name": "New York",
@@ -155,20 +155,44 @@ class TestWeatherTool:
             }
         }
         mock_response.raise_for_status = AsyncMock()
-        
+
         with patch("httpx.AsyncClient") as mock_client:
             mock_client.return_value.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
-            
+
             result = await plugin.execute({"location": "New York"})
-            
+
             assert result["temperature"] == 68.5
             assert result["wind_speed"] == 10.5  # No conversion for imperial
+
+    @pytest.mark.asyncio
+    async def test_run_tool_formats_imperial_units(self):
+        """Test run_tool output reflects imperial units."""
+        plugin = WeatherPlugin(config={"units": "imperial"})
+
+        with patch.object(
+            plugin,
+            "execute",
+            AsyncMock(
+                return_value={
+                    "location": "New York",
+                    "temperature": 70.0,
+                    "condition": "Clear Sky",
+                    "humidity": 40,
+                    "wind_speed": 8.0,
+                }
+            ),
+        ):
+            result = await plugin.run_tool("New York")
+
+        assert "70.0°F" in result
+        assert "8.0 mph" in result
 
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
         assert manifest.version == "1.1.0"
         assert "OpenWeatherMap" in manifest.description
+        assert "units" in manifest.config_schema
 
     def test_tool_description(self, api_plugin):
         """Test tool description includes API information."""
