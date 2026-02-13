@@ -206,6 +206,35 @@ class MemoryManager:
         """
         return self.conversation_memory.get_messages(last_n=last_n)
 
+    def search_conversation(
+        self,
+        query: str,
+        role: str = "any",
+        *,
+        case_sensitive: bool = False,
+        last_n: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[BaseMessage]:
+        """Search conversation memory for keyword matches.
+
+        Args:
+            query: Substring to search for
+            role: Restrict results to "human", "ai", or "any"
+            case_sensitive: Whether search should be case-sensitive
+            last_n: Restrict search to the last N messages
+            limit: Maximum number of matched messages to return
+
+        Returns:
+            Matching conversation messages
+        """
+        return self.conversation_memory.search_messages(
+            query=query,
+            role=role,
+            case_sensitive=case_sensitive,
+            last_n=last_n,
+            limit=limit,
+        )
+
     def get_conversation_context(self) -> str:
         """
         Get formatted conversation context.

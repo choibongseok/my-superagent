@@ -100,6 +100,77 @@ class TestConversationMemory:
         assert len(last_messages) == 2
         assert last_messages[-1].content == "AI message 2"
 
+    def test_search_messages_filters_by_keyword_case_insensitive(self):
+        """Test keyword search with default case-insensitive matching."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("Tell me about Python")
+        memory.add_ai_message("PYTHON is great for automation")
+        memory.add_user_message("Let's switch topics")
+
+        matches = memory.search_messages("python")
+
+        assert len(matches) == 2
+        assert matches[0].content == "Tell me about Python"
+        assert matches[1].content == "PYTHON is great for automation"
+
+    def test_search_messages_can_filter_by_role_and_limit(self):
+        """Test role filtering and result limiting in search."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("weather today")
+        memory.add_ai_message("weather forecast: sunny")
+        memory.add_user_message("weather this weekend")
+
+        ai_matches = memory.search_messages("weather", role="ai")
+        limited_matches = memory.search_messages("weather", role="human", limit=1)
+
+        assert len(ai_matches) == 1
+        assert isinstance(ai_matches[0], AIMessage)
+        assert ai_matches[0].content == "weather forecast: sunny"
+
+        assert len(limited_matches) == 1
+        assert isinstance(limited_matches[0], HumanMessage)
+        assert limited_matches[0].content == "weather today"
+
+    def test_search_messages_respects_last_n_window(self):
+        """Test restricting search scope with last_n."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("alpha target")
+        memory.add_ai_message("middle")
+        memory.add_user_message("omega target")
+
+        matches = memory.search_messages("target", last_n=1)
+
+        assert len(matches) == 1
+        assert matches[0].content == "omega target"
+
+    def test_search_messages_rejects_invalid_inputs(self):
+        """Test validation errors for invalid search parameters."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        with pytest.raises(ValueError, match="query must be a non-empty string"):
+            memory.search_messages("   ")
+
+        with pytest.raises(ValueError, match="role must be one of"):
+            memory.search_messages("hello", role="system")
+
+        with pytest.raises(ValueError, match="limit must be greater than 0"):
+            memory.search_messages("hello", limit=0)
+
     def test_clear_memory(self):
         """Test clearing conversation memory."""
         memory = ConversationMemory(

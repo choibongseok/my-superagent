@@ -45,3 +45,19 @@ class TestMemoryManagerContext:
         assert "=== Recent Conversation ===" in context
         assert "=== Relevant Past Memories ===" in context
         assert "vector match for: weather (k=2)" in context
+
+    def test_search_conversation_delegates_to_conversation_memory(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="test_session",
+            use_vector_memory=False,
+        )
+
+        manager.add_user_message("Need project timeline")
+        manager.add_ai_message("Project timeline is in the docs")
+        manager.add_user_message("Thanks")
+
+        matches = manager.search_conversation("project", role="ai")
+
+        assert len(matches) == 1
+        assert matches[0].content == "Project timeline is in the docs"

@@ -5,7 +5,7 @@ context across multiple turns in agent conversations.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime
 
 from langchain.memory import ConversationBufferMemory, ConversationSummaryMemory
@@ -145,6 +145,60 @@ class ConversationMemory:
             messages = messages[-last_n:]
 
         return messages
+
+    def search_messages(
+        self,
+        query: str,
+        role: Literal["any", "human", "ai"] = "any",
+        *,
+        case_sensitive: bool = False,
+        last_n: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[BaseMessage]:
+        """Search conversation messages by substring and optional role.
+
+        Args:
+            query: Substring to search for in message content
+            role: Restrict results to "human", "ai", or "any"
+            case_sensitive: Whether to match query with exact case
+            last_n: Restrict search to the last N messages
+            limit: Maximum number of matched messages to return
+
+        Returns:
+            List of matched messages in chronological order
+
+        Raises:
+            ValueError: If query/role/limit values are invalid
+        """
+        normalized_query = query.strip()
+        if not normalized_query:
+            raise ValueError("query must be a non-empty string")
+
+        normalized_role = role.lower()
+        if normalized_role not in {"any", "human", "ai"}:
+            raise ValueError("role must be one of: any, human, ai")
+
+        if limit is not None and limit <= 0:
+            raise ValueError("limit must be greater than 0")
+
+        target_query = normalized_query if case_sensitive else normalized_query.lower()
+
+        matches: List[BaseMessage] = []
+        for message in self.get_messages(last_n=last_n):
+            if normalized_role == "human" and not isinstance(message, HumanMessage):
+                continue
+            if normalized_role == "ai" and not isinstance(message, AIMessage):
+                continue
+
+            content = str(message.content)
+            searchable_content = content if case_sensitive else content.lower()
+            if target_query in searchable_content:
+                matches.append(message)
+
+                if limit is not None and len(matches) >= limit:
+                    break
+
+        return matches
 
     def get_context(self) -> str:
         """
