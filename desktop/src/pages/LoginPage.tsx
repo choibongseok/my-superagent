@@ -4,6 +4,76 @@ import { authAPI } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { logger } from '../utils/logger';
 
+interface OAuthCallbackMessage {
+  type: 'agenthq:oauth:callback';
+  code?: string | null;
+  error?: string | null;
+  error_description?: string | null;
+}
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const API_ORIGIN = new URL(API_URL, window.location.origin).origin;
+
+const waitForOAuthCallback = (authUrl: string): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const popup = window.open(authUrl, 'agenthq-oauth', 'popup=yes,width=520,height=720');
+
+    if (!popup) {
+      reject(new Error('Unable to open OAuth popup. Please allow popups and try again.'));
+      return;
+    }
+
+    const cleanup = (closePopup = false) => {
+      window.removeEventListener('message', onMessage);
+      window.clearTimeout(timeoutId);
+      window.clearInterval(closePollId);
+
+      if (closePopup && !popup.closed) {
+        popup.close();
+      }
+    };
+
+    const onMessage = (event: MessageEvent<OAuthCallbackMessage>) => {
+      if (event.origin !== API_ORIGIN) {
+        return;
+      }
+
+      const data = event.data;
+      if (!data || data.type !== 'agenthq:oauth:callback') {
+        return;
+      }
+
+      if (data.error) {
+        cleanup(true);
+        reject(new Error(data.error_description || data.error));
+        return;
+      }
+
+      if (!data.code) {
+        cleanup(true);
+        reject(new Error('Authorization code was not received.'));
+        return;
+      }
+
+      cleanup(true);
+      resolve(data.code);
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      cleanup(true);
+      reject(new Error('Login timed out. Please try again.'));
+    }, 120000);
+
+    const closePollId = window.setInterval(() => {
+      if (popup.closed) {
+        cleanup(false);
+        reject(new Error('Login was cancelled.'));
+      }
+    }, 400);
+
+    window.addEventListener('message', onMessage);
+  });
+
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
@@ -13,35 +83,20 @@ export default function LoginPage() {
     try {
       setIsLoading(true);
 
-      // Get Google OAuth URL
       const { auth_url } = await authAPI.getGoogleAuthUrl();
+      const code = await waitForOAuthCallback(auth_url);
 
-      // Open OAuth URL in default browser
-      window.open(auth_url, '_blank');
-
-      // TODO: Implement callback listener for OAuth code
-      // This would typically be done via:
-      // 1. Deep link handling (tauri://callback)
-      // 2. Local HTTP server listening for callback
-      // 3. WebSocket notification from backend
-
-      alert('Please complete authentication in your browser. After authorization, paste the code here.');
-
-      // For now, prompt user to paste code
-      const code = prompt('Enter the authorization code:');
-
-      if (code) {
-        const data = await authAPI.handleCallback(code);
-        setTokens(data.access_token, data.refresh_token, {
-          id: data.user.id,
-          email: data.user.email,
-          name: data.user.full_name || data.user.email,
-        });
-        navigate('/');
-      }
+      const data = await authAPI.handleCallback(code);
+      setTokens(data.access_token, data.refresh_token, {
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.full_name || data.user.email,
+      });
+      navigate('/');
     } catch (error) {
       logger.error('Login error:', error);
-      alert('Login failed. Please try again.');
+      const message = error instanceof Error ? error.message : 'Login failed. Please try again.';
+      alert(message);
     } finally {
       setIsLoading(false);
     }

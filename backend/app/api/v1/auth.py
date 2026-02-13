@@ -1,9 +1,11 @@
 """Authentication endpoints."""
 
+import json
 import secrets
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import HTMLResponse
 from google.auth.transport import requests
 from google.oauth2 import id_token
 from google_auth_oauthlib.flow import Flow
@@ -66,6 +68,91 @@ async def google_auth():
     )
     
     return GoogleAuthURL(auth_url=authorization_url)
+
+
+@router.get("/callback", response_class=HTMLResponse)
+async def google_callback_redirect(
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    error_description: str | None = Query(default=None),
+):
+    """
+    OAuth redirect landing page for browser-based login flows.
+
+    Google redirects to this endpoint via GET. The page forwards callback
+    parameters to the opener window using postMessage so desktop/web clients
+    can complete authentication without manual code copy/paste.
+    """
+    payload = {
+        "type": "agenthq:oauth:callback",
+        "code": code,
+        "state": state,
+        "error": error,
+        "error_description": error_description,
+    }
+    payload_json = json.dumps(payload)
+
+    html = f"""
+<!doctype html>
+<html>
+  <head>
+    <meta charset=\"utf-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+    <title>AgentHQ OAuth</title>
+    <style>
+      body {{
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #0f172a;
+        color: #e2e8f0;
+      }}
+      .card {{
+        background: #111827;
+        padding: 24px;
+        border-radius: 12px;
+        border: 1px solid #334155;
+        max-width: 460px;
+        text-align: center;
+      }}
+      code {{
+        background: #1f2937;
+        border-radius: 6px;
+        padding: 2px 6px;
+      }}
+    </style>
+  </head>
+  <body>
+    <div class=\"card\">
+      <h1>AgentHQ Authentication</h1>
+      <p id=\"status\">Sending authentication result to app…</p>
+      <p>If this window does not close automatically, you can close it manually.</p>
+    </div>
+
+    <script>
+      const payload = {payload_json};
+      const statusEl = document.getElementById('status');
+
+      if (window.opener && !window.opener.closed) {{
+        window.opener.postMessage(payload, '*');
+        statusEl.textContent = payload.error
+          ? 'Authentication was cancelled or failed. Returning to app…'
+          : 'Authentication successful. Returning to app…';
+        setTimeout(() => window.close(), 150);
+      }} else {{
+        statusEl.textContent = payload.error
+          ? `Authentication failed: ${{payload.error_description || payload.error}}`
+          : 'No opener window detected. Please return to the app manually.';
+      }}
+    </script>
+  </body>
+</html>
+"""
+
+    return HTMLResponse(content=html)
 
 
 @router.post("/callback", response_model=Token)

@@ -66,3 +66,31 @@ def test_refresh_token_requires_refresh_token_field(client):
     """Refresh endpoint should validate missing refresh_token."""
     response = client.post("/api/v1/auth/refresh", json={})
     assert response.status_code == 422
+
+
+def test_oauth_callback_get_returns_popup_bridge_page(client):
+    """GET callback should return HTML that posts OAuth payload to opener window."""
+    response = client.get(
+        "/api/v1/auth/callback",
+        params={"code": "abc123", "state": "state-1"},
+    )
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "agenthq:oauth:callback" in response.text
+    assert '"code": "abc123"' in response.text
+
+
+def test_oauth_callback_get_includes_error_payload(client):
+    """GET callback should include OAuth errors for frontend handling."""
+    response = client.get(
+        "/api/v1/auth/callback",
+        params={
+            "error": "access_denied",
+            "error_description": "User denied access",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "agenthq:oauth:callback" in response.text
+    assert '"error": "access_denied"' in response.text
