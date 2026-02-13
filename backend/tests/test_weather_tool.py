@@ -46,6 +46,20 @@ class TestWeatherTool:
         ):
             WeatherPlugin(config={"units": "kelvin"})
 
+    def test_language_codes_are_normalized(self):
+        """Test language config values are normalized for API compatibility."""
+        plugin = WeatherPlugin(config={"lang": "PT-BR"})
+
+        assert plugin.lang == "pt_br"
+
+    def test_invalid_language_codes_are_rejected(self):
+        """Test invalid language configuration fails fast."""
+        with pytest.raises(
+            ValueError,
+            match="lang must be an ISO 639-1 code",
+        ):
+            WeatherPlugin(config={"lang": "english"})
+
     @pytest.mark.asyncio
     async def test_location_required(self, mock_plugin):
         """Test that location parameter is required."""
@@ -267,6 +281,61 @@ class TestWeatherTool:
         assert "8.0 mph" in result
 
     @pytest.mark.asyncio
+    async def test_language_override_updates_api_request_parameters(self, api_plugin):
+        """Test per-request language override is propagated to OpenWeather params."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 12.0, "humidity": 48},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 2.5},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            await api_plugin.execute({"location": "Seoul", "lang": "ko"})
+
+            _, kwargs = mock_get.call_args
+            assert kwargs["params"]["lang"] == "ko"
+
+    @pytest.mark.asyncio
+    async def test_language_config_applies_when_no_override(self):
+        """Test plugin-level language config is included in API params."""
+        plugin = WeatherPlugin(config={"api_key": "test_key", "lang": "pt-BR"})
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "Lisbon",
+            "main": {"temp": 18.0, "humidity": 61},
+            "weather": [{"description": "céu limpo"}],
+            "wind": {"speed": 3.0},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            await plugin.execute({"location": "Lisbon"})
+
+            _, kwargs = mock_get.call_args
+            assert kwargs["params"]["lang"] == "pt_br"
+
+    @pytest.mark.asyncio
+    async def test_invalid_language_override_blocks_api_call(self, api_plugin):
+        """Test invalid lang values fail fast before outbound API requests."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(
+                ValueError,
+                match="lang must be an ISO 639-1 code",
+            ):
+                await api_plugin.execute({"location": "Seoul", "lang": "korean"})
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_coordinate_location_query(self, api_plugin):
         """Test coordinates are sent as lat/lon params."""
         mock_response = AsyncMock()
@@ -406,13 +475,15 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.5.0"
+        assert manifest.version == "1.6.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
+        assert "lang" in manifest.config_schema
         assert "country_code" in manifest.inputs
         assert "latitude" in manifest.inputs
         assert "longitude" in manifest.inputs
         assert "units" in manifest.inputs
+        assert "lang" in manifest.inputs
         assert "required when latitude/longitude" in manifest.inputs["location"]
 
     def test_tool_description(self, api_plugin):
@@ -422,3 +493,4 @@ class TestWeatherTool:
         assert "API key" in description
         assert "country code" in description
         assert "coordinates" in description
+        assert "lang" in description

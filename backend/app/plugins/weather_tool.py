@@ -29,6 +29,7 @@ class Plugin(ToolPlugin):
         "fahrenheit": "imperial",
         "f": "imperial",
     }
+    LANGUAGE_PATTERN = re.compile(r"^[a-z]{2}(?:[_-][a-z]{2})?$")
 
     def __init__(self, config: Dict[str, Any]):
         """
@@ -37,10 +38,12 @@ class Plugin(ToolPlugin):
         Config:
             api_key: OpenWeatherMap API key (optional, uses mock data if not provided)
             units: Temperature units ('metric'/'celsius' or 'imperial'/'fahrenheit', default: 'metric')
+            lang: Optional language code for localized weather descriptions (e.g., 'en', 'ko', 'pt_br')
         """
         super().__init__(config)
         self.api_key = config.get("api_key")
         self.units = self._normalize_units(config.get("units", "metric"))
+        self.lang = self._normalize_language(config.get("lang"))
 
     def _normalize_units(self, units: Any) -> str:
         """Normalize units and support human-friendly aliases."""
@@ -70,6 +73,30 @@ class Plugin(ToolPlugin):
             return self.units
 
         return self._normalize_units(requested_units)
+
+    def _normalize_language(self, language: Any) -> str | None:
+        """Normalize optional language code for OpenWeatherMap localization."""
+        if language is None:
+            return None
+        if not isinstance(language, str):
+            raise ValueError("lang must be a string")
+
+        normalized_language = language.strip().lower().replace("-", "_")
+        if not normalized_language:
+            raise ValueError("lang cannot be empty")
+        if not self.LANGUAGE_PATTERN.fullmatch(normalized_language):
+            raise ValueError(
+                "lang must be an ISO 639-1 code (optionally with locale, e.g., 'en' or 'pt_br')"
+            )
+
+        return normalized_language
+
+    def _resolve_language(self, requested_language: Any) -> str | None:
+        """Resolve effective language for a request."""
+        if requested_language is None:
+            return self.lang
+
+        return self._normalize_language(requested_language)
 
     @staticmethod
     def _convert_metric_to_imperial_temperature(celsius: float) -> float:
@@ -210,7 +237,8 @@ class Plugin(ToolPlugin):
                 "country_code": str (optional, ISO alpha-2 country code used with location),
                 "latitude": float (optional, requires longitude),
                 "longitude": float (optional, requires latitude),
-                "units": str (optional, metric/celsius or imperial/fahrenheit)
+                "units": str (optional, metric/celsius or imperial/fahrenheit),
+                "lang": str (optional, ISO 639-1 code with optional locale such as 'ko' or 'pt_br')
             }
 
         Returns:
@@ -225,13 +253,15 @@ class Plugin(ToolPlugin):
         """
         normalized_location, location_params = self._resolve_location_inputs(inputs)
         resolved_units = self._resolve_units(inputs.get("units"))
+        resolved_language = self._resolve_language(inputs.get("lang"))
 
         # If no API key, return mock data
         if not self.api_key:
             logger.info(
-                "Getting weather for: %s (mock mode, units=%s)",
+                "Getting weather for: %s (mock mode, units=%s, lang=%s)",
                 normalized_location,
                 resolved_units,
+                resolved_language,
             )
             return self._build_mock_weather_response(
                 normalized_location, resolved_units
@@ -247,6 +277,8 @@ class Plugin(ToolPlugin):
                     "units": resolved_units,
                     **location_params,
                 }
+                if resolved_language:
+                    params["lang"] = resolved_language
 
                 response = await client.get(
                     self.OPENWEATHER_BASE_URL,
@@ -325,6 +357,7 @@ class Plugin(ToolPlugin):
             "or coordinates (e.g., '37.5665,126.9780'). "
             "Per-request units override is supported via units='metric/celsius' or "
             "units='imperial/fahrenheit'. "
+            "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Returns temperature, weather condition, humidity, and wind speed. "
             "Requires OpenWeatherMap API key in plugin config."
         )
@@ -333,13 +366,14 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.5.0",
+            version="1.6.0",
             description="Get real-time weather information using OpenWeatherMap API",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
                 "api_key": "string (optional, OpenWeatherMap API key - uses mock data if not provided)",
                 "units": "string (optional, metric/celsius or imperial/fahrenheit, default: metric)",
+                "lang": "string (optional, ISO 639-1 code with optional locale, e.g., en or pt_br)",
             },
             inputs={
                 "location": "string (optional, required when latitude/longitude are not provided)",
@@ -347,6 +381,7 @@ class Plugin(ToolPlugin):
                 "latitude": "number (optional, must be used with longitude)",
                 "longitude": "number (optional, must be used with latitude)",
                 "units": "string (optional, metric/celsius or imperial/fahrenheit, overrides plugin default)",
+                "lang": "string (optional, ISO 639-1 code with optional locale, overrides plugin default)",
             },
             outputs={
                 "location": "string",
