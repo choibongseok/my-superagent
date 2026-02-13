@@ -20,6 +20,29 @@ from app.schemas.template import (
 logger = logging.getLogger(__name__)
 
 
+class _TemplateContextDict(dict):
+    """Dictionary wrapper supporting attribute-style access in format strings."""
+
+    def __getattr__(self, key: str):
+        try:
+            return self[key]
+        except KeyError as exc:  # pragma: no cover - exercised via Formatter errors
+            raise AttributeError(key) from exc
+
+
+def _to_template_context(value):
+    """Recursively wrap mappings for dot-notation template rendering."""
+    if isinstance(value, dict):
+        return _TemplateContextDict(
+            {key: _to_template_context(item) for key, item in value.items()}
+        )
+
+    if isinstance(value, list):
+        return [_to_template_context(item) for item in value]
+
+    return value
+
+
 class TemplateService:
     """Service for template management."""
 
@@ -237,7 +260,12 @@ class TemplateService:
 
     @classmethod
     def _render_prompt_template(cls, prompt_template: str, inputs: dict) -> str:
-        """Render prompt template and validate required inputs."""
+        """Render prompt template and validate required inputs.
+
+        Supports nested input interpolation via dot notation (``{user.name}``) and
+        bracket access (``{items[0][title]}``) when ``inputs`` contains nested
+        dictionaries/lists.
+        """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)
         if missing_inputs:
@@ -245,8 +273,9 @@ class TemplateService:
             raise ValueError(f"Missing template inputs: {missing}")
 
         try:
-            return prompt_template.format_map(inputs)
-        except (KeyError, ValueError, AttributeError, IndexError) as exc:
+            context = _to_template_context(inputs)
+            return prompt_template.format_map(context)
+        except (KeyError, ValueError, AttributeError, IndexError, TypeError) as exc:
             raise ValueError(f"Failed to render template: {exc}") from exc
 
     async def use_template(

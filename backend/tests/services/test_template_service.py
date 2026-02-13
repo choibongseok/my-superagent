@@ -99,3 +99,69 @@ class TestTemplateServiceUseTemplate:
         assert result["output_type"] == "research"
         assert template.usage_count == 4
         db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_nested_dot_notation_inputs(
+        self, service_with_mock_db
+    ):
+        """Nested dictionaries should render with dot notation in templates."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Write a memo for {user.name} in {user.department}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "user": {
+                        "name": "Mina",
+                        "department": "Product",
+                    }
+                },
+                user_id,
+            )
+
+        assert result["prompt"] == "Write a memo for Mina in Product"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_nested_list_and_dict_bracket_access(
+        self, service_with_mock_db
+    ):
+        """List indexing and nested dict access should both render correctly."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "Top insight: {items[0][title]} (owner: {items[0][owner][name]})"
+            ),
+            category="research",
+            usage_count=7,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "items": [
+                        {
+                            "title": "Agent quality",
+                            "owner": {"name": "Jin"},
+                        }
+                    ]
+                },
+                user_id,
+            )
+
+        assert result["prompt"] == "Top insight: Agent quality (owner: Jin)"
+        assert template.usage_count == 8
+        db.commit.assert_awaited_once()
