@@ -60,6 +60,46 @@ def test_local_cache_get_or_set_populates_once():
     assert calls["count"] == 1
 
 
+def test_local_cache_delete_many_returns_removed_count():
+    cache = LocalCacheService()
+    cache.set_many({"alpha": 1, "beta": 2, "gamma": 3})
+
+    removed = cache.delete_many(["alpha", "gamma", "missing"])
+
+    assert removed == 2
+    assert cache.get_many(["alpha", "beta", "gamma"]) == {"beta": 2}
+
+
+def test_local_cache_clear_prefix_removes_matching_keys_only():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "user:1:profile": {"name": "A"},
+            "user:2:profile": {"name": "B"},
+            "workspace:1": {"title": "Project"},
+        }
+    )
+
+    removed = cache.clear_prefix("user:")
+
+    assert removed == 2
+    assert cache.get("workspace:1") == {"title": "Project"}
+    assert cache.get("user:1:profile") is None
+    assert cache.get("user:2:profile") is None
+
+
+def test_local_cache_size_counts_only_active_entries():
+    cache = LocalCacheService()
+    cache.set("persist", "ok")
+    cache.set("expiring", "soon-gone", ttl_seconds=1)
+
+    assert cache.size() == 2
+    time.sleep(1.05)
+
+    assert cache.size() == 1
+    assert cache.has("expiring") is False
+
+
 @pytest.mark.asyncio
 async def test_local_cache_get_or_set_async_populates_once():
     cache = LocalCacheService()

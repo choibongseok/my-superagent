@@ -149,6 +149,27 @@ class LocalCacheService:
         """Delete a cached key if present."""
         self._store.pop(key, None)
 
+    def delete_many(self, keys: Iterable[str]) -> int:
+        """Delete multiple keys and return how many entries were removed."""
+        removed = 0
+        for key in keys:
+            if key in self._store:
+                self._store.pop(key, None)
+                removed += 1
+        return removed
+
+    def clear_prefix(self, prefix: str) -> int:
+        """Delete all keys that start with ``prefix`` and return removal count."""
+        matching_keys = [key for key in self._store if key.startswith(prefix)]
+        return self.delete_many(matching_keys)
+
+    def size(self) -> int:
+        """Return the number of active (non-expired) cache entries."""
+        # Purge expired entries as a side effect to keep the store tidy.
+        for key in list(self._store.keys()):
+            self._get_entry(key)
+        return len(self._store)
+
     def clear(self) -> None:
         """Clear all cached entries."""
         self._store.clear()
