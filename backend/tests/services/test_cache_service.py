@@ -574,6 +574,33 @@ def test_local_cache_pop_returns_default_for_missing_or_expired_key():
     assert cache.pop("temp", default="expired") == "expired"
 
 
+def test_local_cache_pop_many_returns_existing_values_and_removes_keys_once():
+    cache = LocalCacheService()
+    cache.set_many({"alpha": 1, "beta": 2, "gamma": 3})
+
+    popped = cache.pop_many(["alpha", "missing", "alpha", "gamma"])
+
+    assert popped == {"alpha": 1, "gamma": 3}
+    assert cache.get_many(["alpha", "beta", "gamma"]) == {"beta": 2}
+
+
+def test_local_cache_pop_many_skips_expired_keys_and_tracks_lookup_stats():
+    cache = LocalCacheService()
+    cache.set("short", "x", ttl_seconds=1)
+    cache.set("stable", "y")
+
+    time.sleep(1.05)
+
+    popped = cache.pop_many(["short", "stable", "missing"])
+
+    assert popped == {"stable": "y"}
+
+    stats = cache.stats()
+    assert stats["hits"] == 1
+    assert stats["misses"] == 2
+    assert stats["deletes"] == 1
+
+
 def test_local_cache_delete_many_returns_removed_count():
     cache = LocalCacheService()
     cache.set_many({"alpha": 1, "beta": 2, "gamma": 3})

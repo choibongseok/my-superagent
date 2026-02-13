@@ -667,6 +667,34 @@ class LocalCacheService:
         self._increment_stat("deletes")
         return value
 
+    def pop_many(self, keys: Iterable[str]) -> dict[str, Any]:
+        """Remove and return values for multiple keys.
+
+        Missing or expired keys are skipped. Duplicate keys are resolved once,
+        preserving the order of first appearance.
+        """
+        values: dict[str, Any] = {}
+        seen: set[str] = set()
+
+        for key in keys:
+            if key in seen:
+                continue
+            seen.add(key)
+
+            item = self._get_entry(key)
+            self._record_lookup(hit=item is not None)
+            if item is None:
+                continue
+
+            value, _ = item
+            values[key] = value
+            self._delete_key(key)
+
+        if values:
+            self._increment_stat("deletes", len(values))
+
+        return values
+
     def delete(self, key: str) -> None:
         """Delete a cached key if present."""
         if key in self._store:
