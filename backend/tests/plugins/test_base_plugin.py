@@ -48,6 +48,15 @@ class StructuredSchemaPlugin(BasePlugin):
             inputs={
                 "message": {"type": "string", "required": True},
                 "tone": {"type": "string", "required": False},
+                "priority": {
+                    "type": "integer",
+                    "required": False,
+                },
+                "mode": {
+                    "type": "string",
+                    "required": False,
+                    "choices": ["draft", "final"],
+                },
             },
             outputs={"ok": "boolean"},
             config_schema={
@@ -85,6 +94,36 @@ async def test_validate_inputs_rejects_missing_required_structured_field():
 
     with pytest.raises(ValueError, match="Missing required inputs"):
         await plugin.validate_inputs({"tone": "friendly"})
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_invalid_structured_type():
+    plugin = StructuredSchemaPlugin()
+
+    with pytest.raises(ValueError, match="Invalid type for input 'priority'"):
+        await plugin.validate_inputs({"message": "ok", "priority": "high"})
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_accepts_numeric_string_for_integer_type():
+    plugin = StructuredSchemaPlugin()
+
+    assert await plugin.validate_inputs({"message": "ok", "priority": "10"}) is True
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_value_outside_choices():
+    plugin = StructuredSchemaPlugin()
+
+    with pytest.raises(ValueError, match="Invalid value for input 'mode'"):
+        await plugin.validate_inputs({"message": "ok", "mode": "preview"})
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_accepts_case_insensitive_choice_strings():
+    plugin = StructuredSchemaPlugin()
+
+    assert await plugin.validate_inputs({"message": "ok", "mode": "FINAL"}) is True
 
 
 def test_manifest_to_dict_includes_config_schema():
