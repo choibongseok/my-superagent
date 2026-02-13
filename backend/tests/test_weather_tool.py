@@ -410,6 +410,51 @@ class TestWeatherTool:
             assert result["location"] == "Paris"
 
     @pytest.mark.asyncio
+    async def test_zip_code_query_accepts_country_code(self, api_plugin):
+        """Test zip_code queries map to OpenWeatherMap zip params."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "Mountain View",
+            "main": {"temp": 20.1, "humidity": 45},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 2.8},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            result = await api_plugin.execute(
+                {"zip_code": "94040", "country_code": "us"}
+            )
+
+            _, kwargs = mock_get.call_args
+            assert kwargs["params"]["zip"] == "94040,US"
+            assert result["location"] == "Mountain View"
+
+    @pytest.mark.asyncio
+    async def test_zip_code_query_without_country_code(self, api_plugin):
+        """Test zip_code can be used without country_code."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "Sample City",
+            "main": {"temp": 16.3, "humidity": 58},
+            "weather": [{"description": "cloudy"}],
+            "wind": {"speed": 4.1},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            await api_plugin.execute({"zip_code": "SW1A 1AA"})
+
+            _, kwargs = mock_get.call_args
+            assert kwargs["params"]["zip"] == "SW1A 1AA"
+
+    @pytest.mark.asyncio
     async def test_structured_coordinates_require_both_values(self, api_plugin):
         """Test latitude/longitude must be supplied together."""
         with patch("httpx.AsyncClient") as mock_client:
@@ -446,6 +491,21 @@ class TestWeatherTool:
             mock_client.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_zip_code_validation(self, api_plugin):
+        """Test zip_code must be a non-empty postal code string."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(
+                ValueError,
+                match="zip_code must contain only letters, numbers, spaces, or hyphens",
+            ):
+                await api_plugin.execute({"zip_code": "94040!"})
+
+            with pytest.raises(ValueError, match="zip_code cannot be empty"):
+                await api_plugin.execute({"zip_code": "  "})
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_country_code_cannot_be_combined_with_coordinates(self, api_plugin):
         """Test country_code is rejected for explicit latitude/longitude queries."""
         with patch("httpx.AsyncClient") as mock_client:
@@ -464,6 +524,35 @@ class TestWeatherTool:
             mock_client.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_zip_code_cannot_be_combined_with_location(self, api_plugin):
+        """Test zip_code cannot be mixed with location queries."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(
+                ValueError, match="zip_code cannot be used with location"
+            ):
+                await api_plugin.execute({"location": "Paris", "zip_code": "75001"})
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_zip_code_cannot_be_combined_with_coordinates(self, api_plugin):
+        """Test zip_code is rejected when coordinates are provided."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(
+                ValueError,
+                match="zip_code cannot be used with latitude/longitude inputs",
+            ):
+                await api_plugin.execute(
+                    {
+                        "latitude": 48.8566,
+                        "longitude": 2.3522,
+                        "zip_code": "75001",
+                    }
+                )
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_coordinate_location_validation(self, api_plugin):
         """Test invalid coordinates fail fast before API call."""
         with patch("httpx.AsyncClient") as mock_client:
@@ -475,16 +564,20 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.6.0"
+        assert manifest.version == "1.7.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "lang" in manifest.config_schema
+        assert "zip_code" in manifest.inputs
         assert "country_code" in manifest.inputs
         assert "latitude" in manifest.inputs
         assert "longitude" in manifest.inputs
         assert "units" in manifest.inputs
         assert "lang" in manifest.inputs
-        assert "required when latitude/longitude" in manifest.inputs["location"]
+        assert (
+            "required when zip_code and latitude/longitude"
+            in manifest.inputs["location"]
+        )
 
     def test_tool_description(self, api_plugin):
         """Test tool description includes API information."""
@@ -492,5 +585,6 @@ class TestWeatherTool:
         assert "OpenWeatherMap" in description
         assert "API key" in description
         assert "country code" in description
+        assert "zip_code" in description
         assert "coordinates" in description
         assert "lang" in description

@@ -146,6 +146,25 @@ class Plugin(ToolPlugin):
 
         return normalized_country_code
 
+    def _normalize_zip_code(self, zip_code: Any) -> str | None:
+        """Normalize optional postal code inputs used by OpenWeatherMap zip queries."""
+        if zip_code is None:
+            return None
+        if not isinstance(zip_code, str):
+            raise ValueError("zip_code must be a string")
+
+        normalized_zip_code = re.sub(r"\s+", " ", zip_code.strip().upper())
+        if not normalized_zip_code:
+            raise ValueError("zip_code cannot be empty")
+        if len(normalized_zip_code) > 20:
+            raise ValueError("zip_code must be 20 characters or fewer")
+        if not re.fullmatch(r"[A-Z0-9][A-Z0-9 -]*", normalized_zip_code):
+            raise ValueError(
+                "zip_code must contain only letters, numbers, spaces, or hyphens"
+            )
+
+        return normalized_zip_code
+
     async def initialize(self) -> None:
         """Initialize weather tool."""
         if self.api_key:
@@ -187,10 +206,11 @@ class Plugin(ToolPlugin):
     def _resolve_location_inputs(
         self, inputs: Dict[str, Any]
     ) -> tuple[str, Dict[str, Any]]:
-        """Resolve weather query params from location string or structured coordinates."""
+        """Resolve weather query params from location string, zip code, or coordinates."""
         latitude = inputs.get("latitude")
         longitude = inputs.get("longitude")
         country_code = self._normalize_country_code(inputs.get("country_code"))
+        zip_code = self._normalize_zip_code(inputs.get("zip_code"))
 
         if latitude is not None or longitude is not None:
             if latitude is None or longitude is None:
@@ -198,6 +218,10 @@ class Plugin(ToolPlugin):
             if country_code is not None:
                 raise ValueError(
                     "country_code cannot be used with latitude/longitude inputs"
+                )
+            if zip_code is not None:
+                raise ValueError(
+                    "zip_code cannot be used with latitude/longitude inputs"
                 )
 
             try:
@@ -213,6 +237,16 @@ class Plugin(ToolPlugin):
             return normalized_location, location_params
 
         location = inputs.get("location")
+
+        if zip_code is not None:
+            if location is not None:
+                raise ValueError("zip_code cannot be used with location input")
+
+            normalized_location = (
+                f"{zip_code},{country_code}" if country_code is not None else zip_code
+            )
+            return normalized_location, {"zip": normalized_location}
+
         if location is None:
             raise ValueError("location is required")
         if not isinstance(location, str):
@@ -233,8 +267,9 @@ class Plugin(ToolPlugin):
 
         Args:
             inputs: {
-                "location": str (optional, required unless latitude/longitude are provided),
-                "country_code": str (optional, ISO alpha-2 country code used with location),
+                "location": str (optional, required unless zip_code or latitude/longitude are provided),
+                "zip_code": str (optional, postal code; can be combined with country_code),
+                "country_code": str (optional, ISO alpha-2 country code used with location or zip_code),
                 "latitude": float (optional, requires longitude),
                 "longitude": float (optional, requires latitude),
                 "units": str (optional, metric/celsius or imperial/fahrenheit),
@@ -354,6 +389,7 @@ class Plugin(ToolPlugin):
             "Get current weather information for a location using OpenWeatherMap API. "
             "Input can be a city name (e.g., 'London', 'New York', 'Tokyo'), "
             "a city plus country code (e.g., 'Paris' + country_code='FR'), "
+            "a postal code via zip_code (e.g., zip_code='94040', country_code='US'), "
             "or coordinates (e.g., '37.5665,126.9780'). "
             "Per-request units override is supported via units='metric/celsius' or "
             "units='imperial/fahrenheit'. "
@@ -366,7 +402,7 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.6.0",
+            version="1.7.0",
             description="Get real-time weather information using OpenWeatherMap API",
             author="AgentHQ",
             permissions=["network.http"],
@@ -376,8 +412,9 @@ class Plugin(ToolPlugin):
                 "lang": "string (optional, ISO 639-1 code with optional locale, e.g., en or pt_br)",
             },
             inputs={
-                "location": "string (optional, required when latitude/longitude are not provided)",
-                "country_code": "string (optional, ISO alpha-2 country code used with location)",
+                "location": "string (optional, required when zip_code and latitude/longitude are not provided)",
+                "zip_code": "string (optional, postal code; can be combined with country_code)",
+                "country_code": "string (optional, ISO alpha-2 country code used with location or zip_code)",
                 "latitude": "number (optional, must be used with longitude)",
                 "longitude": "number (optional, must be used with latitude)",
                 "units": "string (optional, metric/celsius or imperial/fahrenheit, overrides plugin default)",
