@@ -309,7 +309,8 @@ class VectorStoreMemory:
             dynamic_multiplier = adaptive_std_multiplier * (1 + cv_adjustment)
             
             # Keep results within dynamic standard deviations below mean
-            # Special case: if std_dev is 0 (all scores identical), use mean as threshold
+            # Special case: if std_dev is near-zero (all scores virtually identical)
+            # Use epsilon of 1e-6 for floating-point comparison tolerance
             if std_dev < 1e-6:
                 # All scores are virtually identical, use a permissive threshold
                 # But ensure we still filter out uniformly low-quality results
