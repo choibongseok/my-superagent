@@ -2,9 +2,8 @@
 
 import importlib
 import logging
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from app.plugins.base import BasePlugin, PluginManifest
 
@@ -115,19 +114,28 @@ class PluginManager:
             raise
 
     async def load_plugins_from_directory(
-        self, directory: Optional[Path] = None
+        self,
+        directory: Optional[Path] = None,
+        plugin_configs: Optional[Mapping[str, Mapping[str, Any]]] = None,
+        *,
+        stop_on_error: bool = False,
     ) -> List[str]:
         """
-        Load all plugins from directory.
+        Load all plugins from a directory.
 
         Args:
             directory: Directory to scan (default: self.plugin_dir)
+            plugin_configs: Optional per-plugin configs keyed by module name
+                (e.g., "weather_tool") or full module path
+                (e.g., "app.plugins.weather_tool")
+            stop_on_error: If True, fail fast when a plugin cannot be loaded.
 
         Returns:
             List of loaded plugin names
         """
         scan_dir = directory or self.plugin_dir
-        loaded = []
+        loaded: List[str] = []
+        config_map: Mapping[str, Mapping[str, Any]] = plugin_configs or {}
 
         logger.info(f"Scanning for plugins in: {scan_dir}")
 
@@ -135,22 +143,25 @@ class PluginManager:
             logger.warning(f"Plugin directory does not exist: {scan_dir}")
             return loaded
 
-        # Find all .py files except __init__.py and base.py
-        for plugin_file in scan_dir.glob("*.py"):
-            if plugin_file.name in ("__init__.py", "base.py", "manager.py"):
-                continue
+        # Find all .py files except package/module internals.
+        plugin_files = sorted(
+            plugin_file
+            for plugin_file in scan_dir.glob("*.py")
+            if plugin_file.name not in ("__init__.py", "base.py", "manager.py")
+        )
 
-            # Convert file path to module path
+        for plugin_file in plugin_files:
             module_name = plugin_file.stem
             module_path = f"app.plugins.{module_name}"
+            config = config_map.get(module_path) or config_map.get(module_name)
 
             try:
-                plugin = await self.load_plugin(module_path)
-                loaded.append(plugin.name)
+                plugin = await self.load_plugin(module_path, config=dict(config or {}))
+                loaded.append(plugin.get_manifest().name)
             except Exception as e:
-                logger.error(
-                    f"Failed to load plugin from {plugin_file}: {e}"
-                )
+                logger.error(f"Failed to load plugin from {plugin_file}: {e}")
+                if stop_on_error:
+                    raise
 
         logger.info(f"Loaded {len(loaded)} plugins: {loaded}")
 
@@ -203,14 +214,31 @@ class PluginManager:
             )
             raise
 
-    def list_plugins(self) -> List[Dict[str, Any]]:
+    def list_plugins(
+        self,
+        required_permissions: Optional[Sequence[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """
-        List all loaded plugins.
+        List loaded plugins, optionally filtered by permissions.
+
+        Args:
+            required_permissions: If provided, only plugins with all listed
+                permissions are returned.
 
         Returns:
             List of plugin manifests
         """
-        return [manifest.to_dict() for manifest in self.manifests.values()]
+        manifests = list(self.manifests.values())
+
+        if required_permissions:
+            required = set(required_permissions)
+            manifests = [
+                manifest
+                for manifest in manifests
+                if required.issubset(set(manifest.permissions))
+            ]
+
+        return [manifest.to_dict() for manifest in manifests]
 
     def get_plugin(self, plugin_name: str) -> Optional[BasePlugin]:
         """
