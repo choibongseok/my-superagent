@@ -329,6 +329,60 @@ class TestCitationTracker:
         ):
             tracker.search_sources("agent", sort_by="custom")
 
+    def test_search_sources_with_details_returns_ranked_explainability_metadata(self):
+        """Detailed search results should include rank, counts, and match signals."""
+        tracker = CitationTracker()
+
+        primary_id = tracker.add_source(
+            title="Agentic Workflow Handbook",
+            author="Alex Kim",
+            metadata={"topic": "automation"},
+            type=SourceType.ARTICLE,
+        )
+        secondary_id = tracker.add_source(
+            title="Workflow Notes",
+            author="Morgan Lee",
+            metadata={"topic": "agentic operations"},
+            type=SourceType.WEB,
+        )
+
+        tracker.cite(primary_id, quoted_text="Primary reference")
+        tracker.cite(primary_id, quoted_text="Second reference")
+
+        detailed = tracker.search_sources_with_details(
+            "agentic workflow",
+            sort_by="relevance",
+        )
+
+        assert [item["source"].id for item in detailed] == [primary_id, secondary_id]
+
+        first = detailed[0]
+        assert first["rank"] == 1
+        assert first["citation_count"] == 2
+        assert first["authority_score"] == pytest.approx(0.85)
+        assert first["query_phrase_match"] is True
+        assert "title" in first["matched_fields"]
+        assert "agentic" in first["matched_tokens"]
+        assert first["token_hit_count"] >= 2
+
+    def test_search_sources_with_details_handles_blank_queries(self):
+        """Blank queries should still return stable details without token metadata."""
+        tracker = CitationTracker()
+
+        tracker.add_source(title="Zeta Brief")
+        tracker.add_source(title="Alpha Brief")
+
+        detailed = tracker.search_sources_with_details("   ", sort_by="title")
+
+        assert [item["source"].title for item in detailed] == [
+            "Alpha Brief",
+            "Zeta Brief",
+        ]
+        assert all(item["matched_fields"] == [] for item in detailed)
+        assert all(item["matched_tokens"] == {} for item in detailed)
+        assert all(item["query_phrase_match"] is False for item in detailed)
+        assert all(item["token_hit_count"] == 0 for item in detailed)
+
     def test_search_sources_supports_publication_date_range_filters(self):
         """Date range filters should include only sources published in-range."""
         tracker = CitationTracker()

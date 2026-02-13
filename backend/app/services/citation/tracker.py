@@ -713,7 +713,7 @@ class CitationTracker:
 
                 # Enhanced scoring with phrase matching and term frequency
                 score = 0
-                
+
                 # Bonus for exact phrase match (significantly boosts relevance)
                 if len(query_tokens) > 1 and normalized_query in searchable_text:
                     if normalized_query in title:
@@ -721,29 +721,31 @@ class CitationTracker:
                     elif normalized_query in description:
                         score += 10  # Exact phrase in description is very relevant
                     else:
-                        score += 5   # Exact phrase anywhere is moderately relevant
-                
+                        score += 5  # Exact phrase anywhere is moderately relevant
+
                 # Individual token scoring with term frequency
                 for token in query_tokens:
                     # Title matches are most important
                     if token in title:
                         title_count = title.count(token)
-                        score += 5 * min(title_count, 3)  # Cap at 3 occurrences to avoid spam
-                    
+                        score += 5 * min(
+                            title_count, 3
+                        )  # Cap at 3 occurrences to avoid spam
+
                     # Author matches indicate topical expertise
                     if token in author:
                         author_count = author.count(token)
                         score += 3 * min(author_count, 2)
-                    
+
                     # Description matches provide context
                     if token in description:
                         desc_count = description.count(token)
                         score += 2 * min(desc_count, 3)
-                    
+
                     # URL matches suggest relevant domain
                     if token in source_url:
                         score += 1
-                    
+
                     # Metadata matches add supporting evidence
                     if token in metadata_text:
                         score += 1
@@ -803,6 +805,138 @@ class CitationTracker:
             sources = sources[:limit]
 
         return sources
+
+    @staticmethod
+    def _build_match_details(
+        source: Source,
+        query_tokens: list[str],
+        normalized_query: str,
+    ) -> Dict[str, Any]:
+        """Build explainability metadata for a matched source result."""
+        fields = {
+            "title": CitationTracker._normalize_text(source.title),
+            "author": CitationTracker._normalize_text(source.author),
+            "description": CitationTracker._normalize_text(source.description),
+            "url": CitationTracker._normalize_text(
+                str(source.url) if source.url else ""
+            ),
+            "metadata": CitationTracker._normalize_text(
+                " ".join(
+                    f"{key} {value}" for key, value in (source.metadata or {}).items()
+                )
+            ),
+        }
+
+        if not query_tokens:
+            return {
+                "matched_fields": [],
+                "matched_tokens": {},
+                "query_phrase_match": False,
+                "token_hit_count": 0,
+            }
+
+        matched_fields = [
+            field_name
+            for field_name, field_value in fields.items()
+            if any(token in field_value for token in query_tokens)
+        ]
+
+        matched_tokens: Dict[str, List[str]] = {}
+        token_hit_count = 0
+        for token in query_tokens:
+            token_fields = [
+                field_name
+                for field_name, field_value in fields.items()
+                if token in field_value
+            ]
+            if token_fields:
+                matched_tokens[token] = token_fields
+                token_hit_count += len(token_fields)
+
+        searchable_text = " ".join(segment for segment in fields.values() if segment)
+
+        return {
+            "matched_fields": matched_fields,
+            "matched_tokens": matched_tokens,
+            "query_phrase_match": bool(
+                normalized_query
+                and len(query_tokens) > 1
+                and normalized_query in searchable_text
+            ),
+            "token_hit_count": token_hit_count,
+        }
+
+    def search_sources_with_details(
+        self,
+        query: str,
+        *,
+        source_type: Optional[SourceType | str] = None,
+        limit: Optional[int] = None,
+        match_mode: Literal["all", "any"] = "all",
+        published_after: Optional[datetime] = None,
+        published_before: Optional[datetime] = None,
+        metadata_filters: Optional[Mapping[str, Any]] = None,
+        domains: Optional[str | Iterable[str]] = None,
+        min_citations: Optional[int] = None,
+        max_citations: Optional[int] = None,
+        min_authority_score: Optional[float] = None,
+        max_authority_score: Optional[float] = None,
+        sort_by: Literal[
+            "relevance",
+            "title",
+            "published_date",
+            "citation_count",
+            "authority",
+        ] = "relevance",
+    ) -> List[Dict[str, Any]]:
+        """Search sources and return explainable ranking metadata.
+
+        This complements :meth:`search_sources` by exposing per-result details
+        useful for UI debugging, audit logs, and ranking transparency.
+        """
+        matched_sources = self.search_sources(
+            query,
+            source_type=source_type,
+            limit=limit,
+            match_mode=match_mode,
+            published_after=published_after,
+            published_before=published_before,
+            metadata_filters=metadata_filters,
+            domains=domains,
+            min_citations=min_citations,
+            max_citations=max_citations,
+            min_authority_score=min_authority_score,
+            max_authority_score=max_authority_score,
+            sort_by=sort_by,
+        )
+
+        normalized_query = self._normalize_text(query)
+        query_tokens = [token for token in normalized_query.split(" ") if token]
+        citation_counts = Counter(
+            citation.source.id for citation in self.citations.values()
+        )
+
+        detailed_matches: List[Dict[str, Any]] = []
+        for index, source in enumerate(matched_sources, start=1):
+            match_details = self._build_match_details(
+                source,
+                query_tokens=query_tokens,
+                normalized_query=normalized_query,
+            )
+            detailed_matches.append(
+                {
+                    "rank": index,
+                    "source": source,
+                    "citation_count": citation_counts.get(source.id, 0),
+                    "authority_score": self.SOURCE_AUTHORITY_WEIGHTS.get(
+                        source.type,
+                        0.5,
+                    ),
+                    **match_details,
+                }
+            )
+
+        return detailed_matches
 
     def get_bibliography(
         self,
@@ -1050,7 +1184,7 @@ class CitationTracker:
                 continue
 
             age_days = max(0.0, (now - source.published_date).total_seconds() / 86400)
-            
+
             # Use a more realistic decay curve instead of linear decay
             # Information value decays logarithmically for most content
             if age_days <= recency_window_days * 0.1:
@@ -1058,13 +1192,19 @@ class CitationTracker:
                 freshness = 1.0 - (age_days / (recency_window_days * 0.1)) * 0.1
             elif age_days <= recency_window_days * 0.5:
                 # Moderate age (10-50% of window) - gentle decay
-                normalized_age = (age_days - recency_window_days * 0.1) / (recency_window_days * 0.4)
+                normalized_age = (age_days - recency_window_days * 0.1) / (
+                    recency_window_days * 0.4
+                )
                 freshness = 0.9 - (normalized_age * 0.3)  # Decays from 0.9 to 0.6
             else:
                 # Older sources (50-100% of window) - steeper decay
-                normalized_age = (age_days - recency_window_days * 0.5) / (recency_window_days * 0.5)
-                freshness = max(0.0, 0.6 - (normalized_age * 0.6))  # Decays from 0.6 to 0.0
-            
+                normalized_age = (age_days - recency_window_days * 0.5) / (
+                    recency_window_days * 0.5
+                )
+                freshness = max(
+                    0.0, 0.6 - (normalized_age * 0.6)
+                )  # Decays from 0.6 to 0.0
+
             recency_scores.append(freshness)
 
         source_count_score = min(total_sources / min_sources, 1.0)
