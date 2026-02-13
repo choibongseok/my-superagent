@@ -656,10 +656,10 @@ class CitationTracker:
 
             score += token_contribution
 
-        if len(query_tokens) <= 2:
-            query_length_factor = 1 + math.log(len(query_tokens) + 1) * 0.1
-        else:
-            query_length_factor = 1 + math.log(len(query_tokens)) * 0.2
+        # Smooth logarithmic penalty that increases gradually with query length
+        # without discontinuities. The 0.15 multiplier balances behavior while
+        # ensuring continuous scoring across all query lengths.
+        query_length_factor = 1 + math.log(len(query_tokens) + 1) * 0.15
 
         score = score / query_length_factor
         return round(score, 2)
