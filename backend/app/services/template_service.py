@@ -269,6 +269,17 @@ class TemplateService:
 
         return variables
 
+    @staticmethod
+    def _should_apply_default(value: object) -> bool:
+        """Return whether a resolved value should fall back to a template default."""
+        if value is None:
+            return True
+
+        if isinstance(value, str) and value.strip() == "":
+            return True
+
+        return False
+
     @classmethod
     def _render_prompt_template(cls, prompt_template: str, inputs: dict) -> str:
         """Render prompt template and validate required inputs.
@@ -315,6 +326,9 @@ class TemplateService:
                 if default_value is None:
                     raise ValueError(f"Failed to render template: {exc}") from exc
                 value = default_value
+            else:
+                if default_value is not None and cls._should_apply_default(value):
+                    value = default_value
 
             resolved_values[placeholder] = value
 

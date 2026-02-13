@@ -244,3 +244,61 @@ class TestTemplateServiceUseTemplate:
         assert result["prompt"] == "Hi there, your plan is ready."
         assert template.usage_count == 1
         db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("provided_name", [None, "", "   "])
+    async def test_use_template_applies_default_for_blank_or_null_values(
+        self,
+        service_with_mock_db,
+        provided_name,
+    ):
+        """Defaults should apply when optional values are null or blank strings."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Hello {name|friend}!",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"name": provided_name},
+                user_id,
+            )
+
+        assert result["prompt"] == "Hello friend!"
+        assert template.usage_count == 3
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("provided_name", [0, False])
+    async def test_use_template_keeps_falsey_non_string_values_over_default(
+        self,
+        service_with_mock_db,
+        provided_name,
+    ):
+        """Defaults should not replace explicit falsey values like 0 or False."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Score: {value|n/a}",
+            category="docs",
+            usage_count=5,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"value": provided_name},
+                user_id,
+            )
+
+        assert result["prompt"] == f"Score: {provided_name}"
+        assert template.usage_count == 6
+        db.commit.assert_awaited_once()
