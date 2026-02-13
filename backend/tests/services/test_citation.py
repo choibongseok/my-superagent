@@ -97,6 +97,37 @@ class TestCitationTracker:
         assert id1 != id2
         assert len(tracker.sources) == 2
 
+    def test_add_source_without_url_then_with_url_reuses_and_enriches_source(self):
+        """Re-adding a URL-less source with URL metadata should enrich existing entry."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(
+            title="Clean Architecture",
+            type=SourceType.BOOK,
+            author="Robert C. Martin",
+        )
+
+        reused_id = tracker.add_source(
+            title=" clean architecture ",
+            type=SourceType.BOOK,
+            author=" robert c. martin ",
+            url="https://example.com/books/clean-architecture?utm_source=newsletter",
+            metadata={"isbn": "9780134494166"},
+        )
+
+        assert reused_id == source_id
+        assert len(tracker.sources) == 1
+
+        source = tracker.get_source(source_id)
+        assert source is not None
+        assert source.url is not None
+        assert str(source.url) == "https://example.com/books/clean-architecture?utm_source=newsletter"
+        assert source.metadata["isbn"] == "9780134494166"
+
+        by_url = tracker.get_source_by_url("https://example.com/books/clean-architecture")
+        assert by_url is not None
+        assert by_url.id == source_id
+
     def test_get_source_by_url(self):
         """Test retrieving source by normalized URL lookup."""
         tracker = CitationTracker()

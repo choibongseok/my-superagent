@@ -131,6 +131,36 @@ class CitationTracker:
 
         return f"{normalized_type}|{normalized_author}|{normalized_title}"
 
+    def _enrich_existing_source(
+        self,
+        source: Source,
+        *,
+        url: Optional[str],
+        canonical_url: Optional[str],
+        author: Optional[str],
+        published_date: Optional[datetime],
+        description: Optional[str],
+        metadata: Optional[Dict[str, Any]],
+    ) -> None:
+        """Backfill missing source fields when duplicates are re-added."""
+        if canonical_url:
+            self.source_url_map[canonical_url] = source.id
+            if not source.url and url:
+                source.url = url
+
+        if not source.author and author:
+            source.author = author
+
+        if source.published_date is None and published_date is not None:
+            source.published_date = published_date
+
+        if not source.description and description:
+            source.description = description
+
+        if metadata:
+            for key, value in metadata.items():
+                source.metadata.setdefault(key, value)
+
     def add_source(
         self,
         title: str,
@@ -165,9 +195,22 @@ class CitationTracker:
             logger.debug(f"Source already exists by URL: {existing_id}")
             return existing_id
 
-        # For URL-less sources (books, local docs, etc.), dedupe by metadata fingerprint.
-        if not canonical_url and source_fingerprint in self.source_fingerprint_map:
+        # Dedupe by metadata fingerprint even when URL is present so URL-less
+        # entries can be enriched later without creating duplicates.
+        if source_fingerprint in self.source_fingerprint_map:
             existing_id = self.source_fingerprint_map[source_fingerprint]
+            existing_source = self.sources.get(existing_id)
+            if existing_source:
+                self._enrich_existing_source(
+                    existing_source,
+                    url=url,
+                    canonical_url=canonical_url,
+                    author=author,
+                    published_date=published_date,
+                    description=description,
+                    metadata=metadata,
+                )
+
             logger.debug(f"Source already exists by fingerprint: {existing_id}")
             return existing_id
 
