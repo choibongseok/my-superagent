@@ -121,10 +121,15 @@ class TestCitationTracker:
         source = tracker.get_source(source_id)
         assert source is not None
         assert source.url is not None
-        assert str(source.url) == "https://example.com/books/clean-architecture?utm_source=newsletter"
+        assert (
+            str(source.url)
+            == "https://example.com/books/clean-architecture?utm_source=newsletter"
+        )
         assert source.metadata["isbn"] == "9780134494166"
 
-        by_url = tracker.get_source_by_url("https://example.com/books/clean-architecture")
+        by_url = tracker.get_source_by_url(
+            "https://example.com/books/clean-architecture"
+        )
         assert by_url is not None
         assert by_url.id == source_id
 
@@ -287,6 +292,55 @@ class TestCitationTracker:
         rendered = tracker.get_inline_citations(original)
 
         assert rendered == original
+
+    def test_delete_citation_returns_true_only_for_existing_ids(self):
+        """Deleting citations should be idempotent and report whether removal happened."""
+        tracker = CitationTracker()
+        source_id = tracker.add_source(title="Test", url="https://example.com")
+        citation = tracker.cite(source_id, quoted_text="Test")
+        assert citation is not None
+
+        assert tracker.delete_citation(citation.id) is True
+        assert tracker.get_citation(citation.id) is None
+        assert tracker.delete_citation(citation.id) is False
+
+    def test_delete_source_cascade_removes_source_citations_and_lookups(self):
+        """Cascade deletion should remove source, citation references, and lookup indexes."""
+        tracker = CitationTracker()
+        source_id = tracker.add_source(
+            title="Clean Architecture",
+            type=SourceType.BOOK,
+            author="Robert C. Martin",
+            url="https://example.com/books/clean-architecture?utm_source=newsletter",
+        )
+        citation = tracker.cite(source_id, quoted_text="Boundaries matter")
+        assert citation is not None
+
+        assert tracker.delete_source(source_id, cascade=True) is True
+
+        assert tracker.get_source(source_id) is None
+        assert tracker.get_citation(citation.id) is None
+        assert (
+            tracker.get_source_by_url("https://example.com/books/clean-architecture")
+            is None
+        )
+        duplicate_id = tracker.add_source(
+            title="clean architecture",
+            type=SourceType.BOOK,
+            author="robert c. martin",
+        )
+        assert duplicate_id != source_id
+
+    def test_delete_source_without_cascade_rejects_when_citations_exist(self):
+        """Non-cascade source deletion should fail if dependent citations remain."""
+        tracker = CitationTracker()
+        source_id = tracker.add_source(title="Test", url="https://example.com")
+        citation = tracker.cite(source_id, quoted_text="Test")
+        assert citation is not None
+
+        assert tracker.delete_source(source_id, cascade=False) is False
+        assert tracker.get_source(source_id) is not None
+        assert tracker.get_citation(citation.id) is not None
 
     def test_clear_tracker(self):
         """Test clearing all citations and sources."""

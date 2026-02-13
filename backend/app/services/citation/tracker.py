@@ -432,6 +432,77 @@ class CitationTracker:
 
         return pattern.sub(_render_placeholder, text)
 
+    def delete_citation(self, citation_id: str) -> bool:
+        """Delete a citation by ID.
+
+        Args:
+            citation_id: Citation identifier.
+
+        Returns:
+            ``True`` if a citation was removed, ``False`` when not found.
+        """
+        if citation_id not in self.citations:
+            return False
+
+        self.citations.pop(citation_id, None)
+        logger.debug("Deleted citation: %s", citation_id)
+        return True
+
+    def delete_source(self, source_id: str, cascade: bool = True) -> bool:
+        """Delete a source by ID.
+
+        Args:
+            source_id: Source identifier.
+            cascade: When ``True`` (default), remove citations that reference
+                this source. When ``False``, deletion is rejected if dependent
+                citations exist.
+
+        Returns:
+            ``True`` if the source was deleted, ``False`` when not found or when
+            ``cascade`` is ``False`` and dependent citations exist.
+        """
+        source = self.sources.get(source_id)
+        if source is None:
+            return False
+
+        dependent_citation_ids = [
+            citation.id
+            for citation in self.citations.values()
+            if citation.source.id == source_id
+        ]
+
+        if dependent_citation_ids and not cascade:
+            logger.warning(
+                "Cannot delete source %s: %d dependent citations exist",
+                source_id,
+                len(dependent_citation_ids),
+            )
+            return False
+
+        # Remove source lookups first to keep maps consistent even if source
+        # metadata was enriched after creation.
+        self.source_url_map = {
+            canonical_url: mapped_source_id
+            for canonical_url, mapped_source_id in self.source_url_map.items()
+            if mapped_source_id != source_id
+        }
+        self.source_fingerprint_map = {
+            fingerprint: mapped_source_id
+            for fingerprint, mapped_source_id in self.source_fingerprint_map.items()
+            if mapped_source_id != source_id
+        }
+
+        self.sources.pop(source_id, None)
+        for citation_id in dependent_citation_ids:
+            self.delete_citation(citation_id)
+
+        logger.info(
+            "Deleted source %s (removed %d dependent citations)",
+            source_id,
+            len(dependent_citation_ids),
+        )
+        return True
+
     def clear(self) -> None:
         """Clear all sources and citations."""
         self.sources.clear()
