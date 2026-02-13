@@ -21,3 +21,37 @@ def test_local_cache_ttl_expiration():
 
     time.sleep(1.05)
     assert cache.get("temp") is None
+
+
+def test_local_cache_bulk_set_and_get_many():
+    cache = LocalCacheService()
+
+    cache.set_many({"a": 1, "b": 2, "c": 3})
+
+    assert cache.get_many(["a", "missing", "c"]) == {"a": 1, "c": 3}
+
+
+def test_local_cache_has_respects_expiration():
+    cache = LocalCacheService()
+
+    cache.set("session", "abc", ttl_seconds=1)
+    assert cache.has("session") is True
+
+    time.sleep(1.05)
+    assert cache.has("session") is False
+
+
+def test_local_cache_get_or_set_populates_once():
+    cache = LocalCacheService()
+    calls = {"count": 0}
+
+    def factory() -> str:
+        calls["count"] += 1
+        return "computed-value"
+
+    first = cache.get_or_set("lazy", factory)
+    second = cache.get_or_set("lazy", factory)
+
+    assert first == "computed-value"
+    assert second == "computed-value"
+    assert calls["count"] == 1
