@@ -60,6 +60,63 @@ def test_local_cache_get_or_set_populates_once():
     assert calls["count"] == 1
 
 
+def test_local_cache_ttl_remaining_reports_seconds_for_expiring_keys():
+    cache = LocalCacheService()
+
+    cache.set("expiring", "value", ttl_seconds=2)
+
+    ttl = cache.ttl_remaining("expiring")
+    assert ttl is not None
+    assert 0 < ttl <= 2
+
+
+def test_local_cache_ttl_remaining_returns_none_for_missing_or_non_expiring_keys():
+    cache = LocalCacheService()
+    cache.set("persistent", "value")
+
+    assert cache.ttl_remaining("missing") is None
+    assert cache.ttl_remaining("persistent") is None
+
+
+def test_local_cache_touch_extends_existing_ttl():
+    cache = LocalCacheService()
+    cache.set("session", "abc", ttl_seconds=1)
+
+    time.sleep(0.6)
+    assert cache.touch("session", ttl_seconds=1) is True
+
+    # Should still exist because TTL was refreshed.
+    time.sleep(0.6)
+    assert cache.get("session") == "abc"
+
+    # Refreshed TTL should eventually expire.
+    time.sleep(0.6)
+    assert cache.get("session") is None
+
+
+def test_local_cache_touch_returns_false_for_missing_or_expired_keys():
+    cache = LocalCacheService()
+
+    assert cache.touch("missing", ttl_seconds=10) is False
+
+    cache.set("temp", "value", ttl_seconds=1)
+    time.sleep(1.05)
+
+    assert cache.touch("temp", ttl_seconds=10) is False
+    assert cache.get("temp") is None
+
+
+def test_local_cache_touch_can_convert_key_to_non_expiring():
+    cache = LocalCacheService()
+    cache.set("config", "stable", ttl_seconds=1)
+
+    assert cache.touch("config", ttl_seconds=None) is True
+
+    time.sleep(1.05)
+    assert cache.get("config") == "stable"
+    assert cache.ttl_remaining("config") is None
+
+
 def test_local_cache_delete_many_returns_removed_count():
     cache = LocalCacheService()
     cache.set_many({"alpha": 1, "beta": 2, "gamma": 3})

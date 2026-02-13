@@ -72,6 +72,41 @@ class LocalCacheService:
         """Return ``True`` when a non-expired key exists."""
         return self._get_entry(key) is not None
 
+    def ttl_remaining(self, key: str) -> float | None:
+        """Return remaining TTL seconds for ``key``.
+
+        Returns ``None`` when the key is missing/expired or when it has no
+        expiration configured.
+        """
+        item = self._get_entry(key)
+        if item is None:
+            return None
+
+        _, expires_at = item
+        if expires_at is None:
+            return None
+
+        return max(0.0, expires_at - time.time())
+
+    def touch(self, key: str, ttl_seconds: int | None) -> bool:
+        """Refresh TTL for an existing key while preserving its value.
+
+        Args:
+            key: Cache key to refresh.
+            ttl_seconds: New TTL to apply. ``None`` or non-positive values make
+                the key non-expiring.
+
+        Returns:
+            ``True`` when the key exists and was updated, ``False`` otherwise.
+        """
+        item = self._get_entry(key)
+        if item is None:
+            return False
+
+        value, _ = item
+        self.set(key, value, ttl_seconds=ttl_seconds)
+        return True
+
     def get_or_set(
         self,
         key: str,
