@@ -28,6 +28,9 @@ class Plugin(ToolPlugin):
         "imperial": "imperial",
         "fahrenheit": "imperial",
         "f": "imperial",
+        "standard": "standard",
+        "kelvin": "standard",
+        "k": "standard",
     }
     LANGUAGE_PATTERN = re.compile(r"^[a-z]{2}(?:[_-][a-z]{2})?$")
 
@@ -37,7 +40,7 @@ class Plugin(ToolPlugin):
 
         Config:
             api_key: OpenWeatherMap API key (optional, uses mock data if not provided)
-            units: Temperature units ('metric'/'celsius' or 'imperial'/'fahrenheit', default: 'metric')
+            units: Temperature units ('metric'/'celsius', 'imperial'/'fahrenheit', or 'standard'/'kelvin'; default: 'metric')
             lang: Optional language code for localized weather descriptions (e.g., 'en', 'ko', 'pt_br')
         """
         super().__init__(config)
@@ -59,7 +62,7 @@ class Plugin(ToolPlugin):
         canonical_units = self.UNIT_ALIASES.get(normalized_units)
         if canonical_units is None:
             raise ValueError(
-                "Unsupported units. Use metric/celsius or imperial/fahrenheit"
+                "Unsupported units. Use metric/celsius, imperial/fahrenheit, or standard/kelvin"
             )
 
         return canonical_units
@@ -104,9 +107,29 @@ class Plugin(ToolPlugin):
         return round((celsius * 9 / 5) + 32, 1)
 
     @staticmethod
+    def _convert_metric_to_standard_temperature(celsius: float) -> float:
+        """Convert Celsius to Kelvin."""
+        return round(celsius + 273.15, 1)
+
+    @staticmethod
     def _convert_kmh_to_mph(kmh: float) -> float:
         """Convert km/h to mph."""
         return round(kmh / 1.60934, 1)
+
+    @staticmethod
+    def _convert_kmh_to_ms(kmh: float) -> float:
+        """Convert km/h to m/s."""
+        return round(kmh / 3.6, 1)
+
+    @staticmethod
+    def _normalize_wind_speed_for_units(api_wind_speed: float, units: str) -> float:
+        """Normalize OpenWeatherMap wind speed to output units used by this plugin."""
+        if units == "metric":
+            # OpenWeatherMap returns m/s for metric; expose km/h for consistency.
+            return round(api_wind_speed * 3.6, 1)
+
+        # OpenWeatherMap already returns mph for imperial and m/s for standard.
+        return round(api_wind_speed, 1)
 
     def _build_mock_weather_response(self, location: str, units: str) -> Dict[str, Any]:
         """Build deterministic mock weather data for offline/test mode."""
@@ -118,6 +141,11 @@ class Plugin(ToolPlugin):
                 temperature_celsius
             )
             wind_speed = self._convert_kmh_to_mph(wind_kmh)
+        elif units == "standard":
+            temperature = self._convert_metric_to_standard_temperature(
+                temperature_celsius
+            )
+            wind_speed = self._convert_kmh_to_ms(wind_kmh)
         else:
             temperature = temperature_celsius
             wind_speed = wind_kmh
@@ -272,7 +300,7 @@ class Plugin(ToolPlugin):
                 "country_code": str (optional, ISO alpha-2 country code used with location or zip_code),
                 "latitude": float (optional, requires longitude),
                 "longitude": float (optional, requires latitude),
-                "units": str (optional, metric/celsius or imperial/fahrenheit),
+                "units": str (optional, metric/celsius, imperial/fahrenheit, or standard/kelvin),
                 "lang": str (optional, ISO 639-1 code with optional locale such as 'ko' or 'pt_br')
             }
 
@@ -337,11 +365,10 @@ class Plugin(ToolPlugin):
                     "temperature": round(data["main"]["temp"], 1),
                     "condition": data["weather"][0]["description"].title(),
                     "humidity": data["main"]["humidity"],
-                    "wind_speed": round(
-                        data["wind"]["speed"]
-                        * (3.6 if resolved_units == "metric" else 1),
-                        1,
-                    ),  # Convert m/s to km/h for metric
+                    "wind_speed": self._normalize_wind_speed_for_units(
+                        data["wind"]["speed"],
+                        resolved_units,
+                    ),
                     "units": resolved_units,
                 }
 
@@ -372,8 +399,15 @@ class Plugin(ToolPlugin):
         result = await self.execute({"location": tool_input})
 
         resolved_units = result.get("units", self.units)
-        temperature_unit = "°C" if resolved_units == "metric" else "°F"
-        wind_unit = "km/h" if resolved_units == "metric" else "mph"
+        if resolved_units == "imperial":
+            temperature_unit = "°F"
+            wind_unit = "mph"
+        elif resolved_units == "standard":
+            temperature_unit = "K"
+            wind_unit = "m/s"
+        else:
+            temperature_unit = "°C"
+            wind_unit = "km/h"
 
         return (
             f"Weather in {result['location']}:\n"
@@ -391,8 +425,8 @@ class Plugin(ToolPlugin):
             "a city plus country code (e.g., 'Paris' + country_code='FR'), "
             "a postal code via zip_code (e.g., zip_code='94040', country_code='US'), "
             "or coordinates (e.g., '37.5665,126.9780'). "
-            "Per-request units override is supported via units='metric/celsius' or "
-            "units='imperial/fahrenheit'. "
+            "Per-request units override is supported via units='metric/celsius', "
+            "units='imperial/fahrenheit', or units='standard/kelvin'. "
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Returns temperature, weather condition, humidity, and wind speed. "
             "Requires OpenWeatherMap API key in plugin config."
@@ -402,13 +436,13 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.7.0",
+            version="1.8.0",
             description="Get real-time weather information using OpenWeatherMap API",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
                 "api_key": "string (optional, OpenWeatherMap API key - uses mock data if not provided)",
-                "units": "string (optional, metric/celsius or imperial/fahrenheit, default: metric)",
+                "units": "string (optional, metric/celsius, imperial/fahrenheit, or standard/kelvin; default: metric)",
                 "lang": "string (optional, ISO 639-1 code with optional locale, e.g., en or pt_br)",
             },
             inputs={
@@ -417,7 +451,7 @@ class Plugin(ToolPlugin):
                 "country_code": "string (optional, ISO alpha-2 country code used with location or zip_code)",
                 "latitude": "number (optional, must be used with longitude)",
                 "longitude": "number (optional, must be used with latitude)",
-                "units": "string (optional, metric/celsius or imperial/fahrenheit, overrides plugin default)",
+                "units": "string (optional, metric/celsius, imperial/fahrenheit, or standard/kelvin; overrides plugin default)",
                 "lang": "string (optional, ISO 639-1 code with optional locale, overrides plugin default)",
             },
             outputs={
@@ -426,6 +460,6 @@ class Plugin(ToolPlugin):
                 "condition": "string",
                 "humidity": "integer",
                 "wind_speed": "float",
-                "units": "string (metric or imperial)",
+                "units": "string (metric, imperial, or standard)",
             },
         )

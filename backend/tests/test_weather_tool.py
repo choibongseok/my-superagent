@@ -31,20 +31,22 @@ class TestWeatherTool:
         assert result["wind_speed"] == 12.3
 
     def test_units_aliases_are_normalized(self):
-        """Test celsius/fahrenheit aliases normalize to OpenWeather units."""
+        """Test celsius/fahrenheit/kelvin aliases normalize to OpenWeather units."""
         celsius_plugin = WeatherPlugin(config={"units": "celsius"})
         fahrenheit_plugin = WeatherPlugin(config={"units": "F"})
+        kelvin_plugin = WeatherPlugin(config={"units": "kelvin"})
 
         assert celsius_plugin.units == "metric"
         assert fahrenheit_plugin.units == "imperial"
+        assert kelvin_plugin.units == "standard"
 
     def test_invalid_units_are_rejected(self):
         """Test unsupported units fail fast with a helpful message."""
         with pytest.raises(
             ValueError,
-            match="Unsupported units. Use metric/celsius or imperial/fahrenheit",
+            match="Unsupported units. Use metric/celsius, imperial/fahrenheit, or standard/kelvin",
         ):
-            WeatherPlugin(config={"units": "kelvin"})
+            WeatherPlugin(config={"units": "rankine"})
 
     def test_language_codes_are_normalized(self):
         """Test language config values are normalized for API compatibility."""
@@ -220,14 +222,75 @@ class TestWeatherTool:
         assert result["wind_speed"] == 7.6
 
     @pytest.mark.asyncio
+    async def test_standard_units_override_changes_mock_response_units(self):
+        """Test standard/kelvin override returns Kelvin and m/s in mock mode."""
+        plugin = WeatherPlugin(config={"units": "metric"})
+
+        result = await plugin.execute({"location": "Seoul", "units": "kelvin"})
+
+        assert result["location"] == "Seoul"
+        assert result["units"] == "standard"
+        assert result["temperature"] == 295.6
+        assert result["wind_speed"] == 3.4
+
+    @pytest.mark.asyncio
+    async def test_standard_units_preserve_api_wind_speed_in_ms(self):
+        """Test API wind speed is not re-converted when units are standard."""
+        plugin = WeatherPlugin(config={"api_key": "test_key", "units": "standard"})
+
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "Reykjavik",
+            "main": {"temp": 275.2, "humidity": 70},
+            "weather": [{"description": "overcast clouds"}],
+            "wind": {"speed": 4.6},  # m/s for standard mode
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response
+            )
+
+            result = await plugin.execute({"location": "Reykjavik"})
+
+            assert result["units"] == "standard"
+            assert result["temperature"] == 275.2
+            assert result["wind_speed"] == 4.6
+
+    @pytest.mark.asyncio
+    async def test_run_tool_formats_standard_units(self):
+        """Test run_tool output reflects Kelvin/m-s units for standard mode."""
+        plugin = WeatherPlugin(config={"units": "standard"})
+
+        with patch.object(
+            plugin,
+            "execute",
+            AsyncMock(
+                return_value={
+                    "location": "Oslo",
+                    "temperature": 279.7,
+                    "condition": "Cloudy",
+                    "humidity": 74,
+                    "wind_speed": 5.2,
+                    "units": "standard",
+                }
+            ),
+        ):
+            result = await plugin.run_tool("Oslo")
+
+        assert "279.7K" in result
+        assert "5.2 m/s" in result
+
+    @pytest.mark.asyncio
     async def test_units_override_validates_supported_values(self, api_plugin):
         """Test execute validates invalid per-request units overrides."""
         with patch("httpx.AsyncClient") as mock_client:
             with pytest.raises(
                 ValueError,
-                match="Unsupported units. Use metric/celsius or imperial/fahrenheit",
+                match="Unsupported units. Use metric/celsius, imperial/fahrenheit, or standard/kelvin",
             ):
-                await api_plugin.execute({"location": "Seoul", "units": "kelvin"})
+                await api_plugin.execute({"location": "Seoul", "units": "rankine"})
 
             mock_client.assert_not_called()
 
@@ -564,9 +627,10 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.7.0"
+        assert manifest.version == "1.8.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
+        assert "standard/kelvin" in manifest.config_schema["units"]
         assert "lang" in manifest.config_schema
         assert "zip_code" in manifest.inputs
         assert "country_code" in manifest.inputs
@@ -587,4 +651,5 @@ class TestWeatherTool:
         assert "country code" in description
         assert "zip_code" in description
         assert "coordinates" in description
+        assert "standard/kelvin" in description
         assert "lang" in description
