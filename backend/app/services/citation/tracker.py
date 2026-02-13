@@ -505,6 +505,7 @@ class CitationTracker:
         published_before: Optional[datetime] = None,
         metadata_filters: Optional[Mapping[str, Any]] = None,
         domains: Optional[str | Iterable[str]] = None,
+        exclude_domains: Optional[str | Iterable[str]] = None,
         min_citations: Optional[int] = None,
         max_citations: Optional[int] = None,
         min_authority_score: Optional[float] = None,
@@ -534,10 +535,13 @@ class CitationTracker:
             metadata_filters: Optional metadata constraints where each key/value
                 pair must match source metadata exactly (case-insensitive). Values
                 may be scalars or iterables of accepted values.
-            domains: Optional domain filter(s). Accepts a single domain string
-                or an iterable of domains. Matching is case-insensitive and
-                includes subdomains (e.g. ``news.example.com`` matches
-                ``example.com``).
+            domains: Optional domain allow-list filter(s). Accepts a single
+                domain string or an iterable of domains. Matching is
+                case-insensitive and includes subdomains (e.g.
+                ``news.example.com`` matches ``example.com``).
+            exclude_domains: Optional domain deny-list filter(s). Sources whose
+                hostnames match any configured domain (including subdomains)
+                are excluded from results.
             min_citations: Optional inclusive lower bound for citation count per
                 source.
             max_citations: Optional inclusive upper bound for citation count per
@@ -629,6 +633,7 @@ class CitationTracker:
 
         normalized_metadata_filters = self._normalize_metadata_filters(metadata_filters)
         normalized_domains = self._normalize_domains(domains)
+        normalized_exclude_domains = self._normalize_domains(exclude_domains)
         citation_counts = Counter(
             citation.source.id for citation in self.citations.values()
         )
@@ -661,16 +666,28 @@ class CitationTracker:
             ):
                 continue
 
-            if normalized_domains is not None:
-                source_hostname = ""
-                if source.url:
-                    source_hostname = self._normalize_domain(str(source.url))
+            source_hostname = ""
+            if source.url:
+                source_hostname = self._normalize_domain(str(source.url))
 
-                if not source_hostname or not self._domain_matches_allowed(
+            if (
+                normalized_exclude_domains is not None
+                and source_hostname
+                and self._domain_matches_allowed(
+                    source_hostname,
+                    normalized_exclude_domains,
+                )
+            ):
+                continue
+
+            if normalized_domains is not None and (
+                not source_hostname
+                or not self._domain_matches_allowed(
                     source_hostname,
                     normalized_domains,
-                ):
-                    continue
+                )
+            ):
+                continue
 
             if not self._matches_metadata_filters(
                 source.metadata or {},
@@ -929,6 +946,7 @@ class CitationTracker:
         published_before: Optional[datetime] = None,
         metadata_filters: Optional[Mapping[str, Any]] = None,
         domains: Optional[str | Iterable[str]] = None,
+        exclude_domains: Optional[str | Iterable[str]] = None,
         min_citations: Optional[int] = None,
         max_citations: Optional[int] = None,
         min_authority_score: Optional[float] = None,
@@ -955,6 +973,7 @@ class CitationTracker:
             published_before=published_before,
             metadata_filters=metadata_filters,
             domains=domains,
+            exclude_domains=exclude_domains,
             min_citations=min_citations,
             max_citations=max_citations,
             min_authority_score=min_authority_score,

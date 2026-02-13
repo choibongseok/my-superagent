@@ -595,6 +595,68 @@ class TestCitationTracker:
 
         assert {source.id for source in matches} == {example_id, research_id}
 
+    def test_search_sources_supports_exclude_domain_filters(self):
+        """exclude_domains should remove matching hosts while preserving other matches."""
+        tracker = CitationTracker()
+
+        keep_id = tracker.add_source(
+            title="AI Operations Update",
+            url="https://news.example.com/ai-ops",
+        )
+        tracker.add_source(
+            title="AI Research Digest",
+            url="https://www.research.org/posts/weekly",
+        )
+        no_url_id = tracker.add_source(title="AI Internal Memo")
+
+        matches = tracker.search_sources(
+            "ai",
+            exclude_domains=["https://RESEARCH.org"],
+        )
+
+        assert {source.id for source in matches} == {keep_id, no_url_id}
+
+    def test_search_sources_exclude_domains_override_allow_list(self):
+        """When both filters are set, matching exclude_domains should win."""
+        tracker = CitationTracker()
+
+        keep_id = tracker.add_source(
+            title="AI Operations Update",
+            url="https://news.example.com/ai-ops",
+        )
+        tracker.add_source(
+            title="AI Research Digest",
+            url="https://www.research.org/posts/weekly",
+        )
+
+        matches = tracker.search_sources(
+            "ai",
+            domains=["example.com", "research.org"],
+            exclude_domains=["research.org"],
+        )
+
+        assert [source.id for source in matches] == [keep_id]
+
+    def test_search_sources_with_details_respects_exclude_domain_filters(self):
+        """Detailed search should apply exclude_domains consistently."""
+        tracker = CitationTracker()
+
+        keep_id = tracker.add_source(
+            title="Agent Reliability Notes",
+            url="https://docs.example.com/reliability",
+        )
+        tracker.add_source(
+            title="Agent Reliability Community",
+            url="https://community.bad.net/reliability",
+        )
+
+        detailed_matches = tracker.search_sources_with_details(
+            "agent reliability",
+            exclude_domains=["bad.net"],
+        )
+
+        assert [item["source"].id for item in detailed_matches] == [keep_id]
+
     def test_search_sources_rejects_invalid_domains_filters(self):
         """Domain filters should validate payload shape and non-empty values."""
         tracker = CitationTracker()
@@ -616,6 +678,27 @@ class TestCitationTracker:
             match="domains must contain only string values",
         ):
             tracker.search_sources("ai", domains=[123])  # type: ignore[list-item]
+
+        with pytest.raises(
+            ValueError,
+            match="domains must include at least one domain value",
+        ):
+            tracker.search_sources("ai", exclude_domains=[])
+
+        with pytest.raises(
+            ValueError,
+            match="domains must contain non-empty domain values",
+        ):
+            tracker.search_sources("ai", exclude_domains=["   "])
+
+        with pytest.raises(
+            ValueError,
+            match="domains must contain only string values",
+        ):
+            tracker.search_sources(
+                "ai",
+                exclude_domains=[123],  # type: ignore[list-item]
+            )
 
     def test_search_sources_rejects_invalid_metadata_filters(self):
         """Search should validate metadata filter payload shape and values."""
