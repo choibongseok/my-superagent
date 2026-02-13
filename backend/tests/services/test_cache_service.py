@@ -319,6 +319,29 @@ def test_local_cache_clear_patterns_returns_zero_for_empty_patterns():
     assert cache.get("stable") == "value"
 
 
+def test_local_cache_prune_expired_removes_only_expired_entries():
+    cache = LocalCacheService()
+    cache.set("short", "x", ttl_seconds=1)
+    cache.set("long", "y", ttl_seconds=10)
+    cache.set("persistent", "z")
+
+    time.sleep(1.05)
+
+    removed = cache.prune_expired()
+
+    assert removed == 1
+    assert cache.get("short") is None
+    assert cache.get("long") == "y"
+    assert cache.get("persistent") == "z"
+
+
+def test_local_cache_prune_expired_returns_zero_when_no_entries_expire():
+    cache = LocalCacheService()
+    cache.set("persistent", "value")
+
+    assert cache.prune_expired() == 0
+
+
 def test_local_cache_list_keys_supports_prefix_pattern_and_limit():
     cache = LocalCacheService()
     cache.set_many(
@@ -336,9 +359,7 @@ def test_local_cache_list_keys_supports_prefix_pattern_and_limit():
         "session:gamma",
     ]
     assert cache.list_keys(pattern="*:beta") == ["session:beta"]
-    assert cache.list_keys(prefix="session:", pattern="session:g*") == [
-        "session:gamma"
-    ]
+    assert cache.list_keys(prefix="session:", pattern="session:g*") == ["session:gamma"]
     assert cache.list_keys(prefix="session:", limit=2) == [
         "session:alpha",
         "session:beta",

@@ -64,19 +64,9 @@ class LocalCacheService:
         self._access_order[key] = None
         self._access_order.move_to_end(key)
 
-    def _purge_expired_entries(self) -> None:
-        """Remove all expired keys from the cache."""
-        now = time.time()
-        expired_keys = [
-            key
-            for key, (_, expires_at) in self._store.items()
-            if expires_at is not None and now >= expires_at
-        ]
-        for key in expired_keys:
-            self._delete_key(key)
-
-        if expired_keys:
-            self._increment_stat("expirations", len(expired_keys))
+    def _purge_expired_entries(self) -> int:
+        """Remove all expired keys from the cache and return removal count."""
+        return self.prune_expired()
 
     def _evict_if_needed(self) -> None:
         """Evict least-recently-used entries when size limit is reached."""
@@ -374,6 +364,22 @@ class LocalCacheService:
         if removed:
             self._increment_stat("deletes", removed)
         return removed
+
+    def prune_expired(self) -> int:
+        """Remove expired keys immediately and return the number deleted."""
+        now = time.time()
+        expired_keys = [
+            key
+            for key, (_, expires_at) in self._store.items()
+            if expires_at is not None and now >= expires_at
+        ]
+        for key in expired_keys:
+            self._delete_key(key)
+
+        if expired_keys:
+            self._increment_stat("expirations", len(expired_keys))
+
+        return len(expired_keys)
 
     def clear_prefix(self, prefix: str) -> int:
         """Delete all keys that start with ``prefix`` and return removal count."""
