@@ -402,6 +402,52 @@ class TestCitationTracker:
 
         assert [source.id for source in matches] == [newest_id, older_id, undated_id]
 
+    def test_search_sources_supports_sort_by_recency(self):
+        """sort_by='recency' should prioritize fresher sources and penalize undated ones."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        fresh_id = tracker.add_source(
+            title="Fresh AI Brief",
+            published_date=anchor_time - timedelta(days=7),
+            type=SourceType.ARTICLE,
+        )
+        mid_id = tracker.add_source(
+            title="Mid-term AI Brief",
+            published_date=anchor_time - timedelta(days=180),
+            type=SourceType.ARTICLE,
+        )
+        undated_id = tracker.add_source(
+            title="Undated AI Brief",
+            type=SourceType.ARTICLE,
+        )
+
+        matches = tracker.search_sources(
+            "ai brief",
+            sort_by="recency",
+            as_of=anchor_time,
+            recency_window_days=365,
+        )
+
+        assert [source.id for source in matches] == [fresh_id, mid_id, undated_id]
+
+    def test_search_sources_rejects_invalid_recency_sort_arguments(self):
+        """Recency sorting options should validate window and profile values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError, match="recency_window_days must be greater than 0"
+        ):
+            tracker.search_sources("ai", sort_by="recency", recency_window_days=0)
+
+        with pytest.raises(
+            ValueError,
+            match="recency_profile must be one of: strict, balanced, lenient",
+        ):
+            tracker.search_sources(
+                "ai", sort_by="recency", recency_profile="aggressive"
+            )
+
     def test_search_sources_supports_sort_by_title(self):
         """sort_by='title' should sort alphabetically regardless of relevance score."""
         tracker = CitationTracker()
@@ -424,7 +470,7 @@ class TestCitationTracker:
 
         with pytest.raises(
             ValueError,
-            match="sort_by must be one of: relevance, title, published_date, citation_count, authority",
+            match="sort_by must be one of: relevance, title, published_date, citation_count, authority, recency",
         ):
             tracker.search_sources("agent", sort_by="custom")
 
@@ -464,6 +510,41 @@ class TestCitationTracker:
         assert "title" in first["matched_fields"]
         assert "agentic" in first["matched_tokens"]
         assert first["token_hit_count"] >= 2
+
+    def test_search_sources_with_details_includes_recency_score_and_profile_effect(
+        self,
+    ):
+        """Detailed search should expose recency_score and honor recency profile tuning."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        tracker.add_source(
+            title="Architecture Brief",
+            published_date=anchor_time - timedelta(days=180),
+            type=SourceType.DOCUMENT,
+        )
+
+        strict_results = tracker.search_sources_with_details(
+            "architecture",
+            sort_by="recency",
+            as_of=anchor_time,
+            recency_window_days=365,
+            recency_profile="strict",
+        )
+        lenient_results = tracker.search_sources_with_details(
+            "architecture",
+            sort_by="recency",
+            as_of=anchor_time,
+            recency_window_days=365,
+            recency_profile="lenient",
+        )
+
+        strict_score = strict_results[0]["recency_score"]
+        lenient_score = lenient_results[0]["recency_score"]
+
+        assert isinstance(strict_score, float)
+        assert isinstance(lenient_score, float)
+        assert strict_score < lenient_score
 
     def test_search_sources_with_details_handles_blank_queries(self):
         """Blank queries should still return stable details without token metadata."""

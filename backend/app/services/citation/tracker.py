@@ -695,12 +695,16 @@ class CitationTracker:
         max_authority_score: Optional[float] = None,
         min_relevance_score: Optional[float] = None,
         max_relevance_score: Optional[float] = None,
+        recency_window_days: int = 730,
+        recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
+        as_of: Optional[datetime] = None,
         sort_by: Literal[
             "relevance",
             "title",
             "published_date",
             "citation_count",
             "authority",
+            "recency",
         ] = "relevance",
     ) -> List[Source]:
         """Search sources with lightweight relevance ranking.
@@ -751,13 +755,21 @@ class CitationTracker:
             max_relevance_score: Optional inclusive upper bound for computed
                 relevance score. Useful when isolating weaker/secondary matches
                 for fallback or diversity logic.
+            recency_window_days: Publication age window used for recency
+                scoring when ``sort_by='recency'``.
+            recency_profile: Recency sensitivity profile used when
+                ``sort_by='recency'``. ``"strict"`` penalizes stale sources
+                more aggressively, while ``"lenient"`` decays slower.
+            as_of: Optional reference timestamp for deterministic recency
+                calculations when ``sort_by='recency'``.
             sort_by: Result ordering strategy. ``"relevance"`` favors textual
                 score, ``"title"`` sorts alphabetically, ``"published_date"``
                 sorts newest-first with undated sources last,
                 ``"citation_count"`` prioritizes frequently cited sources,
                 and ``"authority"`` ranks by source reliability heuristics
                 based on source type (for example, databases before generic
-                web pages).
+                web pages). ``"recency"`` ranks by freshness score using
+                ``recency_window_days``/``recency_profile``.
 
         Returns:
             Ranked list of matching sources.
@@ -818,6 +830,14 @@ class CitationTracker:
                 "min_relevance_score cannot be greater than max_relevance_score"
             )
 
+        if recency_window_days <= 0:
+            raise ValueError("recency_window_days must be greater than 0")
+
+        if recency_profile not in self.RECENCY_PROFILE_FACTORS:
+            raise ValueError(
+                "recency_profile must be one of: strict, balanced, lenient"
+            )
+
         normalized_match_mode = self._normalize_text(match_mode)
         if normalized_match_mode not in {"all", "any"}:
             raise ValueError("match_mode must be 'all' or 'any'")
@@ -831,9 +851,10 @@ class CitationTracker:
             "published_date",
             "citation_count",
             "authority",
+            "recency",
         }:
             raise ValueError(
-                "sort_by must be one of: relevance, title, published_date, citation_count, authority"
+                "sort_by must be one of: relevance, title, published_date, citation_count, authority, recency"
             )
 
         normalized_query = self._normalize_text(query)
@@ -855,11 +876,14 @@ class CitationTracker:
             exclude_source_ids,
             argument_name="exclude_source_ids",
         )
+        reference_time = self._normalize_datetime(
+            as_of if as_of is not None else datetime.now(timezone.utc)
+        )
         citation_counts = Counter(
             citation.source.id for citation in self.citations.values()
         )
 
-        ranked_matches: List[tuple[int, int, Source]] = []
+        ranked_matches: List[tuple[float, int, float, float, Source]] = []
 
         for source in self.sources.values():
             if (
@@ -974,12 +998,27 @@ class CitationTracker:
             if max_relevance_score is not None and score > max_relevance_score:
                 continue
 
-            ranked_matches.append((score, citation_count, source))
+            recency_score = self._compute_recency_score(
+                source.published_date,
+                reference_time=reference_time,
+                recency_window_days=recency_window_days,
+                recency_profile=recency_profile,
+            )
+
+            ranked_matches.append(
+                (
+                    score,
+                    citation_count,
+                    authority_score,
+                    recency_score,
+                    source,
+                )
+            )
 
         if normalized_sort_by == "title":
             ranked_matches.sort(
                 key=lambda item: (
-                    self._normalize_text(item[2].title),
+                    self._normalize_text(item[4].title),
                     -item[0],
                     -item[1],
                 )
@@ -987,13 +1026,13 @@ class CitationTracker:
         elif normalized_sort_by == "published_date":
             ranked_matches.sort(
                 key=lambda item: (
-                    item[2].published_date is None,
+                    item[4].published_date is None,
                     -(
-                        item[2].published_date.toordinal()
-                        if item[2].published_date
+                        item[4].published_date.toordinal()
+                        if item[4].published_date
                         else 0
                     ),
-                    self._normalize_text(item[2].title),
+                    self._normalize_text(item[4].title),
                 )
             )
         elif normalized_sort_by == "citation_count":
@@ -1001,16 +1040,25 @@ class CitationTracker:
                 key=lambda item: (
                     -item[1],
                     -item[0],
-                    self._normalize_text(item[2].title),
+                    self._normalize_text(item[4].title),
                 )
             )
         elif normalized_sort_by == "authority":
             ranked_matches.sort(
                 key=lambda item: (
-                    -self.SOURCE_AUTHORITY_WEIGHTS.get(item[2].type, 0.5),
+                    -item[2],
                     -item[0],
                     -item[1],
-                    self._normalize_text(item[2].title),
+                    self._normalize_text(item[4].title),
+                )
+            )
+        elif normalized_sort_by == "recency":
+            ranked_matches.sort(
+                key=lambda item: (
+                    -item[3],
+                    -item[0],
+                    -item[1],
+                    self._normalize_text(item[4].title),
                 )
             )
         else:
@@ -1018,11 +1066,11 @@ class CitationTracker:
                 key=lambda item: (
                     -item[0],
                     -item[1],
-                    self._normalize_text(item[2].title),
+                    self._normalize_text(item[4].title),
                 )
             )
 
-        sources = [source for _, _, source in ranked_matches]
+        sources = [source for *_, source in ranked_matches]
         if limit is not None:
             sources = sources[:limit]
 
@@ -1109,12 +1157,16 @@ class CitationTracker:
         max_authority_score: Optional[float] = None,
         min_relevance_score: Optional[float] = None,
         max_relevance_score: Optional[float] = None,
+        recency_window_days: int = 730,
+        recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
+        as_of: Optional[datetime] = None,
         sort_by: Literal[
             "relevance",
             "title",
             "published_date",
             "citation_count",
             "authority",
+            "recency",
         ] = "relevance",
     ) -> List[Dict[str, Any]]:
         """Search sources and return explainable ranking metadata.
@@ -1141,11 +1193,17 @@ class CitationTracker:
             max_authority_score=max_authority_score,
             min_relevance_score=min_relevance_score,
             max_relevance_score=max_relevance_score,
+            recency_window_days=recency_window_days,
+            recency_profile=recency_profile,
+            as_of=as_of,
             sort_by=sort_by,
         )
 
         normalized_query = self._normalize_text(query)
         query_tokens = [token for token in normalized_query.split(" ") if token]
+        reference_time = self._normalize_datetime(
+            as_of if as_of is not None else datetime.now(timezone.utc)
+        )
         citation_counts = Counter(
             citation.source.id for citation in self.citations.values()
         )
@@ -1165,6 +1223,12 @@ class CitationTracker:
                     "authority_score": self.SOURCE_AUTHORITY_WEIGHTS.get(
                         source.type,
                         0.5,
+                    ),
+                    "recency_score": self._compute_recency_score(
+                        source.published_date,
+                        reference_time=reference_time,
+                        recency_window_days=recency_window_days,
+                        recency_profile=recency_profile,
                     ),
                     "relevance_score": self._compute_relevance_score(
                         source,
