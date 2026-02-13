@@ -402,6 +402,60 @@ class LocalCacheService:
         }
         return self.delete_many(matching_keys)
 
+    def list_keys(
+        self,
+        *,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        limit: int | None = None,
+    ) -> list[str]:
+        """List active keys with optional prefix/glob filtering.
+
+        Keys are returned in deterministic lexicographic order and do not affect
+        hit/miss counters or LRU order.
+        """
+        if limit is not None and limit <= 0:
+            raise ValueError("limit must be greater than 0")
+
+        self._purge_expired_entries()
+
+        matching_keys: list[str] = []
+        for key in self._store:
+            if prefix is not None and not key.startswith(prefix):
+                continue
+            if pattern is not None and not fnmatchcase(key, pattern):
+                continue
+            matching_keys.append(key)
+
+        matching_keys.sort()
+        if limit is not None:
+            return matching_keys[:limit]
+        return matching_keys
+
+    def list_entries(
+        self,
+        *,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        limit: int | None = None,
+        include_values: bool = False,
+    ) -> list[dict[str, Any]]:
+        """List active cache entries with optional value and TTL metadata."""
+        entries: list[dict[str, Any]] = []
+        for key in self.list_keys(prefix=prefix, pattern=pattern, limit=limit):
+            value, expires_at = self._store[key]
+            entry: dict[str, Any] = {
+                "key": key,
+                "ttl_seconds": (
+                    None if expires_at is None else max(0.0, expires_at - time.time())
+                ),
+            }
+            if include_values:
+                entry["value"] = value
+            entries.append(entry)
+
+        return entries
+
     def stats(self, reset: bool = False) -> dict[str, Any]:
         """Return cache operational counters and runtime metadata.
 

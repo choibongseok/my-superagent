@@ -319,6 +319,67 @@ def test_local_cache_clear_patterns_returns_zero_for_empty_patterns():
     assert cache.get("stable") == "value"
 
 
+def test_local_cache_list_keys_supports_prefix_pattern_and_limit():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "session:alpha": 1,
+            "session:beta": 2,
+            "session:gamma": 3,
+            "user:delta": 4,
+        }
+    )
+
+    assert cache.list_keys(prefix="session:") == [
+        "session:alpha",
+        "session:beta",
+        "session:gamma",
+    ]
+    assert cache.list_keys(pattern="*:beta") == ["session:beta"]
+    assert cache.list_keys(prefix="session:", pattern="session:g*") == [
+        "session:gamma"
+    ]
+    assert cache.list_keys(prefix="session:", limit=2) == [
+        "session:alpha",
+        "session:beta",
+    ]
+
+
+def test_local_cache_list_keys_rejects_non_positive_limit():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="limit must be greater than 0"):
+        cache.list_keys(limit=0)
+
+
+def test_local_cache_list_entries_includes_ttl_metadata_and_optional_values():
+    cache = LocalCacheService()
+    cache.set("persistent", {"v": 1})
+    cache.set("temporary", "value", ttl_seconds=2)
+
+    without_values = cache.list_entries()
+    assert [entry["key"] for entry in without_values] == ["persistent", "temporary"]
+    assert all("value" not in entry for entry in without_values)
+
+    with_values = cache.list_entries(include_values=True)
+    assert with_values[0]["value"] == {"v": 1}
+    assert with_values[0]["ttl_seconds"] is None
+    assert with_values[1]["value"] == "value"
+    assert with_values[1]["ttl_seconds"] is not None
+    assert 0 < with_values[1]["ttl_seconds"] <= 2
+
+
+def test_local_cache_list_entries_ignores_expired_keys():
+    cache = LocalCacheService()
+    cache.set("expired", "x", ttl_seconds=1)
+    cache.set("active", "y")
+
+    time.sleep(1.05)
+
+    entries = cache.list_entries(include_values=True)
+    assert entries == [{"key": "active", "ttl_seconds": None, "value": "y"}]
+
+
 def test_local_cache_size_counts_only_active_entries():
     cache = LocalCacheService()
     cache.set("persist", "ok")
