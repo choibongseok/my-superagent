@@ -415,6 +415,61 @@ class TestCitationTracker:
         ):
             tracker.search_sources("ai", min_citations=2, max_citations=1)
 
+    def test_search_sources_supports_min_and_max_authority_score_filters(self):
+        """Authority score bounds should filter by trusted source type weights."""
+        tracker = CitationTracker()
+
+        database_id = tracker.add_source(
+            title="AI Standards Registry",
+            type=SourceType.DATABASE,
+        )
+        article_id = tracker.add_source(
+            title="AI Strategy Review",
+            type=SourceType.ARTICLE,
+        )
+        web_id = tracker.add_source(
+            title="AI Community Blog",
+            type=SourceType.WEB,
+        )
+
+        high_trust_matches = tracker.search_sources(
+            "ai",
+            min_authority_score=0.8,
+            sort_by="authority",
+        )
+        assert [source.id for source in high_trust_matches] == [database_id, article_id]
+
+        low_trust_matches = tracker.search_sources(
+            "ai",
+            max_authority_score=0.7,
+            sort_by="authority",
+        )
+        assert [source.id for source in low_trust_matches] == [web_id]
+
+    def test_search_sources_rejects_invalid_authority_score_filters(self):
+        """Authority score filters should enforce valid 0..1 ranges and bounds."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="min_authority_score must be between 0 and 1",
+        ):
+            tracker.search_sources("ai", min_authority_score=-0.1)
+
+        with pytest.raises(
+            ValueError,
+            match="max_authority_score must be between 0 and 1",
+        ):
+            tracker.search_sources("ai", max_authority_score=1.1)
+
+        with pytest.raises(
+            ValueError,
+            match="min_authority_score cannot be greater than max_authority_score",
+        ):
+            tracker.search_sources(
+                "ai", min_authority_score=0.9, max_authority_score=0.6
+            )
+
     def test_search_sources_supports_case_insensitive_metadata_filters(self):
         """Metadata filters should match keys/values regardless of casing."""
         tracker = CitationTracker()

@@ -506,6 +506,8 @@ class CitationTracker:
         domains: Optional[str | Iterable[str]] = None,
         min_citations: Optional[int] = None,
         max_citations: Optional[int] = None,
+        min_authority_score: Optional[float] = None,
+        max_authority_score: Optional[float] = None,
         sort_by: Literal[
             "relevance",
             "title",
@@ -539,6 +541,12 @@ class CitationTracker:
                 source.
             max_citations: Optional inclusive upper bound for citation count per
                 source.
+            min_authority_score: Optional inclusive lower bound for source
+                authority score, using ``SOURCE_AUTHORITY_WEIGHTS`` values in
+                the ``0.0`` to ``1.0`` range.
+            max_authority_score: Optional inclusive upper bound for source
+                authority score, using ``SOURCE_AUTHORITY_WEIGHTS`` values in
+                the ``0.0`` to ``1.0`` range.
             sort_by: Result ordering strategy. ``"relevance"`` favors textual
                 score, ``"title"`` sorts alphabetically, ``"published_date"``
                 sorts newest-first with undated sources last,
@@ -572,6 +580,21 @@ class CitationTracker:
             and min_citations > max_citations
         ):
             raise ValueError("min_citations cannot be greater than max_citations")
+
+        if min_authority_score is not None and not 0 <= min_authority_score <= 1:
+            raise ValueError("min_authority_score must be between 0 and 1")
+
+        if max_authority_score is not None and not 0 <= max_authority_score <= 1:
+            raise ValueError("max_authority_score must be between 0 and 1")
+
+        if (
+            min_authority_score is not None
+            and max_authority_score is not None
+            and min_authority_score > max_authority_score
+        ):
+            raise ValueError(
+                "min_authority_score cannot be greater than max_authority_score"
+            )
 
         normalized_match_mode = self._normalize_text(match_mode)
         if normalized_match_mode not in {"all", "any"}:
@@ -617,6 +640,19 @@ class CitationTracker:
                 continue
             if max_citations is not None and citation_count > max_citations:
                 continue
+
+            authority_score = self.SOURCE_AUTHORITY_WEIGHTS.get(source.type, 0.5)
+            if (
+                min_authority_score is not None
+                and authority_score < min_authority_score
+            ):
+                continue
+            if (
+                max_authority_score is not None
+                and authority_score > max_authority_score
+            ):
+                continue
+
             source_type_value = self._normalize_text(str(source.type))
             if (
                 normalized_source_type is not None
