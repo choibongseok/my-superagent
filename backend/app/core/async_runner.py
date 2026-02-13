@@ -3,54 +3,74 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import queue
 import threading
 from collections.abc import Awaitable, Callable
-from typing import ParamSpec, TypeVar, cast
+from typing import Any, ParamSpec, TypeVar, cast, overload
 
 P = ParamSpec("P")
 T = TypeVar("T")
 
 
+@overload
 def run_async(
     coro_factory: Callable[P, Awaitable[T]],
     *args: P.args,
     timeout: float | None = None,
     **kwargs: P.kwargs,
+) -> T: ...
+
+
+@overload
+def run_async(
+    awaitable: Awaitable[T],
+    *,
+    timeout: float | None = None,
+) -> T: ...
+
+
+def run_async(
+    coro_or_factory: Callable[..., Awaitable[T]] | Awaitable[T],
+    *args: Any,
+    timeout: float | None = None,
+    **kwargs: Any,
 ) -> T:
-    """Run an async coroutine factory from synchronous code.
+    """Run async work from synchronous code.
 
-    This helper supports two scenarios:
+    Accepts either:
+    1) a coroutine factory (async callable) + optional args/kwargs, or
+    2) a pre-built awaitable object.
 
-    1. No running event loop in the current thread:
-       execute with ``asyncio.run``.
-    2. A running event loop already exists:
-       execute in a dedicated worker thread with its own loop.
-
-    Args:
-        coro_factory: Callable that returns an awaitable.
-        *args: Positional arguments passed to ``coro_factory``.
-        timeout: Optional timeout in seconds. If provided and the coroutine
-            does not complete within the deadline, ``TimeoutError`` is raised.
-        **kwargs: Keyword arguments passed to ``coro_factory``.
-
-    Returns:
-        The coroutine result.
-
-    Raises:
-        Exception: Re-raises any exception raised inside the coroutine.
+    It safely executes from both loop-free and loop-running contexts.
     """
     if timeout is not None and timeout <= 0:
         raise ValueError("timeout must be greater than 0")
 
-    async def _run_with_timeout() -> T:
-        coro = coro_factory(*args, **kwargs)
-        if not isinstance(coro, Awaitable):
+    def _build_awaitable() -> Awaitable[T]:
+        if inspect.isawaitable(coro_or_factory):
+            if args or kwargs:
+                raise TypeError(
+                    "args/kwargs cannot be provided when passing an awaitable"
+                )
+            return cast(Awaitable[T], coro_or_factory)
+
+        if not callable(coro_or_factory):
+            raise TypeError(
+                "run_async expects an awaitable or a callable returning an awaitable"
+            )
+
+        coro = coro_or_factory(*args, **kwargs)
+        if not inspect.isawaitable(coro):
             raise TypeError("coro_factory must return an awaitable")
 
+        return cast(Awaitable[T], coro)
+
+    async def _run_with_timeout() -> T:
+        awaitable = _build_awaitable()
         if timeout is None:
-            return await coro
-        return await asyncio.wait_for(coro, timeout=timeout)
+            return await awaitable
+        return await asyncio.wait_for(awaitable, timeout=timeout)
 
     def _timeout_error() -> TimeoutError:
         return TimeoutError(f"run_async timed out after {timeout} seconds")

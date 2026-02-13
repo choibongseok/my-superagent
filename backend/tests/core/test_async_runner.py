@@ -83,3 +83,32 @@ def test_run_async_rejects_non_awaitable_return_value():
 
     with pytest.raises(TypeError, match="must return an awaitable"):
         run_async(_sync_value)
+
+
+def test_run_async_supports_prebuilt_awaitable_without_existing_event_loop():
+    assert run_async(_compute_value()) == 42
+
+
+@pytest.mark.asyncio
+async def test_run_async_supports_prebuilt_awaitable_with_existing_event_loop():
+    assert run_async(_compute_value()) == 42
+
+
+def test_run_async_rejects_extra_arguments_for_prebuilt_awaitable():
+    coroutine = _compute_value()
+    try:
+        with pytest.raises(
+            TypeError,
+            match="cannot be provided when passing an awaitable",
+        ):
+            run_async(coroutine, 1)
+    finally:
+        coroutine.close()
+
+
+def test_run_async_rejects_non_callable_and_non_awaitable_input():
+    with pytest.raises(
+        TypeError,
+        match="expects an awaitable or a callable returning an awaitable",
+    ):
+        run_async(123)  # type: ignore[arg-type]
