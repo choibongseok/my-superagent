@@ -65,6 +65,26 @@ class CitationTracker:
         SourceType.OTHER: 0.5,
     }
 
+    PHRASE_WEIGHTS: Dict[str, float] = {
+        "title": 20.0,
+        "description": 10.0,
+        "other": 5.0,
+    }
+
+    TOKEN_WEIGHTS: Dict[str, float] = {
+        "title": 5.0,
+        "author": 3.0,
+        "description": 2.0,
+        "url": 1.0,
+        "metadata": 1.0,
+    }
+
+    MAX_OCCURRENCES: Dict[str, int] = {
+        "title": 3,
+        "author": 2,
+        "description": 3,
+    }
+
     def __init__(self):
         """Initialize citation tracker."""
         self.sources: Dict[str, Source] = {}
@@ -531,6 +551,82 @@ class CitationTracker:
         """
         return list(self.sources.values())
 
+    def _compute_relevance_score(
+        self,
+        source: Source,
+        *,
+        query_tokens: list[str],
+        normalized_query: str,
+    ) -> float:
+        """Compute deterministic relevance score for a source/query pair."""
+        if not query_tokens:
+            return 0.0
+
+        title = self._normalize_text(source.title)
+        author = self._normalize_text(source.author)
+        description = self._normalize_text(source.description)
+        source_url = self._normalize_text(str(source.url) if source.url else "")
+        metadata_text = self._normalize_text(
+            " ".join(f"{key} {value}" for key, value in (source.metadata or {}).items())
+        )
+
+        searchable_text = " ".join(
+            segment
+            for segment in (title, author, description, source_url, metadata_text)
+            if segment
+        )
+
+        score = 0.0
+
+        if len(query_tokens) > 1 and normalized_query in searchable_text:
+            phrase_specificity = min(len(query_tokens) / 5.0, 1.0)
+
+            if normalized_query in title:
+                score += self.PHRASE_WEIGHTS["title"] * (1 + phrase_specificity)
+            elif normalized_query in description:
+                score += self.PHRASE_WEIGHTS["description"] * (1 + phrase_specificity)
+            else:
+                score += self.PHRASE_WEIGHTS["other"] * (1 + phrase_specificity)
+
+        for token in query_tokens:
+            token_contribution = 0.0
+
+            if token in title:
+                title_count = min(title.count(token), self.MAX_OCCURRENCES["title"])
+                for i in range(title_count):
+                    token_contribution += self.TOKEN_WEIGHTS["title"] / (1 + i * 0.5)
+
+            if token in author:
+                author_count = min(author.count(token), self.MAX_OCCURRENCES["author"])
+                for i in range(author_count):
+                    token_contribution += self.TOKEN_WEIGHTS["author"] / (1 + i * 0.5)
+
+            if token in description:
+                desc_count = min(
+                    description.count(token),
+                    self.MAX_OCCURRENCES["description"],
+                )
+                for i in range(desc_count):
+                    token_contribution += self.TOKEN_WEIGHTS["description"] / (
+                        1 + i * 0.5
+                    )
+
+            if token in source_url:
+                token_contribution += self.TOKEN_WEIGHTS["url"]
+
+            if token in metadata_text:
+                token_contribution += self.TOKEN_WEIGHTS["metadata"]
+
+            score += token_contribution
+
+        if len(query_tokens) <= 2:
+            query_length_factor = 1 + math.log(len(query_tokens) + 1) * 0.1
+        else:
+            query_length_factor = 1 + math.log(len(query_tokens)) * 0.2
+
+        score = score / query_length_factor
+        return round(score, 2)
+
     def search_sources(
         self,
         query: str,
@@ -549,6 +645,7 @@ class CitationTracker:
         max_citations: Optional[int] = None,
         min_authority_score: Optional[float] = None,
         max_authority_score: Optional[float] = None,
+        min_relevance_score: Optional[float] = None,
         sort_by: Literal[
             "relevance",
             "title",
@@ -596,6 +693,9 @@ class CitationTracker:
             max_authority_score: Optional inclusive upper bound for source
                 authority score, using ``SOURCE_AUTHORITY_WEIGHTS`` values in
                 the ``0.0`` to ``1.0`` range.
+            min_relevance_score: Optional inclusive lower bound for computed
+                relevance score. Useful when filtering out weak lexical matches
+                from broad ``match_mode='any'`` searches.
             sort_by: Result ordering strategy. ``"relevance"`` favors textual
                 score, ``"title"`` sorts alphabetically, ``"published_date"``
                 sorts newest-first with undated sources last,
@@ -644,6 +744,9 @@ class CitationTracker:
             raise ValueError(
                 "min_authority_score cannot be greater than max_authority_score"
             )
+
+        if min_relevance_score is not None and min_relevance_score < 0:
+            raise ValueError("min_relevance_score cannot be negative")
 
         normalized_match_mode = self._normalize_text(match_mode)
         if normalized_match_mode not in {"all", "any"}:
@@ -793,97 +896,14 @@ class CitationTracker:
                 if not has_match:
                     continue
 
-                # Enhanced scoring with phrase matching and term frequency
-                # Using weighted scoring with diminishing returns for repeated terms
-                score = 0.0
-                
-                # Configurable scoring weights for maintainability
-                PHRASE_WEIGHTS = {
-                    "title": 20.0,
-                    "description": 10.0,
-                    "other": 5.0,
-                }
-                
-                TOKEN_WEIGHTS = {
-                    "title": 5.0,
-                    "author": 3.0,
-                    "description": 2.0,
-                    "url": 1.0,
-                    "metadata": 1.0,
-                }
-                
-                # Cap frequencies to prevent keyword stuffing from dominating
-                MAX_OCCURRENCES = {
-                    "title": 3,
-                    "author": 2,
-                    "description": 3,
-                }
+            score = self._compute_relevance_score(
+                source,
+                query_tokens=query_tokens,
+                normalized_query=normalized_query,
+            )
 
-                # Bonus for exact phrase match (significantly boosts relevance)
-                if len(query_tokens) > 1 and normalized_query in searchable_text:
-                    # Phrase length bonus (longer phrases are more specific)
-                    phrase_specificity = min(len(query_tokens) / 5.0, 1.0)
-                    
-                    if normalized_query in title:
-                        score += PHRASE_WEIGHTS["title"] * (1 + phrase_specificity)
-                    elif normalized_query in description:
-                        score += PHRASE_WEIGHTS["description"] * (1 + phrase_specificity)
-                    else:
-                        score += PHRASE_WEIGHTS["other"] * (1 + phrase_specificity)
-
-                # Individual token scoring with term frequency and diminishing returns
-                for token in query_tokens:
-                    token_contribution = 0.0
-                    
-                    # Title matches are most important
-                    if token in title:
-                        title_count = min(title.count(token), MAX_OCCURRENCES["title"])
-                        # Diminishing returns: 1st occurrence worth full, subsequent worth less
-                        for i in range(title_count):
-                            token_contribution += TOKEN_WEIGHTS["title"] / (1 + i * 0.5)
-
-                    # Author matches indicate topical expertise
-                    if token in author:
-                        author_count = min(author.count(token), MAX_OCCURRENCES["author"])
-                        for i in range(author_count):
-                            token_contribution += TOKEN_WEIGHTS["author"] / (1 + i * 0.5)
-
-                    # Description matches provide context
-                    if token in description:
-                        desc_count = min(description.count(token), MAX_OCCURRENCES["description"])
-                        for i in range(desc_count):
-                            token_contribution += TOKEN_WEIGHTS["description"] / (1 + i * 0.5)
-
-                    # URL matches suggest relevant domain
-                    if token in source_url:
-                        token_contribution += TOKEN_WEIGHTS["url"]
-
-                    # Metadata matches add supporting evidence
-                    if token in metadata_text:
-                        token_contribution += TOKEN_WEIGHTS["metadata"]
-                    
-                    score += token_contribution
-                
-                # Normalize score by query length to prevent long queries from dominating
-                # Use logarithmic scaling to balance single-term vs multi-term queries
-                # Logarithmic approach is more balanced than linear scaling
-                # For very short queries (1-2 tokens), apply minimal normalization
-                # to avoid over-penalizing focused searches
-                if len(query_tokens) <= 2:
-                    # Short queries: use gentler normalization
-                    query_length_factor = 1 + math.log(len(query_tokens) + 1) * 0.1
-                else:
-                    # Longer queries: standard logarithmic normalization
-                    query_length_factor = 1 + math.log(len(query_tokens)) * 0.2
-                
-                score = score / query_length_factor
-                
-                # Apply score bucketing for stability across repeated searches
-                # Round to 2 decimal places to prevent micro-variations from affecting ranking
-                # This ensures consistent ordering when scores are very close
-                score = round(score, 2)
-            else:
-                score = 0.0
+            if min_relevance_score is not None and score < min_relevance_score:
+                continue
 
             ranked_matches.append((score, citation_count, source))
 
@@ -1017,6 +1037,7 @@ class CitationTracker:
         max_citations: Optional[int] = None,
         min_authority_score: Optional[float] = None,
         max_authority_score: Optional[float] = None,
+        min_relevance_score: Optional[float] = None,
         sort_by: Literal[
             "relevance",
             "title",
@@ -1046,6 +1067,7 @@ class CitationTracker:
             max_citations=max_citations,
             min_authority_score=min_authority_score,
             max_authority_score=max_authority_score,
+            min_relevance_score=min_relevance_score,
             sort_by=sort_by,
         )
 
@@ -1070,6 +1092,11 @@ class CitationTracker:
                     "authority_score": self.SOURCE_AUTHORITY_WEIGHTS.get(
                         source.type,
                         0.5,
+                    ),
+                    "relevance_score": self._compute_relevance_score(
+                        source,
+                        query_tokens=query_tokens,
+                        normalized_query=normalized_query,
                     ),
                     **match_details,
                 }

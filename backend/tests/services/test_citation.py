@@ -415,6 +415,7 @@ class TestCitationTracker:
         assert first["rank"] == 1
         assert first["citation_count"] == 2
         assert first["authority_score"] == pytest.approx(0.85)
+        assert first["relevance_score"] > 0
         assert first["query_phrase_match"] is True
         assert "title" in first["matched_fields"]
         assert "agentic" in first["matched_tokens"]
@@ -437,6 +438,7 @@ class TestCitationTracker:
         assert all(item["matched_tokens"] == {} for item in detailed)
         assert all(item["query_phrase_match"] is False for item in detailed)
         assert all(item["token_hit_count"] == 0 for item in detailed)
+        assert all(item["relevance_score"] == 0.0 for item in detailed)
 
     def test_search_sources_with_details_supports_source_id_filters(self):
         """Detailed search should pass include/exclude source filters through."""
@@ -593,6 +595,47 @@ class TestCitationTracker:
             tracker.search_sources(
                 "ai", min_authority_score=0.9, max_authority_score=0.6
             )
+
+    def test_search_sources_supports_min_relevance_score_filter(self):
+        """min_relevance_score should remove weaker lexical matches."""
+        tracker = CitationTracker()
+
+        strong_id = tracker.add_source(title="Agentic Workflow Handbook")
+        tracker.add_source(
+            title="Operational Notes",
+            metadata={"topic": "agentic"},
+        )
+
+        matches = tracker.search_sources(
+            "agentic workflow",
+            match_mode="any",
+            min_relevance_score=8.0,
+        )
+
+        assert [source.id for source in matches] == [strong_id]
+
+    def test_search_sources_rejects_negative_min_relevance_score(self):
+        """min_relevance_score cannot be negative."""
+        tracker = CitationTracker()
+
+        with pytest.raises(ValueError, match="min_relevance_score cannot be negative"):
+            tracker.search_sources("agent", min_relevance_score=-0.1)
+
+    def test_search_sources_with_details_supports_min_relevance_score_filter(self):
+        """Detailed search should pass through min_relevance_score constraints."""
+        tracker = CitationTracker()
+
+        strong_id = tracker.add_source(title="Agent Reliability Handbook")
+        tracker.add_source(title="Reliability digest", metadata={"tag": "agent"})
+
+        detailed = tracker.search_sources_with_details(
+            "agent reliability",
+            match_mode="any",
+            min_relevance_score=8.0,
+        )
+
+        assert [item["source"].id for item in detailed] == [strong_id]
+        assert detailed[0]["relevance_score"] >= 8.0
 
     def test_search_sources_supports_case_insensitive_metadata_filters(self):
         """Metadata filters should match keys/values regardless of casing."""
