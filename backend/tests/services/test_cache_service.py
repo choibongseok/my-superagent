@@ -16,6 +16,11 @@ def test_local_cache_set_and_get():
     assert cache.get("k") == {"v": 1}
 
 
+def test_local_cache_rejects_non_positive_max_entries():
+    with pytest.raises(ValueError, match="max_entries must be greater than 0"):
+        LocalCacheService(max_entries=0)
+
+
 def test_local_cache_ttl_expiration():
     cache = LocalCacheService()
 
@@ -24,6 +29,34 @@ def test_local_cache_ttl_expiration():
 
     time.sleep(1.05)
     assert cache.get("temp") is None
+
+
+def test_local_cache_max_entries_evicts_least_recently_used_key():
+    cache = LocalCacheService(max_entries=2)
+
+    cache.set("a", 1)
+    cache.set("b", 2)
+    assert cache.get("a") == 1  # mark "a" as most recently used
+
+    cache.set("c", 3)
+
+    assert cache.get("a") == 1
+    assert cache.get("b") is None
+    assert cache.get("c") == 3
+
+
+def test_local_cache_max_entries_purges_expired_keys_before_evicting_active_entries():
+    cache = LocalCacheService(max_entries=2)
+
+    cache.set("short-lived", "x", ttl_seconds=1)
+    cache.set("stable", "y")
+    time.sleep(1.05)
+
+    cache.set("fresh", "z")
+
+    assert cache.get("short-lived") is None
+    assert cache.get("stable") == "y"
+    assert cache.get("fresh") == "z"
 
 
 def test_local_cache_bulk_set_and_get_many():
@@ -235,14 +268,18 @@ async def test_local_cache_get_or_set_async_keeps_shared_task_alive_on_cancellat
         await release.wait()
         return "stable-value"
 
-    first_caller = asyncio.create_task(cache.get_or_set_async("shared-key", slow_factory))
+    first_caller = asyncio.create_task(
+        cache.get_or_set_async("shared-key", slow_factory)
+    )
     await started.wait()
 
     first_caller.cancel()
     with pytest.raises(asyncio.CancelledError):
         await first_caller
 
-    second_caller = asyncio.create_task(cache.get_or_set_async("shared-key", slow_factory))
+    second_caller = asyncio.create_task(
+        cache.get_or_set_async("shared-key", slow_factory)
+    )
     release.set()
 
     assert await second_caller == "stable-value"

@@ -10,19 +10,61 @@ from __future__ import annotations
 import asyncio
 import inspect
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any
 
 
 class LocalCacheService:
-    """Simple in-process key/value cache with optional TTL."""
+    """Simple in-process key/value cache with optional TTL.
 
-    def __init__(self) -> None:
+    The cache can optionally be size-bounded using ``max_entries``. When the
+    limit is reached, least-recently-used (LRU) entries are evicted.
+    """
+
+    def __init__(self, max_entries: int | None = None) -> None:
+        if max_entries is not None and max_entries <= 0:
+            raise ValueError("max_entries must be greater than 0")
+
         # key -> (value, expires_at)
         # expires_at is None for non-expiring entries
         self._store: dict[str, tuple[Any, float | None]] = {}
         # key -> in-flight async population task
         self._inflight: dict[str, asyncio.Task[Any]] = {}
+        # insertion/access order for LRU eviction
+        self._access_order: OrderedDict[str, None] = OrderedDict()
+        self._max_entries = max_entries
+
+    def _delete_key(self, key: str) -> None:
+        """Delete key bookkeeping across all internal structures."""
+        self._store.pop(key, None)
+        self._access_order.pop(key, None)
+
+    def _mark_accessed(self, key: str) -> None:
+        """Mark key as recently used for LRU eviction tracking."""
+        self._access_order[key] = None
+        self._access_order.move_to_end(key)
+
+    def _purge_expired_entries(self) -> None:
+        """Remove all expired keys from the cache."""
+        now = time.time()
+        expired_keys = [
+            key
+            for key, (_, expires_at) in self._store.items()
+            if expires_at is not None and now >= expires_at
+        ]
+        for key in expired_keys:
+            self._delete_key(key)
+
+    def _evict_if_needed(self) -> None:
+        """Evict least-recently-used entries when size limit is reached."""
+        if self._max_entries is None:
+            return
+
+        self._purge_expired_entries()
+        while len(self._store) >= self._max_entries and self._access_order:
+            oldest_key, _ = self._access_order.popitem(last=False)
+            self._store.pop(oldest_key, None)
 
     def _get_entry(self, key: str) -> tuple[Any, float | None] | None:
         """Return a non-expired cache entry or ``None`` when missing/expired."""
@@ -32,9 +74,10 @@ class LocalCacheService:
 
         _, expires_at = item
         if expires_at is not None and time.time() >= expires_at:
-            self._store.pop(key, None)
+            self._delete_key(key)
             return None
 
+        self._mark_accessed(key)
         return item
 
     def set(self, key: str, value: Any, ttl_seconds: int | None = None) -> None:
@@ -42,9 +85,16 @@ class LocalCacheService:
         expires_at = None
         if ttl_seconds is not None and ttl_seconds > 0:
             expires_at = time.time() + ttl_seconds
-        self._store[key] = (value, expires_at)
 
-    def set_many(self, items: Mapping[str, Any], ttl_seconds: int | None = None) -> None:
+        if key not in self._store:
+            self._evict_if_needed()
+
+        self._store[key] = (value, expires_at)
+        self._mark_accessed(key)
+
+    def set_many(
+        self, items: Mapping[str, Any], ttl_seconds: int | None = None
+    ) -> None:
         """Store multiple key/value pairs with an optional shared TTL."""
         for key, value in items.items():
             self.set(key, value, ttl_seconds=ttl_seconds)
@@ -175,21 +225,23 @@ class LocalCacheService:
 
         in_flight = self._inflight.get(key)
         if in_flight is None:
-            in_flight = asyncio.create_task(self._populate_async(key, factory, ttl_seconds))
+            in_flight = asyncio.create_task(
+                self._populate_async(key, factory, ttl_seconds)
+            )
             self._track_inflight(key, in_flight)
 
         return await asyncio.shield(in_flight)
 
     def delete(self, key: str) -> None:
         """Delete a cached key if present."""
-        self._store.pop(key, None)
+        self._delete_key(key)
 
     def delete_many(self, keys: Iterable[str]) -> int:
         """Delete multiple keys and return how many entries were removed."""
         removed = 0
         for key in keys:
             if key in self._store:
-                self._store.pop(key, None)
+                self._delete_key(key)
                 removed += 1
         return removed
 
@@ -200,14 +252,14 @@ class LocalCacheService:
 
     def size(self) -> int:
         """Return the number of active (non-expired) cache entries."""
-        # Purge expired entries as a side effect to keep the store tidy.
-        for key in list(self._store.keys()):
-            self._get_entry(key)
+        self._purge_expired_entries()
         return len(self._store)
 
     def clear(self) -> None:
         """Clear all cached entries."""
         self._store.clear()
+        self._access_order.clear()
+        self._inflight.clear()
 
 
 __all__ = ["LocalCacheService"]
