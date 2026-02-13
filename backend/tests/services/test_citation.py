@@ -1,7 +1,7 @@
 """Tests for Citation Tracker."""
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from app.services.citation.tracker import CitationTracker
 from app.services.citation.models import Source, SourceType
@@ -956,6 +956,76 @@ class TestCitationTracker:
             match="recency_window_days must be greater than 0",
         ):
             tracker.get_validation_report(recency_window_days=0)
+
+    def test_get_validation_report_supports_as_of_for_deterministic_recency(self):
+        """The optional as_of timestamp should make recency scoring deterministic."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        source_id = tracker.add_source(
+            title="Fresh API Changelog",
+            url="https://docs.example.com/changelog",
+            type=SourceType.API,
+            published_date=anchor_time - timedelta(days=3),
+        )
+        tracker.cite(source_id, quoted_text="Latest breaking changes")
+
+        first = tracker.get_validation_report(
+            as_of=anchor_time,
+            recency_window_days=90,
+        )
+        second = tracker.get_validation_report(
+            as_of=anchor_time,
+            recency_window_days=90,
+        )
+
+        assert first["confidence_score"] == second["confidence_score"]
+        assert first["metrics"]["recency_score"] == second["metrics"]["recency_score"]
+
+    def test_get_validation_report_includes_source_breakdown_when_requested(self):
+        """Detailed report mode should expose per-source confidence metadata."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        cited_source_id = tracker.add_source(
+            title="AI Reliability Checklist",
+            url="https://docs.example.com/reliability",
+            type=SourceType.DOCUMENT,
+            published_date=anchor_time - timedelta(days=5),
+        )
+        uncited_source_id = tracker.add_source(
+            title="Legacy Blog Summary",
+            url="https://blog.example.org/legacy",
+            type=SourceType.WEB,
+            published_date=anchor_time - timedelta(days=500),
+        )
+        tracker.cite(cited_source_id, quoted_text="Use checklists for launches")
+
+        report = tracker.get_validation_report(
+            as_of=anchor_time,
+            include_source_breakdown=True,
+        )
+
+        assert "source_breakdown" in report
+        assert len(report["source_breakdown"]) == 2
+
+        by_source_id = {
+            item["source_id"]: item for item in report["source_breakdown"]
+        }
+        cited_entry = by_source_id[cited_source_id]
+        uncited_entry = by_source_id[uncited_source_id]
+
+        assert cited_entry["is_cited"] is True
+        assert cited_entry["citation_count"] == 1
+        assert cited_entry["domain"] == "docs.example.com"
+        assert cited_entry["source_type"] == SourceType.DOCUMENT.value
+        assert cited_entry["age_days"] == pytest.approx(5.0, abs=0.001)
+
+        assert uncited_entry["is_cited"] is False
+        assert uncited_entry["citation_count"] == 0
+        assert uncited_entry["domain"] == "blog.example.org"
+        assert uncited_entry["source_type"] == SourceType.WEB.value
+        assert uncited_entry["age_days"] == pytest.approx(500.0, abs=0.001)
 
     def test_to_dict_and_from_dict(self):
         """Test serialization and deserialization."""

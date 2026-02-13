@@ -5,7 +5,7 @@ import re
 import uuid
 from collections import Counter
 from collections.abc import Iterable, Mapping
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -1107,11 +1107,111 @@ class CitationTracker:
             return "medium"
         return "low"
 
+    @staticmethod
+    def _normalize_datetime(value: datetime) -> datetime:
+        """Normalize datetime values into naive UTC for safe arithmetic."""
+        if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+            return value.replace(tzinfo=None)
+
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+    @classmethod
+    def _compute_recency_score(
+        cls,
+        published_date: Optional[datetime],
+        *,
+        reference_time: datetime,
+        recency_window_days: int,
+    ) -> float:
+        """Compute recency freshness score for a single source."""
+        if published_date is None:
+            # Undated sources are penalized more heavily to encourage proper
+            # publication metadata.
+            return 0.3
+
+        normalized_published_date = cls._normalize_datetime(published_date)
+        age_days = max(
+            0.0,
+            (reference_time - normalized_published_date).total_seconds() / 86400,
+        )
+
+        # Use a more realistic decay curve instead of linear decay.
+        if age_days <= recency_window_days * 0.1:
+            # Very recent sources (within 10% of window) get near-perfect
+            # scores.
+            return 1.0 - (age_days / (recency_window_days * 0.1)) * 0.1
+        if age_days <= recency_window_days * 0.5:
+            # Moderate age (10-50% of window) - gentle decay.
+            normalized_age = (age_days - recency_window_days * 0.1) / (
+                recency_window_days * 0.4
+            )
+            return 0.9 - (normalized_age * 0.3)  # Decays from 0.9 to 0.6
+
+        # Older sources (50-100% of window) - steeper decay.
+        normalized_age = (age_days - recency_window_days * 0.5) / (
+            recency_window_days * 0.5
+        )
+        return max(0.0, 0.6 - (normalized_age * 0.6))  # Decays from 0.6 to 0.0
+
+    @classmethod
+    def _build_source_validation_detail(
+        cls,
+        source: Source,
+        *,
+        reference_time: datetime,
+        citation_count: int,
+        authority_score: float,
+        recency_score: float,
+    ) -> Dict[str, Any]:
+        """Build per-source validation breakdown metadata."""
+        normalized_published_date = (
+            cls._normalize_datetime(source.published_date)
+            if source.published_date is not None
+            else None
+        )
+        age_days = (
+            max(
+                0.0,
+                (reference_time - normalized_published_date).total_seconds() / 86400,
+            )
+            if normalized_published_date is not None
+            else None
+        )
+
+        hostname = None
+        if source.url:
+            parsed = urlparse(str(source.url))
+            if parsed.hostname:
+                hostname = parsed.hostname.casefold()
+
+        return {
+            "source_id": source.id,
+            "title": source.title,
+            "source_type": (
+                source.type.value
+                if isinstance(source.type, SourceType)
+                else str(source.type)
+            ),
+            "domain": hostname,
+            "is_cited": citation_count > 0,
+            "citation_count": citation_count,
+            "authority_score": round(authority_score, 3),
+            "recency_score": round(recency_score, 3),
+            "published_date": (
+                normalized_published_date.isoformat()
+                if normalized_published_date is not None
+                else None
+            ),
+            "age_days": round(age_days, 3) if age_days is not None else None,
+        }
+
     def get_validation_report(
         self,
         *,
         min_sources: int = 3,
         recency_window_days: int = 730,
+        as_of: Optional[datetime] = None,
+        include_source_breakdown: bool = False,
     ) -> Dict[str, Any]:
         """Generate a lightweight fact-check confidence report for current sources.
 
@@ -1121,6 +1221,10 @@ class CitationTracker:
         Args:
             min_sources: Minimum source count required for strong confidence.
             recency_window_days: Publication age window used for recency scoring.
+            as_of: Optional reference timestamp for deterministic recency
+                calculations. When omitted, uses current UTC time.
+            include_source_breakdown: When ``True``, include per-source scoring
+                details in ``source_breakdown`` for explainability/debugging.
 
         Returns:
             Dictionary with aggregate confidence score, level, gaps, and metrics.
@@ -1132,7 +1236,7 @@ class CitationTracker:
 
         total_sources = len(self.sources)
         if total_sources == 0:
-            return {
+            report: Dict[str, Any] = {
                 "confidence_score": 0.0,
                 "confidence_level": "low",
                 "summary": "No sources available for validation yet.",
@@ -1151,11 +1255,17 @@ class CitationTracker:
                     "recency_score": 0.0,
                 },
             }
+            if include_source_breakdown:
+                report["source_breakdown"] = []
+            return report
 
-        now = datetime.utcnow()
-        source_ids_with_citations = {
+        reference_time = self._normalize_datetime(
+            as_of if as_of is not None else datetime.now(timezone.utc)
+        )
+        citation_counts = Counter(
             citation.source.id for citation in self.citations.values()
-        }
+        )
+        source_ids_with_citations = set(citation_counts)
         cited_sources = sum(
             1 for source_id in self.sources if source_id in source_ids_with_citations
         )
@@ -1171,41 +1281,32 @@ class CitationTracker:
 
         authority_weights = []
         recency_scores = []
+        source_breakdown: List[Dict[str, Any]] = []
 
         for source in self.sources.values():
-            authority_weights.append(
-                self.SOURCE_AUTHORITY_WEIGHTS.get(source.type, 0.5)
+            authority_score_for_source = self.SOURCE_AUTHORITY_WEIGHTS.get(
+                source.type,
+                0.5,
             )
+            authority_weights.append(authority_score_for_source)
 
-            if source.published_date is None:
-                # Undated sources are penalized more heavily (0.3 instead of 0.5)
-                # to encourage proper sourcing with publication dates
-                recency_scores.append(0.3)
-                continue
+            source_recency_score = self._compute_recency_score(
+                source.published_date,
+                reference_time=reference_time,
+                recency_window_days=recency_window_days,
+            )
+            recency_scores.append(source_recency_score)
 
-            age_days = max(0.0, (now - source.published_date).total_seconds() / 86400)
-
-            # Use a more realistic decay curve instead of linear decay
-            # Information value decays logarithmically for most content
-            if age_days <= recency_window_days * 0.1:
-                # Very recent sources (within 10% of window) get near-perfect scores
-                freshness = 1.0 - (age_days / (recency_window_days * 0.1)) * 0.1
-            elif age_days <= recency_window_days * 0.5:
-                # Moderate age (10-50% of window) - gentle decay
-                normalized_age = (age_days - recency_window_days * 0.1) / (
-                    recency_window_days * 0.4
+            if include_source_breakdown:
+                source_breakdown.append(
+                    self._build_source_validation_detail(
+                        source,
+                        reference_time=reference_time,
+                        citation_count=citation_counts.get(source.id, 0),
+                        authority_score=authority_score_for_source,
+                        recency_score=source_recency_score,
+                    )
                 )
-                freshness = 0.9 - (normalized_age * 0.3)  # Decays from 0.9 to 0.6
-            else:
-                # Older sources (50-100% of window) - steeper decay
-                normalized_age = (age_days - recency_window_days * 0.5) / (
-                    recency_window_days * 0.5
-                )
-                freshness = max(
-                    0.0, 0.6 - (normalized_age * 0.6)
-                )  # Decays from 0.6 to 0.0
-
-            recency_scores.append(freshness)
 
         source_count_score = min(total_sources / min_sources, 1.0)
         domain_diversity_score = min(len(unique_domains) / total_sources, 1.0)
@@ -1251,7 +1352,7 @@ class CitationTracker:
             f"across {total_sources} sources."
         )
 
-        return {
+        report = {
             "confidence_score": confidence_score,
             "confidence_level": confidence_level,
             "summary": summary,
@@ -1268,6 +1369,17 @@ class CitationTracker:
                 "recency_score": round(recency_score, 3),
             },
         }
+
+        if include_source_breakdown:
+            report["source_breakdown"] = sorted(
+                source_breakdown,
+                key=lambda item: (
+                    str(item["title"]).casefold(),
+                    str(item["source_id"]),
+                ),
+            )
+
+        return report
 
     def get_statistics(self) -> Dict[str, Any]:
         """
