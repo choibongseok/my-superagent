@@ -351,6 +351,98 @@ class CitationTracker:
         """
         return list(self.sources.values())
 
+    def search_sources(
+        self,
+        query: str,
+        *,
+        source_type: Optional[SourceType | str] = None,
+        limit: Optional[int] = None,
+    ) -> List[Source]:
+        """Search sources with lightweight relevance ranking.
+
+        Search is case-insensitive and matches across title, author,
+        description, URL, and metadata fields.
+
+        Args:
+            query: Search text. Blank query returns all sources.
+            source_type: Optional source type filter.
+            limit: Optional max number of results. Must be > 0 when set.
+
+        Returns:
+            Ranked list of matching sources.
+        """
+        if limit is not None and limit <= 0:
+            raise ValueError("limit must be greater than 0")
+
+        normalized_query = self._normalize_text(query)
+        query_tokens = [token for token in normalized_query.split(" ") if token]
+
+        normalized_source_type: Optional[str] = None
+        if source_type is not None:
+            normalized_source_type = (
+                source_type.value
+                if isinstance(source_type, SourceType)
+                else str(source_type)
+            )
+            normalized_source_type = self._normalize_text(normalized_source_type)
+
+        ranked_matches: List[tuple[int, Source]] = []
+
+        for source in self.sources.values():
+            source_type_value = self._normalize_text(str(source.type))
+            if (
+                normalized_source_type is not None
+                and source_type_value != normalized_source_type
+            ):
+                continue
+
+            title = self._normalize_text(source.title)
+            author = self._normalize_text(source.author)
+            description = self._normalize_text(source.description)
+            source_url = self._normalize_text(str(source.url) if source.url else "")
+            metadata_text = self._normalize_text(
+                " ".join(
+                    f"{key} {value}" for key, value in (source.metadata or {}).items()
+                )
+            )
+
+            searchable_text = " ".join(
+                segment
+                for segment in (title, author, description, source_url, metadata_text)
+                if segment
+            )
+
+            if query_tokens:
+                if not all(token in searchable_text for token in query_tokens):
+                    continue
+
+                score = 0
+                for token in query_tokens:
+                    if token in title:
+                        score += 5
+                    if token in author:
+                        score += 3
+                    if token in description:
+                        score += 2
+                    if token in source_url:
+                        score += 1
+                    if token in metadata_text:
+                        score += 1
+            else:
+                score = 0
+
+            ranked_matches.append((score, source))
+
+        ranked_matches.sort(
+            key=lambda item: (-item[0], self._normalize_text(item[1].title))
+        )
+
+        sources = [source for _, source in ranked_matches]
+        if limit is not None:
+            sources = sources[:limit]
+
+        return sources
+
     def get_bibliography(
         self,
         style: str = "apa",

@@ -150,6 +150,67 @@ class TestCitationTracker:
         assert source.id == source_id
         assert source.title == "Normalization Test"
 
+    def test_search_sources_matches_multiple_fields_case_insensitively(self):
+        """Search should match title/author/metadata and rank title matches first."""
+        tracker = CitationTracker()
+
+        title_id = tracker.add_source(
+            title="Agentic Workflow Patterns",
+            author="Alex Kim",
+            metadata={"topic": "automation"},
+        )
+        author_id = tracker.add_source(
+            title="Designing Reliable Systems",
+            author="Agentic Researcher",
+            metadata={"topic": "operations"},
+        )
+        metadata_id = tracker.add_source(
+            title="Process Handbook",
+            author="Morgan Lee",
+            metadata={"notes": "best AGENTIC practices"},
+        )
+
+        matches = tracker.search_sources("agentic")
+
+        assert [source.id for source in matches] == [title_id, author_id, metadata_id]
+
+    def test_search_sources_supports_type_filter_and_limit(self):
+        """Type filtering and result limiting should narrow search output."""
+        tracker = CitationTracker()
+
+        tracker.add_source(title="Web One", type=SourceType.WEB)
+        article_id = tracker.add_source(title="Article One", type=SourceType.ARTICLE)
+        tracker.add_source(title="Article Two", type=SourceType.ARTICLE)
+
+        matches = tracker.search_sources(
+            "article",
+            source_type=SourceType.ARTICLE,
+            limit=1,
+        )
+
+        assert len(matches) == 1
+        assert matches[0].id == article_id
+        assert matches[0].type == SourceType.ARTICLE
+
+    def test_search_sources_blank_query_returns_all_sorted_by_title(self):
+        """Blank search query should return all sources in stable title order."""
+        tracker = CitationTracker()
+
+        tracker.add_source(title="Zeta")
+        tracker.add_source(title="alpha")
+        tracker.add_source(title="Beta")
+
+        matches = tracker.search_sources("   ")
+
+        assert [source.title for source in matches] == ["alpha", "Beta", "Zeta"]
+
+    def test_search_sources_rejects_non_positive_limit(self):
+        """Search should validate positive limit values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(ValueError, match="limit must be greater than 0"):
+            tracker.search_sources("agent", limit=0)
+
     def test_create_citation(self):
         """Test creating a citation."""
         tracker = CitationTracker()
