@@ -11,14 +11,23 @@ from app.plugins.base import BasePlugin, PluginManifest
 from app.plugins.manager import PluginManager
 
 
-def _build_plugin_class(manifest_name: str, permissions: list[str]):
+def _build_plugin_class(
+    manifest_name: str,
+    permissions: list[str],
+    lifecycle: dict[str, int] | None = None,
+):
     """Create a minimal runtime plugin class for manager tests."""
 
     async def initialize(self) -> None:
-        return None
+        if lifecycle is not None:
+            lifecycle["initialized"] = lifecycle.get("initialized", 0) + 1
 
     async def execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         return {"inputs": inputs}
+
+    async def cleanup(self) -> None:
+        if lifecycle is not None:
+            lifecycle["cleaned"] = lifecycle.get("cleaned", 0) + 1
 
     def get_manifest(self) -> PluginManifest:
         return PluginManifest(
@@ -37,13 +46,15 @@ def _build_plugin_class(manifest_name: str, permissions: list[str]):
         {
             "initialize": initialize,
             "execute": execute,
+            "cleanup": cleanup,
             "get_manifest": get_manifest,
         },
     )
 
 
-def _plugin_module(plugin_class: type[BasePlugin]) -> ModuleType:
-    module = ModuleType(f"test_{plugin_class.__name__.lower()}")
+def _plugin_module(module_name: str, plugin_class: type[BasePlugin]) -> ModuleType:
+    module = ModuleType(module_name)
+    plugin_class.__module__ = module_name
     module.Plugin = plugin_class
     return module
 
@@ -57,10 +68,12 @@ async def test_load_plugins_from_directory_applies_config_by_module_name(
 
     modules = {
         "app.plugins.alpha": _plugin_module(
-            _build_plugin_class("alpha-plugin", ["network.http"])
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"]),
         ),
         "app.plugins.beta": _plugin_module(
-            _build_plugin_class("beta-plugin", ["filesystem.read"])
+            "app.plugins.beta",
+            _build_plugin_class("beta-plugin", ["filesystem.read"]),
         ),
     }
 
@@ -89,7 +102,8 @@ async def test_load_plugins_from_directory_prefers_full_module_path_config(
 
     modules = {
         "app.plugins.gamma": _plugin_module(
-            _build_plugin_class("gamma-plugin", ["network.http"])
+            "app.plugins.gamma",
+            _build_plugin_class("gamma-plugin", ["network.http"]),
         )
     }
 
@@ -118,10 +132,12 @@ async def test_list_plugins_filters_by_required_permissions(tmp_path, monkeypatc
 
     modules = {
         "app.plugins.http_plugin": _plugin_module(
-            _build_plugin_class("http-plugin", ["network.http", "filesystem.read"])
+            "app.plugins.http_plugin",
+            _build_plugin_class("http-plugin", ["network.http", "filesystem.read"]),
         ),
         "app.plugins.local_plugin": _plugin_module(
-            _build_plugin_class("local-plugin", ["filesystem.read"])
+            "app.plugins.local_plugin",
+            _build_plugin_class("local-plugin", ["filesystem.read"]),
         ),
     }
 
@@ -138,3 +154,72 @@ async def test_list_plugins_filters_by_required_permissions(tmp_path, monkeypatc
     filtered = manager.list_plugins(required_permissions=["network.http"])
 
     assert [item["name"] for item in filtered] == ["http-plugin"]
+
+
+@pytest.mark.asyncio
+async def test_reload_plugin_reuses_existing_config_and_cleans_up_old_instance(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "reloadable.py").write_text("# reloadable", encoding="utf-8")
+
+    lifecycle: dict[str, int] = {}
+    modules = {
+        "app.plugins.reloadable": _plugin_module(
+            "app.plugins.reloadable",
+            _build_plugin_class("reloadable-plugin", ["network.http"], lifecycle),
+        )
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    first = await manager.load_plugin("app.plugins.reloadable", {"units": "metric"})
+
+    reloaded = await manager.reload_plugin("reloadable-plugin")
+
+    assert reloaded is not first
+    assert reloaded.config == {"units": "metric"}
+    assert lifecycle == {"initialized": 2, "cleaned": 1}
+
+
+@pytest.mark.asyncio
+async def test_reload_plugin_accepts_config_override(tmp_path, monkeypatch):
+    (tmp_path / "reloadable.py").write_text("# reloadable", encoding="utf-8")
+
+    modules = {
+        "app.plugins.reloadable": _plugin_module(
+            "app.plugins.reloadable",
+            _build_plugin_class("reloadable-plugin", ["network.http"]),
+        )
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugin("app.plugins.reloadable", {"units": "metric"})
+
+    reloaded = await manager.reload_plugin(
+        "reloadable-plugin",
+        {"units": "imperial"},
+    )
+
+    assert reloaded.config == {"units": "imperial"}
+
+
+@pytest.mark.asyncio
+async def test_reload_plugin_raises_for_missing_plugin():
+    manager = PluginManager()
+
+    with pytest.raises(ValueError, match="Plugin not found"):
+        await manager.reload_plugin("missing")

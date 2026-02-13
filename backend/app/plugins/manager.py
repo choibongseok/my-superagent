@@ -264,6 +264,40 @@ class PluginManager:
         """
         return self.manifests.get(plugin_name)
 
+    async def reload_plugin(
+        self,
+        plugin_name: str,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> BasePlugin:
+        """Reload a plugin by unloading and loading its module again.
+
+        Args:
+            plugin_name: Loaded plugin name to reload
+            config: Optional replacement configuration. When omitted, the
+                currently loaded plugin configuration is reused.
+
+        Returns:
+            Reloaded plugin instance.
+
+        Raises:
+            ValueError: If plugin is not loaded.
+            Exception: If unload/load fails.
+        """
+        plugin = self.get_plugin(plugin_name)
+        if plugin is None:
+            raise ValueError(f"Plugin not found: {plugin_name}")
+
+        module_path = plugin.__class__.__module__
+        resolved_config: Dict[str, Any] = dict(
+            config if config is not None else plugin.config
+        )
+
+        await self.unload_plugin(plugin_name)
+        reloaded_plugin = await self.load_plugin(module_path, resolved_config)
+
+        logger.info(f"Plugin reloaded: {plugin_name}")
+        return reloaded_plugin
+
     async def unload_plugin(self, plugin_name: str) -> bool:
         """
         Unload a plugin.
