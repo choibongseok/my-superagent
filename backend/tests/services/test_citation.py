@@ -1276,6 +1276,55 @@ class TestCitationTracker:
         assert first["confidence_score"] == second["confidence_score"]
         assert first["metrics"]["recency_score"] == second["metrics"]["recency_score"]
 
+    def test_get_validation_report_supports_recency_profile_tuning(self):
+        """Recency profile should tune how strongly age impacts freshness scoring."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        source_id = tracker.add_source(
+            title="Baseline Architecture Guide",
+            url="https://docs.example.com/architecture/baseline",
+            type=SourceType.DOCUMENT,
+            published_date=anchor_time - timedelta(days=180),
+        )
+        tracker.cite(source_id, quoted_text="Long-lived architectural principle")
+
+        strict_report = tracker.get_validation_report(
+            as_of=anchor_time,
+            recency_window_days=365,
+            recency_profile="strict",
+        )
+        balanced_report = tracker.get_validation_report(
+            as_of=anchor_time,
+            recency_window_days=365,
+            recency_profile="balanced",
+        )
+        lenient_report = tracker.get_validation_report(
+            as_of=anchor_time,
+            recency_window_days=365,
+            recency_profile="lenient",
+        )
+
+        assert strict_report["metrics"]["recency_profile"] == "strict"
+        assert balanced_report["metrics"]["recency_profile"] == "balanced"
+        assert lenient_report["metrics"]["recency_profile"] == "lenient"
+
+        assert (
+            strict_report["metrics"]["recency_score"]
+            < balanced_report["metrics"]["recency_score"]
+            < lenient_report["metrics"]["recency_score"]
+        )
+
+    def test_get_validation_report_rejects_invalid_recency_profile(self):
+        """Validation report should reject unsupported recency profile values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="recency_profile must be one of: strict, balanced, lenient",
+        ):
+            tracker.get_validation_report(recency_profile="aggressive")
+
     def test_get_validation_report_includes_source_breakdown_when_requested(self):
         """Detailed report mode should expose per-source confidence metadata."""
         tracker = CitationTracker()

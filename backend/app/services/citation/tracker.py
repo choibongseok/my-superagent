@@ -85,6 +85,16 @@ class CitationTracker:
         "description": 3,
     }
 
+    # Multipliers applied to source age before scoring recency.
+    # - strict: penalize older sources more aggressively.
+    # - balanced: current default behavior.
+    # - lenient: tolerate older sources for evergreen domains.
+    RECENCY_PROFILE_FACTORS: Dict[str, float] = {
+        "strict": 1.35,
+        "balanced": 1.0,
+        "lenient": 0.75,
+    }
+
     def __init__(self):
         """Initialize citation tracker."""
         self.sources: Dict[str, Source] = {}
@@ -1351,6 +1361,7 @@ class CitationTracker:
         *,
         reference_time: datetime,
         recency_window_days: int,
+        recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
     ) -> float:
         """Compute recency freshness score for a single source."""
         if published_date is None:
@@ -1364,14 +1375,22 @@ class CitationTracker:
         ).total_seconds() / 86400
 
         # Handle future dates - sources with future publication dates are suspicious
-        # and should be penalized similar to undated sources
+        # and should be penalized similar to undated sources.
         if raw_age_days < 0:
             logger.warning(
                 f"Source has future publication date: {published_date.isoformat()}"
             )
             return 0.3  # Same penalty as undated sources
 
-        age_days = raw_age_days
+        profile_factor = cls.RECENCY_PROFILE_FACTORS.get(recency_profile)
+        if profile_factor is None:
+            raise ValueError(
+                "recency_profile must be one of: strict, balanced, lenient"
+            )
+
+        # Profile-specific multiplier allows consumers to tune how aggressively
+        # publication age is penalized without changing the decay curve shape.
+        age_days = raw_age_days * profile_factor
 
         # Use a more realistic decay curve instead of linear decay.
         if age_days <= recency_window_days * 0.1:
@@ -1448,6 +1467,7 @@ class CitationTracker:
         *,
         min_sources: int = 3,
         recency_window_days: int = 730,
+        recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
         as_of: Optional[datetime] = None,
         include_source_breakdown: bool = False,
     ) -> Dict[str, Any]:
@@ -1459,6 +1479,9 @@ class CitationTracker:
         Args:
             min_sources: Minimum source count required for strong confidence.
             recency_window_days: Publication age window used for recency scoring.
+            recency_profile: Recency sensitivity profile. ``"strict"`` penalizes
+                stale sources more aggressively, ``"lenient"`` decays slower,
+                and ``"balanced"`` keeps the default behavior.
             as_of: Optional reference timestamp for deterministic recency
                 calculations. When omitted, uses current UTC time.
             include_source_breakdown: When ``True``, include per-source scoring
@@ -1471,6 +1494,10 @@ class CitationTracker:
             raise ValueError("min_sources must be greater than 0")
         if recency_window_days <= 0:
             raise ValueError("recency_window_days must be greater than 0")
+        if recency_profile not in self.RECENCY_PROFILE_FACTORS:
+            raise ValueError(
+                "recency_profile must be one of: strict, balanced, lenient"
+            )
 
         total_sources = len(self.sources)
         if total_sources == 0:
@@ -1491,6 +1518,7 @@ class CitationTracker:
                     "domain_diversity_score": 0.0,
                     "authority_score": 0.0,
                     "recency_score": 0.0,
+                    "recency_profile": recency_profile,
                 },
             }
             if include_source_breakdown:
@@ -1532,6 +1560,7 @@ class CitationTracker:
                 source.published_date,
                 reference_time=reference_time,
                 recency_window_days=recency_window_days,
+                recency_profile=recency_profile,
             )
             recency_scores.append(source_recency_score)
 
@@ -1605,6 +1634,7 @@ class CitationTracker:
                 "domain_diversity_score": round(domain_diversity_score, 3),
                 "authority_score": round(authority_score, 3),
                 "recency_score": round(recency_score, 3),
+                "recency_profile": recency_profile,
             },
         }
 

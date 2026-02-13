@@ -285,11 +285,13 @@ Note: Use the web_search tool for each distinct query needed to answer the user'
         self,
         min_sources: int = 3,
         recency_window_days: int = 730,
+        recency_profile: str = "balanced",
     ) -> Dict[str, Any]:
         """Get source validation confidence metrics for current research context."""
         return self.citation_tracker.get_validation_report(
             min_sources=min_sources,
             recency_window_days=recency_window_days,
+            recency_profile=recency_profile,
         )
 
     def clear_citations(self):
