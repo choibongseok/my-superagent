@@ -259,6 +259,27 @@ class TestCitationTracker:
             uncited_id,
         ]
 
+    def test_search_sources_supports_sort_by_authority(self):
+        """sort_by='authority' should prioritize trusted source types first."""
+        tracker = CitationTracker()
+
+        database_id = tracker.add_source(
+            title="National Statistics Database",
+            type=SourceType.DATABASE,
+        )
+        article_id = tracker.add_source(
+            title="Peer-reviewed Analysis",
+            type=SourceType.ARTICLE,
+        )
+        web_id = tracker.add_source(
+            title="General Blog Post",
+            type=SourceType.WEB,
+        )
+
+        matches = tracker.search_sources("", sort_by="authority")
+
+        assert [source.id for source in matches] == [database_id, article_id, web_id]
+
     def test_search_sources_supports_sort_by_published_date(self):
         """sort_by='published_date' should rank newest sources first and undated last."""
         tracker = CitationTracker()
@@ -304,7 +325,7 @@ class TestCitationTracker:
 
         with pytest.raises(
             ValueError,
-            match="sort_by must be one of: relevance, title, published_date, citation_count",
+            match="sort_by must be one of: relevance, title, published_date, citation_count, authority",
         ):
             tracker.search_sources("agent", sort_by="custom")
 

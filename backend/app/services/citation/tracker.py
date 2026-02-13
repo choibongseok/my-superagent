@@ -458,6 +458,7 @@ class CitationTracker:
             "title",
             "published_date",
             "citation_count",
+            "authority",
         ] = "relevance",
     ) -> List[Source]:
         """Search sources with lightweight relevance ranking.
@@ -483,8 +484,11 @@ class CitationTracker:
                 source.
             sort_by: Result ordering strategy. ``"relevance"`` favors textual
                 score, ``"title"`` sorts alphabetically, ``"published_date"``
-                sorts newest-first with undated sources last, and
-                ``"citation_count"`` prioritizes frequently cited sources.
+                sorts newest-first with undated sources last,
+                ``"citation_count"`` prioritizes frequently cited sources,
+                and ``"authority"`` ranks by source reliability heuristics
+                based on source type (for example, databases before generic
+                web pages).
 
         Returns:
             Ranked list of matching sources.
@@ -524,9 +528,10 @@ class CitationTracker:
             "title",
             "published_date",
             "citation_count",
+            "authority",
         }:
             raise ValueError(
-                "sort_by must be one of: relevance, title, published_date, citation_count"
+                "sort_by must be one of: relevance, title, published_date, citation_count, authority"
             )
 
         normalized_query = self._normalize_text(query)
@@ -643,6 +648,15 @@ class CitationTracker:
                 key=lambda item: (
                     -item[1],
                     -item[0],
+                    self._normalize_text(item[2].title),
+                )
+            )
+        elif normalized_sort_by == "authority":
+            ranked_matches.sort(
+                key=lambda item: (
+                    -self.SOURCE_AUTHORITY_WEIGHTS.get(item[2].type, 0.5),
+                    -item[0],
+                    -item[1],
                     self._normalize_text(item[2].title),
                 )
             )
