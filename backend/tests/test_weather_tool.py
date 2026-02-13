@@ -30,6 +30,22 @@ class TestWeatherTool:
         assert result["humidity"] == 65
         assert result["wind_speed"] == 12.3
 
+    def test_units_aliases_are_normalized(self):
+        """Test celsius/fahrenheit aliases normalize to OpenWeather units."""
+        celsius_plugin = WeatherPlugin(config={"units": "celsius"})
+        fahrenheit_plugin = WeatherPlugin(config={"units": "F"})
+
+        assert celsius_plugin.units == "metric"
+        assert fahrenheit_plugin.units == "imperial"
+
+    def test_invalid_units_are_rejected(self):
+        """Test unsupported units fail fast with a helpful message."""
+        with pytest.raises(
+            ValueError,
+            match="Unsupported units. Use metric/celsius or imperial/fahrenheit",
+        ):
+            WeatherPlugin(config={"units": "kelvin"})
+
     @pytest.mark.asyncio
     async def test_location_required(self, mock_plugin):
         """Test that location parameter is required."""
@@ -228,6 +244,30 @@ class TestWeatherTool:
             assert result["location"] == "Seoul"
 
     @pytest.mark.asyncio
+    async def test_city_query_accepts_country_code(self, api_plugin):
+        """Test optional country_code disambiguates city queries."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "Paris",
+            "main": {"temp": 14.2, "humidity": 50},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 3.5},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            result = await api_plugin.execute(
+                {"location": "Paris", "country_code": "fr"}
+            )
+
+            _, kwargs = mock_get.call_args
+            assert kwargs["params"]["q"] == "Paris,FR"
+            assert result["location"] == "Paris"
+
+    @pytest.mark.asyncio
     async def test_structured_coordinates_require_both_values(self, api_plugin):
         """Test latitude/longitude must be supplied together."""
         with patch("httpx.AsyncClient") as mock_client:
@@ -250,6 +290,38 @@ class TestWeatherTool:
             mock_client.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_country_code_validation(self, api_plugin):
+        """Test country_code must be a non-empty 2-letter ISO string."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(
+                ValueError, match="country_code must be a 2-letter ISO country code"
+            ):
+                await api_plugin.execute({"location": "Paris", "country_code": "FRA"})
+
+            with pytest.raises(ValueError, match="country_code cannot be empty"):
+                await api_plugin.execute({"location": "Paris", "country_code": "   "})
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_country_code_cannot_be_combined_with_coordinates(self, api_plugin):
+        """Test country_code is rejected for explicit latitude/longitude queries."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(
+                ValueError,
+                match="country_code cannot be used with latitude/longitude inputs",
+            ):
+                await api_plugin.execute(
+                    {
+                        "latitude": 48.8566,
+                        "longitude": 2.3522,
+                        "country_code": "FR",
+                    }
+                )
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_coordinate_location_validation(self, api_plugin):
         """Test invalid coordinates fail fast before API call."""
         with patch("httpx.AsyncClient") as mock_client:
@@ -261,9 +333,10 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.3.0"
+        assert manifest.version == "1.4.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
+        assert "country_code" in manifest.inputs
         assert "latitude" in manifest.inputs
         assert "longitude" in manifest.inputs
         assert "required when latitude/longitude" in manifest.inputs["location"]
@@ -273,4 +346,5 @@ class TestWeatherTool:
         description = api_plugin.get_tool_description()
         assert "OpenWeatherMap" in description
         assert "API key" in description
+        assert "country code" in description
         assert "coordinates" in description

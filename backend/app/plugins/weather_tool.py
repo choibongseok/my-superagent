@@ -21,6 +21,14 @@ class Plugin(ToolPlugin):
     """
 
     OPENWEATHER_BASE_URL = "https://api.openweathermap.org/data/2.5/weather"
+    UNIT_ALIASES = {
+        "metric": "metric",
+        "celsius": "metric",
+        "c": "metric",
+        "imperial": "imperial",
+        "fahrenheit": "imperial",
+        "f": "imperial",
+    }
 
     def __init__(self, config: Dict[str, Any]):
         """
@@ -28,11 +36,45 @@ class Plugin(ToolPlugin):
 
         Config:
             api_key: OpenWeatherMap API key (optional, uses mock data if not provided)
-            units: Temperature units ('metric' for Celsius, 'imperial' for Fahrenheit, default: 'metric')
+            units: Temperature units ('metric'/'celsius' or 'imperial'/'fahrenheit', default: 'metric')
         """
         super().__init__(config)
         self.api_key = config.get("api_key")
-        self.units = config.get("units", "metric")
+        self.units = self._normalize_units(config.get("units", "metric"))
+
+    def _normalize_units(self, units: Any) -> str:
+        """Normalize units and support human-friendly aliases."""
+        if units is None:
+            return "metric"
+        if not isinstance(units, str):
+            raise ValueError("units must be a string")
+
+        normalized_units = units.strip().lower()
+        if not normalized_units:
+            return "metric"
+
+        canonical_units = self.UNIT_ALIASES.get(normalized_units)
+        if canonical_units is None:
+            raise ValueError(
+                "Unsupported units. Use metric/celsius or imperial/fahrenheit"
+            )
+
+        return canonical_units
+
+    def _normalize_country_code(self, country_code: Any) -> str | None:
+        """Normalize optional ISO 3166-1 alpha-2 country codes."""
+        if country_code is None:
+            return None
+        if not isinstance(country_code, str):
+            raise ValueError("country_code must be a string")
+
+        normalized_country_code = country_code.strip().upper()
+        if not normalized_country_code:
+            raise ValueError("country_code cannot be empty")
+        if not re.fullmatch(r"[A-Z]{2}", normalized_country_code):
+            raise ValueError("country_code must be a 2-letter ISO country code")
+
+        return normalized_country_code
 
     async def initialize(self) -> None:
         """Initialize weather tool."""
@@ -78,10 +120,15 @@ class Plugin(ToolPlugin):
         """Resolve weather query params from location string or structured coordinates."""
         latitude = inputs.get("latitude")
         longitude = inputs.get("longitude")
+        country_code = self._normalize_country_code(inputs.get("country_code"))
 
         if latitude is not None or longitude is not None:
             if latitude is None or longitude is None:
                 raise ValueError("latitude and longitude must be provided together")
+            if country_code is not None:
+                raise ValueError(
+                    "country_code cannot be used with latitude/longitude inputs"
+                )
 
             try:
                 lat = float(latitude)
@@ -105,6 +152,9 @@ class Plugin(ToolPlugin):
         if not normalized_location:
             raise ValueError("location cannot be empty")
 
+        if country_code is not None:
+            normalized_location = f"{normalized_location},{country_code}"
+
         return normalized_location, self._build_location_params(normalized_location)
 
     async def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
@@ -114,6 +164,7 @@ class Plugin(ToolPlugin):
         Args:
             inputs: {
                 "location": str (optional, required unless latitude/longitude are provided),
+                "country_code": str (optional, ISO alpha-2 country code used with location),
                 "latitude": float (optional, requires longitude),
                 "longitude": float (optional, requires latitude)
             }
@@ -220,7 +271,8 @@ class Plugin(ToolPlugin):
         """Get tool description for agent."""
         return (
             "Get current weather information for a location using OpenWeatherMap API. "
-            "Input can be a city name (e.g., 'London', 'New York', 'Tokyo') "
+            "Input can be a city name (e.g., 'London', 'New York', 'Tokyo'), "
+            "a city plus country code (e.g., 'Paris' + country_code='FR'), "
             "or coordinates (e.g., '37.5665,126.9780'). "
             "Returns temperature, weather condition, humidity, and wind speed. "
             "Requires OpenWeatherMap API key in plugin config."
@@ -230,16 +282,17 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.3.0",
+            version="1.4.0",
             description="Get real-time weather information using OpenWeatherMap API",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
                 "api_key": "string (optional, OpenWeatherMap API key - uses mock data if not provided)",
-                "units": "string (optional, 'metric' or 'imperial', default: 'metric')",
+                "units": "string (optional, metric/celsius or imperial/fahrenheit, default: metric)",
             },
             inputs={
                 "location": "string (optional, required when latitude/longitude are not provided)",
+                "country_code": "string (optional, ISO alpha-2 country code used with location)",
                 "latitude": "number (optional, must be used with longitude)",
                 "longitude": "number (optional, must be used with latitude)",
             },
