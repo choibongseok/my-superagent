@@ -264,7 +264,12 @@ class VectorStoreMemory:
         # Apply adaptive threshold if requested and no explicit threshold provided
         applied_threshold = score_threshold
         
-        # Handle single-result edge case first
+        # Handle empty results early
+        if len(results) == 0:
+            logger.debug(f"No results found for query: '{query[:50]}...'")
+            return []
+        
+        # Handle single-result edge case
         if adaptive_threshold and score_threshold is None and len(results) == 1:
             single_score = results[0][1]
             # For single results, use a more conservative threshold
