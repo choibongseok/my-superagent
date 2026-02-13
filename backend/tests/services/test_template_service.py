@@ -302,3 +302,78 @@ class TestTemplateServiceUseTemplate:
         assert result["prompt"] == f"Score: {provided_name}"
         assert template.usage_count == 6
         db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_applies_text_transforms(self, service_with_mock_db):
+        """Templates can normalize text via ->transform directives."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Audience: {audience->strip->upper}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"audience": "  engineering leaders  "},
+                user_id,
+            )
+
+        assert result["prompt"] == "Audience: ENGINEERING LEADERS"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_applies_default_before_text_transform(
+        self, service_with_mock_db
+    ):
+        """Fallback defaults should still flow through requested transforms."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Hello {name|friend->title}!",
+            category="docs",
+            usage_count=9,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(template_id, {}, user_id)
+
+        assert result["prompt"] == "Hello Friend!"
+        assert template.usage_count == 10
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_unsupported_transform(
+        self, service_with_mock_db
+    ):
+        """Unknown transform directives should fail with a clear error."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Name: {name->snake_case}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match="Unsupported template transform: snake_case",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"name": "Agent HQ"},
+                    user_id,
+                )
+
+        assert template.usage_count == 2
+        db.commit.assert_not_awaited()

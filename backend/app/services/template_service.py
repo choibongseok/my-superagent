@@ -238,13 +238,54 @@ class TemplateService:
         return templates, total
 
     @staticmethod
-    def _split_field_default(field_name: str) -> tuple[str, str | None]:
-        """Split ``field|default`` syntax into field path and optional default."""
-        if "|" not in field_name:
-            return field_name, None
+    def _parse_field_expression(field_name: str) -> tuple[str, str | None, list[str]]:
+        """Parse template field expressions.
 
-        field_path, default_value = field_name.split("|", 1)
-        return field_path.strip(), default_value.strip()
+        Supported syntax:
+        - ``{field}``
+        - ``{field|default value}``
+        - ``{field->upper}``
+        - ``{field|default value->strip->title}``
+
+        Returns:
+            Tuple of ``(field_path, default_value, transforms)``.
+        """
+        base_expression, *transform_parts = field_name.split("->")
+
+        transforms = [part.strip().lower() for part in transform_parts if part.strip()]
+
+        if "|" not in base_expression:
+            return base_expression.strip(), None, transforms
+
+        field_path, default_value = base_expression.split("|", 1)
+        return field_path.strip(), default_value.strip(), transforms
+
+    @staticmethod
+    def _apply_template_transforms(value: object, transforms: list[str]) -> object:
+        """Apply text transforms declared in a template field expression."""
+        if not transforms:
+            return value
+
+        available_transforms = {
+            "strip": str.strip,
+            "upper": str.upper,
+            "lower": str.lower,
+            "title": str.title,
+            "capitalize": str.capitalize,
+        }
+
+        transformed = value
+        for transform in transforms:
+            operation = available_transforms.get(transform)
+            if operation is None:
+                supported = ", ".join(sorted(available_transforms))
+                raise ValueError(
+                    f"Unsupported template transform: {transform}. "
+                    f"Supported transforms: {supported}"
+                )
+            transformed = operation(str(transformed))
+
+        return transformed
 
     @classmethod
     def _extract_template_variables(cls, prompt_template: str) -> set[str]:
@@ -252,13 +293,15 @@ class TemplateService:
 
         Fields declared with ``|`` default syntax (e.g. ``{audience|general}``)
         are treated as optional and excluded from the required input set.
+        Optional ``->transform`` directives do not affect required field
+        detection.
         """
         variables: set[str] = set()
         for _, field_name, _, _ in Formatter().parse(prompt_template):
             if not field_name:
                 continue
 
-            resolved_field, default_value = cls._split_field_default(field_name)
+            resolved_field, default_value, _ = cls._parse_field_expression(field_name)
             if default_value is not None:
                 continue
 
@@ -288,8 +331,9 @@ class TemplateService:
         bracket access (``{items[0][title]}``) when ``inputs`` contains nested
         dictionaries/lists.
 
-        Also supports optional defaults via ``field|default`` syntax, for example
-        ``{audience|general audience}``.
+        Also supports optional defaults via ``field|default`` syntax (for example
+        ``{audience|general audience}``) and text transforms via ``->`` (for
+        example ``{audience->upper}`` or ``{name|friend->title}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)
@@ -309,7 +353,9 @@ class TemplateService:
             if field_name is None:
                 continue
 
-            resolved_field, default_value = cls._split_field_default(field_name)
+            resolved_field, default_value, transforms = cls._parse_field_expression(
+                field_name
+            )
             placeholder = f"__field_{index}__"
 
             rebuilt_field = "{" + placeholder
@@ -330,6 +376,7 @@ class TemplateService:
                 if default_value is not None and cls._should_apply_default(value):
                     value = default_value
 
+            value = cls._apply_template_transforms(value, transforms)
             resolved_values[placeholder] = value
 
         try:
