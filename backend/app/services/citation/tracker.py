@@ -453,6 +453,12 @@ class CitationTracker:
         metadata_filters: Optional[Mapping[str, Any]] = None,
         min_citations: Optional[int] = None,
         max_citations: Optional[int] = None,
+        sort_by: Literal[
+            "relevance",
+            "title",
+            "published_date",
+            "citation_count",
+        ] = "relevance",
     ) -> List[Source]:
         """Search sources with lightweight relevance ranking.
 
@@ -475,6 +481,10 @@ class CitationTracker:
                 source.
             max_citations: Optional inclusive upper bound for citation count per
                 source.
+            sort_by: Result ordering strategy. ``"relevance"`` favors textual
+                score, ``"title"`` sorts alphabetically, ``"published_date"``
+                sorts newest-first with undated sources last, and
+                ``"citation_count"`` prioritizes frequently cited sources.
 
         Returns:
             Ranked list of matching sources.
@@ -506,6 +516,19 @@ class CitationTracker:
         if normalized_match_mode not in {"all", "any"}:
             raise ValueError("match_mode must be 'all' or 'any'")
 
+        normalized_sort_by = (
+            self._normalize_text(str(sort_by)).replace(" ", "_").replace("-", "_")
+        )
+        if normalized_sort_by not in {
+            "relevance",
+            "title",
+            "published_date",
+            "citation_count",
+        }:
+            raise ValueError(
+                "sort_by must be one of: relevance, title, published_date, citation_count"
+            )
+
         normalized_query = self._normalize_text(query)
         query_tokens = [token for token in normalized_query.split(" ") if token]
 
@@ -523,7 +546,7 @@ class CitationTracker:
             citation.source.id for citation in self.citations.values()
         )
 
-        ranked_matches: List[tuple[int, Source]] = []
+        ranked_matches: List[tuple[int, int, Source]] = []
 
         for source in self.sources.values():
             citation_count = citation_counts.get(source.id, 0)
@@ -593,13 +616,46 @@ class CitationTracker:
             else:
                 score = 0
 
-            ranked_matches.append((score, source))
+            ranked_matches.append((score, citation_count, source))
 
-        ranked_matches.sort(
-            key=lambda item: (-item[0], self._normalize_text(item[1].title))
-        )
+        if normalized_sort_by == "title":
+            ranked_matches.sort(
+                key=lambda item: (
+                    self._normalize_text(item[2].title),
+                    -item[0],
+                    -item[1],
+                )
+            )
+        elif normalized_sort_by == "published_date":
+            ranked_matches.sort(
+                key=lambda item: (
+                    item[2].published_date is None,
+                    -(
+                        item[2].published_date.toordinal()
+                        if item[2].published_date
+                        else 0
+                    ),
+                    self._normalize_text(item[2].title),
+                )
+            )
+        elif normalized_sort_by == "citation_count":
+            ranked_matches.sort(
+                key=lambda item: (
+                    -item[1],
+                    -item[0],
+                    self._normalize_text(item[2].title),
+                )
+            )
+        else:
+            ranked_matches.sort(
+                key=lambda item: (
+                    -item[0],
+                    -item[1],
+                    self._normalize_text(item[2].title),
+                )
+            )
 
-        sources = [source for _, source in ranked_matches]
+        sources = [source for _, _, source in ranked_matches]
         if limit is not None:
             sources = sources[:limit]
 

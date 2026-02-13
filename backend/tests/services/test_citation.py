@@ -239,6 +239,75 @@ class TestCitationTracker:
         with pytest.raises(ValueError, match="match_mode must be 'all' or 'any'"):
             tracker.search_sources("agent", match_mode="partial")
 
+    def test_search_sources_supports_sort_by_citation_count(self):
+        """sort_by='citation_count' should prioritize most-cited sources first."""
+        tracker = CitationTracker()
+
+        heavily_cited_id = tracker.add_source(title="Agent Ops Handbook")
+        lightly_cited_id = tracker.add_source(title="Agent Ops Primer")
+        uncited_id = tracker.add_source(title="Agent Ops Glossary")
+
+        tracker.cite(heavily_cited_id, quoted_text="One")
+        tracker.cite(heavily_cited_id, quoted_text="Two")
+        tracker.cite(lightly_cited_id, quoted_text="One")
+
+        matches = tracker.search_sources("agent ops", sort_by="citation_count")
+
+        assert [source.id for source in matches] == [
+            heavily_cited_id,
+            lightly_cited_id,
+            uncited_id,
+        ]
+
+    def test_search_sources_supports_sort_by_published_date(self):
+        """sort_by='published_date' should rank newest sources first and undated last."""
+        tracker = CitationTracker()
+
+        older_id = tracker.add_source(
+            title="AI Brief 2021",
+            published_date=datetime(2021, 5, 1),
+            type=SourceType.ARTICLE,
+        )
+        newest_id = tracker.add_source(
+            title="AI Brief 2025",
+            published_date=datetime(2025, 1, 10),
+            type=SourceType.ARTICLE,
+        )
+        undated_id = tracker.add_source(
+            title="AI Brief (Undated)",
+            type=SourceType.ARTICLE,
+        )
+
+        matches = tracker.search_sources("ai brief", sort_by="published_date")
+
+        assert [source.id for source in matches] == [newest_id, older_id, undated_id]
+
+    def test_search_sources_supports_sort_by_title(self):
+        """sort_by='title' should sort alphabetically regardless of relevance score."""
+        tracker = CitationTracker()
+
+        tracker.add_source(title="Zeta Guide")
+        tracker.add_source(title="alpha guide")
+        tracker.add_source(title="Beta Guide")
+
+        matches = tracker.search_sources("guide", sort_by="title")
+
+        assert [source.title for source in matches] == [
+            "alpha guide",
+            "Beta Guide",
+            "Zeta Guide",
+        ]
+
+    def test_search_sources_rejects_invalid_sort_by(self):
+        """Search should validate supported sort_by values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="sort_by must be one of: relevance, title, published_date, citation_count",
+        ):
+            tracker.search_sources("agent", sort_by="custom")
+
     def test_search_sources_supports_publication_date_range_filters(self):
         """Date range filters should include only sources published in-range."""
         tracker = CitationTracker()
