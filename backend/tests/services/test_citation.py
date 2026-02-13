@@ -239,6 +239,49 @@ class TestCitationTracker:
         with pytest.raises(ValueError, match="match_mode must be 'all' or 'any'"):
             tracker.search_sources("agent", match_mode="partial")
 
+    def test_search_sources_supports_publication_date_range_filters(self):
+        """Date range filters should include only sources published in-range."""
+        tracker = CitationTracker()
+
+        old_id = tracker.add_source(
+            title="Legacy AI Report",
+            published_date=datetime(2021, 5, 20),
+            type=SourceType.ARTICLE,
+        )
+        in_range_id = tracker.add_source(
+            title="Modern AI Report",
+            published_date=datetime(2024, 6, 1),
+            type=SourceType.ARTICLE,
+        )
+        tracker.add_source(
+            title="Undated AI Report",
+            type=SourceType.ARTICLE,
+        )
+
+        matches = tracker.search_sources(
+            "ai report",
+            source_type=SourceType.ARTICLE,
+            published_after=datetime(2023, 1, 1),
+            published_before=datetime(2024, 12, 31),
+        )
+
+        assert [source.id for source in matches] == [in_range_id]
+        assert old_id not in {source.id for source in matches}
+
+    def test_search_sources_rejects_invalid_publication_date_range(self):
+        """published_after should not allow values later than published_before."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="published_after cannot be later than published_before",
+        ):
+            tracker.search_sources(
+                "ai",
+                published_after=datetime(2025, 1, 1),
+                published_before=datetime(2024, 12, 31),
+            )
+
     def test_create_citation(self):
         """Test creating a citation."""
         tracker = CitationTracker()

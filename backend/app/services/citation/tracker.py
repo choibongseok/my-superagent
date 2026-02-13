@@ -358,6 +358,8 @@ class CitationTracker:
         source_type: Optional[SourceType | str] = None,
         limit: Optional[int] = None,
         match_mode: Literal["all", "any"] = "all",
+        published_after: Optional[datetime] = None,
+        published_before: Optional[datetime] = None,
     ) -> List[Source]:
         """Search sources with lightweight relevance ranking.
 
@@ -371,12 +373,21 @@ class CitationTracker:
             match_mode: Token matching strategy. ``"all"`` requires every
                 query token to appear in the searchable source text, while
                 ``"any"`` returns sources that match at least one token.
+            published_after: Optional lower-bound date filter (inclusive).
+            published_before: Optional upper-bound date filter (inclusive).
 
         Returns:
             Ranked list of matching sources.
         """
         if limit is not None and limit <= 0:
             raise ValueError("limit must be greater than 0")
+
+        if (
+            published_after is not None
+            and published_before is not None
+            and published_after > published_before
+        ):
+            raise ValueError("published_after cannot be later than published_before")
 
         normalized_match_mode = self._normalize_text(match_mode)
         if normalized_match_mode not in {"all", "any"}:
@@ -403,6 +414,15 @@ class CitationTracker:
                 and source_type_value != normalized_source_type
             ):
                 continue
+
+            if published_after is not None or published_before is not None:
+                published_date = source.published_date
+                if published_date is None:
+                    continue
+                if published_after is not None and published_date < published_after:
+                    continue
+                if published_before is not None and published_date > published_before:
+                    continue
 
             title = self._normalize_text(source.title)
             author = self._normalize_text(source.author)
