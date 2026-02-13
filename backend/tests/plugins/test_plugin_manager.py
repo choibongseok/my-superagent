@@ -126,6 +126,104 @@ async def test_load_plugins_from_directory_prefers_full_module_path_config(
 
 
 @pytest.mark.asyncio
+async def test_load_plugins_from_directory_respects_include_allowlist(
+    tmp_path, monkeypatch
+):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"]),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class("beta-plugin", ["filesystem.read"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    loaded = await manager.load_plugins_from_directory(include_plugins=["beta.py"])
+
+    assert loaded == ["beta-plugin"]
+    assert manager.get_plugin("alpha-plugin") is None
+    assert manager.get_plugin("beta-plugin") is not None
+
+
+@pytest.mark.asyncio
+async def test_load_plugins_from_directory_respects_exclude_denylist(
+    tmp_path, monkeypatch
+):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"]),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class("beta-plugin", ["filesystem.read"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    loaded = await manager.load_plugins_from_directory(
+        exclude_plugins=["app.plugins.beta"]
+    )
+
+    assert loaded == ["alpha-plugin"]
+    assert manager.get_plugin("alpha-plugin") is not None
+    assert manager.get_plugin("beta-plugin") is None
+
+
+@pytest.mark.asyncio
+async def test_load_plugins_from_directory_rejects_include_exclude_overlap(
+    tmp_path, monkeypatch
+):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+
+    module = _plugin_module(
+        "app.plugins.alpha",
+        _build_plugin_class("alpha-plugin", ["network.http"]),
+    )
+
+    def _import_module(name: str):
+        if name == "app.plugins.alpha":
+            return module
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+
+    with pytest.raises(
+        ValueError,
+        match="Plugins cannot be both included and excluded: alpha",
+    ):
+        await manager.load_plugins_from_directory(
+            include_plugins=["alpha"],
+            exclude_plugins=["app.plugins.alpha"],
+        )
+
+
+@pytest.mark.asyncio
 async def test_list_plugins_filters_by_required_permissions(tmp_path, monkeypatch):
     (tmp_path / "http_plugin.py").write_text("# http", encoding="utf-8")
     (tmp_path / "local_plugin.py").write_text("# local", encoding="utf-8")

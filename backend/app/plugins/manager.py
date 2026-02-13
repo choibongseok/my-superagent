@@ -113,11 +113,31 @@ class PluginManager:
             logger.error(f"Failed to load plugin {plugin_path}: {e}", exc_info=True)
             raise
 
+    @staticmethod
+    def _normalize_module_selector(selector: str) -> str:
+        """Normalize include/exclude selectors to a plugin module stem."""
+        if not isinstance(selector, str):
+            raise ValueError("Plugin selectors must be strings")
+
+        normalized_selector = selector.strip()
+        if not normalized_selector:
+            raise ValueError("Plugin selectors cannot be blank")
+
+        if normalized_selector.endswith(".py"):
+            normalized_selector = normalized_selector[:-3]
+
+        if normalized_selector.startswith("app.plugins."):
+            normalized_selector = normalized_selector.split(".")[-1]
+
+        return normalized_selector
+
     async def load_plugins_from_directory(
         self,
         directory: Optional[Path] = None,
         plugin_configs: Optional[Mapping[str, Mapping[str, Any]]] = None,
         *,
+        include_plugins: Optional[Sequence[str]] = None,
+        exclude_plugins: Optional[Sequence[str]] = None,
         stop_on_error: bool = False,
     ) -> List[str]:
         """
@@ -128,6 +148,13 @@ class PluginManager:
             plugin_configs: Optional per-plugin configs keyed by module name
                 (e.g., "weather_tool") or full module path
                 (e.g., "app.plugins.weather_tool")
+            include_plugins: Optional allowlist of plugin selectors. Selectors
+                may be module stems ("weather_tool"), module paths
+                ("app.plugins.weather_tool"), or filenames
+                ("weather_tool.py"). When provided, only matching plugins
+                are considered.
+            exclude_plugins: Optional denylist of plugin selectors in the same
+                format as ``include_plugins``.
             stop_on_error: If True, fail fast when a plugin cannot be loaded.
 
         Returns:
@@ -136,6 +163,27 @@ class PluginManager:
         scan_dir = directory or self.plugin_dir
         loaded: List[str] = []
         config_map: Mapping[str, Mapping[str, Any]] = plugin_configs or {}
+
+        include_set = (
+            {
+                self._normalize_module_selector(selector)
+                for selector in include_plugins
+            }
+            if include_plugins is not None
+            else None
+        )
+        exclude_set = {
+            self._normalize_module_selector(selector)
+            for selector in (exclude_plugins or [])
+        }
+
+        if include_set is not None:
+            overlap = include_set & exclude_set
+            if overlap:
+                conflicting = ", ".join(sorted(overlap))
+                raise ValueError(
+                    f"Plugins cannot be both included and excluded: {conflicting}"
+                )
 
         logger.info(f"Scanning for plugins in: {scan_dir}")
 
@@ -153,6 +201,15 @@ class PluginManager:
         for plugin_file in plugin_files:
             module_name = plugin_file.stem
             module_path = f"app.plugins.{module_name}"
+
+            if include_set is not None and module_name not in include_set:
+                logger.debug("Skipping plugin %s (not in include list)", module_name)
+                continue
+
+            if module_name in exclude_set:
+                logger.debug("Skipping plugin %s (in exclude list)", module_name)
+                continue
+
             config = config_map.get(module_path) or config_map.get(module_name)
 
             try:
