@@ -267,25 +267,33 @@ class VectorStoreMemory:
             scores = [score for _, score in results]
             mean_score = sum(scores) / len(scores)
             
-            # Calculate standard deviation
-            variance = sum((s - mean_score) ** 2 for s in scores) / len(scores)
+            # Calculate standard deviation with Bessel's correction for sample variance
+            # Using n-1 instead of n provides better estimate for population variance
+            variance = sum((s - mean_score) ** 2 for s in scores) / max(len(scores) - 1, 1)
             std_dev = variance ** 0.5
             
             # Dynamic threshold based on score distribution
             # Uses coefficient of variation (CV) to adjust sensitivity:
-            # - High CV (diverse scores) -> more selective
-            # - Low CV (similar scores) -> less selective
+            # - High CV (diverse scores) -> more selective (higher threshold)
+            # - Low CV (similar scores) -> less selective (lower threshold)
             cv = std_dev / mean_score if mean_score > 0 else 0
             
             # Adjust multiplier based on variation
-            # More variation = stricter filtering
-            dynamic_multiplier = adaptive_std_multiplier * (1 + cv * 0.5)
+            # More variation = stricter filtering to avoid low-quality outliers
+            # Cap CV influence to prevent extreme adjustments
+            cv_adjustment = min(cv * 0.5, 0.8)
+            dynamic_multiplier = adaptive_std_multiplier * (1 + cv_adjustment)
             
             # Keep results within dynamic standard deviations below mean
-            adaptive_threshold_value = max(
-                min_adaptive_threshold,
-                mean_score - dynamic_multiplier * std_dev
-            )
+            # Special case: if std_dev is 0 (all scores identical), use mean as threshold
+            if std_dev < 1e-6:
+                # All scores are virtually identical, use a permissive threshold
+                adaptive_threshold_value = max(min_adaptive_threshold, mean_score * 0.95)
+            else:
+                adaptive_threshold_value = max(
+                    min_adaptive_threshold,
+                    mean_score - dynamic_multiplier * std_dev
+                )
             
             # Additional safeguard: if top score is very high (>0.9), be more selective
             top_score = max(scores)

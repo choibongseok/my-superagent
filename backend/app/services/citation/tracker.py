@@ -1,6 +1,7 @@
 """Citation Tracker for managing citations and sources."""
 
 import logging
+import math
 import re
 import uuid
 from collections import Counter
@@ -784,7 +785,8 @@ class CitationTracker:
                 
                 # Normalize score by query length to prevent long queries from dominating
                 # Use logarithmic scaling to balance single-term vs multi-term queries
-                query_length_factor = 1 + (len(query_tokens) - 1) * 0.3
+                # Logarithmic approach is more balanced than linear scaling
+                query_length_factor = 1 + math.log(len(query_tokens)) * 0.2
                 score = score / query_length_factor
             else:
                 score = 0
