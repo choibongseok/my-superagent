@@ -5,6 +5,7 @@ context across multiple turns in agent conversations.
 """
 
 import logging
+import re
 from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime
 
@@ -154,21 +155,26 @@ class ConversationMemory:
         case_sensitive: bool = False,
         last_n: Optional[int] = None,
         limit: Optional[int] = None,
+        match_mode: Literal["substring", "word", "regex"] = "substring",
     ) -> List[BaseMessage]:
-        """Search conversation messages by substring and optional role.
+        """Search conversation messages by query text and optional role.
 
         Args:
-            query: Substring to search for in message content
+            query: Query string used for matching message content
             role: Restrict results to "human", "ai", or "any"
             case_sensitive: Whether to match query with exact case
             last_n: Restrict search to the last N messages
             limit: Maximum number of matched messages to return
+            match_mode: Matching strategy:
+                - "substring": query appears anywhere in content (default)
+                - "word": query matches whole-word boundaries
+                - "regex": query is treated as a regular expression
 
         Returns:
             List of matched messages in chronological order
 
         Raises:
-            ValueError: If query/role/limit values are invalid
+            ValueError: If query/role/limit/match_mode values are invalid
         """
         normalized_query = query.strip()
         if not normalized_query:
@@ -181,7 +187,22 @@ class ConversationMemory:
         if limit is not None and limit <= 0:
             raise ValueError("limit must be greater than 0")
 
+        normalized_match_mode = match_mode.lower()
+        if normalized_match_mode not in {"substring", "word", "regex"}:
+            raise ValueError("match_mode must be one of: substring, word, regex")
+
         target_query = normalized_query if case_sensitive else normalized_query.lower()
+        regex_pattern: Optional[re.Pattern[str]] = None
+
+        if normalized_match_mode == "word":
+            flags = 0 if case_sensitive else re.IGNORECASE
+            regex_pattern = re.compile(rf"\b{re.escape(normalized_query)}\b", flags)
+        elif normalized_match_mode == "regex":
+            flags = 0 if case_sensitive else re.IGNORECASE
+            try:
+                regex_pattern = re.compile(normalized_query, flags)
+            except re.error as error:
+                raise ValueError(f"invalid regular expression: {error}") from error
 
         matches: List[BaseMessage] = []
         for message in self.get_messages(last_n=last_n):
@@ -192,7 +213,14 @@ class ConversationMemory:
 
             content = str(message.content)
             searchable_content = content if case_sensitive else content.lower()
-            if target_query in searchable_content:
+
+            if normalized_match_mode == "substring":
+                is_match = target_query in searchable_content
+            else:
+                # regex_pattern is guaranteed for "word" and "regex" modes.
+                is_match = bool(regex_pattern and regex_pattern.search(content))
+
+            if is_match:
                 matches.append(message)
 
                 if limit is not None and len(matches) >= limit:

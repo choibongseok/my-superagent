@@ -214,15 +214,17 @@ class MemoryManager:
         case_sensitive: bool = False,
         last_n: Optional[int] = None,
         limit: Optional[int] = None,
+        match_mode: str = "substring",
     ) -> List[BaseMessage]:
-        """Search conversation memory for keyword matches.
+        """Search conversation memory for keyword or pattern matches.
 
         Args:
-            query: Substring to search for
+            query: Query string used for matching
             role: Restrict results to "human", "ai", or "any"
             case_sensitive: Whether search should be case-sensitive
             last_n: Restrict search to the last N messages
             limit: Maximum number of matched messages to return
+            match_mode: Matching strategy (substring, word, regex)
 
         Returns:
             Matching conversation messages
@@ -233,6 +235,7 @@ class MemoryManager:
             case_sensitive=case_sensitive,
             last_n=last_n,
             limit=limit,
+            match_mode=match_mode,
         )
 
     def get_conversation_context(self) -> str:

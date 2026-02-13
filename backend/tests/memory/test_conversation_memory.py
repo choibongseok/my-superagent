@@ -155,6 +155,36 @@ class TestConversationMemory:
         assert len(matches) == 1
         assert matches[0].content == "omega target"
 
+    def test_search_messages_supports_whole_word_matching(self):
+        """Whole-word mode should not match partial words."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("I like Python")
+        memory.add_ai_message("Py-thon is hyphenated")
+        memory.add_user_message("pythonic idioms are useful")
+
+        matches = memory.search_messages("python", match_mode="word")
+
+        assert len(matches) == 1
+        assert matches[0].content == "I like Python"
+
+    def test_search_messages_supports_regex_matching(self):
+        """Regex mode should allow flexible pattern searches."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("Ticket ABC-123 is open")
+        memory.add_ai_message("Ticket XYZ-999 is closed")
+
+        matches = memory.search_messages(r"[A-Z]{3}-\d{3}", match_mode="regex")
+
+        assert len(matches) == 2
+
     def test_search_messages_rejects_invalid_inputs(self):
         """Test validation errors for invalid search parameters."""
         memory = ConversationMemory(
@@ -170,6 +200,12 @@ class TestConversationMemory:
 
         with pytest.raises(ValueError, match="limit must be greater than 0"):
             memory.search_messages("hello", limit=0)
+
+        with pytest.raises(ValueError, match="match_mode must be one of"):
+            memory.search_messages("hello", match_mode="fuzzy")
+
+        with pytest.raises(ValueError, match="invalid regular expression"):
+            memory.search_messages("(", match_mode="regex")
 
     def test_clear_memory(self):
         """Test clearing conversation memory."""

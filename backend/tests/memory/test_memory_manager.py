@@ -61,3 +61,18 @@ class TestMemoryManagerContext:
 
         assert len(matches) == 1
         assert matches[0].content == "Project timeline is in the docs"
+
+    def test_search_conversation_supports_word_match_mode(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="test_session",
+            use_vector_memory=False,
+        )
+
+        manager.add_user_message("python basics")
+        manager.add_ai_message("pythonic style tips")
+
+        matches = manager.search_conversation("python", match_mode="word")
+
+        assert len(matches) == 1
+        assert matches[0].content == "python basics"
