@@ -1,5 +1,6 @@
 """Service for template marketplace management."""
 
+import csv
 import json
 import logging
 import re
@@ -96,6 +97,29 @@ def _truncate_text(value: object, max_length_spec: str) -> str:
         return "…"
 
     return text[: max_length - 1].rstrip() + "…"
+
+
+def _parse_transform_args(argument_spec: str) -> list[str]:
+    """Parse comma-separated transform arguments, supporting CSV quoting."""
+    try:
+        parsed = next(csv.reader([argument_spec], skipinitialspace=True))
+    except csv.Error as exc:  # pragma: no cover - handled by validation tests
+        raise ValueError("Invalid transform arguments") from exc
+
+    return parsed
+
+
+def _replace_text(value: object, argument_spec: str) -> str:
+    """Replace text using ``replace(search,replacement)`` transform arguments."""
+    args = _parse_transform_args(argument_spec)
+    if len(args) != 2:
+        raise ValueError("replace expects exactly two arguments: search,replacement")
+
+    search, replacement = args
+    if search == "":
+        raise ValueError("replace search argument must not be empty")
+
+    return str(value).replace(search, replacement)
 
 
 class TemplateService:
@@ -302,13 +326,14 @@ class TemplateService:
         - ``{field->upper}``
         - ``{field|default value->strip->title}``
         - ``{summary->truncate(120)}``
+        - ``{name->replace("Agent", "Assistant")}``
 
         Returns:
             Tuple of ``(field_path, default_value, transforms)``.
         """
         base_expression, *transform_parts = field_name.split("->")
 
-        transforms = [part.strip().lower() for part in transform_parts if part.strip()]
+        transforms = [part.strip() for part in transform_parts if part.strip()]
 
         if "|" not in base_expression:
             return base_expression.strip(), None, transforms
@@ -340,17 +365,31 @@ class TemplateService:
             "json_pretty": lambda raw: _to_json(raw, pretty=True),
         }
         supported_transforms = sorted(
-            [*available_transforms.keys(), "truncate(<max_length>)"]
+            [
+                *available_transforms.keys(),
+                "truncate(<max_length>)",
+                "replace(<search>,<replacement>)",
+            ]
         )
 
         transformed = value
         for transform in transforms:
-            operation = available_transforms.get(transform)
+            normalized_transform = transform.lower()
+            operation = available_transforms.get(normalized_transform)
 
-            truncate_match = re.fullmatch(r"truncate\((.+)\)", transform)
-            if operation is None and truncate_match is not None:
-                max_length_spec = truncate_match.group(1)
-                operation = lambda raw, spec=max_length_spec: _truncate_text(raw, spec)
+            function_match = re.fullmatch(
+                r"([a-z_]+)\((.*)\)", transform, flags=re.IGNORECASE
+            )
+            if operation is None and function_match is not None:
+                transform_name = function_match.group(1).lower()
+                argument_spec = function_match.group(2)
+
+                if transform_name == "truncate":
+                    operation = lambda raw, spec=argument_spec: _truncate_text(
+                        raw, spec
+                    )
+                elif transform_name == "replace":
+                    operation = lambda raw, spec=argument_spec: _replace_text(raw, spec)
 
             if operation is None:
                 supported = ", ".join(supported_transforms)
@@ -418,8 +457,8 @@ class TemplateService:
         ``{project_name->snake_case}``, ``{release_title->kebab_case}``,
         ``{service->dot_case}``, ``{build_target->constant_case}``,
         ``{variable->camel_case}``, ``{variable->pascal_case}``,
-        ``{summary->truncate(120)}``, ``{payload->json}``, or
-        ``{payload->json_pretty}``).
+        ``{summary->truncate(120)}``, ``{title->replace("Agent", "Assistant")}``,
+        ``{payload->json}``, or ``{payload->json_pretty}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)

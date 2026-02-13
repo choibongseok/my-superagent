@@ -580,6 +580,56 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_replace_transform(self, service_with_mock_db):
+        """replace transform should substitute a target substring in-place."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Title: {title->replace("Agent", "Assistant")}',
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"title": "Agent roadmap"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Title: Assistant roadmap"
+        assert template.usage_count == 2
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_case_insensitive_transform_names(
+        self, service_with_mock_db
+    ):
+        """Transform names should remain case-insensitive for template authors."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Slug: {name->SNAKE_CASE}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"name": "AgentHQ Launch Plan"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Slug: agent_hq_launch_plan"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_use_template_reports_transform_execution_errors(
         self, service_with_mock_db
     ):
@@ -606,6 +656,35 @@ class TestTemplateServiceUseTemplate:
                 )
 
         assert template.usage_count == 3
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_invalid_replace_arguments(
+        self, service_with_mock_db
+    ):
+        """replace should fail fast unless exactly two arguments are provided."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Title: {title->replace(Agent)}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match="Failed to apply template transform 'replace\\(Agent\\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"title": "Agent roadmap"},
+                    user_id,
+                )
+
+        assert template.usage_count == 2
         db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
