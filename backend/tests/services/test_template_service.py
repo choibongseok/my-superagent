@@ -402,6 +402,56 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_dot_case_transform(self, service_with_mock_db):
+        """dot_case transform should normalize words into dot-delimited keys."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Metric key: {name->dot_case}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"name": " AgentHQ launch_plan "},
+                user_id,
+            )
+
+        assert result["prompt"] == "Metric key: agent.hq.launch.plan"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_constant_case_transform(
+        self, service_with_mock_db
+    ):
+        """constant_case transform should normalize values into screaming snake case."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Env key: {name->constant_case}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"name": "AgentHQ launch-plan"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Env key: AGENT_HQ_LAUNCH_PLAN"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_camel_case_transform(
         self, service_with_mock_db
     ):

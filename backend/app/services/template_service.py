@@ -297,6 +297,10 @@ class TemplateService:
             "capitalize": lambda raw: str(raw).capitalize(),
             "snake_case": lambda raw: "_".join(_tokenize_case_transform(raw)),
             "kebab_case": lambda raw: "-".join(_tokenize_case_transform(raw)),
+            "dot_case": lambda raw: ".".join(_tokenize_case_transform(raw)),
+            "constant_case": lambda raw: "_".join(
+                _tokenize_case_transform(raw)
+            ).upper(),
             "camel_case": _to_camel_case,
             "pascal_case": _to_pascal_case,
         }
@@ -362,6 +366,7 @@ class TemplateService:
         ``{audience|general audience}``) and text transforms via ``->`` (for
         example ``{audience->upper}``, ``{name|friend->title}``,
         ``{project_name->snake_case}``, ``{release_title->kebab_case}``,
+        ``{service->dot_case}``, ``{build_target->constant_case}``,
         ``{variable->camel_case}``, or ``{variable->pascal_case}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
