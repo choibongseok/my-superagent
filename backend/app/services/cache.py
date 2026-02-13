@@ -36,6 +36,23 @@ class LocalCacheService:
         # insertion/access order for LRU eviction
         self._access_order: OrderedDict[str, None] = OrderedDict()
         self._max_entries = max_entries
+        # Operational counters for lightweight cache observability.
+        self._stats: dict[str, int] = {
+            "hits": 0,
+            "misses": 0,
+            "sets": 0,
+            "deletes": 0,
+            "evictions": 0,
+            "expirations": 0,
+        }
+
+    def _increment_stat(self, name: str, amount: int = 1) -> None:
+        """Increment a named statistic by ``amount``."""
+        self._stats[name] = self._stats.get(name, 0) + amount
+
+    def _record_lookup(self, *, hit: bool) -> None:
+        """Record cache lookup hit/miss counters."""
+        self._increment_stat("hits" if hit else "misses")
 
     def _delete_key(self, key: str) -> None:
         """Delete key bookkeeping across all internal structures."""
@@ -58,6 +75,9 @@ class LocalCacheService:
         for key in expired_keys:
             self._delete_key(key)
 
+        if expired_keys:
+            self._increment_stat("expirations", len(expired_keys))
+
     def _evict_if_needed(self) -> None:
         """Evict least-recently-used entries when size limit is reached."""
         if self._max_entries is None:
@@ -67,6 +87,7 @@ class LocalCacheService:
         while len(self._store) >= self._max_entries and self._access_order:
             oldest_key, _ = self._access_order.popitem(last=False)
             self._store.pop(oldest_key, None)
+            self._increment_stat("evictions")
 
     def _get_entry(self, key: str) -> tuple[Any, float | None] | None:
         """Return a non-expired cache entry or ``None`` when missing/expired."""
@@ -77,6 +98,7 @@ class LocalCacheService:
         _, expires_at = item
         if expires_at is not None and time.time() >= expires_at:
             self._delete_key(key)
+            self._increment_stat("expirations")
             return None
 
         self._mark_accessed(key)
@@ -100,6 +122,7 @@ class LocalCacheService:
 
         self._store[key] = (value, expires_at)
         self._mark_accessed(key)
+        self._increment_stat("sets")
 
     def set_many(
         self, items: Mapping[str, Any], ttl_seconds: int | None = None
@@ -111,6 +134,7 @@ class LocalCacheService:
     def get(self, key: str) -> Any | None:
         """Return cached value or ``None`` when missing/expired."""
         item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
         if item is None:
             return None
 
@@ -122,6 +146,7 @@ class LocalCacheService:
         results: dict[str, Any] = {}
         for key in keys:
             item = self._get_entry(key)
+            self._record_lookup(hit=item is not None)
             if item is not None:
                 value, _ = item
                 results[key] = value
@@ -129,7 +154,9 @@ class LocalCacheService:
 
     def has(self, key: str) -> bool:
         """Return ``True`` when a non-expired key exists."""
-        return self._get_entry(key) is not None
+        exists = self._get_entry(key) is not None
+        self._record_lookup(hit=exists)
+        return exists
 
     def ttl_remaining(self, key: str) -> float | None:
         """Return remaining TTL seconds for ``key``.
@@ -229,6 +256,7 @@ class LocalCacheService:
     ) -> Any:
         """Return cached value or populate it via ``factory`` when absent."""
         item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
         if item is not None:
             value, _ = item
             return value
@@ -283,6 +311,7 @@ class LocalCacheService:
         other callers still receive/cache the resolved value.
         """
         item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
         if item is not None:
             value, _ = item
             return value
@@ -298,7 +327,9 @@ class LocalCacheService:
 
     def delete(self, key: str) -> None:
         """Delete a cached key if present."""
-        self._delete_key(key)
+        if key in self._store:
+            self._delete_key(key)
+            self._increment_stat("deletes")
 
     def delete_many(self, keys: Iterable[str]) -> int:
         """Delete multiple keys and return how many entries were removed."""
@@ -307,6 +338,9 @@ class LocalCacheService:
             if key in self._store:
                 self._delete_key(key)
                 removed += 1
+
+        if removed:
+            self._increment_stat("deletes", removed)
         return removed
 
     def clear_prefix(self, prefix: str) -> int:
@@ -336,6 +370,26 @@ class LocalCacheService:
         }
         return self.delete_many(matching_keys)
 
+    def stats(self, reset: bool = False) -> dict[str, Any]:
+        """Return cache operational counters and runtime metadata.
+
+        Args:
+            reset: When ``True``, reset accumulated counters after generating
+                the returned snapshot.
+        """
+        snapshot: dict[str, Any] = {
+            **self._stats,
+            "entries": self.size(),
+            "max_entries": self._max_entries,
+            "inflight": len(self._inflight),
+        }
+
+        if reset:
+            for key in self._stats:
+                self._stats[key] = 0
+
+        return snapshot
+
     def size(self) -> int:
         """Return the number of active (non-expired) cache entries."""
         self._purge_expired_entries()
@@ -343,9 +397,12 @@ class LocalCacheService:
 
     def clear(self) -> None:
         """Clear all cached entries."""
+        removed = len(self._store)
         self._store.clear()
         self._access_order.clear()
         self._inflight.clear()
+        if removed:
+            self._increment_stat("deletes", removed)
 
 
 __all__ = ["LocalCacheService"]

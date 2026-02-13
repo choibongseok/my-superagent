@@ -389,3 +389,55 @@ async def test_local_cache_get_or_set_async_keeps_shared_task_alive_on_cancellat
     assert await second_caller == "stable-value"
     assert cache.get("shared-key") == "stable-value"
     assert calls["count"] == 1
+
+
+def test_local_cache_stats_track_hits_misses_and_mutations():
+    cache = LocalCacheService()
+
+    cache.set("alpha", 1)
+    assert cache.get("alpha") == 1
+    assert cache.get("missing") is None
+    assert cache.has("alpha") is True
+    assert cache.has("missing") is False
+    assert cache.get_or_set("alpha", lambda: 99) == 1
+    assert cache.get_or_set("beta", lambda: 2) == 2
+
+    stats = cache.stats()
+
+    assert stats["sets"] == 2
+    assert stats["hits"] == 3
+    assert stats["misses"] == 3
+    assert stats["entries"] == 2
+
+
+def test_local_cache_stats_track_expirations_and_evictions():
+    cache = LocalCacheService(max_entries=1)
+
+    cache.set("temp", "x", ttl_seconds=1)
+    time.sleep(1.05)
+    assert cache.get("temp") is None
+
+    cache.set("a", 1)
+    cache.set("b", 2)
+
+    stats = cache.stats()
+
+    assert stats["expirations"] == 1
+    assert stats["evictions"] == 1
+
+
+def test_local_cache_stats_can_be_reset_without_touching_entries():
+    cache = LocalCacheService()
+    cache.set("persist", "value")
+    assert cache.get("missing") is None
+
+    snapshot = cache.stats(reset=True)
+
+    assert snapshot["sets"] == 1
+    assert snapshot["misses"] == 1
+    assert snapshot["entries"] == 1
+
+    reset_stats = cache.stats()
+    assert reset_stats["sets"] == 0
+    assert reset_stats["misses"] == 0
+    assert reset_stats["entries"] == 1
