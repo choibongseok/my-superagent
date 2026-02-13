@@ -350,9 +350,13 @@ class VectorStoreMemory:
         formatted_results = []
         for doc, score in results:
             # Dynamic relevance classification based on score distribution
-            if applied_threshold and score >= applied_threshold * 1.2:
-                relevance = "high"
-            elif score >= 0.85:
+            # Combines adaptive threshold awareness with absolute quality bounds
+            dynamic_high = (
+                applied_threshold is not None 
+                and score >= max(applied_threshold * 1.3, 0.8)
+            )
+            
+            if dynamic_high or score >= 0.85:
                 relevance = "high"
             elif score >= 0.7:
                 relevance = "medium"
