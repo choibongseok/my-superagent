@@ -2,6 +2,7 @@
 
 import inspect
 import logging
+import re
 from typing import Any, Dict
 
 import httpx
@@ -38,7 +39,35 @@ class Plugin(ToolPlugin):
         if self.api_key:
             logger.info("Weather tool plugin initialized with OpenWeatherMap API")
         else:
-            logger.warning("Weather tool plugin initialized in mock mode (no API key provided)")
+            logger.warning(
+                "Weather tool plugin initialized in mock mode (no API key provided)"
+            )
+
+    def _build_location_params(self, location: str) -> Dict[str, Any]:
+        """Build OpenWeatherMap query params for city names or lat/lon coordinates."""
+        normalized_location = location.strip()
+
+        coordinate_match = re.fullmatch(
+            r"([+-]?\d+(?:\.\d+)?)\s*,\s*([+-]?\d+(?:\.\d+)?)",
+            normalized_location,
+        )
+        if not coordinate_match:
+            return {"q": normalized_location}
+
+        lat = float(coordinate_match.group(1))
+        lon = float(coordinate_match.group(2))
+
+        if not -90 <= lat <= 90:
+            raise ValueError("Invalid coordinates: latitude must be between -90 and 90")
+        if not -180 <= lon <= 180:
+            raise ValueError(
+                "Invalid coordinates: longitude must be between -180 and 180"
+            )
+
+        return {
+            "lat": lat,
+            "lon": lon,
+        }
 
     async def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -62,11 +91,14 @@ class Plugin(ToolPlugin):
         if not location:
             raise ValueError("location is required")
 
+        normalized_location = location.strip()
+        location_params = self._build_location_params(normalized_location)
+
         # If no API key, return mock data
         if not self.api_key:
-            logger.info(f"Getting weather for: {location} (mock mode)")
+            logger.info(f"Getting weather for: {normalized_location} (mock mode)")
             return {
-                "location": location,
+                "location": normalized_location,
                 "temperature": 22.5,
                 "condition": "Partly Cloudy",
                 "humidity": 65,
@@ -74,16 +106,16 @@ class Plugin(ToolPlugin):
             }
 
         # Make real API call to OpenWeatherMap
-        logger.info(f"Fetching real weather data for: {location}")
-        
+        logger.info(f"Fetching real weather data for: {normalized_location}")
+
         try:
             async with httpx.AsyncClient() as client:
                 params = {
-                    "q": location,
                     "appid": self.api_key,
                     "units": self.units,
+                    **location_params,
                 }
-                
+
                 response = await client.get(
                     self.OPENWEATHER_BASE_URL,
                     params=params,
@@ -102,24 +134,26 @@ class Plugin(ToolPlugin):
 
                 # Parse OpenWeatherMap response
                 return {
-                    "location": data["name"],
+                    "location": data.get("name") or normalized_location,
                     "temperature": round(data["main"]["temp"], 1),
                     "condition": data["weather"][0]["description"].title(),
                     "humidity": data["main"]["humidity"],
-                    "wind_speed": round(data["wind"]["speed"] * (3.6 if self.units == "metric" else 1), 1),  # Convert m/s to km/h for metric
+                    "wind_speed": round(
+                        data["wind"]["speed"] * (3.6 if self.units == "metric" else 1),
+                        1,
+                    ),  # Convert m/s to km/h for metric
                 }
-        
+
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
-                raise ValueError(f"Location not found: {location}")
-            elif e.response.status_code == 401:
+                raise ValueError(f"Location not found: {normalized_location}")
+            if e.response.status_code == 401:
                 raise ValueError("Invalid API key")
-            else:
-                raise ValueError(f"Weather API error: {e.response.status_code}")
-        
+            raise ValueError(f"Weather API error: {e.response.status_code}")
+
         except httpx.TimeoutException:
             raise ValueError("Weather API request timed out")
-        
+
         except Exception as e:
             logger.error(f"Error fetching weather data: {e}")
             raise ValueError(f"Failed to fetch weather data: {str(e)}")
@@ -151,7 +185,8 @@ class Plugin(ToolPlugin):
         """Get tool description for agent."""
         return (
             "Get current weather information for a location using OpenWeatherMap API. "
-            "Input should be a city name (e.g., 'London', 'New York', 'Tokyo'). "
+            "Input can be a city name (e.g., 'London', 'New York', 'Tokyo') "
+            "or coordinates (e.g., '37.5665,126.9780'). "
             "Returns temperature, weather condition, humidity, and wind speed. "
             "Requires OpenWeatherMap API key in plugin config."
         )
@@ -160,7 +195,7 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.1.0",
+            version="1.2.0",
             description="Get real-time weather information using OpenWeatherMap API",
             author="AgentHQ",
             permissions=["network.http"],
@@ -169,7 +204,7 @@ class Plugin(ToolPlugin):
                 "units": "string (optional, 'metric' or 'imperial', default: 'metric')",
             },
             inputs={
-                "location": "string (required, city name)",
+                "location": "string (required, city name or lat,lon coordinates)",
             },
             outputs={
                 "location": "string",

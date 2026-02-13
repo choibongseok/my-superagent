@@ -23,7 +23,7 @@ class TestWeatherTool:
     async def test_mock_mode_returns_sample_data(self, mock_plugin):
         """Test that mock mode returns consistent sample data."""
         result = await mock_plugin.execute({"location": "Seoul"})
-        
+
         assert result["location"] == "Seoul"
         assert result["temperature"] == 22.5
         assert result["condition"] == "Partly Cloudy"
@@ -40,7 +40,7 @@ class TestWeatherTool:
     async def test_run_tool_formats_output(self, mock_plugin):
         """Test that run_tool returns formatted string."""
         result = await mock_plugin.run_tool("Tokyo")
-        
+
         assert "Tokyo" in result
         assert "Temperature:" in result
         assert "22.5°C" in result
@@ -54,24 +54,19 @@ class TestWeatherTool:
         mock_response = AsyncMock()
         mock_response.json.return_value = {
             "name": "London",
-            "main": {
-                "temp": 15.3,
-                "humidity": 72
-            },
-            "weather": [
-                {"description": "light rain"}
-            ],
-            "wind": {
-                "speed": 5.2  # m/s
-            }
+            "main": {"temp": 15.3, "humidity": 72},
+            "weather": [{"description": "light rain"}],
+            "wind": {"speed": 5.2},  # m/s
         }
         mock_response.raise_for_status = AsyncMock()
-        
+
         with patch("httpx.AsyncClient") as mock_client:
-            mock_client.return_value.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
-            
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response
+            )
+
             result = await api_plugin.execute({"location": "London"})
-            
+
             assert result["location"] == "London"
             assert result["temperature"] == 15.3
             assert result["condition"] == "Light Rain"
@@ -82,21 +77,18 @@ class TestWeatherTool:
     async def test_location_not_found(self, api_plugin):
         """Test handling of invalid location."""
         from httpx import HTTPStatusError, Request, Response
-        
+
         mock_response = Response(
-            status_code=404,
-            request=Request("GET", "http://test.com")
+            status_code=404, request=Request("GET", "http://test.com")
         )
-        
+
         with patch("httpx.AsyncClient") as mock_client:
             mock_get = AsyncMock()
             mock_get.side_effect = HTTPStatusError(
-                "Not Found",
-                request=mock_response.request,
-                response=mock_response
+                "Not Found", request=mock_response.request, response=mock_response
             )
             mock_client.return_value.__aenter__.return_value.get = mock_get
-            
+
             with pytest.raises(ValueError, match="Location not found"):
                 await api_plugin.execute({"location": "InvalidCityXYZ"})
 
@@ -104,21 +96,18 @@ class TestWeatherTool:
     async def test_invalid_api_key(self, api_plugin):
         """Test handling of invalid API key."""
         from httpx import HTTPStatusError, Request, Response
-        
+
         mock_response = Response(
-            status_code=401,
-            request=Request("GET", "http://test.com")
+            status_code=401, request=Request("GET", "http://test.com")
         )
-        
+
         with patch("httpx.AsyncClient") as mock_client:
             mock_get = AsyncMock()
             mock_get.side_effect = HTTPStatusError(
-                "Unauthorized",
-                request=mock_response.request,
-                response=mock_response
+                "Unauthorized", request=mock_response.request, response=mock_response
             )
             mock_client.return_value.__aenter__.return_value.get = mock_get
-            
+
             with pytest.raises(ValueError, match="Invalid API key"):
                 await api_plugin.execute({"location": "London"})
 
@@ -126,12 +115,12 @@ class TestWeatherTool:
     async def test_api_timeout(self, api_plugin):
         """Test handling of API timeout."""
         from httpx import TimeoutException
-        
+
         with patch("httpx.AsyncClient") as mock_client:
             mock_get = AsyncMock()
             mock_get.side_effect = TimeoutException("Request timed out")
             mock_client.return_value.__aenter__.return_value.get = mock_get
-            
+
             with pytest.raises(ValueError, match="Weather API request timed out"):
                 await api_plugin.execute({"location": "London"})
 
@@ -143,21 +132,16 @@ class TestWeatherTool:
         mock_response = AsyncMock()
         mock_response.json.return_value = {
             "name": "New York",
-            "main": {
-                "temp": 68.5,  # Fahrenheit
-                "humidity": 55
-            },
-            "weather": [
-                {"description": "clear sky"}
-            ],
-            "wind": {
-                "speed": 10.5  # mph in imperial mode
-            }
+            "main": {"temp": 68.5, "humidity": 55},  # Fahrenheit
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 10.5},  # mph in imperial mode
         }
         mock_response.raise_for_status = AsyncMock()
 
         with patch("httpx.AsyncClient") as mock_client:
-            mock_client.return_value.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response
+            )
 
             result = await plugin.execute({"location": "New York"})
 
@@ -187,15 +171,50 @@ class TestWeatherTool:
         assert "70.0°F" in result
         assert "8.0 mph" in result
 
+    @pytest.mark.asyncio
+    async def test_coordinate_location_query(self, api_plugin):
+        """Test coordinates are sent as lat/lon params."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 20.0, "humidity": 60},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 3.0},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            result = await api_plugin.execute({"location": "37.5665, 126.9780"})
+
+            _, kwargs = mock_get.call_args
+            assert kwargs["params"]["lat"] == 37.5665
+            assert kwargs["params"]["lon"] == 126.978
+            assert "q" not in kwargs["params"]
+            assert result["location"] == "Seoul"
+
+    @pytest.mark.asyncio
+    async def test_coordinate_location_validation(self, api_plugin):
+        """Test invalid coordinates fail fast before API call."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(ValueError, match="latitude must be between -90 and 90"):
+                await api_plugin.execute({"location": "123.45, 127.0"})
+
+            mock_client.assert_not_called()
+
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.1.0"
+        assert manifest.version == "1.2.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
+        assert "lat,lon" in manifest.inputs["location"]
 
     def test_tool_description(self, api_plugin):
         """Test tool description includes API information."""
         description = api_plugin.get_tool_description()
         assert "OpenWeatherMap" in description
         assert "API key" in description
+        assert "coordinates" in description
