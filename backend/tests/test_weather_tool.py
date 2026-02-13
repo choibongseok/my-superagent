@@ -26,6 +26,7 @@ class TestWeatherTool:
 
         assert result["location"] == "Seoul"
         assert result["temperature"] == 22.5
+        assert result["feels_like"] == 21.3
         assert result["condition"] == "Partly Cloudy"
         assert result["humidity"] == 65
         assert result["wind_speed"] == 12.3
@@ -82,6 +83,7 @@ class TestWeatherTool:
         assert "Tokyo" in result
         assert "Temperature:" in result
         assert "22.5°C" in result
+        assert "Feels Like:" in result
         assert "Condition:" in result
         assert "Humidity:" in result
         assert "Wind Speed:" in result
@@ -92,7 +94,7 @@ class TestWeatherTool:
         mock_response = AsyncMock()
         mock_response.json.return_value = {
             "name": "London",
-            "main": {"temp": 15.3, "humidity": 72},
+            "main": {"temp": 15.3, "feels_like": 14.7, "humidity": 72},
             "weather": [{"description": "light rain"}],
             "wind": {"speed": 5.2},  # m/s
         }
@@ -107,9 +109,32 @@ class TestWeatherTool:
 
             assert result["location"] == "London"
             assert result["temperature"] == 15.3
+            assert result["feels_like"] == 14.7
             assert result["condition"] == "Light Rain"
             assert result["humidity"] == 72
             assert result["wind_speed"] == 18.7  # 5.2 m/s * 3.6 = 18.72 km/h
+
+    @pytest.mark.asyncio
+    async def test_real_api_call_defaults_feels_like_to_temperature(self, api_plugin):
+        """Test API responses without feels_like fall back to measured temperature."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "London",
+            "main": {"temp": 11.2, "humidity": 80},
+            "weather": [{"description": "mist"}],
+            "wind": {"speed": 4.0},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response
+            )
+
+            result = await api_plugin.execute({"location": "London"})
+
+            assert result["temperature"] == 11.2
+            assert result["feels_like"] == 11.2
 
     @pytest.mark.asyncio
     async def test_location_not_found(self, api_plugin):
@@ -219,6 +244,7 @@ class TestWeatherTool:
         assert result["location"] == "Seoul"
         assert result["units"] == "imperial"
         assert result["temperature"] == 72.5
+        assert result["feels_like"] == 70.3
         assert result["wind_speed"] == 7.6
 
     @pytest.mark.asyncio
@@ -231,6 +257,7 @@ class TestWeatherTool:
         assert result["location"] == "Seoul"
         assert result["units"] == "standard"
         assert result["temperature"] == 295.6
+        assert result["feels_like"] == 294.4
         assert result["wind_speed"] == 3.4
 
     @pytest.mark.asyncio
@@ -627,7 +654,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.8.0"
+        assert manifest.version == "1.9.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
@@ -638,6 +665,7 @@ class TestWeatherTool:
         assert "longitude" in manifest.inputs
         assert "units" in manifest.inputs
         assert "lang" in manifest.inputs
+        assert "feels_like" in manifest.outputs
         assert (
             "required when zip_code and latitude/longitude"
             in manifest.inputs["location"]
@@ -652,4 +680,5 @@ class TestWeatherTool:
         assert "zip_code" in description
         assert "coordinates" in description
         assert "standard/kelvin" in description
+        assert "feels-like temperature" in description
         assert "lang" in description

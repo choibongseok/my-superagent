@@ -134,25 +134,34 @@ class Plugin(ToolPlugin):
     def _build_mock_weather_response(self, location: str, units: str) -> Dict[str, Any]:
         """Build deterministic mock weather data for offline/test mode."""
         temperature_celsius = 22.5
+        feels_like_celsius = 21.3
         wind_kmh = 12.3
 
         if units == "imperial":
             temperature = self._convert_metric_to_imperial_temperature(
                 temperature_celsius
             )
+            feels_like = self._convert_metric_to_imperial_temperature(
+                feels_like_celsius
+            )
             wind_speed = self._convert_kmh_to_mph(wind_kmh)
         elif units == "standard":
             temperature = self._convert_metric_to_standard_temperature(
                 temperature_celsius
             )
+            feels_like = self._convert_metric_to_standard_temperature(
+                feels_like_celsius
+            )
             wind_speed = self._convert_kmh_to_ms(wind_kmh)
         else:
             temperature = temperature_celsius
+            feels_like = feels_like_celsius
             wind_speed = wind_kmh
 
         return {
             "location": location,
             "temperature": temperature,
+            "feels_like": feels_like,
             "condition": "Partly Cloudy",
             "humidity": 65,
             "wind_speed": wind_speed,
@@ -308,6 +317,7 @@ class Plugin(ToolPlugin):
             {
                 "location": str,
                 "temperature": float,
+                "feels_like": float,
                 "condition": str,
                 "humidity": int,
                 "wind_speed": float,
@@ -360,11 +370,16 @@ class Plugin(ToolPlugin):
                     data = await data
 
                 # Parse OpenWeatherMap response
+                main = data["main"]
+                temperature = round(main["temp"], 1)
+                feels_like = round(main.get("feels_like", main["temp"]), 1)
+
                 return {
                     "location": data.get("name") or normalized_location,
-                    "temperature": round(data["main"]["temp"], 1),
+                    "temperature": temperature,
+                    "feels_like": feels_like,
                     "condition": data["weather"][0]["description"].title(),
-                    "humidity": data["main"]["humidity"],
+                    "humidity": main["humidity"],
                     "wind_speed": self._normalize_wind_speed_for_units(
                         data["wind"]["speed"],
                         resolved_units,
@@ -409,9 +424,12 @@ class Plugin(ToolPlugin):
             temperature_unit = "°C"
             wind_unit = "km/h"
 
+        feels_like = result.get("feels_like", result["temperature"])
+
         return (
             f"Weather in {result['location']}:\n"
             f"Temperature: {result['temperature']}{temperature_unit}\n"
+            f"Feels Like: {feels_like}{temperature_unit}\n"
             f"Condition: {result['condition']}\n"
             f"Humidity: {result['humidity']}%\n"
             f"Wind Speed: {result['wind_speed']} {wind_unit}"
@@ -427,6 +445,7 @@ class Plugin(ToolPlugin):
             "or coordinates (e.g., '37.5665,126.9780'). "
             "Per-request units override is supported via units='metric/celsius', "
             "units='imperial/fahrenheit', or units='standard/kelvin'. "
+            "Responses include both actual temperature and feels-like temperature. "
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Returns temperature, weather condition, humidity, and wind speed. "
             "Requires OpenWeatherMap API key in plugin config."
@@ -436,7 +455,7 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.8.0",
+            version="1.9.0",
             description="Get real-time weather information using OpenWeatherMap API",
             author="AgentHQ",
             permissions=["network.http"],
@@ -457,6 +476,7 @@ class Plugin(ToolPlugin):
             outputs={
                 "location": "string",
                 "temperature": "float",
+                "feels_like": "float",
                 "condition": "string",
                 "humidity": "integer",
                 "wind_speed": "float",
