@@ -376,11 +376,13 @@ class MemoryManager:
     def buffer(self):
         """
         Get the underlying LangChain memory buffer for agent integration.
+        
+        DEPRECATED: Use langchain_memory instead.
 
         Returns:
             LangChain memory object (ConversationBufferMemory or ConversationSummaryMemory)
         """
-        return self.conversation_memory.buffer
+        return self.conversation_memory.langchain_memory
 
     @property
     def langchain_memory(self):
