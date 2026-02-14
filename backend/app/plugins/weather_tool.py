@@ -276,6 +276,47 @@ class Plugin(ToolPlugin):
         return round(api_wind_speed, 1)
 
     @staticmethod
+    def _normalize_wind_direction_degrees(direction_degrees: Any) -> float | None:
+        """Normalize raw wind-direction degrees into a [0, 360) range."""
+        if direction_degrees is None or isinstance(direction_degrees, bool):
+            return None
+
+        try:
+            parsed_direction = float(direction_degrees)
+        except (TypeError, ValueError):
+            return None
+
+        normalized_direction = parsed_direction % 360
+        return round(normalized_direction, 1)
+
+    @staticmethod
+    def _wind_direction_cardinal(direction_degrees: float | None) -> str | None:
+        """Map direction degrees to a 16-point cardinal compass label."""
+        if direction_degrees is None:
+            return None
+
+        directions = [
+            "N",
+            "NNE",
+            "NE",
+            "ENE",
+            "E",
+            "ESE",
+            "SE",
+            "SSE",
+            "S",
+            "SSW",
+            "SW",
+            "WSW",
+            "W",
+            "WNW",
+            "NW",
+            "NNW",
+        ]
+        index = int((direction_degrees / 22.5) + 0.5) % len(directions)
+        return directions[index]
+
+    @staticmethod
     def _normalize_visibility_for_units(
         api_visibility_meters: float,
         units: str,
@@ -476,6 +517,8 @@ class Plugin(ToolPlugin):
             "pressure_unit": pressure_unit,
             "wind_speed": wind_speed,
             "wind_speed_unit": wind_speed_unit,
+            "wind_direction_degrees": 225.0,
+            "wind_direction_cardinal": "SW",
             "visibility": visibility,
             "visibility_unit": visibility_unit,
             "precipitation_1h": None,
@@ -725,6 +768,8 @@ class Plugin(ToolPlugin):
                 "pressure_unit": str | None,
                 "wind_speed": float,
                 "wind_speed_unit": str,
+                "wind_direction_degrees": float | None,
+                "wind_direction_cardinal": str | None,
                 "visibility": float | None,
                 "visibility_unit": str | None,
                 "precipitation_1h": float | None,
@@ -846,6 +891,13 @@ class Plugin(ToolPlugin):
                     if isinstance(data.get("sys"), dict)
                     else None,
                 )
+                wind_payload = data.get("wind") if isinstance(data.get("wind"), dict) else {}
+                wind_direction_degrees = self._normalize_wind_direction_degrees(
+                    wind_payload.get("deg")
+                )
+                wind_direction_cardinal = self._wind_direction_cardinal(
+                    wind_direction_degrees
+                )
 
                 temperature_unit, wind_speed_unit = self._resolve_unit_labels(
                     resolved_units
@@ -869,6 +921,8 @@ class Plugin(ToolPlugin):
                         resolved_units,
                     ),
                     "wind_speed_unit": wind_speed_unit,
+                    "wind_direction_degrees": wind_direction_degrees,
+                    "wind_direction_cardinal": wind_direction_cardinal,
                     "visibility": visibility,
                     "visibility_unit": visibility_unit,
                     "precipitation_1h": precipitation_1h,
@@ -928,6 +982,10 @@ class Plugin(ToolPlugin):
         visibility_unit = result.get("visibility_unit")
         cloudiness = self._normalize_cloudiness(result.get("cloudiness"))
         daylight_status = result.get("daylight_status")
+        wind_direction_degrees = self._normalize_wind_direction_degrees(
+            result.get("wind_direction_degrees")
+        )
+        wind_direction_cardinal = result.get("wind_direction_cardinal")
         precipitation_summary = self._format_precipitation_summary(
             precipitation_type=result.get("precipitation_type"),
             precipitation_1h=result.get("precipitation_1h"),
@@ -952,6 +1010,14 @@ class Plugin(ToolPlugin):
                 str(pressure_unit or "hpa")
             )
             lines.append(f"Pressure: {pressure} {resolved_pressure_unit}")
+        if wind_direction_degrees is not None:
+            wind_direction_suffix = ""
+            if isinstance(wind_direction_cardinal, str) and wind_direction_cardinal.strip():
+                wind_direction_suffix = f" ({wind_direction_cardinal.strip().upper()})"
+
+            lines.append(
+                f"Wind Direction: {wind_direction_degrees:g}°{wind_direction_suffix}"
+            )
         if visibility is not None:
             visibility_suffix = f" {visibility_unit}" if visibility_unit else ""
             lines.append(f"Visibility: {visibility}{visibility_suffix}")
@@ -976,7 +1042,7 @@ class Plugin(ToolPlugin):
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
             "Set refresh_cache=true to bypass cached responses and force a fresh API fetch. "
-            "Returns temperature, feels-like temperature, weather condition, humidity, cloud coverage, daylight status, pressure, wind speed, visibility, and precipitation summaries when available. "
+            "Returns temperature, feels-like temperature, weather condition, humidity, cloud coverage, daylight status, pressure, wind speed, wind direction, visibility, and precipitation summaries when available. "
             "Requires OpenWeatherMap API key in plugin config."
         )
 
@@ -984,8 +1050,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.18.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, visibility details, cloud coverage, daylight status, and precipitation insights",
+            version="1.19.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, wind direction details, visibility details, cloud coverage, daylight status, and precipitation insights",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -1022,6 +1088,8 @@ class Plugin(ToolPlugin):
                 "pressure_unit": "string | null (hpa, kpa, inhg, or mmhg)",
                 "wind_speed": "float",
                 "wind_speed_unit": "string (km/h, mph, or m/s)",
+                "wind_direction_degrees": "float | null (0-360 degrees)",
+                "wind_direction_cardinal": "string | null (16-point compass direction)",
                 "visibility": "float | null",
                 "visibility_unit": "string | null (km, mi, or m)",
                 "precipitation_1h": "float | null (mm of rain/snow in the last 1 hour)",

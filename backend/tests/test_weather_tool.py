@@ -35,6 +35,8 @@ class TestWeatherTool:
         assert result["pressure"] == 1013
         assert result["wind_speed"] == 12.3
         assert result["wind_speed_unit"] == "km/h"
+        assert result["wind_direction_degrees"] == 225.0
+        assert result["wind_direction_cardinal"] == "SW"
         assert result["visibility"] == 10.0
         assert result["visibility_unit"] == "km"
         assert result["precipitation_1h"] is None
@@ -321,6 +323,7 @@ class TestWeatherTool:
         assert "Condition:" in result
         assert "Humidity:" in result
         assert "Wind Speed:" in result
+        assert "Wind Direction:" in result
         assert "Cloudiness:" in result
         assert "Daylight:" in result
         assert "Pressure:" in result
@@ -383,6 +386,33 @@ class TestWeatherTool:
         assert "Pressure: 29.91 inHg" in result
 
     @pytest.mark.asyncio
+    async def test_run_tool_formats_wind_direction_when_available(self):
+        """run_tool should render wind direction degrees with cardinal direction."""
+        plugin = WeatherPlugin(config={"units": "metric"})
+
+        with patch.object(
+            plugin,
+            "execute",
+            AsyncMock(
+                return_value={
+                    "location": "Lisbon",
+                    "temperature": 16.2,
+                    "feels_like": 15.0,
+                    "condition": "Clear Sky",
+                    "humidity": 58,
+                    "wind_speed": 9.4,
+                    "wind_speed_unit": "km/h",
+                    "wind_direction_degrees": 247,
+                    "wind_direction_cardinal": "wsw",
+                    "units": "metric",
+                }
+            ),
+        ):
+            result = await plugin.run_tool("Lisbon")
+
+        assert "Wind Direction: 247° (WSW)" in result
+
+    @pytest.mark.asyncio
     async def test_real_api_call_success(self, api_plugin):
         """Test successful API call with real data."""
         mock_response = AsyncMock()
@@ -395,7 +425,7 @@ class TestWeatherTool:
                 "pressure": 1008,
             },
             "weather": [{"description": "light rain"}],
-            "wind": {"speed": 5.2},  # m/s
+            "wind": {"speed": 5.2, "deg": 219},  # m/s
             "clouds": {"all": 88},
             "sys": {"sunrise": 1700000000, "sunset": 1700036000},
             "dt": 1700018000,
@@ -421,8 +451,34 @@ class TestWeatherTool:
             assert result["pressure"] == 1008
             assert result["wind_speed"] == 18.7  # 5.2 m/s * 3.6 = 18.72 km/h
             assert result["wind_speed_unit"] == "km/h"
+            assert result["wind_direction_degrees"] == 219.0
+            assert result["wind_direction_cardinal"] == "SW"
             assert result["visibility"] == 7.5
             assert result["visibility_unit"] == "km"
+
+    @pytest.mark.asyncio
+    async def test_real_api_call_normalizes_wrapped_wind_direction_values(
+        self, api_plugin
+    ):
+        """Wind direction degrees should normalize into 0-360 with cardinal labels."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "Busan",
+            "main": {"temp": 17.4, "humidity": 61},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 3.3, "deg": 405},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response
+            )
+
+            result = await api_plugin.execute({"location": "Busan"})
+
+            assert result["wind_direction_degrees"] == 45.0
+            assert result["wind_direction_cardinal"] == "NE"
 
     @pytest.mark.asyncio
     async def test_real_api_call_defaults_feels_like_to_temperature(self, api_plugin):
@@ -1223,7 +1279,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.18.0"
+        assert manifest.version == "1.19.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
@@ -1246,6 +1302,8 @@ class TestWeatherTool:
         assert "pressure" in manifest.outputs
         assert "pressure_unit" in manifest.outputs
         assert "wind_speed_unit" in manifest.outputs
+        assert "wind_direction_degrees" in manifest.outputs
+        assert "wind_direction_cardinal" in manifest.outputs
         assert "cloudiness" in manifest.outputs
         assert "daylight_status" in manifest.outputs
         assert "visibility" in manifest.outputs
@@ -1272,6 +1330,7 @@ class TestWeatherTool:
         assert "pressure_unit" in description
         assert "feels-like temperature" in description
         assert "pressure" in description
+        assert "wind direction" in description
         assert "cloud coverage" in description
         assert "daylight status" in description
         assert "visibility" in description
