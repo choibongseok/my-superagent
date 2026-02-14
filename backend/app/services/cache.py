@@ -510,6 +510,64 @@ class LocalCacheService:
 
         return touched
 
+    def expire(self, key: str, ttl_seconds: float) -> bool:
+        """Set or refresh expiration for an existing key.
+
+        Args:
+            key: Cache key to expire.
+            ttl_seconds: Positive TTL in seconds.
+
+        Returns:
+            ``True`` when ``key`` exists and expiration was updated,
+            ``False`` otherwise.
+        """
+        if ttl_seconds <= 0:
+            raise ValueError("ttl_seconds must be greater than 0")
+
+        item = self._get_entry(key)
+        if item is None:
+            return False
+
+        value, _ = item
+        self.set(key, value, ttl_seconds=ttl_seconds)
+        return True
+
+    def expire_many(self, keys: Iterable[str], ttl_seconds: float) -> int:
+        """Apply :meth:`expire` to multiple keys and return the update count."""
+        expired = 0
+        for key in dict.fromkeys(keys):
+            if self.expire(key, ttl_seconds=ttl_seconds):
+                expired += 1
+
+        return expired
+
+    def persist(self, key: str) -> bool:
+        """Remove expiration from an existing key.
+
+        Returns ``True`` only when a key existed and had an expiration removed.
+        """
+        item = self._get_entry(key)
+        if item is None:
+            return False
+
+        value, expires_at = item
+        if expires_at is None:
+            return False
+
+        self._store[key] = (value, None)
+        self._mark_accessed(key)
+        self._increment_stat("sets")
+        return True
+
+    def persist_many(self, keys: Iterable[str]) -> int:
+        """Remove expiration from multiple keys and return the update count."""
+        persisted = 0
+        for key in dict.fromkeys(keys):
+            if self.persist(key):
+                persisted += 1
+
+        return persisted
+
     def get_and_touch(
         self,
         key: str,

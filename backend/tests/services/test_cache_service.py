@@ -472,6 +472,92 @@ def test_local_cache_touch_many_refreshes_existing_keys_once():
     assert ttl_b is not None and 1.5 <= ttl_b <= 2
 
 
+def test_local_cache_expire_sets_ttl_for_existing_key():
+    cache = LocalCacheService()
+    cache.set("session", "active")
+
+    assert cache.expire("session", ttl_seconds=1) is True
+
+    ttl = cache.ttl_remaining("session")
+    assert ttl is not None
+    assert 0 < ttl <= 1
+
+    time.sleep(1.05)
+    assert cache.get("session") is None
+
+
+def test_local_cache_expire_returns_false_for_missing_or_expired_key():
+    cache = LocalCacheService()
+
+    assert cache.expire("missing", ttl_seconds=1) is False
+
+    cache.set("short", "value", ttl_seconds=1)
+    time.sleep(1.05)
+
+    assert cache.expire("short", ttl_seconds=1) is False
+
+
+def test_local_cache_expire_rejects_non_positive_ttl():
+    cache = LocalCacheService()
+    cache.set("session", "active")
+
+    with pytest.raises(ValueError, match="ttl_seconds must be greater than 0"):
+        cache.expire("session", ttl_seconds=0)
+
+    with pytest.raises(ValueError, match="ttl_seconds must be greater than 0"):
+        cache.expire("session", ttl_seconds=-1)
+
+
+def test_local_cache_expire_many_refreshes_existing_keys_once():
+    cache = LocalCacheService()
+    cache.set_many({"session:a": "a", "session:b": "b"})
+
+    expired = cache.expire_many(
+        ["session:a", "missing", "session:a", "session:b"],
+        ttl_seconds=2,
+    )
+
+    assert expired == 2
+
+    ttl_a = cache.ttl_remaining("session:a")
+    ttl_b = cache.ttl_remaining("session:b")
+    assert ttl_a is not None and 1.5 <= ttl_a <= 2
+    assert ttl_b is not None and 1.5 <= ttl_b <= 2
+
+
+def test_local_cache_persist_removes_existing_expiration():
+    cache = LocalCacheService()
+    cache.set("token", "abc", ttl_seconds=1)
+
+    assert cache.persist("token") is True
+    assert cache.ttl_remaining("token") is None
+
+    time.sleep(1.05)
+    assert cache.get("token") == "abc"
+
+
+def test_local_cache_persist_returns_false_for_missing_or_non_expiring_keys():
+    cache = LocalCacheService()
+    cache.set("stable", "value")
+
+    assert cache.persist("missing") is False
+    assert cache.persist("stable") is False
+
+
+def test_local_cache_persist_many_removes_expiration_from_existing_keys_once():
+    cache = LocalCacheService()
+    cache.set("a", 1, ttl_seconds=1)
+    cache.set("b", 2, ttl_seconds=1)
+    cache.set("c", 3)
+
+    persisted = cache.persist_many(["a", "missing", "a", "b", "c"])
+
+    assert persisted == 2
+    assert cache.ttl_remaining("a") is None
+    assert cache.ttl_remaining("b") is None
+    assert cache.ttl_remaining("c") is None
+
+
 def test_local_cache_get_and_touch_refreshes_ttl_and_returns_value():
     cache = LocalCacheService()
     cache.set("auth-token", "abc", ttl_seconds=1)
