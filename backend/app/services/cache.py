@@ -252,18 +252,32 @@ class LocalCacheService:
         """Delete all keys attached to ``tag`` and return removed count."""
         return self.clear_tags([tag])
 
-    def clear_tags(self, tags: Iterable[str]) -> int:
-        """Delete all keys attached to any tag in ``tags``.
+    def clear_tags(
+        self,
+        tags: Iterable[str],
+        *,
+        match_all_tags: bool = False,
+    ) -> int:
+        """Delete keys attached to ``tags`` using any/all matching semantics.
+
+        Args:
+            tags: Tag values used to select cached entries.
+            match_all_tags: Matching mode for tag selection.
+                ``False`` (default) removes keys associated with any provided
+                tag, while ``True`` removes only keys that contain every
+                provided tag.
 
         Empty tags are ignored and matching keys are de-duplicated.
         """
-        normalized_tags = self._normalize_tags(tags)
-        if not normalized_tags:
-            return 0
+        if not isinstance(match_all_tags, bool):
+            raise ValueError("match_all_tags must be a boolean")
 
-        matching_keys: set[str] = set()
-        for tag in normalized_tags:
-            matching_keys.update(self._keys_by_tag.get(tag, set()))
+        matching_keys = self._resolve_keys_for_tags(
+            tags,
+            match_all_tags=match_all_tags,
+        )
+        if not matching_keys:
+            return 0
 
         return self.delete_many(matching_keys)
 

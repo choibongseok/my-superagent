@@ -1006,6 +1006,27 @@ def test_local_cache_clear_tags_removes_union_of_tagged_keys_once():
     assert cache.get("gamma") is None
 
 
+def test_local_cache_clear_tags_supports_match_all_mode():
+    cache = LocalCacheService()
+    cache.set_tagged("alpha", 1, tags=["group:a", "shared"])
+    cache.set_tagged("beta", 2, tags=["group:b", "shared"])
+    cache.set_tagged("gamma", 3, tags=["group:a", "group:b", "shared"])
+
+    removed = cache.clear_tags(["group:a", "shared"], match_all_tags=True)
+
+    assert removed == 2
+    assert cache.get("alpha") is None
+    assert cache.get("gamma") is None
+    assert cache.get("beta") == 2
+
+
+def test_local_cache_clear_tags_rejects_invalid_match_all_tags_flag():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
+        cache.clear_tags(["group:a"], match_all_tags="yes")  # type: ignore[arg-type]
+
+
 def test_local_cache_clear_tag_ignores_expired_entries():
     cache = LocalCacheService()
     cache.set_tagged("temp", "value", tags=["volatile"], ttl_seconds=1)
