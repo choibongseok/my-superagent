@@ -11,6 +11,7 @@ from typing import Any, ParamSpec, TypeVar, cast, overload
 
 P = ParamSpec("P")
 T = TypeVar("T")
+R = TypeVar("R")
 
 
 @overload
@@ -19,7 +20,8 @@ def run_async(
     *args: P.args,
     timeout: float | None = None,
     **kwargs: P.kwargs,
-) -> T: ...
+) -> T:
+    ...
 
 
 @overload
@@ -27,7 +29,56 @@ def run_async(
     awaitable: Awaitable[T],
     *,
     timeout: float | None = None,
-) -> T: ...
+) -> T:
+    ...
+
+
+def _validate_timeout(timeout: float | None) -> None:
+    """Validate timeout values shared by async runner helpers."""
+    if timeout is not None and timeout <= 0:
+        raise ValueError("timeout must be greater than 0")
+
+
+def _run_with_event_loop_bridge(
+    runner: Callable[[], Awaitable[R]],
+    *,
+    timeout_error_factory: Callable[[], TimeoutError] | None = None,
+) -> R:
+    """Execute awaitable runner in both loop-free and loop-running contexts."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        try:
+            return asyncio.run(runner())
+        except asyncio.TimeoutError as exc:
+            if timeout_error_factory is not None:
+                raise timeout_error_factory() from exc
+            raise
+
+    result_queue: queue.Queue[tuple[bool, R | BaseException]] = queue.Queue(maxsize=1)
+
+    def _worker() -> None:
+        try:
+            result = asyncio.run(runner())
+            result_queue.put((True, result))
+        except BaseException as exc:  # pragma: no cover - exercised via caller
+            result_queue.put((False, exc))
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    thread.join()
+
+    success, payload = result_queue.get_nowait()
+    if success:
+        return cast(R, payload)
+
+    if isinstance(payload, asyncio.TimeoutError) and timeout_error_factory is not None:
+        raise timeout_error_factory() from payload
+
+    if isinstance(payload, BaseException):
+        raise payload
+
+    raise RuntimeError("run_async received an invalid error payload")
 
 
 def run_async(
@@ -44,8 +95,7 @@ def run_async(
 
     It safely executes from both loop-free and loop-running contexts.
     """
-    if timeout is not None and timeout <= 0:
-        raise ValueError("timeout must be greater than 0")
+    _validate_timeout(timeout)
 
     def _build_awaitable() -> Awaitable[T]:
         if inspect.isawaitable(coro_or_factory):
@@ -75,35 +125,59 @@ def run_async(
     def _timeout_error() -> TimeoutError:
         return TimeoutError(f"run_async timed out after {timeout} seconds")
 
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        try:
-            return asyncio.run(_run_with_timeout())
-        except asyncio.TimeoutError as exc:
-            raise _timeout_error() from exc
+    return _run_with_event_loop_bridge(
+        _run_with_timeout,
+        timeout_error_factory=_timeout_error,
+    )
 
-    result_queue: queue.Queue[tuple[bool, T | BaseException]] = queue.Queue(maxsize=1)
 
-    def _worker() -> None:
-        try:
-            result = asyncio.run(_run_with_timeout())
-            result_queue.put((True, result))
-        except BaseException as exc:  # pragma: no cover - exercised via caller
-            result_queue.put((False, exc))
+def run_async_many(
+    *awaitables: Awaitable[T],
+    timeout: float | None = None,
+    return_exceptions: bool = False,
+) -> list[T] | list[T | BaseException]:
+    """Run multiple awaitables concurrently from synchronous code.
 
-    thread = threading.Thread(target=_worker, daemon=True)
-    thread.start()
-    thread.join()
+    Args:
+        *awaitables: Awaitables to execute concurrently.
+        timeout: Optional timeout in seconds for the entire batch.
+        return_exceptions: Mirror of ``asyncio.gather(return_exceptions=...)``.
 
-    success, payload = result_queue.get_nowait()
-    if success:
-        return cast(T, payload)
+    Returns:
+        List of results preserving input order.
 
-    if isinstance(payload, asyncio.TimeoutError):
-        raise _timeout_error() from payload
+    Raises:
+        ValueError: If ``timeout`` is not positive.
+        TypeError: If any argument is not awaitable.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    _validate_timeout(timeout)
 
-    if isinstance(payload, BaseException):
-        raise payload
+    if not awaitables:
+        return []
 
-    raise RuntimeError("run_async received an invalid error payload")
+    normalized_awaitables = list(awaitables)
+    for index, awaitable in enumerate(normalized_awaitables):
+        if not inspect.isawaitable(awaitable):
+            for candidate in normalized_awaitables[:index]:
+                close = getattr(candidate, "close", None)
+                if callable(close):
+                    close()
+            raise TypeError("run_async_many expects awaitable arguments")
+
+    async def _run_with_timeout() -> list[T] | list[T | BaseException]:
+        gatherer = asyncio.gather(
+            *normalized_awaitables,
+            return_exceptions=return_exceptions,
+        )
+        if timeout is None:
+            return await gatherer
+        return await asyncio.wait_for(gatherer, timeout=timeout)
+
+    def _timeout_error() -> TimeoutError:
+        return TimeoutError(f"run_async_many timed out after {timeout} seconds")
+
+    return _run_with_event_loop_bridge(
+        _run_with_timeout,
+        timeout_error_factory=_timeout_error,
+    )

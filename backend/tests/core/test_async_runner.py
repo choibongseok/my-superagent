@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from app.core.async_runner import run_async
+from app.core.async_runner import run_async, run_async_many
 
 
 async def _compute_value() -> int:
@@ -112,3 +112,69 @@ def test_run_async_rejects_non_callable_and_non_awaitable_input():
         match="expects an awaitable or a callable returning an awaitable",
     ):
         run_async(123)  # type: ignore[arg-type]
+
+
+def test_run_async_many_without_existing_event_loop_returns_ordered_results():
+    async def _double(value: int) -> int:
+        await asyncio.sleep(0.01)
+        return value * 2
+
+    assert run_async_many(_double(1), _double(2), _double(3)) == [2, 4, 6]
+
+
+@pytest.mark.asyncio
+async def test_run_async_many_with_existing_event_loop_returns_results():
+    async def _format(index: int) -> str:
+        await asyncio.sleep(0.01)
+        return f"task-{index}"
+
+    assert run_async_many(_format(1), _format(2)) == ["task-1", "task-2"]
+
+
+def test_run_async_many_propagates_exceptions_by_default():
+    async def _ok() -> str:
+        return "ok"
+
+    async def _fail() -> str:
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        run_async_many(_ok(), _fail())
+
+
+@pytest.mark.asyncio
+async def test_run_async_many_can_return_exceptions_when_requested():
+    async def _ok() -> int:
+        await asyncio.sleep(0.01)
+        return 7
+
+    async def _fail() -> int:
+        await asyncio.sleep(0.01)
+        raise ValueError("bad")
+
+    results = run_async_many(_ok(), _fail(), return_exceptions=True)
+
+    assert results[0] == 7
+    assert isinstance(results[1], ValueError)
+    assert str(results[1]) == "bad"
+
+
+def test_run_async_many_timeout_without_existing_event_loop():
+    async def _sleep() -> None:
+        await asyncio.sleep(0.1)
+
+    with pytest.raises(TimeoutError, match="run_async_many timed out"):
+        run_async_many(_sleep(), timeout=0.01)
+
+
+def test_run_async_many_rejects_non_awaitable_arguments():
+    coroutine = _compute_value()
+    try:
+        with pytest.raises(TypeError, match="expects awaitable arguments"):
+            run_async_many(coroutine, 123)  # type: ignore[arg-type]
+    finally:
+        coroutine.close()
+
+
+def test_run_async_many_empty_input_returns_empty_list():
+    assert run_async_many() == []
