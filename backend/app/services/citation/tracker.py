@@ -729,6 +729,8 @@ class CitationTracker:
         match_mode: Literal["all", "any"] = "all",
         published_after: Optional[datetime] = None,
         published_before: Optional[datetime] = None,
+        min_age_days: Optional[int] = None,
+        max_age_days: Optional[int] = None,
         metadata_filters: Optional[Mapping[str, Any]] = None,
         domains: Optional[str | Iterable[str]] = None,
         exclude_domains: Optional[str | Iterable[str]] = None,
@@ -779,6 +781,12 @@ class CitationTracker:
                 ``"any"`` returns sources that match at least one token.
             published_after: Optional lower-bound date filter (inclusive).
             published_before: Optional upper-bound date filter (inclusive).
+            min_age_days: Optional minimum source age in days relative to
+                ``as_of`` (inclusive). When provided, undated sources are
+                excluded because age cannot be determined.
+            max_age_days: Optional maximum source age in days relative to
+                ``as_of`` (inclusive). When provided, undated sources are
+                excluded because age cannot be determined.
             metadata_filters: Optional metadata constraints where each key/value
                 pair must match source metadata exactly (case-insensitive). Values
                 may be scalars or iterables of accepted values.
@@ -822,7 +830,7 @@ class CitationTracker:
                 ``sort_by='recency'``. ``"strict"`` penalizes stale sources
                 more aggressively, while ``"lenient"`` decays slower.
             as_of: Optional reference timestamp for deterministic recency
-                calculations when ``sort_by='recency'``.
+                calculations and age-day filters.
             min_token_matches: Optional minimum number of unique query tokens
                 that must appear in a source's searchable text. Useful for
                 reducing weak single-token matches when using
@@ -860,6 +868,25 @@ class CitationTracker:
             and published_after > published_before
         ):
             raise ValueError("published_after cannot be later than published_before")
+
+        if min_age_days is not None:
+            if isinstance(min_age_days, bool) or not isinstance(min_age_days, int):
+                raise ValueError("min_age_days must be an integer")
+            if min_age_days < 0:
+                raise ValueError("min_age_days cannot be negative")
+
+        if max_age_days is not None:
+            if isinstance(max_age_days, bool) or not isinstance(max_age_days, int):
+                raise ValueError("max_age_days must be an integer")
+            if max_age_days < 0:
+                raise ValueError("max_age_days cannot be negative")
+
+        if (
+            min_age_days is not None
+            and max_age_days is not None
+            and min_age_days > max_age_days
+        ):
+            raise ValueError("min_age_days cannot be greater than max_age_days")
 
         if min_citations is not None and min_citations < 0:
             raise ValueError("min_citations cannot be negative")
@@ -1091,6 +1118,18 @@ class CitationTracker:
                 if published_after is not None and published_date < published_after:
                     continue
                 if published_before is not None and published_date > published_before:
+                    continue
+
+            source_age_days = self._compute_source_age_days(
+                source.published_date,
+                reference_time=reference_time,
+            )
+            if min_age_days is not None or max_age_days is not None:
+                if source_age_days is None:
+                    continue
+                if min_age_days is not None and source_age_days < min_age_days:
+                    continue
+                if max_age_days is not None and source_age_days > max_age_days:
                     continue
 
             title = self._normalize_text(source.title)
@@ -1327,6 +1366,8 @@ class CitationTracker:
         match_mode: Literal["all", "any"] = "all",
         published_after: Optional[datetime] = None,
         published_before: Optional[datetime] = None,
+        min_age_days: Optional[int] = None,
+        max_age_days: Optional[int] = None,
         metadata_filters: Optional[Mapping[str, Any]] = None,
         domains: Optional[str | Iterable[str]] = None,
         exclude_domains: Optional[str | Iterable[str]] = None,
@@ -1370,6 +1411,8 @@ class CitationTracker:
             match_mode=match_mode,
             published_after=published_after,
             published_before=published_before,
+            min_age_days=min_age_days,
+            max_age_days=max_age_days,
             metadata_filters=metadata_filters,
             domains=domains,
             exclude_domains=exclude_domains,
@@ -1414,6 +1457,10 @@ class CitationTracker:
                 recency_window_days=recency_window_days,
                 recency_profile=recency_profile,
             )
+            source_age_days = self._compute_source_age_days(
+                source.published_date,
+                reference_time=reference_time,
+            )
             relevance_score = self._compute_relevance_score(
                 source,
                 query_tokens=query_tokens,
@@ -1431,6 +1478,9 @@ class CitationTracker:
                     "citation_count": citation_count,
                     "authority_score": authority_score,
                     "recency_score": recency_score,
+                    "age_days": round(source_age_days, 3)
+                    if source_age_days is not None
+                    else None,
                     "relevance_score": relevance_score,
                     "hybrid_score": self._compute_hybrid_score(
                         relevance_score=relevance_score,
@@ -1692,6 +1742,25 @@ class CitationTracker:
             return value.replace(tzinfo=None)
 
         return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+    @classmethod
+    def _compute_source_age_days(
+        cls,
+        published_date: Optional[datetime],
+        *,
+        reference_time: datetime,
+    ) -> Optional[float]:
+        """Compute source age in days relative to the provided reference time."""
+        if published_date is None:
+            return None
+
+        normalized_published_date = cls._normalize_datetime(published_date)
+        raw_age_days = (
+            reference_time - normalized_published_date
+        ).total_seconds() / 86400
+
+        # Treat future publication timestamps as "fresh" for age filtering.
+        return max(0.0, raw_age_days)
 
     @classmethod
     def _compute_recency_score(

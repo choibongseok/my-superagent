@@ -969,6 +969,98 @@ class TestCitationTracker:
                 published_before=datetime(2024, 12, 31),
             )
 
+    def test_search_sources_supports_min_and_max_age_days_filters(self):
+        """Age filters should bound source freshness relative to as_of."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        fresh_id = tracker.add_source(
+            title="Fresh AI Report",
+            published_date=anchor_time - timedelta(days=5),
+            type=SourceType.ARTICLE,
+        )
+        mid_id = tracker.add_source(
+            title="Mid AI Report",
+            published_date=anchor_time - timedelta(days=45),
+            type=SourceType.ARTICLE,
+        )
+        stale_id = tracker.add_source(
+            title="Stale AI Report",
+            published_date=anchor_time - timedelta(days=220),
+            type=SourceType.ARTICLE,
+        )
+        tracker.add_source(
+            title="Undated AI Report",
+            type=SourceType.ARTICLE,
+        )
+
+        recent_matches = tracker.search_sources(
+            "ai report",
+            as_of=anchor_time,
+            max_age_days=60,
+        )
+        assert [source.id for source in recent_matches] == [fresh_id, mid_id]
+
+        mature_matches = tracker.search_sources(
+            "ai report",
+            as_of=anchor_time,
+            min_age_days=30,
+        )
+        assert [source.id for source in mature_matches] == [mid_id, stale_id]
+
+    def test_search_sources_rejects_invalid_age_day_filters(self):
+        """Age filters should enforce integer, non-negative, and bounded values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(ValueError, match="min_age_days must be an integer"):
+            tracker.search_sources("ai", min_age_days=1.5)
+
+        with pytest.raises(ValueError, match="max_age_days must be an integer"):
+            tracker.search_sources("ai", max_age_days=True)
+
+        with pytest.raises(ValueError, match="min_age_days cannot be negative"):
+            tracker.search_sources("ai", min_age_days=-1)
+
+        with pytest.raises(ValueError, match="max_age_days cannot be negative"):
+            tracker.search_sources("ai", max_age_days=-1)
+
+        with pytest.raises(
+            ValueError,
+            match="min_age_days cannot be greater than max_age_days",
+        ):
+            tracker.search_sources(
+                "ai",
+                min_age_days=30,
+                max_age_days=7,
+            )
+
+    def test_search_sources_with_details_includes_age_days_and_supports_filters(
+        self,
+    ):
+        """Detailed search should expose age_days and honor age filter pass-through."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        keep_id = tracker.add_source(
+            title="Agent Reliability Fresh Brief",
+            published_date=anchor_time - timedelta(days=14),
+            type=SourceType.ARTICLE,
+        )
+        tracker.add_source(
+            title="Agent Reliability Legacy Brief",
+            published_date=anchor_time - timedelta(days=160),
+            type=SourceType.ARTICLE,
+        )
+
+        detailed = tracker.search_sources_with_details(
+            "agent reliability brief",
+            as_of=anchor_time,
+            max_age_days=30,
+        )
+
+        assert [item["source"].id for item in detailed] == [keep_id]
+        assert detailed[0]["age_days"] == pytest.approx(14.0)
+
     def test_search_sources_supports_min_and_max_citations_filters(self):
         """Citation count bounds should filter sources by how often they are cited."""
         tracker = CitationTracker()
@@ -1306,7 +1398,6 @@ class TestCitationTracker:
         )
 
         assert [item["source"].id for item in detailed_matches] == [keep_id]
-
 
     def test_search_sources_supports_has_url_filter(self):
         """has_url should allow filtering URL-backed and URL-less sources."""
