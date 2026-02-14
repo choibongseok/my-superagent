@@ -1488,6 +1488,38 @@ class LocalCacheService:
         }
         return self.delete_many(matching_keys)
 
+    def clear_namespaces(
+        self,
+        namespaces: Iterable[str],
+        *,
+        separator: str = ":",
+    ) -> int:
+        """Delete keys that belong to any namespace in ``namespaces``.
+
+        Namespace extraction follows :meth:`clear_namespace`: the key segment
+        before the first ``separator`` is treated as the namespace.
+
+        Duplicate namespaces are deduplicated before matching keys.
+        """
+        normalized_separator = self._normalize_namespace_separator(separator)
+
+        normalized_namespaces: set[str] = set()
+        for namespace in namespaces:
+            normalized_namespaces.add(
+                self._normalize_namespace(namespace, separator=normalized_separator)
+            )
+
+        if not normalized_namespaces:
+            return 0
+
+        matching_keys = {
+            key
+            for key in self._all_known_keys()
+            if self._extract_namespace(key, separator=normalized_separator)
+            in normalized_namespaces
+        }
+        return self.delete_many(matching_keys)
+
     def clear_where(
         self,
         *,

@@ -1407,6 +1407,78 @@ def test_local_cache_clear_namespace_rejects_invalid_inputs():
         cache.clear_namespace("session", separator="")
 
 
+def test_local_cache_clear_namespaces_removes_union_of_matching_namespaces():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "session:alpha": 1,
+            "session:beta": 2,
+            "user:alpha": 3,
+            "task:1": 4,
+        }
+    )
+
+    removed = cache.clear_namespaces(["session", "user", "session"])
+
+    assert removed == 3
+    assert cache.get("session:alpha") is None
+    assert cache.get("session:beta") is None
+    assert cache.get("user:alpha") is None
+    assert cache.get("task:1") == 4
+
+
+def test_local_cache_clear_namespaces_supports_custom_separator():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "team/alpha": 1,
+            "team/beta": 2,
+            "project/alpha": 3,
+        }
+    )
+
+    removed = cache.clear_namespaces(["team"], separator="/")
+
+    assert removed == 2
+    assert cache.get("team/alpha") is None
+    assert cache.get("team/beta") is None
+    assert cache.get("project/alpha") == 3
+
+
+def test_local_cache_clear_namespaces_rejects_invalid_inputs():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="namespace cannot be empty"):
+        cache.clear_namespaces(["session", "   "])
+
+    with pytest.raises(ValueError, match="namespace cannot contain separator"):
+        cache.clear_namespaces(["session:alpha"])
+
+    with pytest.raises(ValueError, match="separator cannot be empty"):
+        cache.clear_namespaces(["session"], separator="")
+
+
+@pytest.mark.asyncio
+async def test_local_cache_clear_namespaces_cancels_matching_inflight_tasks():
+    cache = LocalCacheService()
+    gate = asyncio.Event()
+
+    async def factory() -> str:
+        await gate.wait()
+        return "ready"
+
+    task = asyncio.create_task(cache.get_or_set_async("session:pending", factory))
+    await asyncio.sleep(0)
+
+    removed = cache.clear_namespaces(["session"])
+    gate.set()
+
+    assert removed == 1
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cache.get("session:pending") is None
+
+
 def test_local_cache_clear_prefix_removes_matching_keys_only():
     cache = LocalCacheService()
     cache.set_many(
