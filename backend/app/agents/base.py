@@ -9,6 +9,8 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
+from google.oauth2.credentials import Credentials
+
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import BaseTool
@@ -66,6 +68,7 @@ class BaseAgent(ABC):
         self,
         user_id: str,
         session_id: Optional[str] = None,
+        credentials: Optional[Credentials] = None,
         llm_provider: str = "openai",
         model: str = "gpt-4-turbo-preview",
         temperature: float = 0.7,
@@ -78,6 +81,7 @@ class BaseAgent(ABC):
         Args:
             user_id: User identifier for tracking
             session_id: Session identifier for grouping (auto-generated if None)
+            credentials: Optional Google OAuth credentials passed from caller
             llm_provider: "openai" or "anthropic"
             model: Model name (e.g., "gpt-4-turbo-preview", "claude-3-opus")
             temperature: LLM temperature (0-1)
@@ -86,6 +90,7 @@ class BaseAgent(ABC):
         """
         self.user_id = user_id
         self.session_id = session_id or f"session_{user_id}"
+        self.credentials = credentials
 
         # CRITICAL: Initialize LangFuse handler FIRST (before LLM creation)
         self.langfuse_handler = None
