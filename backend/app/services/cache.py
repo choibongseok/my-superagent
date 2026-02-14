@@ -1206,8 +1206,16 @@ class LocalCacheService:
         match_all_tags: bool = False,
         limit: int | None = None,
         include_values: bool = False,
+        include_entry_tags: bool = False,
+        include_expires_at: bool = False,
     ) -> list[dict[str, Any]]:
-        """List active cache entries with optional filters and metadata."""
+        """List active cache entries with optional filters and metadata.
+
+        Args:
+            include_values: Include cached values in each entry payload.
+            include_entry_tags: Include sorted tags associated with each key.
+            include_expires_at: Include absolute unix expiration timestamps.
+        """
         entries: list[dict[str, Any]] = []
         for key in self.list_keys(
             prefix=prefix,
@@ -1225,6 +1233,10 @@ class LocalCacheService:
             }
             if include_values:
                 entry["value"] = value
+            if include_entry_tags:
+                entry["tags"] = sorted(self._tags_by_key.get(key, set()))
+            if include_expires_at:
+                entry["expires_at"] = expires_at
             entries.append(entry)
 
         return entries

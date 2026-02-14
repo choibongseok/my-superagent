@@ -1238,6 +1238,24 @@ def test_local_cache_list_entries_includes_ttl_metadata_and_optional_values():
     assert 0 < with_values[1]["ttl_seconds"] <= 2
 
 
+def test_local_cache_list_entries_can_include_tags_and_absolute_expiration():
+    cache = LocalCacheService()
+    cache.set_tagged("persistent", {"v": 1}, tags=["stable", "alpha"])
+    cache.set_tagged("temporary", "value", tags=["volatile"], ttl_seconds=2)
+
+    entries = cache.list_entries(include_entry_tags=True, include_expires_at=True)
+
+    assert entries[0]["key"] == "persistent"
+    assert entries[0]["tags"] == ["alpha", "stable"]
+    assert entries[0]["expires_at"] is None
+
+    assert entries[1]["key"] == "temporary"
+    assert entries[1]["tags"] == ["volatile"]
+    assert entries[1]["expires_at"] is not None
+    assert entries[1]["ttl_seconds"] is not None
+    assert 0 < entries[1]["ttl_seconds"] <= 2
+
+
 def test_local_cache_list_entries_supports_tag_filters():
     cache = LocalCacheService()
     cache.set_tagged("session:alpha", {"v": 1}, tags=["session", "active"])
