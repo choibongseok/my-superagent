@@ -66,6 +66,50 @@ class StructuredSchemaPlugin(BasePlugin):
         )
 
 
+class ConstrainedSchemaPlugin(BasePlugin):
+    """Plugin using structured schemas with additional bounds/pattern constraints."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="constrained-schema",
+            version="1.0.0",
+            description="Schema constraints plugin",
+            author="tests",
+            permissions=[],
+            inputs={
+                "slug": {
+                    "type": "string",
+                    "required": True,
+                    "pattern": r"^[a-z0-9-]+$",
+                },
+                "priority": {
+                    "type": "integer",
+                    "required": False,
+                    "minimum": 1,
+                    "maximum": 5,
+                },
+                "summary": {
+                    "type": "string",
+                    "required": False,
+                    "min_length": 5,
+                    "max_length": 40,
+                },
+                "tags": {
+                    "type": "array",
+                    "required": False,
+                    "max_length": 3,
+                },
+            },
+            outputs={"ok": "boolean"},
+        )
+
+
 @pytest.mark.asyncio
 async def test_validate_inputs_accepts_optional_string_field():
     plugin = OptionalStringSchemaPlugin()
@@ -124,6 +168,81 @@ async def test_validate_inputs_accepts_case_insensitive_choice_strings():
     plugin = StructuredSchemaPlugin()
 
     assert await plugin.validate_inputs({"message": "ok", "mode": "FINAL"}) is True
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_accepts_structured_schema_constraints():
+    plugin = ConstrainedSchemaPlugin()
+
+    assert (
+        await plugin.validate_inputs(
+            {
+                "slug": "agenthq-release-1",
+                "priority": "3",
+                "summary": "Launch readiness checklist",
+                "tags": ["ops", "release"],
+            }
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_values_outside_numeric_bounds():
+    plugin = ConstrainedSchemaPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'priority': must be less than or equal to 5",
+    ):
+        await plugin.validate_inputs(
+            {
+                "slug": "agenthq-release-1",
+                "priority": 6,
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_values_that_do_not_match_pattern_constraint():
+    plugin = ConstrainedSchemaPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'slug': must match pattern",
+    ):
+        await plugin.validate_inputs(
+            {
+                "slug": "AgentHQ Release 1",
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_values_outside_length_bounds():
+    plugin = ConstrainedSchemaPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'summary': length must be at least 5",
+    ):
+        await plugin.validate_inputs(
+            {
+                "slug": "agenthq-release-1",
+                "summary": "tiny",
+            }
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'tags': length must be at most 3",
+    ):
+        await plugin.validate_inputs(
+            {
+                "slug": "agenthq-release-1",
+                "tags": ["ops", "release", "qa", "infra"],
+            }
+        )
 
 
 def test_manifest_to_dict_includes_config_schema():

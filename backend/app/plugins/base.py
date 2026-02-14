@@ -1,6 +1,7 @@
 """Base plugin interface for AgentHQ plugin system."""
 
 from abc import ABC, abstractmethod
+import re
 from typing import Any, Dict, List, Optional
 
 _TRUE_VALUES = {"true", "1", "yes", "on"}
@@ -127,6 +128,7 @@ class BasePlugin(ABC):
         1. Required-field validation (legacy behavior)
         2. Optional schema-driven type validation for declared fields
         3. Optional enum/choices validation for structured dict schemas
+        4. Optional schema constraints (bounds, length, and regex patterns)
 
         Unknown input keys are ignored for backward compatibility.
         """
@@ -163,6 +165,13 @@ class BasePlugin(ABC):
                 raise ValueError(
                     f"Invalid value for input '{key}': expected one of {choices}"
                 )
+
+            self._validate_schema_constraints(
+                key=key,
+                value=value,
+                schema=schema,
+                expected_type=expected_type,
+            )
 
         return True
 
@@ -288,6 +297,248 @@ class BasePlugin(ABC):
             return value.casefold() in normalized_choices
 
         return False
+
+    @classmethod
+    def _validate_schema_constraints(
+        cls,
+        *,
+        key: str,
+        value: Any,
+        schema: Any,
+        expected_type: Optional[str],
+    ) -> None:
+        """Validate optional structured schema constraints for an input value."""
+        if not isinstance(schema, dict):
+            return
+
+        cls._validate_numeric_bounds(
+            key=key,
+            value=value,
+            schema=schema,
+            expected_type=expected_type,
+        )
+        cls._validate_length_bounds(key=key, value=value, schema=schema)
+        cls._validate_pattern_constraint(
+            key=key,
+            value=value,
+            schema=schema,
+            expected_type=expected_type,
+        )
+
+    @staticmethod
+    def _coerce_numeric_constraint(
+        schema: Dict[str, Any],
+        *,
+        key: str,
+        aliases: tuple[str, ...],
+        label: str,
+    ) -> float | None:
+        """Extract and validate a numeric constraint value from schema aliases."""
+        for alias in aliases:
+            if alias not in schema:
+                continue
+
+            raw_constraint = schema[alias]
+            if isinstance(raw_constraint, bool):
+                raise ValueError(
+                    f"Invalid schema for input '{key}': {label} must be a number"
+                )
+
+            try:
+                return float(raw_constraint)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Invalid schema for input '{key}': {label} must be a number"
+                ) from error
+
+        return None
+
+    @staticmethod
+    def _coerce_numeric_value(value: Any) -> float:
+        """Coerce numeric payload values (including numeric strings) into floats."""
+        if isinstance(value, bool):
+            raise ValueError("numeric values cannot be boolean")
+
+        if isinstance(value, (int, float)):
+            return float(value)
+
+        if isinstance(value, str):
+            stripped_value = value.strip()
+            if not stripped_value:
+                raise ValueError("numeric values cannot be blank")
+            return float(stripped_value)
+
+        raise ValueError("numeric value expected")
+
+    @classmethod
+    def _validate_numeric_bounds(
+        cls,
+        *,
+        key: str,
+        value: Any,
+        schema: Dict[str, Any],
+        expected_type: Optional[str],
+    ) -> None:
+        """Validate minimum/maximum constraints for numeric schema fields."""
+        minimum = cls._coerce_numeric_constraint(
+            schema,
+            key=key,
+            aliases=("minimum", "min"),
+            label="minimum",
+        )
+        maximum = cls._coerce_numeric_constraint(
+            schema,
+            key=key,
+            aliases=("maximum", "max"),
+            label="maximum",
+        )
+
+        if minimum is None and maximum is None:
+            return
+
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise ValueError(
+                f"Invalid schema for input '{key}': minimum cannot be greater than maximum"
+            )
+
+        if expected_type not in {"integer", "number"}:
+            return
+
+        numeric_value = cls._coerce_numeric_value(value)
+
+        if minimum is not None and numeric_value < minimum:
+            raise ValueError(
+                f"Invalid value for input '{key}': must be greater than or equal to {minimum:g}"
+            )
+
+        if maximum is not None and numeric_value > maximum:
+            raise ValueError(
+                f"Invalid value for input '{key}': must be less than or equal to {maximum:g}"
+            )
+
+    @staticmethod
+    def _coerce_length_constraint(
+        schema: Dict[str, Any],
+        *,
+        key: str,
+        aliases: tuple[str, ...],
+        label: str,
+    ) -> int | None:
+        """Extract and validate non-negative integer length constraints."""
+        for alias in aliases:
+            if alias not in schema:
+                continue
+
+            raw_constraint = schema[alias]
+            if isinstance(raw_constraint, bool):
+                raise ValueError(
+                    f"Invalid schema for input '{key}': {label} must be a non-negative integer"
+                )
+
+            try:
+                parsed_constraint = int(raw_constraint)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Invalid schema for input '{key}': {label} must be a non-negative integer"
+                ) from error
+
+            if parsed_constraint < 0:
+                raise ValueError(
+                    f"Invalid schema for input '{key}': {label} must be a non-negative integer"
+                )
+
+            return parsed_constraint
+
+        return None
+
+    @classmethod
+    def _validate_length_bounds(
+        cls,
+        *,
+        key: str,
+        value: Any,
+        schema: Dict[str, Any],
+    ) -> None:
+        """Validate optional min/max length constraints for sized values."""
+        min_length = cls._coerce_length_constraint(
+            schema,
+            key=key,
+            aliases=("min_length", "minLength"),
+            label="min_length",
+        )
+        max_length = cls._coerce_length_constraint(
+            schema,
+            key=key,
+            aliases=("max_length", "maxLength"),
+            label="max_length",
+        )
+
+        if min_length is None and max_length is None:
+            return
+
+        if (
+            min_length is not None
+            and max_length is not None
+            and min_length > max_length
+        ):
+            raise ValueError(
+                f"Invalid schema for input '{key}': min_length cannot be greater than max_length"
+            )
+
+        try:
+            value_length = len(value)
+        except TypeError as error:
+            raise ValueError(
+                f"Invalid value for input '{key}': does not support length constraints"
+            ) from error
+
+        if min_length is not None and value_length < min_length:
+            raise ValueError(
+                f"Invalid value for input '{key}': length must be at least {min_length}"
+            )
+
+        if max_length is not None and value_length > max_length:
+            raise ValueError(
+                f"Invalid value for input '{key}': length must be at most {max_length}"
+            )
+
+    @staticmethod
+    def _validate_pattern_constraint(
+        *,
+        key: str,
+        value: Any,
+        schema: Dict[str, Any],
+        expected_type: Optional[str],
+    ) -> None:
+        """Validate regex pattern constraints for string values."""
+        if "pattern" not in schema:
+            return
+
+        raw_pattern = schema["pattern"]
+        if not isinstance(raw_pattern, str) or not raw_pattern:
+            raise ValueError(
+                f"Invalid schema for input '{key}': pattern must be a non-empty string"
+            )
+
+        if expected_type not in {None, "string"}:
+            return
+
+        if not isinstance(value, str):
+            raise ValueError(
+                f"Invalid value for input '{key}': pattern constraints require a string"
+            )
+
+        try:
+            compiled_pattern = re.compile(raw_pattern)
+        except re.error as error:
+            raise ValueError(
+                f"Invalid schema for input '{key}': pattern is not a valid regular expression"
+            ) from error
+
+        if compiled_pattern.search(value) is None:
+            raise ValueError(
+                f"Invalid value for input '{key}': must match pattern {raw_pattern!r}"
+            )
 
     async def cleanup(self) -> None:
         """
