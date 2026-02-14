@@ -367,6 +367,97 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_indent_transform_with_default_prefix(
+        self, service_with_mock_db
+    ):
+        """indent() should add a readable default prefix for multiline blocks."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Checklist:\n{steps->dedent->strip->indent()}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "steps": (
+                        "\n"
+                        "            Review migration plan\n"
+                        "            Merge after CI\n"
+                    )
+                },
+                user_id,
+            )
+
+        assert (
+            result["prompt"]
+            == "Checklist:\n    Review migration plan\n    Merge after CI"
+        )
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_indent_transform_with_custom_prefix(
+        self, service_with_mock_db
+    ):
+        """indent(prefix) should support custom prefixes for quoted blocks."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Quoted:\n{notes->strip->indent("> ")}',
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "notes": "line one\nline two",
+                },
+                user_id,
+            )
+
+        assert result["prompt"] == "Quoted:\n> line one\n> line two"
+        assert template.usage_count == 3
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_indent_transform_with_empty_prefix(
+        self, service_with_mock_db
+    ):
+        """indent("") should fail with a clear validation message."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Notes:\n{notes->indent("")}',
+            category="docs",
+            usage_count=5,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(ValueError, match="indent prefix must not be empty"):
+                await service.use_template(
+                    template_id,
+                    {
+                        "notes": "hello",
+                    },
+                    user_id,
+                )
+
+        assert template.usage_count == 5
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_applies_default_before_text_transform(
         self, service_with_mock_db
     ):

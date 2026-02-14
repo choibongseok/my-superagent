@@ -139,6 +139,22 @@ def _compact_whitespace(value: object) -> str:
     return " ".join(str(value).split())
 
 
+def _indent_text(value: object, argument_spec: str) -> str:
+    """Indent multiline text values with an optional custom prefix."""
+    args: list[str] = []
+    if argument_spec.strip():
+        args = _parse_transform_args(argument_spec)
+
+    if len(args) > 1:
+        raise ValueError("indent expects zero or one argument: prefix")
+
+    prefix = args[0] if args else "    "
+    if prefix == "":
+        raise ValueError("indent prefix must not be empty")
+
+    return textwrap.indent(str(value), prefix)
+
+
 def _parse_transform_args(argument_spec: str) -> list[str]:
     """Parse comma-separated transform arguments, supporting CSV quoting."""
     try:
@@ -686,7 +702,7 @@ class TemplateService:
         - ``{steps->reverse->join(" | ")}``
         - ``{milestones->slice(0,2)->join(", ")}``
         - ``{items->slice(0,10,2)->join(", ")}``
-        - ``{notes->dedent->strip}``
+        - ``{notes->dedent->indent("  ")->strip}``
         - ``{search_query->urlencode}``
         - ``{title->slug}``
         - ``{summary->compact}``
@@ -719,6 +735,7 @@ class TemplateService:
             "capitalize": lambda raw: str(raw).capitalize(),
             "dedent": lambda raw: textwrap.dedent(str(raw)),
             "compact": _compact_whitespace,
+            "indent": lambda raw: _indent_text(raw, ""),
             "snake_case": lambda raw: "_".join(_tokenize_case_transform(raw)),
             "kebab_case": lambda raw: "-".join(_tokenize_case_transform(raw)),
             "dot_case": lambda raw: ".".join(_tokenize_case_transform(raw)),
@@ -753,6 +770,7 @@ class TemplateService:
                 "sort([asc|desc])",
                 "slice(<start>[,<end>[,<step>]])",
                 "fallback(<value>)",
+                "indent([prefix])",
             ]
         )
 
@@ -809,6 +827,8 @@ class TemplateService:
                         raw,
                         spec,
                     )
+                elif transform_name == "indent":
+                    operation = lambda raw, spec=argument_spec: _indent_text(raw, spec)
 
             if operation is None:
                 supported = ", ".join(supported_transforms)
@@ -883,7 +903,7 @@ class TemplateService:
         ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
         ``{queue->first}``, ``{queue->last}``, ``{tasks->reverse}``,
         ``{milestones->slice(0,2)}``, ``{items->slice(0,10,2)}``,
-        ``{notes->dedent->strip}``,
+        ``{notes->dedent->indent("> ")->strip}``,
         ``{payload->json}``, ``{payload->json_pretty}``,
         ``{search_query->urlencode}``, ``{title->slug}``,
         ``{summary->compact}``, or ``{nickname->strip->fallback("friend")}``).
