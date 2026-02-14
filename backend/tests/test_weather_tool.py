@@ -26,6 +26,7 @@ class TestWeatherTool:
 
         assert result["location"] == "Seoul"
         assert result["temperature"] == 22.5
+        assert result["temperature_unit"] == "°C"
         assert result["feels_like"] == 21.3
         assert result["condition"] == "Partly Cloudy"
         assert result["humidity"] == 65
@@ -33,6 +34,7 @@ class TestWeatherTool:
         assert result["daylight_status"] == "day"
         assert result["pressure"] == 1013
         assert result["wind_speed"] == 12.3
+        assert result["wind_speed_unit"] == "km/h"
         assert result["visibility"] == 10.0
         assert result["visibility_unit"] == "km"
         assert result["precipitation_1h"] is None
@@ -410,6 +412,7 @@ class TestWeatherTool:
 
             assert result["location"] == "London"
             assert result["temperature"] == 15.3
+            assert result["temperature_unit"] == "°C"
             assert result["feels_like"] == 14.7
             assert result["condition"] == "Light Rain"
             assert result["humidity"] == 72
@@ -417,6 +420,7 @@ class TestWeatherTool:
             assert result["daylight_status"] == "day"
             assert result["pressure"] == 1008
             assert result["wind_speed"] == 18.7  # 5.2 m/s * 3.6 = 18.72 km/h
+            assert result["wind_speed_unit"] == "km/h"
             assert result["visibility"] == 7.5
             assert result["visibility_unit"] == "km"
 
@@ -595,8 +599,10 @@ class TestWeatherTool:
             result = await plugin.execute({"location": "New York"})
 
             assert result["temperature"] == 68.5
+            assert result["temperature_unit"] == "°F"
             assert result["pressure"] == 1002
             assert result["wind_speed"] == 10.5  # No conversion for imperial
+            assert result["wind_speed_unit"] == "mph"
             assert result["visibility"] == 1.0
             assert result["visibility_unit"] == "mi"
 
@@ -633,8 +639,10 @@ class TestWeatherTool:
         assert result["location"] == "Seoul"
         assert result["units"] == "imperial"
         assert result["temperature"] == 72.5
+        assert result["temperature_unit"] == "°F"
         assert result["feels_like"] == 70.3
         assert result["wind_speed"] == 7.6
+        assert result["wind_speed_unit"] == "mph"
         assert result["visibility"] == 6.2
         assert result["visibility_unit"] == "mi"
 
@@ -648,8 +656,10 @@ class TestWeatherTool:
         assert result["location"] == "Seoul"
         assert result["units"] == "standard"
         assert result["temperature"] == 295.6
+        assert result["temperature_unit"] == "K"
         assert result["feels_like"] == 294.4
         assert result["wind_speed"] == 3.4
+        assert result["wind_speed_unit"] == "m/s"
         assert result["visibility"] == 10000.0
         assert result["visibility_unit"] == "m"
 
@@ -686,7 +696,9 @@ class TestWeatherTool:
 
             assert result["units"] == "standard"
             assert result["temperature"] == 275.2
+            assert result["temperature_unit"] == "K"
             assert result["wind_speed"] == 4.6
+            assert result["wind_speed_unit"] == "m/s"
 
     @pytest.mark.asyncio
     async def test_run_tool_formats_standard_units(self):
@@ -1211,7 +1223,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.17.0"
+        assert manifest.version == "1.18.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
@@ -1230,8 +1242,10 @@ class TestWeatherTool:
         assert "lang" in manifest.inputs
         assert "refresh_cache" in manifest.inputs
         assert "feels_like" in manifest.outputs
+        assert "temperature_unit" in manifest.outputs
         assert "pressure" in manifest.outputs
         assert "pressure_unit" in manifest.outputs
+        assert "wind_speed_unit" in manifest.outputs
         assert "cloudiness" in manifest.outputs
         assert "daylight_status" in manifest.outputs
         assert "visibility" in manifest.outputs

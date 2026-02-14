@@ -289,6 +289,16 @@ class Plugin(ToolPlugin):
         return round(api_visibility_meters, 1), "m"
 
     @staticmethod
+    def _resolve_unit_labels(units: str) -> tuple[str, str]:
+        """Resolve display labels for temperature and wind-speed units."""
+        if units == "imperial":
+            return "°F", "mph"
+        if units == "standard":
+            return "K", "m/s"
+
+        return "°C", "km/h"
+
+    @staticmethod
     def _extract_precipitation_amount(
         data: Dict[str, Any], period: str
     ) -> float | None:
@@ -451,10 +461,12 @@ class Plugin(ToolPlugin):
             visibility_meters,
             units,
         )
+        temperature_unit, wind_speed_unit = self._resolve_unit_labels(units)
 
         return {
             "location": location,
             "temperature": temperature,
+            "temperature_unit": temperature_unit,
             "feels_like": feels_like,
             "condition": "Partly Cloudy",
             "humidity": 65,
@@ -463,6 +475,7 @@ class Plugin(ToolPlugin):
             "pressure": self._convert_pressure_from_hpa(pressure_hpa, pressure_unit),
             "pressure_unit": pressure_unit,
             "wind_speed": wind_speed,
+            "wind_speed_unit": wind_speed_unit,
             "visibility": visibility,
             "visibility_unit": visibility_unit,
             "precipitation_1h": None,
@@ -702,6 +715,7 @@ class Plugin(ToolPlugin):
             {
                 "location": str,
                 "temperature": float,
+                "temperature_unit": str,
                 "feels_like": float,
                 "condition": str,
                 "humidity": int,
@@ -710,6 +724,7 @@ class Plugin(ToolPlugin):
                 "pressure": float | None,
                 "pressure_unit": str | None,
                 "wind_speed": float,
+                "wind_speed_unit": str,
                 "visibility": float | None,
                 "visibility_unit": str | None,
                 "precipitation_1h": float | None,
@@ -832,9 +847,14 @@ class Plugin(ToolPlugin):
                     else None,
                 )
 
+                temperature_unit, wind_speed_unit = self._resolve_unit_labels(
+                    resolved_units
+                )
+
                 result = {
                     "location": data.get("name") or normalized_location,
                     "temperature": temperature,
+                    "temperature_unit": temperature_unit,
                     "feels_like": feels_like,
                     "condition": data["weather"][0]["description"].title(),
                     "humidity": main["humidity"],
@@ -848,6 +868,7 @@ class Plugin(ToolPlugin):
                         data["wind"]["speed"],
                         resolved_units,
                     ),
+                    "wind_speed_unit": wind_speed_unit,
                     "visibility": visibility,
                     "visibility_unit": visibility_unit,
                     "precipitation_1h": precipitation_1h,
@@ -892,15 +913,13 @@ class Plugin(ToolPlugin):
         result = await self.execute({"location": tool_input})
 
         resolved_units = result.get("units", self.units)
-        if resolved_units == "imperial":
-            temperature_unit = "°F"
-            wind_unit = "mph"
-        elif resolved_units == "standard":
-            temperature_unit = "K"
-            wind_unit = "m/s"
-        else:
-            temperature_unit = "°C"
-            wind_unit = "km/h"
+        default_temperature_unit, default_wind_unit = self._resolve_unit_labels(
+            resolved_units
+        )
+        temperature_unit = str(
+            result.get("temperature_unit") or default_temperature_unit
+        )
+        wind_unit = str(result.get("wind_speed_unit") or default_wind_unit)
 
         feels_like = result.get("feels_like", result["temperature"])
         pressure = result.get("pressure")
@@ -965,8 +984,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.17.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, configurable pressure units, visibility details, cloud coverage, daylight status, and precipitation insights",
+            version="1.18.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, visibility details, cloud coverage, daylight status, and precipitation insights",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -993,6 +1012,7 @@ class Plugin(ToolPlugin):
             outputs={
                 "location": "string",
                 "temperature": "float",
+                "temperature_unit": "string (°C, °F, or K)",
                 "feels_like": "float",
                 "condition": "string",
                 "humidity": "integer",
@@ -1001,6 +1021,7 @@ class Plugin(ToolPlugin):
                 "pressure": "float | null",
                 "pressure_unit": "string | null (hpa, kpa, inhg, or mmhg)",
                 "wind_speed": "float",
+                "wind_speed_unit": "string (km/h, mph, or m/s)",
                 "visibility": "float | null",
                 "visibility_unit": "string | null (km, mi, or m)",
                 "precipitation_1h": "float | null (mm of rain/snow in the last 1 hour)",
