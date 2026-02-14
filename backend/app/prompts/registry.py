@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from string import Formatter
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from pydantic import BaseModel
 
@@ -133,6 +133,68 @@ class PromptRegistry:
 
         return None
 
+    def _get_prompt_or_raise(
+        self,
+        name: str,
+        *,
+        version: str | None = None,
+    ) -> PromptVersion:
+        """Return prompt version or raise a descriptive not-found error."""
+        prompt_version = self.get(name, version=version)
+        if prompt_version is None:
+            version_suffix = "" if version is None else f" version '{version}'"
+            raise ValueError(f"Prompt '{name}'{version_suffix} was not found")
+
+        return prompt_version
+
+    def _render_prompt_version(
+        self,
+        *,
+        name: str,
+        prompt_version: PromptVersion,
+        provided_variables: Mapping[str, Any],
+        strict: bool,
+        error_context: str = "",
+    ) -> str:
+        """Render one prompt version after variable validation."""
+        required_variables = prompt_version.variables
+
+        missing_variables = [
+            required
+            for required in required_variables
+            if required not in provided_variables
+        ]
+        if missing_variables:
+            missing_display = ", ".join(missing_variables)
+            raise ValueError(
+                f"Missing prompt variables for '{name}'{error_context}: {missing_display}"
+            )
+
+        if strict:
+            unexpected_variables = sorted(
+                set(provided_variables) - set(required_variables)
+            )
+            if unexpected_variables:
+                unexpected_display = ", ".join(unexpected_variables)
+                raise ValueError(
+                    f"Unexpected prompt variables for '{name}'{error_context}: "
+                    f"{unexpected_display}"
+                )
+
+        format_values = {
+            variable_name: provided_variables[variable_name]
+            for variable_name in required_variables
+        }
+
+        try:
+            return prompt_version.template.format(**format_values)
+        except KeyError as error:
+            missing_variable = str(error).strip("'")
+            raise ValueError(
+                "Prompt template references undeclared variable "
+                f"'{missing_variable}' for '{name}'"
+            ) from error
+
     def render(
         self,
         name: str,
@@ -157,48 +219,58 @@ class PromptRegistry:
             ValueError: When the prompt/version is missing or required variables
                 are not provided.
         """
-        prompt_version = self.get(name, version=version)
-        if prompt_version is None:
-            version_suffix = "" if version is None else f" version '{version}'"
-            raise ValueError(f"Prompt '{name}'{version_suffix} was not found")
+        prompt_version = self._get_prompt_or_raise(name, version=version)
+        return self._render_prompt_version(
+            name=name,
+            prompt_version=prompt_version,
+            provided_variables=dict(variables or {}),
+            strict=strict,
+        )
 
-        provided_variables = dict(variables or {})
-        required_variables = prompt_version.variables
+    def render_many(
+        self,
+        name: str,
+        variable_sets: Iterable[Mapping[str, Any]],
+        *,
+        version: str | None = None,
+        strict: bool = True,
+    ) -> List[str]:
+        """Render one prompt against multiple variable mappings.
 
-        missing_variables = [
-            required
-            for required in required_variables
-            if required not in provided_variables
-        ]
-        if missing_variables:
-            missing_display = ", ".join(missing_variables)
-            raise ValueError(
-                f"Missing prompt variables for '{name}': {missing_display}"
-            )
+        Args:
+            name: Prompt name.
+            variable_sets: Sequence of variable mappings to render.
+            version: Optional version label; defaults to latest.
+            strict: When ``True``, reject unexpected variables in each mapping.
 
-        if strict:
-            unexpected_variables = sorted(
-                set(provided_variables) - set(required_variables)
-            )
-            if unexpected_variables:
-                unexpected_display = ", ".join(unexpected_variables)
-                raise ValueError(
-                    f"Unexpected prompt variables for '{name}': {unexpected_display}"
+        Returns:
+            List of rendered prompt strings preserving input order.
+
+        Raises:
+            ValueError: When the prompt/version is missing or a mapping misses
+                required variables.
+            TypeError: When ``variable_sets`` contains non-mapping items.
+        """
+        prompt_version = self._get_prompt_or_raise(name, version=version)
+
+        rendered_prompts: List[str] = []
+        for index, values in enumerate(variable_sets):
+            if not isinstance(values, Mapping):
+                raise TypeError(
+                    "render_many expects each variable set to be a mapping"
                 )
 
-        format_values = {
-            variable_name: provided_variables[variable_name]
-            for variable_name in required_variables
-        }
+            rendered_prompts.append(
+                self._render_prompt_version(
+                    name=name,
+                    prompt_version=prompt_version,
+                    provided_variables=dict(values),
+                    strict=strict,
+                    error_context=f" at index {index}",
+                )
+            )
 
-        try:
-            return prompt_version.template.format(**format_values)
-        except KeyError as error:
-            missing_variable = str(error).strip("'")
-            raise ValueError(
-                "Prompt template references undeclared variable "
-                f"'{missing_variable}' for '{name}'"
-            ) from error
+        return rendered_prompts
 
     def rollback(
         self,

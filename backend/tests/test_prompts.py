@@ -183,6 +183,112 @@ def test_render_prompt_raises_for_unknown_prompt_name(temp_registry):
         temp_registry.render("missing_prompt", variables={"value": "x"})
 
 
+def test_render_many_renders_each_variable_set_in_order(temp_registry):
+    """Bulk rendering should preserve input order and values."""
+    temp_registry.register(
+        name="bulk_prompt",
+        template="Hello {name} from {team}",
+        variables=["name", "team"],
+        version="v1",
+    )
+
+    rendered = temp_registry.render_many(
+        "bulk_prompt",
+        [
+            {"name": "Codex", "team": "AgentHQ"},
+            {"name": "Planner", "team": "Ops"},
+        ],
+    )
+
+    assert rendered == [
+        "Hello Codex from AgentHQ",
+        "Hello Planner from Ops",
+    ]
+
+
+def test_render_many_allows_extra_variables_when_not_strict(temp_registry):
+    """Non-strict render_many mode should ignore undeclared variables."""
+    temp_registry.register(
+        name="bulk_non_strict",
+        template="Value={value}",
+        variables=["value"],
+        version="v1",
+    )
+
+    rendered = temp_registry.render_many(
+        "bulk_non_strict",
+        [
+            {"value": 1, "ignored": True},
+            {"value": 2, "ignored": False},
+        ],
+        strict=False,
+    )
+
+    assert rendered == ["Value=1", "Value=2"]
+
+
+def test_render_many_reports_item_index_for_missing_variables(temp_registry):
+    """Bulk errors should identify the failing variable set index."""
+    temp_registry.register(
+        name="bulk_missing",
+        template="{title}: {body}",
+        variables=["title", "body"],
+        version="v1",
+    )
+
+    with pytest.raises(ValueError, match="at index 1"):
+        temp_registry.render_many(
+            "bulk_missing",
+            [
+                {"title": "ok", "body": "first"},
+                {"title": "missing body"},
+            ],
+        )
+
+
+def test_render_many_rejects_non_mapping_items(temp_registry):
+    """render_many should fail fast for invalid variable entries."""
+    temp_registry.register(
+        name="bulk_invalid",
+        template="{value}",
+        variables=["value"],
+        version="v1",
+    )
+
+    with pytest.raises(TypeError, match="variable set"):
+        temp_registry.render_many(
+            "bulk_invalid",
+            [
+                {"value": "ok"},
+                "not-a-mapping",  # type: ignore[list-item]
+            ],
+        )
+
+
+def test_render_many_can_render_specific_version(temp_registry):
+    """Bulk rendering should support explicit version selection."""
+    temp_registry.register(
+        name="versioned_bulk",
+        template="v1:{item}",
+        variables=["item"],
+        version="v1",
+    )
+    temp_registry.register(
+        name="versioned_bulk",
+        template="v2:{item}",
+        variables=["item"],
+        version="v2",
+    )
+
+    rendered = temp_registry.render_many(
+        "versioned_bulk",
+        [{"item": "A"}, {"item": "B"}],
+        version="v1",
+    )
+
+    assert rendered == ["v1:A", "v1:B"]
+
+
 def test_list_versions(temp_registry):
     """Test listing all versions of a prompt."""
     # Register multiple versions
