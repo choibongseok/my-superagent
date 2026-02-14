@@ -5,7 +5,10 @@ from __future__ import annotations
 import logging
 import re
 import smtplib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from email import encoders
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import getaddresses
@@ -14,6 +17,15 @@ from typing import Optional
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class EmailAttachment:
+    """Normalized email attachment payload."""
+
+    filename: str
+    content: bytes
+    mime_type: str = "application/octet-stream"
 
 
 class EmailService:
@@ -155,6 +167,77 @@ class EmailService:
 
         return merged
 
+    @classmethod
+    def _normalize_attachments(
+        cls,
+        attachments: Sequence[Mapping[str, object]] | None,
+    ) -> list[EmailAttachment]:
+        """Normalize attachment payloads for MIME encoding."""
+        if attachments is None:
+            return []
+
+        normalized_attachments: list[EmailAttachment] = []
+        for index, attachment in enumerate(attachments):
+            if not isinstance(attachment, Mapping):
+                raise TypeError("attachments entries must be mappings")
+
+            raw_filename = attachment.get("filename")
+            if not isinstance(raw_filename, str):
+                raise TypeError("attachments filename must be a string")
+
+            filename = cls._sanitize_header_value(
+                raw_filename,
+                field_name="attachments filename",
+            )
+            if not filename:
+                raise ValueError("attachments filename must not be empty")
+
+            content = attachment.get("content")
+            if isinstance(content, str):
+                payload = content.encode("utf-8")
+            elif isinstance(content, (bytes, bytearray, memoryview)):
+                payload = bytes(content)
+            else:
+                raise TypeError(
+                    "attachments content must be bytes, bytearray, memoryview, or str"
+                )
+
+            if not payload:
+                raise ValueError("attachments content must not be empty")
+
+            raw_mime_type = attachment.get("mime_type", "application/octet-stream")
+            if not isinstance(raw_mime_type, str):
+                raise TypeError("attachments mime_type must be a string")
+
+            mime_type = cls._sanitize_header_value(
+                raw_mime_type,
+                field_name="attachments mime_type",
+            )
+            if "/" not in mime_type:
+                raise ValueError(
+                    f"attachments[{index}] mime_type must be in 'type/subtype' format"
+                )
+
+            normalized_attachments.append(
+                EmailAttachment(
+                    filename=filename,
+                    content=payload,
+                    mime_type=mime_type,
+                )
+            )
+
+        return normalized_attachments
+
+    @staticmethod
+    def _build_attachment_part(attachment: EmailAttachment) -> MIMEBase:
+        """Build a MIME attachment part for the provided payload."""
+        main_type, sub_type = attachment.mime_type.split("/", maxsplit=1)
+        part = MIMEBase(main_type, sub_type)
+        part.set_payload(attachment.content)
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", "attachment", filename=attachment.filename)
+        return part
+
     def _create_message(
         self,
         to_emails: Sequence[str],
@@ -163,9 +246,11 @@ class EmailService:
         text_body: Optional[str] = None,
         cc_emails: Optional[Sequence[str]] = None,
         reply_to_email: str | None = None,
+        attachments: Sequence[EmailAttachment] | None = None,
     ) -> MIMEMultipart:
-        """Create an email message with optional CC and Reply-To headers."""
-        msg = MIMEMultipart("alternative")
+        """Create an email message with optional CC, Reply-To, and attachments."""
+        normalized_attachments = list(attachments or [])
+        msg = MIMEMultipart("mixed" if normalized_attachments else "alternative")
         msg["Subject"] = subject
         msg["From"] = f"{self.from_name} <{self.from_email}>"
         msg["To"] = ", ".join(to_emails)
@@ -176,12 +261,22 @@ class EmailService:
         if reply_to_email:
             msg["Reply-To"] = reply_to_email
 
+        content_container: MIMEMultipart | None = None
+        if normalized_attachments:
+            content_container = MIMEMultipart("alternative")
+            msg.attach(content_container)
+
+        target_container = content_container or msg
+
         # Add plain text version if provided
         if text_body:
-            msg.attach(MIMEText(text_body, "plain"))
+            target_container.attach(MIMEText(text_body, "plain"))
 
         # Add HTML version
-        msg.attach(MIMEText(html_body, "html"))
+        target_container.attach(MIMEText(html_body, "html"))
+
+        for attachment in normalized_attachments:
+            msg.attach(self._build_attachment_part(attachment))
 
         return msg
 
@@ -194,6 +289,7 @@ class EmailService:
         cc_emails: Optional[Sequence[str]] = None,
         bcc_emails: Optional[Sequence[str]] = None,
         reply_to_email: str | None = None,
+        attachments: Sequence[Mapping[str, object]] | None = None,
     ) -> bool:
         """
         Send an email.
@@ -206,6 +302,11 @@ class EmailService:
             cc_emails: Carbon-copy recipients shown in email headers
             bcc_emails: Blind carbon-copy recipients hidden from headers
             reply_to_email: Optional Reply-To email address for recipient responses
+            attachments: Optional email attachments with keys:
+                - filename (str): Attachment display name
+                - content (bytes | bytearray | memoryview | str): Payload data
+                - mime_type (str, optional): MIME type, defaults to
+                  "application/octet-stream"
 
         Returns:
             True if sent successfully, False otherwise
@@ -233,6 +334,7 @@ class EmailService:
                 reply_to_email,
                 field_name="reply_to_email",
             )
+            normalized_attachments = self._normalize_attachments(attachments)
 
             delivery_recipients = self._merge_unique_recipients(
                 to_recipients,
@@ -247,6 +349,7 @@ class EmailService:
                 text_body,
                 cc_emails=cc_recipients,
                 reply_to_email=reply_to_recipient,
+                attachments=normalized_attachments,
             )
 
             # Connect to SMTP server

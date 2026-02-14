@@ -313,6 +313,73 @@ class TestEmailService:
         assert sent_message["Reply-To"] == "support@test.com"
 
     @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_supports_binary_and_text_attachments(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Attachments should produce a multipart/mixed message with payload files."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="With attachments",
+            html_body="<p>See attached.</p>",
+            text_body="See attached.",
+            attachments=[
+                {
+                    "filename": "report.txt",
+                    "content": "daily summary",
+                    "mime_type": "text/plain",
+                },
+                {
+                    "filename": "metrics.bin",
+                    "content": b"\x00\x01\x02",
+                    "mime_type": "application/octet-stream",
+                },
+            ],
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        assert sent_message.get_content_type() == "multipart/mixed"
+
+        attachments = [
+            part
+            for part in sent_message.walk()
+            if part.get_content_disposition() == "attachment"
+        ]
+        assert [part.get_filename() for part in attachments] == [
+            "report.txt",
+            "metrics.bin",
+        ]
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_rejects_invalid_attachment_payloads(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Invalid attachment definitions should fail before SMTP is contacted."""
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Invalid attachment",
+            html_body="<p>fail</p>",
+            attachments=[
+                {
+                    "filename": "bad.txt",
+                    "content": b"payload",
+                    "mime_type": "not-a-mime-type",
+                }
+            ],
+        )
+
+        assert result is False
+        mock_smtp.assert_not_called()
+
+    @patch("app.services.email_service.smtplib.SMTP")
     def test_send_email_rejects_invalid_email_format(
         self,
         mock_smtp,
