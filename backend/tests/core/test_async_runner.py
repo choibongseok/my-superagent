@@ -21,6 +21,8 @@ from app.core.async_runner import (
     run_async_many,
     run_async_map,
     run_async_map_batched,
+    run_async_group_by,
+    run_async_group_by_batched,
     run_async_none,
     run_async_none_batched,
     run_async_partition,
@@ -1111,6 +1113,113 @@ def test_run_async_partition_batched_rejects_non_positive_batch_size_for_empty_i
 
     with pytest.raises(ValueError, match="batch_size must be greater than 0"):
         run_async_partition_batched(_always_true, [], batch_size=0)
+
+
+def test_run_async_group_by_groups_items_using_async_selector():
+    async def _group_by_priority(task: dict[str, object]) -> str:
+        await asyncio.sleep(0.01)
+        return str(task["priority"])
+
+    tasks = [
+        {"id": "a", "priority": "high"},
+        {"id": "b", "priority": "low"},
+        {"id": "c", "priority": "high"},
+    ]
+
+    grouped = run_async_group_by(_group_by_priority, tasks)
+
+    assert grouped == {
+        "high": [tasks[0], tasks[2]],
+        "low": [tasks[1]],
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_async_group_by_with_existing_event_loop_returns_groups():
+    async def _group(value: str) -> str:
+        await asyncio.sleep(0.01)
+        return value.split("-", 1)[0]
+
+    grouped = run_async_group_by(_group, ["agent-1", "task-2", "agent-3"])
+
+    assert grouped == {
+        "agent": ["agent-1", "agent-3"],
+        "task": ["task-2"],
+    }
+
+
+def test_run_async_group_by_rejects_non_callable_selector():
+    with pytest.raises(TypeError, match="expects a callable coro_key_selector"):
+        run_async_group_by(123, [1, 2])  # type: ignore[arg-type]
+
+
+def test_run_async_group_by_rejects_unhashable_selector_results():
+    async def _invalid_key(value: int) -> list[int]:
+        await asyncio.sleep(0.01)
+        return [value]
+
+    with pytest.raises(TypeError, match="key selector must return hashable values"):
+        run_async_group_by(_invalid_key, [1])
+
+
+def test_run_async_group_by_batched_groups_items_across_batches():
+    async def _group_by_parity(value: int) -> str:
+        await asyncio.sleep(0.01)
+        return "even" if value % 2 == 0 else "odd"
+
+    grouped = run_async_group_by_batched(
+        _group_by_parity,
+        [1, 2, 3, 4, 5],
+        batch_size=2,
+    )
+
+    assert grouped == {
+        "odd": [1, 3, 5],
+        "even": [2, 4],
+    }
+
+
+def test_run_async_group_by_batched_honors_max_concurrency_limit():
+    active = 0
+    max_active = 0
+
+    async def _tracked(value: int) -> str:
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return "even" if value % 2 == 0 else "odd"
+
+    grouped = run_async_group_by_batched(
+        _tracked,
+        [1, 2, 3, 4],
+        batch_size=4,
+        max_concurrency=2,
+    )
+
+    assert grouped == {
+        "odd": [1, 3],
+        "even": [2, 4],
+    }
+    assert max_active == 2
+
+
+def test_run_async_group_by_batched_rejects_non_positive_batch_size_for_empty_items():
+    async def _selector(_: int) -> str:
+        return "any"
+
+    with pytest.raises(ValueError, match="batch_size must be greater than 0"):
+        run_async_group_by_batched(_selector, [], batch_size=0)
+
+
+def test_run_async_group_by_batched_timeout_applies_to_entire_run():
+    async def _slow(_: int) -> str:
+        await asyncio.sleep(0.1)
+        return "slow"
+
+    with pytest.raises(TimeoutError, match="run_async_map_batched timed out"):
+        run_async_group_by_batched(_slow, [1, 2], batch_size=1, timeout=0.01)
 
 
 def test_run_async_reduce_without_initial_uses_first_item_as_accumulator():

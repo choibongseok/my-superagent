@@ -588,6 +588,18 @@ def _coerce_filter_result(result: Any, *, function_name: str) -> bool:
     return result
 
 
+def _coerce_group_key(result: Any, *, function_name: str) -> Hashable:
+    """Validate grouping key output for group-by helpers."""
+    try:
+        hash(result)
+    except TypeError as exc:
+        raise TypeError(
+            f"{function_name} key selector must return hashable values"
+        ) from exc
+
+    return cast(Hashable, result)
+
+
 def run_async_filter(
     coro_predicate: Callable[[I], Awaitable[bool]],
     items: Iterable[I],
@@ -811,6 +823,96 @@ def run_async_partition_batched(
             rejected.append(item)
 
     return matched, rejected
+
+
+def run_async_group_by(
+    coro_key_selector: Callable[[I], Awaitable[K]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> dict[K, list[I]]:
+    """Group items by keys produced from an async selector.
+
+    Args:
+        coro_key_selector: Async callable returning a hashable group key.
+        items: Iterable of values to bucket.
+        timeout: Optional timeout in seconds for the full selector run.
+        max_concurrency: Optional cap on selector concurrency.
+
+    Returns:
+        Dictionary keyed by selector results with grouped items preserving
+        source order.
+
+    Raises:
+        TypeError: If selector is not callable or returns unhashable keys.
+        ValueError: If timeout/max_concurrency are invalid.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    if not callable(coro_key_selector):
+        raise TypeError("run_async_group_by expects a callable coro_key_selector")
+
+    materialized_items = list(items)
+    if not materialized_items:
+        return {}
+
+    selected_keys = run_async_map(
+        coro_key_selector,
+        materialized_items,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    grouped: dict[K, list[I]] = {}
+    for item, selected_key in zip(materialized_items, selected_keys, strict=True):
+        group_key = cast(
+            K,
+            _coerce_group_key(selected_key, function_name="run_async_group_by"),
+        )
+        grouped.setdefault(group_key, []).append(item)
+
+    return grouped
+
+
+def run_async_group_by_batched(
+    coro_key_selector: Callable[[I], Awaitable[K]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> dict[K, list[I]]:
+    """Batch-oriented variant of :func:`run_async_group_by`."""
+    if not callable(coro_key_selector):
+        raise TypeError(
+            "run_async_group_by_batched expects a callable coro_key_selector"
+        )
+
+    materialized_items = list(items)
+    if not materialized_items:
+        _validate_batch_size(batch_size)
+        return {}
+
+    selected_keys = run_async_map_batched(
+        coro_key_selector,
+        materialized_items,
+        batch_size=batch_size,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    grouped: dict[K, list[I]] = {}
+    for item, selected_key in zip(materialized_items, selected_keys, strict=True):
+        group_key = cast(
+            K,
+            _coerce_group_key(
+                selected_key,
+                function_name="run_async_group_by_batched",
+            ),
+        )
+        grouped.setdefault(group_key, []).append(item)
+
+    return grouped
 
 
 def run_async_reduce(
