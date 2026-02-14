@@ -415,6 +415,35 @@ class LocalCacheService:
         value, _ = item
         return value
 
+    def get_with_metadata(self, key: str) -> dict[str, Any] | None:
+        """Return value with TTL/tag metadata for a single key.
+
+        This helper provides lightweight key-level introspection without
+        requiring a full ``list_entries`` scan.
+
+        Returns:
+            Dictionary containing ``key``, ``value``, ``ttl_seconds``,
+            ``expires_at`` (unix timestamp), and sorted ``tags`` when key is
+            present. Returns ``None`` when key is missing or expired.
+        """
+        item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
+        if item is None:
+            return None
+
+        value, expires_at = item
+        ttl_seconds = (
+            None if expires_at is None else max(0.0, expires_at - time.time())
+        )
+
+        return {
+            "key": key,
+            "value": value,
+            "ttl_seconds": ttl_seconds,
+            "expires_at": expires_at,
+            "tags": sorted(self._tags_by_key.get(key, set())),
+        }
+
     def peek(self, key: str, default: Any | None = None) -> Any | None:
         """Read a cached value without affecting stats or LRU order."""
         item = self._get_entry(key, mark_access=False)

@@ -16,6 +16,45 @@ def test_local_cache_set_and_get():
     assert cache.get("k") == {"v": 1}
 
 
+def test_local_cache_get_with_metadata_returns_value_ttl_and_tags():
+    cache = LocalCacheService()
+    cache.set_tagged("k", {"v": 1}, tags=["beta", "alpha"])
+
+    metadata = cache.get_with_metadata("k")
+
+    assert metadata == {
+        "key": "k",
+        "value": {"v": 1},
+        "ttl_seconds": None,
+        "expires_at": None,
+        "tags": ["alpha", "beta"],
+    }
+
+
+def test_local_cache_get_with_metadata_includes_remaining_ttl_for_expiring_keys():
+    cache = LocalCacheService()
+    cache.set("session", "token", ttl_seconds=2)
+
+    metadata = cache.get_with_metadata("session")
+
+    assert metadata is not None
+    assert metadata["key"] == "session"
+    assert metadata["value"] == "token"
+    assert metadata["expires_at"] is not None
+    assert metadata["ttl_seconds"] is not None
+    assert 0 < metadata["ttl_seconds"] <= 2
+
+
+def test_local_cache_get_with_metadata_returns_none_and_tracks_miss_for_missing_key():
+    cache = LocalCacheService()
+
+    assert cache.get_with_metadata("missing") is None
+
+    stats = cache.stats()
+    assert stats["hits"] == 0
+    assert stats["misses"] == 1
+
+
 def test_local_cache_rejects_non_positive_max_entries():
     with pytest.raises(ValueError, match="max_entries must be greater than 0"):
         LocalCacheService(max_entries=0)
