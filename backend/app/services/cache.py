@@ -1708,17 +1708,45 @@ class LocalCacheService:
 
         return entries
 
-    def export_state(self, *, include_stats: bool = False) -> dict[str, Any]:
+    def export_state(
+        self,
+        *,
+        include_stats: bool = False,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        tags: Iterable[str] | None = None,
+        match_all_tags: bool = False,
+        offset: int | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
         """Export active cache entries into a serializable snapshot.
 
         The snapshot stores TTL as remaining seconds so that import can rebuild
         equivalent expiry windows relative to restore time.
+
+        Args:
+            include_stats: Include cache counters in the returned snapshot.
+            prefix: Optional key prefix filter.
+            pattern: Optional glob filter matched with :func:`fnmatchcase`.
+            tags: Optional tag filter used to restrict exported keys.
+            match_all_tags: Require all tags to match when ``tags`` is provided.
+            offset: Optional number of sorted matching keys to skip.
+            limit: Optional max number of matching keys to export.
         """
         self._purge_expired_entries()
 
+        keys = self.list_keys(
+            prefix=prefix,
+            pattern=pattern,
+            tags=tags,
+            match_all_tags=match_all_tags,
+            offset=offset,
+            limit=limit,
+        )
+
         entries: list[dict[str, Any]] = []
         now = time.time()
-        for key in sorted(self._store):
+        for key in keys:
             value, expires_at = self._store[key]
             ttl_seconds = None
             if expires_at is not None:

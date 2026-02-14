@@ -2198,6 +2198,48 @@ def test_local_cache_export_state_includes_active_entries_with_ttl_and_tags():
     assert 0 < session_entry["ttl_seconds"] <= 2
 
 
+def test_local_cache_export_state_supports_filters_and_pagination():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["session", "active"])
+    cache.set_tagged("session:beta", 2, tags=["session"])
+    cache.set_tagged("user:alpha", 3, tags=["user", "active"])
+
+    filtered = cache.export_state(
+        tags=["active"],
+        pattern="*:alpha",
+        include_stats=True,
+    )
+
+    assert [entry["key"] for entry in filtered["entries"]] == [
+        "session:alpha",
+        "user:alpha",
+    ]
+    assert "stats" in filtered
+
+    paginated = cache.export_state(prefix="session:", offset=1, limit=1)
+    assert [entry["key"] for entry in paginated["entries"]] == ["session:beta"]
+
+    match_all = cache.export_state(
+        tags=["session", "active"],
+        match_all_tags=True,
+    )
+    assert [entry["key"] for entry in match_all["entries"]] == ["session:alpha"]
+
+
+def test_local_cache_export_state_validates_filter_arguments():
+    cache = LocalCacheService()
+    cache.set("alpha", 1)
+
+    with pytest.raises(ValueError, match="offset must be greater than or equal to 0"):
+        cache.export_state(offset=-1)
+
+    with pytest.raises(ValueError, match="limit must be greater than 0"):
+        cache.export_state(limit=0)
+
+    with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
+        cache.export_state(match_all_tags="yes")  # type: ignore[arg-type]
+
+
 def test_local_cache_import_state_restores_entries_and_can_clear_existing_data():
     source = LocalCacheService(max_entries=10)
     source.set_tagged("user:1", {"name": "Ada"}, tags=["user", "vip"])
