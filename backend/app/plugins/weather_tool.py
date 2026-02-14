@@ -259,6 +259,25 @@ class Plugin(ToolPlugin):
 
         return normalized_country_code
 
+    def _normalize_state_code(self, state_code: Any) -> str | None:
+        """Normalize optional region/state codes for city disambiguation queries."""
+        if state_code is None:
+            return None
+        if not isinstance(state_code, str):
+            raise ValueError("state_code must be a string")
+
+        normalized_state_code = state_code.strip().upper()
+        if not normalized_state_code:
+            raise ValueError("state_code cannot be empty")
+        if len(normalized_state_code) > 12:
+            raise ValueError("state_code must be 12 characters or fewer")
+        if not re.fullmatch(r"[A-Z0-9][A-Z0-9-]*", normalized_state_code):
+            raise ValueError(
+                "state_code must contain only letters, numbers, or hyphens"
+            )
+
+        return normalized_state_code
+
     def _normalize_zip_code(self, zip_code: Any) -> str | None:
         """Normalize optional postal code inputs used by OpenWeatherMap zip queries."""
         if zip_code is None:
@@ -357,6 +376,7 @@ class Plugin(ToolPlugin):
         longitude = inputs.get("longitude")
         city_id = self._normalize_city_id(inputs.get("city_id"))
         country_code = self._normalize_country_code(inputs.get("country_code"))
+        state_code = self._normalize_state_code(inputs.get("state_code"))
         zip_code = self._normalize_zip_code(inputs.get("zip_code"))
         location = inputs.get("location")
 
@@ -365,11 +385,12 @@ class Plugin(ToolPlugin):
                 latitude is not None
                 or longitude is not None
                 or country_code is not None
+                or state_code is not None
                 or zip_code is not None
                 or location is not None
             ):
                 raise ValueError(
-                    "city_id cannot be combined with location, zip_code, country_code, latitude, or longitude"
+                    "city_id cannot be combined with location, zip_code, state_code, country_code, latitude, or longitude"
                 )
 
             return str(city_id), {"id": city_id}
@@ -380,6 +401,10 @@ class Plugin(ToolPlugin):
             if country_code is not None:
                 raise ValueError(
                     "country_code cannot be used with latitude/longitude inputs"
+                )
+            if state_code is not None:
+                raise ValueError(
+                    "state_code cannot be used with latitude/longitude inputs"
                 )
             if zip_code is not None:
                 raise ValueError(
@@ -401,6 +426,8 @@ class Plugin(ToolPlugin):
         if zip_code is not None:
             if location is not None:
                 raise ValueError("zip_code cannot be used with location input")
+            if state_code is not None:
+                raise ValueError("state_code cannot be used with zip_code input")
 
             normalized_location = (
                 f"{zip_code},{country_code}" if country_code is not None else zip_code
@@ -416,10 +443,14 @@ class Plugin(ToolPlugin):
         if not normalized_location:
             raise ValueError("location cannot be empty")
 
+        location_parts = [normalized_location]
+        if state_code is not None:
+            location_parts.append(state_code)
         if country_code is not None:
-            normalized_location = f"{normalized_location},{country_code}"
+            location_parts.append(country_code)
 
-        return normalized_location, self._build_location_params(normalized_location)
+        resolved_location = ",".join(location_parts)
+        return resolved_location, self._build_location_params(resolved_location)
 
     async def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -431,6 +462,7 @@ class Plugin(ToolPlugin):
                 "city_id": int (optional, OpenWeatherMap city ID; cannot be combined with other location fields),
                 "zip_code": str (optional, postal code; can be combined with country_code),
                 "country_code": str (optional, ISO alpha-2 country code used with location or zip_code),
+                "state_code": str (optional, region/state code used with location, e.g., 'CA' for US city disambiguation),
                 "latitude": float (optional, requires longitude),
                 "longitude": float (optional, requires latitude),
                 "units": str (optional, metric/celsius, imperial/fahrenheit, or standard/kelvin),
@@ -598,7 +630,7 @@ class Plugin(ToolPlugin):
             "Get current weather information for a location using OpenWeatherMap API. "
             "Input can be a city name (e.g., 'London', 'New York', 'Tokyo'), "
             "a city_id from OpenWeatherMap (e.g., city_id=2643743 for London), "
-            "a city plus country code (e.g., 'Paris' + country_code='FR'), "
+            "a city plus optional state/country codes (e.g., location='Springfield', state_code='IL', country_code='US'), "
             "a postal code via zip_code (e.g., zip_code='94040', country_code='US'), "
             "or coordinates (e.g., '37.5665,126.9780'). "
             "Per-request units override is supported via units='metric/celsius', "
@@ -615,8 +647,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.12.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching",
+            version="1.13.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching and state-aware city lookup",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -631,6 +663,7 @@ class Plugin(ToolPlugin):
                 "city_id": "integer (optional, OpenWeatherMap city ID; cannot be combined with other location fields)",
                 "zip_code": "string (optional, postal code; can be combined with country_code)",
                 "country_code": "string (optional, ISO alpha-2 country code used with location or zip_code)",
+                "state_code": "string (optional, region/state code used with location for city disambiguation)",
                 "latitude": "number (optional, must be used with longitude)",
                 "longitude": "number (optional, must be used with latitude)",
                 "units": "string (optional, metric/celsius, imperial/fahrenheit, or standard/kelvin; overrides plugin default)",

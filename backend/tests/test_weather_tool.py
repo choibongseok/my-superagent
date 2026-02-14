@@ -219,7 +219,9 @@ class TestWeatherTool:
             assert first["temperature"] != refreshed["temperature"]
 
     @pytest.mark.asyncio
-    async def test_refresh_cache_validation_rejects_non_boolean_values(self, api_plugin):
+    async def test_refresh_cache_validation_rejects_non_boolean_values(
+        self, api_plugin
+    ):
         """refresh_cache should require explicit boolean input values."""
         with patch("httpx.AsyncClient") as mock_client:
             with pytest.raises(ValueError, match="refresh_cache must be a boolean"):
@@ -669,6 +671,34 @@ class TestWeatherTool:
             assert result["location"] == "Paris"
 
     @pytest.mark.asyncio
+    async def test_city_query_accepts_state_and_country_code(self, api_plugin):
+        """Test location queries can include optional state_code for disambiguation."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "Springfield",
+            "main": {"temp": 16.8, "humidity": 49},
+            "weather": [{"description": "scattered clouds"}],
+            "wind": {"speed": 3.2},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            result = await api_plugin.execute(
+                {
+                    "location": "Springfield",
+                    "state_code": " il ",
+                    "country_code": "us",
+                }
+            )
+
+            _, kwargs = mock_get.call_args
+            assert kwargs["params"]["q"] == "Springfield,IL,US"
+            assert result["location"] == "Springfield"
+
+    @pytest.mark.asyncio
     async def test_zip_code_query_accepts_country_code(self, api_plugin):
         """Test zip_code queries map to OpenWeatherMap zip params."""
         mock_response = AsyncMock()
@@ -754,7 +784,7 @@ class TestWeatherTool:
 
             with pytest.raises(
                 ValueError,
-                match="city_id cannot be combined with location, zip_code, country_code, latitude, or longitude",
+                match="city_id cannot be combined with location, zip_code, state_code, country_code, latitude, or longitude",
             ):
                 await api_plugin.execute({"city_id": 2643743, "location": "London"})
 
@@ -797,6 +827,21 @@ class TestWeatherTool:
             mock_client.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_state_code_validation(self, api_plugin):
+        """Test state_code must be a non-empty region code with safe characters."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(
+                ValueError,
+                match="state_code must contain only letters, numbers, or hyphens",
+            ):
+                await api_plugin.execute({"location": "Paris", "state_code": "IL!"})
+
+            with pytest.raises(ValueError, match="state_code cannot be empty"):
+                await api_plugin.execute({"location": "Paris", "state_code": "   "})
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_zip_code_validation(self, api_plugin):
         """Test zip_code must be a non-empty postal code string."""
         with patch("httpx.AsyncClient") as mock_client:
@@ -830,6 +875,24 @@ class TestWeatherTool:
             mock_client.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_state_code_cannot_be_combined_with_coordinates(self, api_plugin):
+        """Test state_code is rejected for explicit latitude/longitude queries."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(
+                ValueError,
+                match="state_code cannot be used with latitude/longitude inputs",
+            ):
+                await api_plugin.execute(
+                    {
+                        "latitude": 48.8566,
+                        "longitude": 2.3522,
+                        "state_code": "IDF",
+                    }
+                )
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_zip_code_cannot_be_combined_with_location(self, api_plugin):
         """Test zip_code cannot be mixed with location queries."""
         with patch("httpx.AsyncClient") as mock_client:
@@ -837,6 +900,23 @@ class TestWeatherTool:
                 ValueError, match="zip_code cannot be used with location"
             ):
                 await api_plugin.execute({"location": "Paris", "zip_code": "75001"})
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_state_code_cannot_be_combined_with_zip_code(self, api_plugin):
+        """Test state_code is rejected when zip_code input is used."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(
+                ValueError,
+                match="state_code cannot be used with zip_code input",
+            ):
+                await api_plugin.execute(
+                    {
+                        "zip_code": "75001",
+                        "state_code": "IDF",
+                    }
+                )
 
             mock_client.assert_not_called()
 
@@ -870,7 +950,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.12.0"
+        assert manifest.version == "1.13.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
@@ -880,6 +960,7 @@ class TestWeatherTool:
         assert "city_id" in manifest.inputs
         assert "zip_code" in manifest.inputs
         assert "country_code" in manifest.inputs
+        assert "state_code" in manifest.inputs
         assert "latitude" in manifest.inputs
         assert "longitude" in manifest.inputs
         assert "units" in manifest.inputs
@@ -897,6 +978,7 @@ class TestWeatherTool:
         assert "OpenWeatherMap" in description
         assert "API key" in description
         assert "country code" in description
+        assert "state_code" in description
         assert "city_id" in description
         assert "zip_code" in description
         assert "coordinates" in description
