@@ -268,6 +268,29 @@ class Plugin(ToolPlugin):
 
         return normalized_zip_code
 
+    def _normalize_city_id(self, city_id: Any) -> int | None:
+        """Normalize optional OpenWeatherMap city identifiers."""
+        if city_id is None:
+            return None
+        if isinstance(city_id, bool):
+            raise ValueError("city_id must be a positive integer")
+
+        if isinstance(city_id, str):
+            normalized_city_id = city_id.strip()
+            if not normalized_city_id:
+                raise ValueError("city_id cannot be empty")
+            city_id = normalized_city_id
+
+        try:
+            parsed_city_id = int(city_id)
+        except (TypeError, ValueError) as error:
+            raise ValueError("city_id must be a positive integer") from error
+
+        if parsed_city_id <= 0:
+            raise ValueError("city_id must be a positive integer")
+
+        return parsed_city_id
+
     async def initialize(self) -> None:
         """Initialize weather tool."""
         cache_state = (
@@ -319,11 +342,27 @@ class Plugin(ToolPlugin):
     def _resolve_location_inputs(
         self, inputs: Dict[str, Any]
     ) -> tuple[str, Dict[str, Any]]:
-        """Resolve weather query params from location string, zip code, or coordinates."""
+        """Resolve weather query params from location string, zip code, city ID, or coordinates."""
         latitude = inputs.get("latitude")
         longitude = inputs.get("longitude")
+        city_id = self._normalize_city_id(inputs.get("city_id"))
         country_code = self._normalize_country_code(inputs.get("country_code"))
         zip_code = self._normalize_zip_code(inputs.get("zip_code"))
+        location = inputs.get("location")
+
+        if city_id is not None:
+            if (
+                latitude is not None
+                or longitude is not None
+                or country_code is not None
+                or zip_code is not None
+                or location is not None
+            ):
+                raise ValueError(
+                    "city_id cannot be combined with location, zip_code, country_code, latitude, or longitude"
+                )
+
+            return str(city_id), {"id": city_id}
 
         if latitude is not None or longitude is not None:
             if latitude is None or longitude is None:
@@ -348,8 +387,6 @@ class Plugin(ToolPlugin):
             location_params = self._build_coordinate_params(lat, lon)
             normalized_location = f"{lat},{lon}"
             return normalized_location, location_params
-
-        location = inputs.get("location")
 
         if zip_code is not None:
             if location is not None:
@@ -380,7 +417,8 @@ class Plugin(ToolPlugin):
 
         Args:
             inputs: {
-                "location": str (optional, required unless zip_code or latitude/longitude are provided),
+                "location": str (optional, required unless city_id, zip_code, or latitude/longitude are provided),
+                "city_id": int (optional, OpenWeatherMap city ID; cannot be combined with other location fields),
                 "zip_code": str (optional, postal code; can be combined with country_code),
                 "country_code": str (optional, ISO alpha-2 country code used with location or zip_code),
                 "latitude": float (optional, requires longitude),
@@ -544,6 +582,7 @@ class Plugin(ToolPlugin):
         return (
             "Get current weather information for a location using OpenWeatherMap API. "
             "Input can be a city name (e.g., 'London', 'New York', 'Tokyo'), "
+            "a city_id from OpenWeatherMap (e.g., city_id=2643743 for London), "
             "a city plus country code (e.g., 'Paris' + country_code='FR'), "
             "a postal code via zip_code (e.g., zip_code='94040', country_code='US'), "
             "or coordinates (e.g., '37.5665,126.9780'). "
@@ -560,7 +599,7 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.10.0",
+            version="1.11.0",
             description="Get real-time weather information using OpenWeatherMap API with optional response caching",
             author="AgentHQ",
             permissions=["network.http"],
@@ -572,7 +611,8 @@ class Plugin(ToolPlugin):
                 "cache_max_entries": "integer (optional, maximum cached responses; default: 256)",
             },
             inputs={
-                "location": "string (optional, required when zip_code and latitude/longitude are not provided)",
+                "location": "string (optional, required when city_id, zip_code, and latitude/longitude are not provided)",
+                "city_id": "integer (optional, OpenWeatherMap city ID; cannot be combined with other location fields)",
                 "zip_code": "string (optional, postal code; can be combined with country_code)",
                 "country_code": "string (optional, ISO alpha-2 country code used with location or zip_code)",
                 "latitude": "number (optional, must be used with longitude)",

@@ -665,6 +665,53 @@ class TestWeatherTool:
             assert kwargs["params"]["zip"] == "SW1A 1AA"
 
     @pytest.mark.asyncio
+    async def test_city_id_query_maps_to_openweather_id_param(self, api_plugin):
+        """Test city_id queries map to OpenWeatherMap id params."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "London",
+            "main": {"temp": 17.1, "humidity": 52},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 3.4},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            result = await api_plugin.execute({"city_id": "2643743"})
+
+            _, kwargs = mock_get.call_args
+            assert kwargs["params"]["id"] == 2643743
+            assert "q" not in kwargs["params"]
+            assert "zip" not in kwargs["params"]
+            assert "lat" not in kwargs["params"]
+            assert "lon" not in kwargs["params"]
+            assert result["location"] == "London"
+
+    @pytest.mark.asyncio
+    async def test_city_id_validation_and_conflicts(self, api_plugin):
+        """Test city_id validation and mutual exclusion with other location inputs."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(ValueError, match="city_id must be a positive integer"):
+                await api_plugin.execute({"city_id": 0})
+
+            with pytest.raises(ValueError, match="city_id cannot be empty"):
+                await api_plugin.execute({"city_id": "   "})
+
+            with pytest.raises(ValueError, match="city_id must be a positive integer"):
+                await api_plugin.execute({"city_id": "abc"})
+
+            with pytest.raises(
+                ValueError,
+                match="city_id cannot be combined with location, zip_code, country_code, latitude, or longitude",
+            ):
+                await api_plugin.execute({"city_id": 2643743, "location": "London"})
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_structured_coordinates_require_both_values(self, api_plugin):
         """Test latitude/longitude must be supplied together."""
         with patch("httpx.AsyncClient") as mock_client:
@@ -774,13 +821,14 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.10.0"
+        assert manifest.version == "1.11.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
         assert "lang" in manifest.config_schema
         assert "cache_ttl_seconds" in manifest.config_schema
         assert "cache_max_entries" in manifest.config_schema
+        assert "city_id" in manifest.inputs
         assert "zip_code" in manifest.inputs
         assert "country_code" in manifest.inputs
         assert "latitude" in manifest.inputs
@@ -789,7 +837,7 @@ class TestWeatherTool:
         assert "lang" in manifest.inputs
         assert "feels_like" in manifest.outputs
         assert (
-            "required when zip_code and latitude/longitude"
+            "required when city_id, zip_code, and latitude/longitude"
             in manifest.inputs["location"]
         )
 
@@ -799,6 +847,7 @@ class TestWeatherTool:
         assert "OpenWeatherMap" in description
         assert "API key" in description
         assert "country code" in description
+        assert "city_id" in description
         assert "zip_code" in description
         assert "coordinates" in description
         assert "standard/kelvin" in description
