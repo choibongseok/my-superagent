@@ -960,6 +960,66 @@ class LocalCacheService:
             ttl_seconds=ttl_seconds,
         )
 
+    def increment_many(
+        self,
+        updates: Mapping[str, Real],
+        *,
+        initial: Real = 0,
+        ttl_seconds: int | None = None,
+    ) -> dict[str, Real]:
+        """Increase multiple keys and return updated values by key.
+
+        Args:
+            updates: Mapping of ``key -> amount`` increments.
+            initial: Baseline value used when a key is missing/expired.
+            ttl_seconds: Optional TTL override applied to each updated key.
+
+        Returns:
+            Ordered mapping of updated numeric values for each processed key.
+            Duplicate keys are naturally coalesced by mapping semantics.
+        """
+        updated_values: dict[str, Real] = {}
+        for key, amount in updates.items():
+            updated_values[key] = self.increment(
+                key,
+                amount=amount,
+                initial=initial,
+                ttl_seconds=ttl_seconds,
+            )
+
+        return updated_values
+
+    def decrement_many(
+        self,
+        updates: Mapping[str, Real],
+        *,
+        initial: Real = 0,
+        ttl_seconds: int | None = None,
+    ) -> dict[str, Real]:
+        """Decrease multiple keys and return updated values by key.
+
+        Args:
+            updates: Mapping of ``key -> amount`` decrements.
+            initial: Baseline value used when a key is missing/expired.
+            ttl_seconds: Optional TTL override applied to each updated key.
+
+        Returns:
+            Ordered mapping of updated numeric values for each processed key.
+
+        Raises:
+            ValueError: If any decrement amount is negative.
+        """
+        updated_values: dict[str, Real] = {}
+        for key, amount in updates.items():
+            updated_values[key] = self.decrement(
+                key,
+                amount=amount,
+                initial=initial,
+                ttl_seconds=ttl_seconds,
+            )
+
+        return updated_values
+
     def get_or_set(
         self,
         key: str,

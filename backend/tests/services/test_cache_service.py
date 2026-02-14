@@ -746,6 +746,92 @@ def test_local_cache_decrement_supports_missing_keys_and_non_negative_amount():
         cache.decrement("credits", amount=-1)
 
 
+def test_local_cache_increment_many_updates_multiple_keys_in_request_order():
+    cache = LocalCacheService()
+    cache.set("alpha", 1)
+
+    updated = cache.increment_many(
+        {
+            "alpha": 2,
+            "beta": 5,
+            "gamma": 1,
+        },
+        initial=10,
+    )
+
+    assert updated == {
+        "alpha": 3,
+        "beta": 15,
+        "gamma": 11,
+    }
+    assert cache.get_many(["alpha", "beta", "gamma"]) == {
+        "alpha": 3,
+        "beta": 15,
+        "gamma": 11,
+    }
+
+
+def test_local_cache_increment_many_preserves_existing_ttl_by_default():
+    cache = LocalCacheService()
+    cache.set("quota", 7, ttl_seconds=1)
+
+    time.sleep(0.4)
+
+    updated = cache.increment_many({"quota": 1})
+
+    assert updated == {"quota": 8}
+    ttl = cache.ttl_remaining("quota")
+    assert ttl is not None
+    assert 0 < ttl < 1
+
+
+def test_local_cache_increment_many_can_override_ttl_for_all_updated_keys():
+    cache = LocalCacheService()
+    cache.set("alpha", 1, ttl_seconds=1)
+    cache.set("beta", 2)
+
+    time.sleep(0.4)
+
+    updated = cache.increment_many(
+        {
+            "alpha": 1,
+            "beta": 1,
+        },
+        ttl_seconds=2,
+    )
+
+    assert updated == {"alpha": 2, "beta": 3}
+
+    alpha_ttl = cache.ttl_remaining("alpha")
+    beta_ttl = cache.ttl_remaining("beta")
+    assert alpha_ttl is not None and 1.5 <= alpha_ttl <= 2
+    assert beta_ttl is not None and 1.5 <= beta_ttl <= 2
+
+
+def test_local_cache_decrement_many_updates_multiple_keys_and_supports_initial():
+    cache = LocalCacheService()
+    cache.set("credits", 10)
+
+    updated = cache.decrement_many(
+        {
+            "credits": 3,
+            "fallback": 2,
+        },
+        initial=5,
+    )
+
+    assert updated == {"credits": 7, "fallback": 3}
+    assert cache.get("credits") == 7
+    assert cache.get("fallback") == 3
+
+
+def test_local_cache_decrement_many_rejects_negative_amounts():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="amount must be greater than or equal to 0"):
+        cache.decrement_many({"credits": -1})
+
+
 def test_local_cache_pop_returns_value_and_removes_key():
     cache = LocalCacheService()
     cache.set("token", "abc123")
