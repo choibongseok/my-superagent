@@ -330,6 +330,58 @@ class TestWeatherTool:
         assert "Visibility:" in result
 
     @pytest.mark.asyncio
+    async def test_run_tool_supports_json_payload_input(self):
+        """run_tool should accept JSON payload strings for advanced options."""
+        plugin = WeatherPlugin(config={"units": "metric"})
+
+        with patch.object(
+            plugin,
+            "execute",
+            AsyncMock(
+                return_value={
+                    "location": "Seoul",
+                    "temperature": 68.0,
+                    "temperature_unit": "°F",
+                    "feels_like": 66.2,
+                    "condition": "Clear Sky",
+                    "humidity": 45,
+                    "wind_speed": 7.8,
+                    "wind_speed_unit": "mph",
+                    "units": "imperial",
+                }
+            ),
+        ) as execute_mock:
+            result = await plugin.run_tool(
+                '{"location":"Seoul","units":"imperial","lang":"ko"}'
+            )
+
+        execute_mock.assert_awaited_once_with(
+            {"location": "Seoul", "units": "imperial", "lang": "ko"}
+        )
+        assert "Weather in Seoul:" in result
+        assert "Temperature: 68.0°F" in result
+        assert "Wind Speed: 7.8 mph" in result
+
+    @pytest.mark.asyncio
+    async def test_run_tool_rejects_invalid_json_payload(self):
+        """run_tool should surface JSON parse failures with a clear error."""
+        plugin = WeatherPlugin(config={})
+
+        with pytest.raises(ValueError, match="tool_input JSON payload is invalid"):
+            await plugin.run_tool('{"location": "Seoul"')
+
+    @pytest.mark.asyncio
+    async def test_run_tool_rejects_non_object_json_payload(self):
+        """run_tool JSON input must decode to an object payload."""
+        plugin = WeatherPlugin(config={})
+
+        with pytest.raises(
+            ValueError,
+            match="tool_input JSON payload must be an object",
+        ):
+            await plugin.run_tool('["Seoul", "imperial"]')
+
+    @pytest.mark.asyncio
     async def test_run_tool_includes_precipitation_line_when_present(self):
         """Formatted output should include precipitation summaries when available."""
         plugin = WeatherPlugin(config={"units": "metric"})
@@ -1279,7 +1331,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.19.0"
+        assert manifest.version == "1.20.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]

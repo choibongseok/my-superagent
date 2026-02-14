@@ -1,6 +1,7 @@
 """Example plugin: Weather information tool."""
 
 import inspect
+import json
 import logging
 import re
 from typing import Any, Dict
@@ -954,17 +955,44 @@ class Plugin(ToolPlugin):
             logger.error(f"Error fetching weather data: {e}")
             raise ValueError(f"Failed to fetch weather data: {str(e)}")
 
+    def _resolve_tool_inputs(self, tool_input: str) -> Dict[str, Any]:
+        """Resolve ``run_tool`` input into execute payload.
+
+        Supports plain-text location input (e.g. ``"Seoul"``) and JSON object
+        payloads for advanced usage (e.g.
+        ``{"location":"Seoul","units":"imperial"}``).
+        """
+        if not isinstance(tool_input, str):
+            raise ValueError("tool_input must be a string")
+
+        normalized_input = tool_input.strip()
+        if normalized_input.startswith("{") or normalized_input.startswith("["):
+            try:
+                parsed_payload = json.loads(normalized_input)
+            except json.JSONDecodeError as error:
+                raise ValueError("tool_input JSON payload is invalid") from error
+
+            if not isinstance(parsed_payload, dict):
+                raise ValueError("tool_input JSON payload must be an object")
+            if not parsed_payload:
+                raise ValueError("tool_input JSON payload cannot be empty")
+
+            return parsed_payload
+
+        return {"location": tool_input}
+
     async def run_tool(self, tool_input: str) -> str:
         """
-        Run tool with input string.
+        Run tool with either a location string or JSON payload string.
 
         Args:
-            tool_input: Location name
+            tool_input: Plain location string or JSON object string accepted by
+                :meth:`execute`.
 
         Returns:
             Weather information as formatted string
         """
-        result = await self.execute({"location": tool_input})
+        result = await self.execute(self._resolve_tool_inputs(tool_input))
 
         resolved_units = result.get("units", self.units)
         default_temperature_unit, default_wind_unit = self._resolve_unit_labels(
@@ -1035,6 +1063,8 @@ class Plugin(ToolPlugin):
             "a city plus optional state/country codes (e.g., location='Springfield', state_code='IL', country_code='US'), "
             "a postal code via zip_code (e.g., zip_code='94040', country_code='US'), "
             "or coordinates (e.g., '37.5665,126.9780'). "
+            "Tool-style string input can also be provided as a JSON object for advanced options, "
+            "for example '{\"location\":\"Seoul\",\"units\":\"imperial\"}'. "
             "Per-request units override is supported via units='metric/celsius', "
             "units='imperial/fahrenheit', or units='standard/kelvin'. "
             "Pressure output units can be configured globally or overridden per request via pressure_unit='hpa'/'kpa'/'inhg'/'mmhg'. "
@@ -1050,8 +1080,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.19.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, wind direction details, visibility details, cloud coverage, daylight status, and precipitation insights",
+            version="1.20.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, wind direction details, visibility details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
