@@ -1080,6 +1080,37 @@ class LocalCacheService:
 
         return renamed
 
+    def swap(self, key: str, other_key: str) -> bool:
+        """Swap values, TTLs, and tags between two active keys.
+
+        Returns ``False`` when either key is missing/expired.
+        """
+        if key == other_key:
+            exists = self._get_entry(key) is not None
+            self._record_lookup(hit=exists)
+            return exists
+
+        left_entry = self._get_entry(key)
+        self._record_lookup(hit=left_entry is not None)
+
+        right_entry = self._get_entry(other_key)
+        self._record_lookup(hit=right_entry is not None)
+
+        if left_entry is None or right_entry is None:
+            return False
+
+        left_tags = set(self._tags_by_key.get(key, set()))
+        right_tags = set(self._tags_by_key.get(other_key, set()))
+
+        self._store[key], self._store[other_key] = right_entry, left_entry
+        self._mark_accessed(key)
+        self._mark_accessed(other_key)
+
+        self._replace_key_tags(key, right_tags)
+        self._replace_key_tags(other_key, left_tags)
+        self._increment_stat("sets", 2)
+        return True
+
     def delete(self, key: str) -> None:
         """Delete a cached key if present."""
         if key in self._store or key in self._inflight:

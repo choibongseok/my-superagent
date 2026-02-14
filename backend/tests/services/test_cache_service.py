@@ -949,6 +949,45 @@ def test_local_cache_rename_many_supports_overwrite_for_each_mapping():
     assert 0 < ttl < 1
 
 
+def test_local_cache_swap_exchanges_values_ttls_and_tags():
+    cache = LocalCacheService()
+    cache.set_tagged("left", "L", tags=["group:left"], ttl_seconds=1)
+    cache.set_tagged("right", "R", tags=["group:right"])
+
+    time.sleep(0.4)
+
+    assert cache.swap("left", "right") is True
+
+    assert cache.get("left") == "R"
+    assert cache.get("right") == "L"
+    assert cache.list_tags("left") == ["group:right"]
+    assert cache.list_tags("right") == ["group:left"]
+
+    left_ttl = cache.ttl_remaining("left")
+    right_ttl = cache.ttl_remaining("right")
+    assert left_ttl is None
+    assert right_ttl is not None
+    assert 0 < right_ttl < 1
+
+
+def test_local_cache_swap_returns_false_without_mutating_when_any_key_missing():
+    cache = LocalCacheService()
+    cache.set("left", "L")
+
+    assert cache.swap("left", "right") is False
+
+    assert cache.get("left") == "L"
+    assert cache.get("right") is None
+
+
+def test_local_cache_swap_same_key_is_noop_for_existing_and_missing_keys():
+    cache = LocalCacheService()
+    cache.set("stable", "value")
+
+    assert cache.swap("stable", "stable") is True
+    assert cache.swap("missing", "missing") is False
+
+
 def test_local_cache_delete_many_returns_removed_count():
     cache = LocalCacheService()
     cache.set_many({"alpha": 1, "beta": 2, "gamma": 3})
