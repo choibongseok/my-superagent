@@ -599,6 +599,86 @@ class TestScoreSorting:
         assert [result["content"] for result in results] == ["first", "second"]
 
 
+class TestUniqueContentDeduplication:
+    """Test optional duplicate collapsing based on memory content."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_unique_content_validation(self):
+        """unique_content must be a boolean."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(ValueError, match="unique_content must be a boolean"):
+            memory.search_with_scores(query="test", unique_content="yes")
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_unique_content_collapses_whitespace_and_case_duplicates(self):
+        """Duplicates should collapse when content differs only by case/spacing."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        top_doc = Document(page_content="Project launch checklist", metadata={"id": 1})
+        duplicate_doc = Document(
+            page_content="  project   LAUNCH   checklist  ", metadata={"id": 2}
+        )
+        unique_doc = Document(
+            page_content="Budget approval pending", metadata={"id": 3}
+        )
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (duplicate_doc, 0.88),
+                (top_doc, 0.91),
+                (unique_doc, 0.72),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            sort_by_score=True,
+            unique_content=True,
+        )
+
+        assert [result["content"] for result in results] == [
+            "Project launch checklist",
+            "Budget approval pending",
+        ]
+        assert [result["score"] for result in results] == [0.91, 0.72]
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_unique_content_disabled_keeps_duplicates(self):
+        """Duplicate content should remain when unique_content is False."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        first_doc = Document(page_content="Status update", metadata={"id": 1})
+        duplicate_doc = Document(page_content="status update", metadata={"id": 2})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (first_doc, 0.81),
+                (duplicate_doc, 0.8),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            unique_content=False,
+        )
+
+        assert [result["content"] for result in results] == [
+            "Status update",
+            "status update",
+        ]
+
+
 class TestScoreGapFiltering:
     """Test optional score-gap filtering relative to the strongest match."""
 
@@ -749,4 +829,3 @@ class TestScoreContextExplainability:
         )
 
         assert "score_context" not in results[0]
-

@@ -331,6 +331,37 @@ class VectorStoreMemory:
         # Enforce user scoping even if caller tries to override user_id.
         return {**filter_dict, "user_id": self.user_id}
 
+    @staticmethod
+    def _normalize_content_for_deduplication(content: Any) -> str:
+        """Normalize content strings for duplicate detection.
+
+        Deduplication is case-insensitive and whitespace-insensitive to avoid
+        returning near-identical memories that differ only by casing or spacing.
+        """
+        if not isinstance(content, str):
+            content = str(content)
+
+        return " ".join(content.split()).casefold()
+
+    @classmethod
+    def _deduplicate_results_by_content(
+        cls,
+        results: List[Tuple[Document, float]],
+    ) -> List[Tuple[Document, float]]:
+        """Drop duplicate results using normalized document content."""
+        seen_contents: set[str] = set()
+        deduplicated_results: List[Tuple[Document, float]] = []
+
+        for doc, score in results:
+            content_key = cls._normalize_content_for_deduplication(doc.page_content)
+            if content_key in seen_contents:
+                continue
+
+            seen_contents.add(content_key)
+            deduplicated_results.append((doc, score))
+
+        return deduplicated_results
+
     def search(
         self,
         query: str,
@@ -389,6 +420,7 @@ class VectorStoreMemory:
         max_score_gap: Optional[float] = None,
         sort_by_score: bool = False,
         include_score_context: bool = False,
+        unique_content: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Search memories with similarity scores.
@@ -421,6 +453,9 @@ class VectorStoreMemory:
             include_score_context: When ``True``, attach a ``score_context`` object
                 to each result with explainability details (rank, top-score gap,
                 and threshold margin).
+            unique_content: When ``True``, collapse duplicate memories by
+                normalized content (case/whitespace insensitive) before applying
+                the final ``k`` limit.
 
         Returns:
             List of memories with scores and enhanced relevance metadata
@@ -428,7 +463,7 @@ class VectorStoreMemory:
         Raises:
             ValueError: If thresholds/parameters are invalid, including unsupported
                 ``min_confidence``/``min_relevance`` values or non-boolean
-                ``include_score_context``.
+                ``include_score_context``/``unique_content``.
         """
         # Input validation
         if score_threshold is not None and not (0.0 <= score_threshold <= 1.0):
@@ -448,6 +483,9 @@ class VectorStoreMemory:
 
         if not isinstance(include_score_context, bool):
             raise ValueError("include_score_context must be a boolean")
+
+        if not isinstance(unique_content, bool):
+            raise ValueError("unique_content must be a boolean")
 
         if max_score_gap is not None:
             if isinstance(max_score_gap, bool) or not isinstance(
@@ -637,6 +675,15 @@ class VectorStoreMemory:
             indexed_results = list(enumerate(results))
             indexed_results.sort(key=lambda item: (-item[1][1], item[0]))
             results = [result for _, result in indexed_results]
+
+        if unique_content:
+            original_count = len(results)
+            results = self._deduplicate_results_by_content(results)
+            logger.debug(
+                "Applied unique_content deduplication: before=%d, after=%d",
+                original_count,
+                len(results),
+            )
 
         if len(results) > k:
             results = results[:k]
