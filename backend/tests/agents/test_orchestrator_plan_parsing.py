@@ -68,6 +68,59 @@ async def test_decompose_task_handles_fenced_json_from_structured_content(
     assert tasks[0].description == "Collect competitor intel"
 
 
+@pytest.mark.asyncio
+async def test_decompose_task_accepts_tasks_mapping_payload(orchestrator_stub):
+    """Planner payloads may emit tasks as an object keyed by task id."""
+    orchestrator_stub.llm.ainvoke.return_value = SimpleNamespace(
+        content='{"tasks": {"research_step": {"agent_type": "research", "description": "Collect source notes", "dependencies": []}, "draft_step": {"agent_type": "docs", "description": "Draft the report", "dependencies": ["research_step"]}}}'
+    )
+
+    tasks = await orchestrator_stub.decompose_task("Create a concise report")
+
+    assert len(tasks) == 2
+    assert tasks[0].task_id == "research_step"
+    assert tasks[0].agent_type == "research"
+    assert tasks[1].task_id == "draft_step"
+    assert tasks[1].dependencies == ["research_step"]
+
+
+def test_parse_task_plan_accepts_nested_plan_tasks_mapping():
+    """Parser should support task mappings nested under plan.tasks envelopes."""
+    raw_plan = {
+        "plan": {
+            "tasks": {
+                "task_1": {
+                    "agent_type": "research",
+                    "description": "Collect baseline metrics",
+                    "dependencies": [],
+                },
+                "task_2": {
+                    "agent_type": "docs",
+                    "description": "Summarize findings",
+                    "dependencies": ["task_1"],
+                },
+            }
+        }
+    }
+
+    parsed_tasks = MultiAgentOrchestrator._parse_task_plan(raw_plan)
+
+    assert parsed_tasks == [
+        {
+            "task_id": "task_1",
+            "agent_type": "research",
+            "description": "Collect baseline metrics",
+            "dependencies": [],
+        },
+        {
+            "task_id": "task_2",
+            "agent_type": "docs",
+            "description": "Summarize findings",
+            "dependencies": ["task_1"],
+        },
+    ]
+
+
 def test_parse_task_plan_rejects_unknown_dependencies():
     """Dependency validation should fail fast on unknown task references."""
     raw_plan = {

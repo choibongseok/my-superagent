@@ -308,10 +308,47 @@ class MultiAgentOrchestrator:
         task_like_keys = {"task_id", "agent_type", "description", "dependencies"}
         return all(bool(task_like_keys.intersection(item.keys())) for item in payload)
 
+    @staticmethod
+    def _looks_like_task_mapping(payload: Any) -> bool:
+        """Heuristic for planner payloads shaped as task_id -> task objects."""
+        if not isinstance(payload, dict) or not payload:
+            return False
+
+        if not all(isinstance(item, dict) for item in payload.values()):
+            return False
+
+        task_like_keys = {"task_id", "agent_type", "description", "dependencies"}
+        return all(
+            bool(task_like_keys.intersection(item.keys())) for item in payload.values()
+        )
+
+    @classmethod
+    def _coerce_raw_tasks(cls, raw_tasks: Any, *, field_name: str) -> List[Any]:
+        """Normalize planner task containers into a list of task entries."""
+        if isinstance(raw_tasks, list):
+            return raw_tasks
+
+        if cls._looks_like_task_mapping(raw_tasks):
+            normalized_tasks: List[Dict[str, Any]] = []
+            for task_id, task_payload in raw_tasks.items():
+                normalized_task = dict(task_payload)
+                normalized_task.setdefault("task_id", str(task_id))
+                normalized_tasks.append(normalized_task)
+
+            return normalized_tasks
+
+        raise ValueError(
+            f"Planner field '{field_name}' must be a task list or task mapping"
+        )
+
     @classmethod
     def _parse_task_plan(cls, raw_plan: Any) -> List[Dict[str, Any]]:
         """Parse planner output and return normalized task dictionaries."""
-        if isinstance(raw_plan, dict) or cls._looks_like_task_list(raw_plan):
+        if (
+            isinstance(raw_plan, dict)
+            or cls._looks_like_task_list(raw_plan)
+            or cls._looks_like_task_mapping(raw_plan)
+        ):
             parsed = raw_plan
         else:
             plan_text = cls._normalize_llm_content(raw_plan)
@@ -322,9 +359,20 @@ class MultiAgentOrchestrator:
             parsed = json.loads(payload_text)
 
         if isinstance(parsed, list):
-            raw_tasks = parsed
-        elif isinstance(parsed, dict) and isinstance(parsed.get("tasks"), list):
-            raw_tasks = parsed["tasks"]
+            raw_tasks = cls._coerce_raw_tasks(parsed, field_name="tasks")
+        elif isinstance(parsed, dict) and "tasks" in parsed:
+            raw_tasks = cls._coerce_raw_tasks(parsed["tasks"], field_name="tasks")
+        elif (
+            isinstance(parsed, dict)
+            and isinstance(parsed.get("plan"), dict)
+            and "tasks" in parsed["plan"]
+        ):
+            raw_tasks = cls._coerce_raw_tasks(
+                parsed["plan"]["tasks"],
+                field_name="plan.tasks",
+            )
+        elif cls._looks_like_task_mapping(parsed):
+            raw_tasks = cls._coerce_raw_tasks(parsed, field_name="tasks")
         else:
             raise ValueError(
                 "Planner response must be a list of tasks or an object containing 'tasks'"
