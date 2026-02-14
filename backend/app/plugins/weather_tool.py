@@ -399,6 +399,58 @@ class Plugin(ToolPlugin):
         dew_point = cls._convert_celsius_to_units(dew_point_celsius, units)
         return round(dew_point, 1)
 
+    @classmethod
+    def _calculate_heat_index(
+        cls,
+        *,
+        temperature: Any,
+        humidity: Any,
+        units: str,
+    ) -> float | None:
+        """Estimate heat-index temperature from ambient temperature and humidity.
+
+        Uses the NOAA Rothfusz regression in Fahrenheit and converts back to
+        requested output units.
+        """
+        if isinstance(temperature, bool) or isinstance(humidity, bool):
+            return None
+
+        try:
+            temperature_value = float(temperature)
+            humidity_value = float(humidity)
+        except (TypeError, ValueError):
+            return None
+
+        if not 0 < humidity_value <= 100:
+            return None
+
+        temperature_celsius = cls._convert_temperature_to_celsius(
+            temperature_value,
+            units,
+        )
+        temperature_fahrenheit = (temperature_celsius * 9 / 5) + 32
+
+        # NOAA guidance: Rothfusz regression is valid primarily for hot and
+        # humid conditions.
+        if temperature_fahrenheit < 80 or humidity_value < 40:
+            return None
+
+        heat_index_fahrenheit = (
+            -42.379
+            + (2.04901523 * temperature_fahrenheit)
+            + (10.14333127 * humidity_value)
+            - (0.22475541 * temperature_fahrenheit * humidity_value)
+            - (6.83783e-3 * (temperature_fahrenheit**2))
+            - (5.481717e-2 * (humidity_value**2))
+            + (1.22874e-3 * (temperature_fahrenheit**2) * humidity_value)
+            + (8.5282e-4 * temperature_fahrenheit * (humidity_value**2))
+            - (1.99e-6 * (temperature_fahrenheit**2) * (humidity_value**2))
+        )
+
+        heat_index_celsius = (heat_index_fahrenheit - 32) * 5 / 9
+        heat_index = cls._convert_celsius_to_units(heat_index_celsius, units)
+        return round(heat_index, 1)
+
     @staticmethod
     def _extract_precipitation_amount(
         data: Dict[str, Any], period: str
@@ -568,6 +620,11 @@ class Plugin(ToolPlugin):
             humidity=65,
             units=units,
         )
+        heat_index = self._calculate_heat_index(
+            temperature=temperature,
+            humidity=65,
+            units=units,
+        )
 
         return {
             "location": location,
@@ -575,6 +632,8 @@ class Plugin(ToolPlugin):
             "temperature_unit": temperature_unit,
             "dew_point": dew_point,
             "dew_point_unit": temperature_unit if dew_point is not None else None,
+            "heat_index": heat_index,
+            "heat_index_unit": temperature_unit if heat_index is not None else None,
             "feels_like": feels_like,
             "condition": "Partly Cloudy",
             "humidity": 65,
@@ -828,6 +887,8 @@ class Plugin(ToolPlugin):
                 "temperature_unit": str,
                 "dew_point": float | None,
                 "dew_point_unit": str | None,
+                "heat_index": float | None,
+                "heat_index_unit": str | None,
                 "feels_like": float,
                 "condition": str,
                 "humidity": int,
@@ -931,6 +992,11 @@ class Plugin(ToolPlugin):
                     humidity=humidity,
                     units=resolved_units,
                 )
+                heat_index = self._calculate_heat_index(
+                    temperature=temperature,
+                    humidity=humidity,
+                    units=resolved_units,
+                )
 
                 visibility_value = data.get("visibility")
                 visibility = None
@@ -984,6 +1050,10 @@ class Plugin(ToolPlugin):
                     "temperature_unit": temperature_unit,
                     "dew_point": dew_point,
                     "dew_point_unit": temperature_unit if dew_point is not None else None,
+                    "heat_index": heat_index,
+                    "heat_index_unit": temperature_unit
+                    if heat_index is not None
+                    else None,
                     "feels_like": feels_like,
                     "condition": data["weather"][0]["description"].title(),
                     "humidity": humidity,
@@ -1081,6 +1151,8 @@ class Plugin(ToolPlugin):
 
         dew_point = result.get("dew_point")
         dew_point_unit = str(result.get("dew_point_unit") or temperature_unit)
+        heat_index = result.get("heat_index")
+        heat_index_unit = str(result.get("heat_index_unit") or temperature_unit)
         feels_like = result.get("feels_like", result["temperature"])
         pressure = result.get("pressure")
         pressure_unit = result.get("pressure_unit")
@@ -1109,6 +1181,8 @@ class Plugin(ToolPlugin):
 
         if dew_point is not None:
             lines.append(f"Dew Point: {dew_point}{dew_point_unit}")
+        if heat_index is not None:
+            lines.append(f"Heat Index: {heat_index}{heat_index_unit}")
         if cloudiness is not None:
             lines.append(f"Cloudiness: {cloudiness}%")
         if isinstance(daylight_status, str) and daylight_status.strip():
@@ -1152,7 +1226,7 @@ class Plugin(ToolPlugin):
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
             "Set refresh_cache=true to bypass cached responses and force a fresh API fetch. "
-            "Returns temperature, dew-point temperature, feels-like temperature, weather condition, humidity, cloud coverage, daylight status, pressure, wind speed, wind direction, visibility, and precipitation summaries when available. "
+            "Returns temperature, dew-point temperature, heat-index temperature, feels-like temperature, weather condition, humidity, cloud coverage, daylight status, pressure, wind speed, wind direction, visibility, and precipitation summaries when available. "
             "Requires OpenWeatherMap API key in plugin config."
         )
 
@@ -1160,8 +1234,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.21.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point insights, wind direction details, visibility details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
+            version="1.22.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point and heat-index insights, wind direction details, visibility details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -1191,6 +1265,8 @@ class Plugin(ToolPlugin):
                 "temperature_unit": "string (°C, °F, or K)",
                 "dew_point": "float | null",
                 "dew_point_unit": "string | null (°C, °F, or K)",
+                "heat_index": "float | null",
+                "heat_index_unit": "string | null (°C, °F, or K)",
                 "feels_like": "float",
                 "condition": "string",
                 "humidity": "integer",

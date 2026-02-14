@@ -29,6 +29,8 @@ class TestWeatherTool:
         assert result["temperature_unit"] == "°C"
         assert result["dew_point"] == 15.6
         assert result["dew_point_unit"] == "°C"
+        assert result["heat_index"] is None
+        assert result["heat_index_unit"] is None
         assert result["feels_like"] == 21.3
         assert result["condition"] == "Partly Cloudy"
         assert result["humidity"] == 65
@@ -415,6 +417,34 @@ class TestWeatherTool:
         assert "Precipitation: Rain (1h 0.8 mm, 3h 2.1 mm)" in result
 
     @pytest.mark.asyncio
+    async def test_run_tool_includes_heat_index_when_available(self):
+        """Formatted output should include heat index when execute provides it."""
+        plugin = WeatherPlugin(config={"units": "metric"})
+
+        with patch.object(
+            plugin,
+            "execute",
+            AsyncMock(
+                return_value={
+                    "location": "Miami",
+                    "temperature": 35.0,
+                    "temperature_unit": "°C",
+                    "feels_like": 39.4,
+                    "heat_index": 45.1,
+                    "heat_index_unit": "°C",
+                    "condition": "Scattered Clouds",
+                    "humidity": 60,
+                    "wind_speed": 9.0,
+                    "wind_speed_unit": "km/h",
+                    "units": "metric",
+                }
+            ),
+        ):
+            result = await plugin.run_tool("Miami")
+
+        assert "Heat Index: 45.1°C" in result
+
+    @pytest.mark.asyncio
     async def test_run_tool_formats_pressure_units_from_execute_result(self):
         """run_tool should show the pressure unit returned by execute()."""
         plugin = WeatherPlugin(config={"units": "metric"})
@@ -500,6 +530,8 @@ class TestWeatherTool:
             assert result["temperature_unit"] == "°C"
             assert result["dew_point"] == 10.3
             assert result["dew_point_unit"] == "°C"
+            assert result["heat_index"] is None
+            assert result["heat_index_unit"] is None
             assert result["feels_like"] == 14.7
             assert result["condition"] == "Light Rain"
             assert result["humidity"] == 72
@@ -512,6 +544,35 @@ class TestWeatherTool:
             assert result["wind_direction_cardinal"] == "SW"
             assert result["visibility"] == 7.5
             assert result["visibility_unit"] == "km"
+
+    @pytest.mark.asyncio
+    async def test_real_api_call_includes_heat_index_for_hot_humid_conditions(
+        self, api_plugin
+    ):
+        """Heat index should be calculated when conditions are hot and humid."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "Miami",
+            "main": {
+                "temp": 35.0,
+                "humidity": 60,
+            },
+            "weather": [{"description": "scattered clouds"}],
+            "wind": {"speed": 2.5},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response
+            )
+
+            result = await api_plugin.execute({"location": "Miami"})
+
+            assert result["temperature"] == 35.0
+            assert result["temperature_unit"] == "°C"
+            assert result["heat_index"] == 45.1
+            assert result["heat_index_unit"] == "°C"
 
     @pytest.mark.asyncio
     async def test_real_api_call_normalizes_wrapped_wind_direction_values(
@@ -1340,7 +1401,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.21.0"
+        assert manifest.version == "1.22.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
@@ -1360,6 +1421,8 @@ class TestWeatherTool:
         assert "refresh_cache" in manifest.inputs
         assert "feels_like" in manifest.outputs
         assert "temperature_unit" in manifest.outputs
+        assert "heat_index" in manifest.outputs
+        assert "heat_index_unit" in manifest.outputs
         assert "pressure" in manifest.outputs
         assert "pressure_unit" in manifest.outputs
         assert "wind_speed_unit" in manifest.outputs
@@ -1390,6 +1453,7 @@ class TestWeatherTool:
         assert "standard/kelvin" in description
         assert "pressure_unit" in description
         assert "feels-like temperature" in description
+        assert "heat-index temperature" in description
         assert "pressure" in description
         assert "wind direction" in description
         assert "cloud coverage" in description
