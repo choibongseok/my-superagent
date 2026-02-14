@@ -55,6 +55,72 @@ def test_local_cache_get_with_metadata_returns_none_and_tracks_miss_for_missing_
     assert stats["misses"] == 1
 
 
+def test_local_cache_get_many_with_metadata_returns_ordered_unique_metadata_payloads():
+    cache = LocalCacheService()
+    cache.set_tagged("alpha", {"v": 1}, tags=["group:a", "shared"])
+    cache.set("beta", "value", ttl_seconds=2)
+
+    metadata = cache.get_many_with_metadata(["alpha", "beta", "alpha"])
+
+    assert list(metadata.keys()) == ["alpha", "beta"]
+    assert metadata["alpha"] == {
+        "key": "alpha",
+        "value": {"v": 1},
+        "ttl_seconds": None,
+        "expires_at": None,
+        "tags": ["group:a", "shared"],
+    }
+
+    beta = metadata["beta"]
+    assert beta is not None
+    assert beta["key"] == "beta"
+    assert beta["value"] == "value"
+    assert beta["expires_at"] is not None
+    assert beta["ttl_seconds"] is not None
+    assert 0 < beta["ttl_seconds"] <= 2
+
+
+def test_local_cache_get_many_with_metadata_can_include_missing_keys():
+    cache = LocalCacheService()
+    cache.set("active", "value")
+
+    metadata = cache.get_many_with_metadata(
+        ["missing", "active", "unknown"],
+        include_missing=True,
+    )
+
+    assert metadata["missing"] is None
+    assert metadata["active"] == {
+        "key": "active",
+        "value": "value",
+        "ttl_seconds": None,
+        "expires_at": None,
+        "tags": [],
+    }
+    assert metadata["unknown"] is None
+
+
+def test_local_cache_get_many_with_metadata_tracks_lookup_stats_once_per_unique_key():
+    cache = LocalCacheService()
+    cache.set("present", 1)
+
+    metadata = cache.get_many_with_metadata(["present", "missing", "present"])
+
+    assert metadata == {
+        "present": {
+            "key": "present",
+            "value": 1,
+            "ttl_seconds": None,
+            "expires_at": None,
+            "tags": [],
+        }
+    }
+
+    stats = cache.stats()
+    assert stats["hits"] == 1
+    assert stats["misses"] == 1
+
+
 def test_local_cache_rejects_non_positive_max_entries():
     with pytest.raises(ValueError, match="max_entries must be greater than 0"):
         LocalCacheService(max_entries=0)

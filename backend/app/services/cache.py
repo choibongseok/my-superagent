@@ -486,6 +486,51 @@ class LocalCacheService:
             "tags": sorted(self._tags_by_key.get(key, set())),
         }
 
+    def get_many_with_metadata(
+        self,
+        keys: Iterable[str],
+        *,
+        include_missing: bool = False,
+    ) -> dict[str, dict[str, Any] | None]:
+        """Return metadata payloads for multiple keys.
+
+        Duplicate keys are resolved once, preserving order of first appearance.
+
+        Args:
+            keys: Cache keys to inspect.
+            include_missing: Include missing/expired keys with ``None`` values
+                in the returned mapping.
+
+        Returns:
+            Mapping of key -> metadata dictionaries (same shape as
+            :meth:`get_with_metadata`) and optionally ``None`` placeholders for
+            missing keys when ``include_missing`` is ``True``.
+        """
+        results: dict[str, dict[str, Any] | None] = {}
+
+        for key in dict.fromkeys(keys):
+            item = self._get_entry(key)
+            self._record_lookup(hit=item is not None)
+
+            if item is None:
+                if include_missing:
+                    results[key] = None
+                continue
+
+            value, expires_at = item
+            ttl_seconds = (
+                None if expires_at is None else max(0.0, expires_at - time.time())
+            )
+            results[key] = {
+                "key": key,
+                "value": value,
+                "ttl_seconds": ttl_seconds,
+                "expires_at": expires_at,
+                "tags": sorted(self._tags_by_key.get(key, set())),
+            }
+
+        return results
+
     def peek(self, key: str, default: Any | None = None) -> Any | None:
         """Read a cached value without affecting stats or LRU order."""
         item = self._get_entry(key, mark_access=False)
