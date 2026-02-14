@@ -1,8 +1,8 @@
 """API response caching middleware."""
 
+import base64
 import hashlib
-import json
-from typing import Callable
+from typing import Any, Callable
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -33,6 +33,22 @@ class CacheMiddleware(BaseHTTPMiddleware):
             "/api/v1/messages/ws",  # Exclude WebSocket
         }
 
+    @staticmethod
+    def _cache_control_disables_caching(request: Request) -> bool:
+        """Return whether request headers ask to bypass middleware cache."""
+        cache_control = request.headers.get("Cache-Control", "")
+        directives = {
+            directive.strip().lower()
+            for directive in cache_control.split(",")
+            if directive.strip()
+        }
+
+        if {"no-cache", "no-store", "max-age=0"} & directives:
+            return True
+
+        pragma = request.headers.get("Pragma", "")
+        return pragma.strip().lower() == "no-cache"
+
     def _is_cacheable(self, request: Request) -> bool:
         """
         Check if request is cacheable.
@@ -53,8 +69,8 @@ class CacheMiddleware(BaseHTTPMiddleware):
             if path.startswith(excluded):
                 return False
 
-        # Check for no-cache header
-        if request.headers.get("Cache-Control") == "no-cache":
+        # Check for no-cache directives
+        if self._cache_control_disables_caching(request):
             return False
 
         return True
@@ -87,6 +103,23 @@ class CacheMiddleware(BaseHTTPMiddleware):
 
         return f"api:response:{key_hash}"
 
+    @staticmethod
+    def _decode_cached_body(cached_data: dict[str, Any]) -> tuple[bytes, str | None]:
+        """Decode cached body payload with backwards compatibility."""
+        if "body_base64" in cached_data:
+            body = base64.b64decode(cached_data["body_base64"])
+            media_type = cached_data.get("media_type")
+            return body, media_type
+
+        # Backwards compatibility with legacy JSON-only cache payloads.
+        legacy_body = cached_data.get("body", "")
+        if isinstance(legacy_body, bytes):
+            body = legacy_body
+        else:
+            body = str(legacy_body).encode()
+
+        return body, cached_data.get("media_type", "application/json")
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """
         Process request with caching.
@@ -109,12 +142,15 @@ class CacheMiddleware(BaseHTTPMiddleware):
         try:
             cached_data = await cache.get(cache_key)
             if cached_data:
-                # Return cached response
+                body, media_type = self._decode_cached_body(cached_data)
+                headers = dict(cached_data.get("headers", {}))
+                headers["X-Cache"] = "HIT"
+
                 return Response(
-                    content=json.dumps(cached_data["body"]),
+                    content=body,
                     status_code=cached_data["status_code"],
-                    headers=dict(cached_data["headers"]),
-                    media_type="application/json",
+                    headers=headers,
+                    media_type=media_type,
                 )
         except Exception:
             # If cache fails, continue without caching
@@ -125,35 +161,35 @@ class CacheMiddleware(BaseHTTPMiddleware):
 
         # Cache successful responses
         if response.status_code == 200:
+            body = b""
+            async for chunk in response.body_iterator:
+                body += chunk
+
+            response_headers = dict(response.headers)
+            response_headers["X-Cache"] = "MISS"
+
             try:
-                # Read response body
-                body = b""
-                async for chunk in response.body_iterator:
-                    body += chunk
-
-                # Parse JSON body
-                body_json = json.loads(body.decode())
-
-                # Prepare cache data
+                # Prepare cache data (binary-safe to support non-JSON payloads)
                 cache_data = {
                     "status_code": response.status_code,
                     "headers": dict(response.headers),
-                    "body": body_json,
+                    "body_base64": base64.b64encode(body).decode("ascii"),
+                    "media_type": response.media_type,
                 }
 
                 # Cache the response
                 await cache.set(cache_key, cache_data, self.cache_ttl)
-
-                # Return new response with body
-                return Response(
-                    content=body,
-                    status_code=response.status_code,
-                    headers=dict(response.headers),
-                    media_type=response.media_type,
-                )
             except Exception:
-                # If caching fails, return original response
+                # If cache fails, continue returning the live response
                 pass
+
+            # Always return a replayable response because body_iterator was consumed.
+            return Response(
+                content=body,
+                status_code=response.status_code,
+                headers=response_headers,
+                media_type=response.media_type,
+            )
 
         return response
 
