@@ -290,6 +290,43 @@ class TestConversationMemory:
         assert len(matches) == 1
         assert matches[0].content == "I use pythonn for scripts"
 
+    def test_search_messages_supports_all_terms_matching(self):
+        """all_terms mode should require all query terms in each message."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("project alpha kickoff notes")
+        memory.add_ai_message("project timeline drafted")
+        memory.add_system_message("alpha compliance checklist")
+
+        matches = memory.search_messages("project alpha", match_mode="all_terms")
+
+        assert [message.content for message in matches] == [
+            "project alpha kickoff notes",
+        ]
+
+    def test_search_messages_supports_any_terms_matching(self):
+        """any_terms mode should match when at least one query term appears."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("project alpha kickoff notes")
+        memory.add_ai_message("project timeline drafted")
+        memory.add_system_message("alpha compliance checklist")
+        memory.add_ai_message("release retrospective")
+
+        matches = memory.search_messages("project alpha", match_mode="any_terms")
+
+        assert [message.content for message in matches] == [
+            "project alpha kickoff notes",
+            "project timeline drafted",
+            "alpha compliance checklist",
+        ]
+
     def test_search_messages_rejects_invalid_inputs(self):
         """Test validation errors for invalid search parameters."""
         memory = ConversationMemory(
@@ -324,6 +361,9 @@ class TestConversationMemory:
 
         with pytest.raises(ValueError, match="invalid regular expression"):
             memory.search_messages("(", match_mode="regex")
+
+        with pytest.raises(ValueError, match="query must include at least one"):
+            memory.search_messages("!!!", match_mode="all_terms")
 
     def test_clear_memory(self):
         """Test clearing conversation memory."""

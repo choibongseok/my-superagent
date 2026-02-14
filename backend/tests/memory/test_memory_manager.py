@@ -140,6 +140,25 @@ class TestMemoryManagerContext:
         assert len(matches) == 1
         assert matches[0].content == "I like pythonn"
 
+    def test_search_conversation_supports_all_terms_match_mode(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="test_session",
+            use_vector_memory=False,
+        )
+
+        manager.add_user_message("project alpha kickoff")
+        manager.add_ai_message("project status")
+        manager.add_system_message("alpha policy")
+
+        matches = manager.search_conversation(
+            "project alpha",
+            match_mode="all_terms",
+        )
+
+        assert len(matches) == 1
+        assert matches[0].content == "project alpha kickoff"
+
     def test_search_memory_passes_confidence_and_relevance_filters(self):
         manager = MemoryManager(
             user_id="test_user",

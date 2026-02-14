@@ -219,7 +219,14 @@ class ConversationMemory:
         case_sensitive: bool = False,
         last_n: Optional[int] = None,
         limit: Optional[int] = None,
-        match_mode: Literal["substring", "word", "regex", "fuzzy"] = "substring",
+        match_mode: Literal[
+            "substring",
+            "word",
+            "regex",
+            "fuzzy",
+            "all_terms",
+            "any_terms",
+        ] = "substring",
         fuzzy_threshold: float = 0.75,
     ) -> List[BaseMessage]:
         """Search conversation messages by query text and optional role.
@@ -237,6 +244,8 @@ class ConversationMemory:
                 - "word": query matches whole-word boundaries
                 - "regex": query is treated as a regular expression
                 - "fuzzy": typo-tolerant matching using similarity ratio
+                - "all_terms": all query terms appear in any order
+                - "any_terms": at least one query term appears
             fuzzy_threshold: Similarity threshold used by fuzzy matching (0-1)
 
         Returns:
@@ -255,14 +264,25 @@ class ConversationMemory:
             raise ValueError("limit must be greater than 0")
 
         normalized_match_mode = match_mode.lower()
-        if normalized_match_mode not in {"substring", "word", "regex", "fuzzy"}:
-            raise ValueError("match_mode must be one of: substring, word, regex, fuzzy")
+        if normalized_match_mode not in {
+            "substring",
+            "word",
+            "regex",
+            "fuzzy",
+            "all_terms",
+            "any_terms",
+        }:
+            raise ValueError(
+                "match_mode must be one of: "
+                "substring, word, regex, fuzzy, all_terms, any_terms"
+            )
 
         if not (0.0 <= fuzzy_threshold <= 1.0):
             raise ValueError("fuzzy_threshold must be in [0, 1]")
 
         target_query = normalized_query if case_sensitive else normalized_query.lower()
         regex_pattern: Optional[re.Pattern[str]] = None
+        query_terms: Optional[List[str]] = None
 
         if normalized_match_mode == "word":
             flags = 0 if case_sensitive else re.IGNORECASE
@@ -273,6 +293,13 @@ class ConversationMemory:
                 regex_pattern = re.compile(normalized_query, flags)
             except re.error as error:
                 raise ValueError(f"invalid regular expression: {error}") from error
+        elif normalized_match_mode in {"all_terms", "any_terms"}:
+            query_terms = self._tokenize_for_term_match(target_query)
+            if not query_terms:
+                raise ValueError(
+                    "query must include at least one searchable term for "
+                    "all_terms/any_terms match mode"
+                )
 
         matches: List[BaseMessage] = []
         for message in self.get_messages(last_n=last_n):
@@ -289,6 +316,17 @@ class ConversationMemory:
             elif normalized_match_mode in {"word", "regex"}:
                 # regex_pattern is guaranteed for "word" and "regex" modes.
                 is_match = bool(regex_pattern and regex_pattern.search(content))
+            elif normalized_match_mode in {"all_terms", "any_terms"}:
+                # query_terms is guaranteed for term-based modes.
+                candidate_terms = query_terms or []
+                if normalized_match_mode == "all_terms":
+                    is_match = all(
+                        term in searchable_content for term in candidate_terms
+                    )
+                else:
+                    is_match = any(
+                        term in searchable_content for term in candidate_terms
+                    )
             else:
                 is_match = self._fuzzy_match(
                     query=normalized_query,
@@ -308,6 +346,11 @@ class ConversationMemory:
     @staticmethod
     def _tokenize_for_fuzzy_match(text: str) -> List[str]:
         """Return lowercase-ish word tokens used by fuzzy matching."""
+        return re.findall(r"\w+", text)
+
+    @staticmethod
+    def _tokenize_for_term_match(text: str) -> List[str]:
+        """Return normalized terms for all_terms/any_terms search modes."""
         return re.findall(r"\w+", text)
 
     @classmethod
