@@ -77,6 +77,12 @@ class VectorStoreMemory:
         "moderate": 2,
         "strong": 3,
     }
+    RELEVANCE_LEVEL_ORDER: Dict[str, int] = {
+        "very_low": 1,
+        "low": 2,
+        "medium": 3,
+        "high": 4,
+    }
 
     def __init__(
         self,
@@ -279,6 +285,28 @@ class VectorStoreMemory:
 
         return normalized_confidence
 
+    @classmethod
+    def _normalize_min_relevance(
+        cls,
+        min_relevance: Optional[str],
+    ) -> Optional[str]:
+        """Normalize and validate optional relevance floor filters."""
+        if min_relevance is None:
+            return None
+
+        if not isinstance(min_relevance, str):
+            raise ValueError(
+                "min_relevance must be one of: very_low, low, medium, high"
+            )
+
+        normalized_relevance = min_relevance.strip().lower()
+        if normalized_relevance not in cls.RELEVANCE_LEVEL_ORDER:
+            raise ValueError(
+                "min_relevance must be one of: very_low, low, medium, high"
+            )
+
+        return normalized_relevance
+
     def _build_user_scoped_filter(
         self,
         filter_dict: Optional[Dict[str, Any]] = None,
@@ -357,6 +385,7 @@ class VectorStoreMemory:
         adaptive_std_multiplier: float = 1.5,
         min_adaptive_threshold: float = 0.5,
         min_confidence: Optional[str] = None,
+        min_relevance: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search memories with similarity scores.
@@ -376,13 +405,16 @@ class VectorStoreMemory:
             min_confidence: Optional confidence floor filter. Accepted values are
                 ``"weak"``, ``"moderate"``, and ``"strong"``. When set,
                 results below that confidence level are excluded.
+            min_relevance: Optional relevance floor filter. Accepted values are
+                ``"very_low"``, ``"low"``, ``"medium"``, and ``"high"``.
+                When set, results below that relevance level are excluded.
 
         Returns:
             List of memories with scores and enhanced relevance metadata
 
         Raises:
             ValueError: If thresholds/parameters are invalid, including unsupported
-                ``min_confidence`` values.
+                ``min_confidence`` or ``min_relevance`` values.
         """
         # Input validation
         if score_threshold is not None and not (0.0 <= score_threshold <= 1.0):
@@ -404,6 +436,13 @@ class VectorStoreMemory:
         min_confidence_rank = (
             self.CONFIDENCE_LEVEL_ORDER[normalized_min_confidence]
             if normalized_min_confidence is not None
+            else None
+        )
+
+        normalized_min_relevance = self._normalize_min_relevance(min_relevance)
+        min_relevance_rank = (
+            self.RELEVANCE_LEVEL_ORDER[normalized_min_relevance]
+            if normalized_min_relevance is not None
             else None
         )
 
@@ -550,6 +589,12 @@ class VectorStoreMemory:
         formatted_results = []
         for doc, score in results:
             relevance, confidence = self._classify_relevance(score, applied_threshold)
+
+            if (
+                min_relevance_rank is not None
+                and self.RELEVANCE_LEVEL_ORDER[relevance] < min_relevance_rank
+            ):
+                continue
 
             if (
                 min_confidence_rank is not None

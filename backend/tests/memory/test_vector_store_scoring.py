@@ -347,6 +347,53 @@ class TestConfidenceFiltering:
         assert [result["confidence"] for result in results] == ["strong", "moderate"]
 
 
+class TestRelevanceFiltering:
+    """Test optional relevance-level filtering for scored searches."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_relevance_validation(self):
+        """Unsupported relevance floors should fail fast with a clear error."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(
+            ValueError,
+            match="min_relevance must be one of: very_low, low, medium, high",
+        ):
+            memory.search_with_scores(query="test", min_relevance="critical")
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_relevance_filters_lower_quality_results(self):
+        """min_relevance='medium' should keep only medium/high relevance matches."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        high_doc = Document(page_content="high", metadata={"id": "high"})
+        medium_doc = Document(page_content="medium", metadata={"id": "medium"})
+        low_doc = Document(page_content="low", metadata={"id": "low"})
+        very_low_doc = Document(page_content="very_low", metadata={"id": "very_low"})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (high_doc, 0.9),
+                (medium_doc, 0.72),
+                (low_doc, 0.56),
+                (very_low_doc, 0.41),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            min_relevance="  MEDIUM  ",
+        )
+
+        assert [result["content"] for result in results] == ["high", "medium"]
+        assert [result["relevance"] for result in results] == ["high", "medium"]
+
+
 class TestSelectivityFactorEdgeCases:
     """Test edge cases in selectivity factor calculation."""
 

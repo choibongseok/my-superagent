@@ -10,6 +10,17 @@ class DummyVectorMemory:
         return f"vector match for: {query} (k={k})"
 
 
+class RecordingVectorMemory(DummyVectorMemory):
+    """Records scored-search arguments for delegation assertions."""
+
+    def __init__(self):
+        self.last_search_with_scores_kwargs = None
+
+    def search_with_scores(self, **kwargs):
+        self.last_search_with_scores_kwargs = kwargs
+        return [{"content": "cached"}]
+
+
 class TestMemoryManagerContext:
     """Regression tests for get_context API compatibility."""
 
@@ -110,3 +121,28 @@ class TestMemoryManagerContext:
 
         assert len(matches) == 1
         assert matches[0].content == "I like pythonn"
+
+    def test_search_memory_passes_confidence_and_relevance_filters(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="test_session",
+            use_vector_memory=False,
+        )
+        manager.vector_memory = RecordingVectorMemory()
+
+        results = manager.search_memory(
+            query="project status",
+            k=4,
+            score_threshold=0.65,
+            min_confidence="moderate",
+            min_relevance="medium",
+        )
+
+        assert results == [{"content": "cached"}]
+        assert manager.vector_memory.last_search_with_scores_kwargs == {
+            "query": "project status",
+            "k": 4,
+            "score_threshold": 0.65,
+            "min_confidence": "moderate",
+            "min_relevance": "medium",
+        }

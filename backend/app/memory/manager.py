@@ -310,6 +310,8 @@ class MemoryManager:
         query: str,
         k: int = 5,
         score_threshold: float = 0.7,
+        min_confidence: Optional[str] = None,
+        min_relevance: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search long-term memory.
@@ -318,6 +320,8 @@ class MemoryManager:
             query: Search query
             k: Number of results
             score_threshold: Minimum similarity score
+            min_confidence: Optional confidence floor (weak/moderate/strong)
+            min_relevance: Optional relevance floor (very_low/low/medium/high)
 
         Returns:
             List of matching memories
@@ -331,6 +335,8 @@ class MemoryManager:
                 query=query,
                 k=k,
                 score_threshold=score_threshold,
+                min_confidence=min_confidence,
+                min_relevance=min_relevance,
             )
         except Exception as e:
             logger.error(f"Memory search failed: {e}")
