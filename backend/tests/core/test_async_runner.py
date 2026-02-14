@@ -7,6 +7,8 @@ import pytest
 from app.core.async_runner import (
     run_async,
     run_async_dict,
+    run_async_filter,
+    run_async_filter_batched,
     run_async_first,
     run_async_many,
     run_async_map,
@@ -596,6 +598,88 @@ def test_run_async_map_batched_timeout_applies_to_entire_run():
 
     with pytest.raises(TimeoutError, match="run_async_map_batched timed out"):
         run_async_map_batched(_sleep, [1, 2, 3], batch_size=1, timeout=0.05)
+
+
+def test_run_async_filter_returns_items_matching_async_predicate():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_filter(_is_even, [1, 2, 3, 4, 5]) == [2, 4]
+
+
+@pytest.mark.asyncio
+async def test_run_async_filter_with_existing_event_loop_returns_results():
+    async def _keep_prefix(value: str) -> bool:
+        await asyncio.sleep(0.01)
+        return value.startswith("agent")
+
+    assert run_async_filter(_keep_prefix, ["agent-1", "task-2", "agent-3"]) == [
+        "agent-1",
+        "agent-3",
+    ]
+
+
+def test_run_async_filter_rejects_non_callable_predicate():
+    with pytest.raises(TypeError, match="expects a callable coro_predicate"):
+        run_async_filter(123, [1, 2])  # type: ignore[arg-type]
+
+
+def test_run_async_filter_rejects_non_bool_predicate_results():
+    async def _invalid(_: int) -> str:
+        return "yes"
+
+    with pytest.raises(TypeError, match="predicate must return bool"):
+        run_async_filter(_invalid, [1])
+
+
+def test_run_async_filter_honors_max_concurrency_limit():
+    active = 0
+    max_active = 0
+
+    async def _tracked(value: int) -> bool:
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return value % 2 == 0
+
+    assert run_async_filter(_tracked, [1, 2, 3, 4], max_concurrency=2) == [2, 4]
+    assert max_active == 2
+
+
+def test_run_async_filter_timeout_applies_to_entire_run():
+    async def _slow(_: int) -> bool:
+        await asyncio.sleep(0.1)
+        return True
+
+    with pytest.raises(TimeoutError, match="run_async_many timed out"):
+        run_async_filter(_slow, [1, 2, 3], timeout=0.01)
+
+
+def test_run_async_filter_batched_returns_items_matching_predicate():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_filter_batched(_is_even, [1, 2, 3, 4, 5], batch_size=2) == [2, 4]
+
+
+def test_run_async_filter_batched_rejects_non_bool_predicate_results():
+    async def _invalid(_: int) -> int:
+        return 1
+
+    with pytest.raises(TypeError, match="predicate must return bool"):
+        run_async_filter_batched(_invalid, [1], batch_size=1)
+
+
+def test_run_async_filter_batched_rejects_non_positive_batch_size_for_empty_items():
+    async def _always_true(_: int) -> bool:
+        return True
+
+    with pytest.raises(ValueError, match="batch_size must be greater than 0"):
+        run_async_filter_batched(_always_true, [], batch_size=0)
 
 
 def test_run_async_starmap_supports_positional_argument_groups():

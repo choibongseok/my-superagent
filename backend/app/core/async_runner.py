@@ -455,6 +455,93 @@ def run_async_map_batched(
     )
 
 
+def _coerce_filter_result(result: Any, *, function_name: str) -> bool:
+    """Validate predicate output for filter helpers."""
+    if not isinstance(result, bool):
+        raise TypeError(f"{function_name} predicate must return bool values")
+    return result
+
+
+def run_async_filter(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> list[I]:
+    """Filter items using an async predicate from synchronous code.
+
+    Args:
+        coro_predicate: Async callable returning ``True`` when item is kept.
+        items: Iterable of candidate values.
+        timeout: Optional timeout in seconds for the entire predicate run.
+        max_concurrency: Optional cap on predicate concurrency.
+
+    Returns:
+        Filtered list preserving input order.
+
+    Raises:
+        TypeError: If predicate is not callable or returns non-bool values.
+        ValueError: If timeout/max_concurrency are invalid.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    if not callable(coro_predicate):
+        raise TypeError("run_async_filter expects a callable coro_predicate")
+
+    materialized_items = list(items)
+    if not materialized_items:
+        return []
+
+    predicate_results = run_async_map(
+        coro_predicate,
+        materialized_items,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    return [
+        item
+        for item, include in zip(materialized_items, predicate_results, strict=True)
+        if _coerce_filter_result(include, function_name="run_async_filter")
+    ]
+
+
+def run_async_filter_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> list[I]:
+    """Batch-oriented variant of :func:`run_async_filter`.
+
+    This helper bounds in-memory awaitable creation for large iterables while
+    preserving item order.
+    """
+    if not callable(coro_predicate):
+        raise TypeError("run_async_filter_batched expects a callable coro_predicate")
+
+    materialized_items = list(items)
+    if not materialized_items:
+        _validate_batch_size(batch_size)
+        return []
+
+    predicate_results = run_async_map_batched(
+        coro_predicate,
+        materialized_items,
+        batch_size=batch_size,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    return [
+        item
+        for item, include in zip(materialized_items, predicate_results, strict=True)
+        if _coerce_filter_result(include, function_name="run_async_filter_batched")
+    ]
+
+
 def _build_starmap_awaitable(
     coro_factory: Callable[..., Awaitable[T]],
     item: Iterable[Any] | Mapping[str, Any],
