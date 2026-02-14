@@ -211,6 +211,25 @@ def _sort_values(value: object, argument_spec: str) -> list[object]:
         return sorted(items, key=lambda item: str(item), reverse=reverse)
 
 
+def _reverse_value(value: object) -> object:
+    """Reverse strings directly and non-string iterables as lists."""
+    if isinstance(value, str):
+        return value[::-1]
+
+    if isinstance(value, bytes):
+        return value[::-1]
+
+    if isinstance(value, bytearray):
+        return value[::-1]
+
+    try:
+        items = list(iter(value))
+    except TypeError as exc:
+        raise ValueError("reverse expects a string or iterable value") from exc
+
+    return list(reversed(items))
+
+
 def _length_of(value: object) -> int:
     """Return collection length for strings, mappings, and iterables."""
     if isinstance(value, (str, bytes, bytearray, list, tuple, dict, set, frozenset)):
@@ -463,6 +482,7 @@ class TemplateService:
         - ``{tags->unique->sort(desc)->join(" | ")}``
         - ``{items->length}``
         - ``{backlog->first}``, ``{backlog->last}``
+        - ``{steps->reverse->join(" | ")}``
 
         Returns:
             Tuple of ``(field_path, default_value, transforms)``.
@@ -504,6 +524,7 @@ class TemplateService:
             "length": _length_of,
             "first": lambda raw: _select_boundary_item(raw, "first"),
             "last": lambda raw: _select_boundary_item(raw, "last"),
+            "reverse": _reverse_value,
         }
         supported_transforms = sorted(
             [
@@ -606,8 +627,8 @@ class TemplateService:
         ``{variable->camel_case}``, ``{variable->pascal_case}``,
         ``{summary->truncate(120)}``, ``{title->replace("Agent", "Assistant")}``,
         ``{tags->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
-        ``{queue->first}``, ``{queue->last}``, ``{payload->json}``, or
-        ``{payload->json_pretty}``).
+        ``{queue->first}``, ``{queue->last}``, ``{tasks->reverse}``,
+        ``{payload->json}``, or ``{payload->json_pretty}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)
