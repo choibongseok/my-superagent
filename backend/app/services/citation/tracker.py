@@ -2228,6 +2228,73 @@ class CitationTracker:
         uncited_source_count = total_sources - cited_source_count
         citation_coverage = cited_source_count / total_sources if total_sources else 0.0
 
+        domain_rollups: dict[str, dict[str, int | str]] = {}
+        for source in self.sources.values():
+            hostname = self._extract_source_hostname(source)
+            if hostname is None:
+                continue
+
+            citation_count_for_source = per_source_citation_counts.get(source.id, 0)
+            rollup = domain_rollups.setdefault(
+                hostname,
+                {
+                    "domain": hostname,
+                    "source_count": 0,
+                    "cited_source_count": 0,
+                    "citation_count": 0,
+                },
+            )
+            rollup["source_count"] += 1
+            if citation_count_for_source > 0:
+                rollup["cited_source_count"] += 1
+            rollup["citation_count"] += citation_count_for_source
+
+        total_domain_sources = sum(
+            int(rollup["source_count"]) for rollup in domain_rollups.values()
+        )
+        total_domain_citations = sum(
+            int(rollup["citation_count"]) for rollup in domain_rollups.values()
+        )
+
+        domain_breakdown = []
+        for rollup in domain_rollups.values():
+            source_count = int(rollup["source_count"])
+            cited_count = int(rollup["cited_source_count"])
+            citation_count = int(rollup["citation_count"])
+
+            domain_breakdown.append(
+                {
+                    "domain": str(rollup["domain"]),
+                    "source_count": source_count,
+                    "cited_source_count": cited_count,
+                    "uncited_source_count": source_count - cited_count,
+                    "citation_count": citation_count,
+                    "source_share": round(
+                        source_count / total_domain_sources, 3
+                    )
+                    if total_domain_sources
+                    else 0.0,
+                    "citation_share": round(
+                        citation_count / total_domain_citations, 3
+                    )
+                    if total_domain_citations
+                    else 0.0,
+                }
+            )
+
+        domain_breakdown.sort(
+            key=lambda item: (
+                -int(item["citation_count"]),
+                -int(item["source_count"]),
+                str(item["domain"]),
+            )
+        )
+
+        most_cited_domain = domain_breakdown[0]["domain"] if domain_breakdown else None
+        most_cited_domain_count = (
+            domain_breakdown[0]["citation_count"] if domain_breakdown else 0
+        )
+
         return {
             "total_sources": total_sources,
             "total_citations": total_citations,
@@ -2243,6 +2310,10 @@ class CitationTracker:
             "uncited_source_count": uncited_source_count,
             "citation_coverage": round(citation_coverage, 3),
             "citation_counts_by_source": per_source_citation_counts,
+            "domain_count": len(domain_breakdown),
+            "most_cited_domain": most_cited_domain,
+            "most_cited_domain_count": most_cited_domain_count,
+            "domain_breakdown": domain_breakdown,
         }
 
     def to_dict(self) -> Dict[str, Any]:

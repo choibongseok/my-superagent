@@ -1940,6 +1940,68 @@ class TestCitationTracker:
         assert stats["least_cited_source_id"] == alpha_id
         assert stats["citation_counts_by_source"] == {alpha_id: 0, beta_id: 0}
 
+    def test_get_statistics_includes_domain_breakdown(self):
+        """Domain-level rollups should expose concentration diagnostics."""
+        tracker = CitationTracker()
+
+        docs_source_id = tracker.add_source(
+            title="Docs Source",
+            url="https://docs.example.com/guide",
+        )
+        blog_source_id = tracker.add_source(
+            title="Blog Source",
+            url="https://blog.example.com/post",
+        )
+        api_source_id = tracker.add_source(
+            title="API Source",
+            url="https://api.other.net/reference",
+        )
+
+        tracker.cite(docs_source_id, quoted_text="Doc citation")
+        tracker.cite(blog_source_id, quoted_text="Blog citation")
+        tracker.cite(api_source_id, quoted_text="API citation 1")
+        tracker.cite(api_source_id, quoted_text="API citation 2")
+        tracker.cite(api_source_id, quoted_text="API citation 3")
+
+        stats = tracker.get_statistics()
+
+        assert stats["domain_count"] == 2
+        assert stats["most_cited_domain"] == "other.net"
+        assert stats["most_cited_domain_count"] == 3
+        assert len(stats["domain_breakdown"]) == 2
+
+        top_domain = stats["domain_breakdown"][0]
+        assert top_domain["domain"] == "other.net"
+        assert top_domain["source_count"] == 1
+        assert top_domain["cited_source_count"] == 1
+        assert top_domain["uncited_source_count"] == 0
+        assert top_domain["citation_count"] == 3
+        assert top_domain["source_share"] == pytest.approx(0.333, abs=0.001)
+        assert top_domain["citation_share"] == pytest.approx(0.6, abs=0.001)
+
+        second_domain = stats["domain_breakdown"][1]
+        assert second_domain["domain"] == "example.com"
+        assert second_domain["source_count"] == 2
+        assert second_domain["cited_source_count"] == 2
+        assert second_domain["uncited_source_count"] == 0
+        assert second_domain["citation_count"] == 2
+        assert second_domain["source_share"] == pytest.approx(0.667, abs=0.001)
+        assert second_domain["citation_share"] == pytest.approx(0.4, abs=0.001)
+
+    def test_get_statistics_domain_breakdown_ignores_sources_without_urls(self):
+        """Domain rollups should skip sources without parseable URLs."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(title="Book", type=SourceType.BOOK)
+        tracker.cite(source_id, quoted_text="Book citation")
+
+        stats = tracker.get_statistics()
+
+        assert stats["domain_count"] == 0
+        assert stats["most_cited_domain"] is None
+        assert stats["most_cited_domain_count"] == 0
+        assert stats["domain_breakdown"] == []
+
     def test_get_validation_report_returns_low_confidence_when_no_sources(self):
         """Validation report should clearly explain empty evidence state."""
         tracker = CitationTracker()
