@@ -290,6 +290,62 @@ async def test_load_plugins_from_directory_rejects_include_exclude_overlap(
 
 
 @pytest.mark.asyncio
+async def test_load_plugins_from_directory_filters_by_required_permissions(
+    tmp_path, monkeypatch
+):
+    (tmp_path / "http_plugin.py").write_text("# http", encoding="utf-8")
+    (tmp_path / "local_plugin.py").write_text("# local", encoding="utf-8")
+
+    modules = {
+        "app.plugins.http_plugin": _plugin_module(
+            "app.plugins.http_plugin",
+            _build_plugin_class("http-plugin", ["network.http", "filesystem.read"]),
+        ),
+        "app.plugins.local_plugin": _plugin_module(
+            "app.plugins.local_plugin",
+            _build_plugin_class("local-plugin", ["filesystem.read"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    loaded = await manager.load_plugins_from_directory(
+        required_permissions=["network.http"]
+    )
+
+    assert loaded == ["http-plugin"]
+    assert manager.get_plugin("http-plugin") is not None
+    assert manager.get_plugin("local-plugin") is None
+
+
+@pytest.mark.asyncio
+async def test_load_plugins_from_directory_required_permissions_validates_payload(
+    tmp_path,
+):
+    manager = PluginManager(plugin_dir=str(tmp_path))
+
+    with pytest.raises(
+        ValueError,
+        match="required_permissions must contain only strings",
+    ):
+        await manager.load_plugins_from_directory(
+            required_permissions=["network.http", 1]
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="required_permissions cannot contain blank values",
+    ):
+        await manager.load_plugins_from_directory(required_permissions=["   "])
+
+
+@pytest.mark.asyncio
 async def test_list_plugins_filters_by_required_permissions(tmp_path, monkeypatch):
     (tmp_path / "http_plugin.py").write_text("# http", encoding="utf-8")
     (tmp_path / "local_plugin.py").write_text("# local", encoding="utf-8")

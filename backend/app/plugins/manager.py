@@ -132,6 +132,27 @@ class PluginManager:
 
         return normalized_selector
 
+    @staticmethod
+    def _normalize_required_permissions(
+        required_permissions: Optional[Sequence[str]],
+    ) -> Optional[set[str]]:
+        """Normalize optional required-permission filters."""
+        if required_permissions is None:
+            return None
+
+        normalized_permissions: set[str] = set()
+        for permission in required_permissions:
+            if not isinstance(permission, str):
+                raise ValueError("required_permissions must contain only strings")
+
+            normalized_permission = permission.strip()
+            if not normalized_permission:
+                raise ValueError("required_permissions cannot contain blank values")
+
+            normalized_permissions.add(normalized_permission)
+
+        return normalized_permissions
+
     async def load_plugins_from_directory(
         self,
         directory: Optional[Path] = None,
@@ -139,6 +160,7 @@ class PluginManager:
         *,
         include_plugins: Optional[Sequence[str]] = None,
         exclude_plugins: Optional[Sequence[str]] = None,
+        required_permissions: Optional[Sequence[str]] = None,
         stop_on_error: bool = False,
     ) -> List[str]:
         """
@@ -157,6 +179,9 @@ class PluginManager:
                 matching plugins are considered.
             exclude_plugins: Optional denylist of plugin selectors in the same
                 format as ``include_plugins``.
+            required_permissions: Optional permission filter. When provided,
+                only plugins that declare all listed permissions in their
+                manifest are kept loaded.
             stop_on_error: If True, fail fast when a plugin cannot be loaded.
 
         Returns:
@@ -178,6 +203,9 @@ class PluginManager:
             self._normalize_module_selector(selector)
             for selector in (exclude_plugins or [])
         }
+        normalized_required_permissions = self._normalize_required_permissions(
+            required_permissions
+        )
 
         if include_selectors is not None:
             overlap = include_selectors & exclude_selectors
@@ -222,7 +250,19 @@ class PluginManager:
 
             try:
                 plugin = await self.load_plugin(module_path, config=dict(config or {}))
-                loaded.append(plugin.get_manifest().name)
+                manifest = plugin.get_manifest()
+
+                if normalized_required_permissions and not set(
+                    manifest.permissions
+                ).issuperset(normalized_required_permissions):
+                    logger.debug(
+                        "Skipping plugin %s (missing required permissions)",
+                        module_name,
+                    )
+                    await self.unload_plugin(manifest.name)
+                    continue
+
+                loaded.append(manifest.name)
             except Exception as e:
                 logger.error(f"Failed to load plugin from {plugin_file}: {e}")
                 if stop_on_error:
