@@ -744,6 +744,28 @@ def test_local_cache_copy_preserves_source_and_remaining_ttl():
     assert abs(ttl_source - ttl_copy) < 0.2
 
 
+def test_local_cache_copy_preserves_tags_for_source_and_target():
+    cache = LocalCacheService()
+    cache.set_tagged("source", "value", tags=["alpha", "shared"])
+
+    assert cache.copy("source", "target") is True
+
+    assert cache.list_tags("source") == ["alpha", "shared"]
+    assert cache.list_tags("target") == ["alpha", "shared"]
+
+
+def test_local_cache_copy_overwrite_replaces_target_tags_with_source_tags():
+    cache = LocalCacheService()
+    cache.set_tagged("source", "fresh", tags=["active", "primary"])
+    cache.set_tagged("target", "stale", tags=["deprecated"])
+
+    assert cache.copy("source", "target", overwrite=True) is True
+
+    assert cache.get("target") == "fresh"
+    assert cache.list_tags("target") == ["active", "primary"]
+    assert cache.clear_tag("deprecated") == 0
+
+
 def test_local_cache_copy_fails_when_source_missing_or_target_exists_without_overwrite():
     cache = LocalCacheService()
     cache.set_many({"source": "value", "target": "other"})
@@ -829,6 +851,30 @@ def test_local_cache_rename_moves_value_and_preserves_remaining_ttl():
     ttl = cache.ttl_remaining("session:new")
     assert ttl is not None
     assert 1.0 <= ttl <= 2
+
+
+def test_local_cache_rename_moves_source_tags_to_new_key():
+    cache = LocalCacheService()
+    cache.set_tagged("session:old", "token", tags=["auth", "session"])
+
+    assert cache.rename("session:old", "session:new") is True
+
+    assert cache.list_tags("session:old") == []
+    assert cache.list_tags("session:new") == ["auth", "session"]
+    assert cache.clear_tag("auth") == 1
+
+
+def test_local_cache_rename_overwrite_replaces_target_tags_with_source_tags():
+    cache = LocalCacheService()
+    cache.set_tagged("source", "fresh", tags=["active", "owner:a"])
+    cache.set_tagged("target", "stale", tags=["owner:b", "legacy"])
+
+    assert cache.rename("source", "target", overwrite=True) is True
+
+    assert cache.get("source") is None
+    assert cache.get("target") == "fresh"
+    assert cache.list_tags("target") == ["active", "owner:a"]
+    assert cache.clear_tags(["owner:b", "legacy"]) == 0
 
 
 def test_local_cache_rename_fails_when_source_missing_or_target_exists_without_overwrite():

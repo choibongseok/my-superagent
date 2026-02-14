@@ -951,7 +951,7 @@ class LocalCacheService:
         return values
 
     def copy(self, key: str, new_key: str, *, overwrite: bool = False) -> bool:
-        """Copy an active key while preserving remaining TTL.
+        """Copy an active key while preserving remaining TTL and tags.
 
         Args:
             key: Existing cache key to copy from.
@@ -971,6 +971,8 @@ class LocalCacheService:
         if item is None:
             return False
 
+        source_tags = set(self._tags_by_key.get(key, set()))
+
         target_exists = self._get_entry(new_key) is not None
         self._record_lookup(hit=target_exists)
         if target_exists and not overwrite:
@@ -985,6 +987,7 @@ class LocalCacheService:
         value, expires_at = item
         self._store[new_key] = (value, expires_at)
         self._mark_accessed(new_key)
+        self._replace_key_tags(new_key, source_tags)
         self._increment_stat("sets")
         return True
 
@@ -1003,7 +1006,7 @@ class LocalCacheService:
         return copied
 
     def rename(self, key: str, new_key: str, *, overwrite: bool = False) -> bool:
-        """Rename an active key while preserving value and remaining TTL.
+        """Rename an active key while preserving value, remaining TTL, and tags.
 
         Args:
             key: Existing cache key to move.
@@ -1023,6 +1026,8 @@ class LocalCacheService:
         if item is None:
             return False
 
+        source_tags = set(self._tags_by_key.get(key, set()))
+
         target_exists = self._get_entry(new_key) is not None
         self._record_lookup(hit=target_exists)
         if target_exists and not overwrite:
@@ -1040,6 +1045,7 @@ class LocalCacheService:
         value, expires_at = item
         self._store[new_key] = (value, expires_at)
         self._mark_accessed(new_key)
+        self._replace_key_tags(new_key, source_tags)
 
         if removed_entries:
             self._increment_stat("deletes", removed_entries)
