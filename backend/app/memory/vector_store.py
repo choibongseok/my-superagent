@@ -386,6 +386,7 @@ class VectorStoreMemory:
         min_adaptive_threshold: float = 0.5,
         min_confidence: Optional[str] = None,
         min_relevance: Optional[str] = None,
+        max_score_gap: Optional[float] = None,
         sort_by_score: bool = False,
     ) -> List[Dict[str, Any]]:
         """
@@ -409,6 +410,10 @@ class VectorStoreMemory:
             min_relevance: Optional relevance floor filter. Accepted values are
                 ``"very_low"``, ``"low"``, ``"medium"``, and ``"high"``.
                 When set, results below that relevance level are excluded.
+            max_score_gap: Optional score-band filter applied relative to the
+                strongest candidate after thresholding. When set, only results
+                where ``top_score - score <= max_score_gap`` are retained.
+                Accepted range is ``[0, 1]``.
             sort_by_score: When ``True``, sort accepted results by descending score
                 before applying the final ``k`` limit. Ties preserve original
                 vector-store order for deterministic pagination.
@@ -435,6 +440,20 @@ class VectorStoreMemory:
             raise ValueError(
                 f"adaptive_std_multiplier must be non-negative, got {adaptive_std_multiplier}"
             )
+
+        if max_score_gap is not None:
+            if isinstance(max_score_gap, bool) or not isinstance(
+                max_score_gap, (int, float)
+            ):
+                raise ValueError(
+                    f"max_score_gap must be in [0, 1], got {max_score_gap}"
+                )
+
+            max_score_gap = float(max_score_gap)
+            if not (0.0 <= max_score_gap <= 1.0):
+                raise ValueError(
+                    f"max_score_gap must be in [0, 1], got {max_score_gap}"
+                )
 
         normalized_min_confidence = self._normalize_min_confidence(min_confidence)
         min_confidence_rank = (
@@ -588,6 +607,22 @@ class VectorStoreMemory:
                 f"Applied adaptive threshold: {adaptive_threshold_value:.3f} "
                 f"(mean={mean_score:.3f}, std={std_dev:.3f}, cv={cv:.3f}, "
                 f"multiplier={dynamic_multiplier:.2f}, top={top_score:.3f})"
+            )
+
+        if max_score_gap is not None and results:
+            top_score_after_threshold = max(score for _, score in results)
+            minimum_allowed_score = max(0.0, top_score_after_threshold - max_score_gap)
+            results = [
+                (doc, score)
+                for doc, score in results
+                if score + SCORE_EPSILON >= minimum_allowed_score
+            ]
+            logger.debug(
+                "Applied max_score_gap filtering: gap=%.3f, top=%.3f, min=%.3f, kept=%d",
+                max_score_gap,
+                top_score_after_threshold,
+                minimum_allowed_score,
+                len(results),
             )
 
         if sort_by_score:

@@ -597,3 +597,80 @@ class TestScoreSorting:
         )
 
         assert [result["content"] for result in results] == ["first", "second"]
+
+
+class TestScoreGapFiltering:
+    """Test optional score-gap filtering relative to the strongest match."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_max_score_gap_validation(self):
+        """max_score_gap values outside [0, 1] should fail fast."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(ValueError, match="max_score_gap must be in"):
+            memory.search_with_scores(query="test", max_score_gap=-0.1)
+
+        with pytest.raises(ValueError, match="max_score_gap must be in"):
+            memory.search_with_scores(query="test", max_score_gap=1.1)
+
+        with pytest.raises(ValueError, match="max_score_gap must be in"):
+            memory.search_with_scores(query="test", max_score_gap=True)
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_max_score_gap_filters_results_far_from_top_score(self):
+        """Only candidates within the score gap from the top match should remain."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        top_doc = Document(page_content="top", metadata={})
+        nearby_doc = Document(page_content="nearby", metadata={})
+        far_doc = Document(page_content="far", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (top_doc, 0.91),
+                (nearby_doc, 0.84),
+                (far_doc, 0.68),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            max_score_gap=0.1,
+        )
+
+        assert [result["content"] for result in results] == ["top", "nearby"]
+        assert [result["score"] for result in results] == [0.91, 0.84]
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_max_score_gap_zero_keeps_only_top_ties(self):
+        """A zero score gap should keep only highest-score ties."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        first_top = Document(page_content="top-1", metadata={})
+        second_top = Document(page_content="top-2", metadata={})
+        lower = Document(page_content="lower", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (first_top, 0.9),
+                (second_top, 0.9),
+                (lower, 0.85),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            max_score_gap=0.0,
+        )
+
+        assert [result["content"] for result in results] == ["top-1", "top-2"]
