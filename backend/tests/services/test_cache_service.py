@@ -1273,8 +1273,34 @@ def test_local_cache_list_tag_stats_supports_pattern_offset_and_limit():
     ]
 
 
+def test_local_cache_list_tag_stats_supports_tag_name_filters():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["scope:session", "active"])
+    cache.set_tagged("session:beta", 2, tags=["scope:session"])
+    cache.set_tagged("user:alpha", 3, tags=["scope:user", "active"])
+
+    assert cache.list_tag_stats(tag_prefix="scope:") == [
+        {"tag": "scope:session", "count": 2},
+        {"tag": "scope:user", "count": 1},
+    ]
+
+    assert cache.list_tag_stats(
+        tag_pattern="scope:s*",
+        prefix="session:",
+        include_keys=True,
+    ) == [
+        {"tag": "scope:session", "count": 2, "keys": ["session:alpha", "session:beta"]}
+    ]
+
+
 def test_local_cache_list_tag_stats_rejects_invalid_pagination_and_flags():
     cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="tag_prefix must be a string"):
+        cache.list_tag_stats(tag_prefix=123)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="tag_pattern must be a string"):
+        cache.list_tag_stats(tag_pattern=123)  # type: ignore[arg-type]
 
     with pytest.raises(ValueError, match="offset must be greater than or equal to 0"):
         cache.list_tag_stats(offset=-1)

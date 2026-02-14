@@ -253,6 +253,8 @@ class LocalCacheService:
         *,
         prefix: str | None = None,
         pattern: str | None = None,
+        tag_prefix: str | None = None,
+        tag_pattern: str | None = None,
         offset: int | None = None,
         limit: int | None = None,
         include_keys: bool = False,
@@ -262,6 +264,8 @@ class LocalCacheService:
         Args:
             prefix: Optional key prefix filter applied to keys counted per tag.
             pattern: Optional key glob filter applied with :func:`fnmatchcase`.
+            tag_prefix: Optional tag-name prefix filter.
+            tag_pattern: Optional tag-name glob filter.
             offset: Optional number of sorted tag rows to skip.
             limit: Optional maximum number of tag rows to return.
             include_keys: Include sorted matching keys for each tag row.
@@ -275,6 +279,12 @@ class LocalCacheService:
             Expired keys are ignored and cleaned up during enumeration. This
             helper does not affect lookup stats or LRU order.
         """
+        if tag_prefix is not None and not isinstance(tag_prefix, str):
+            raise ValueError("tag_prefix must be a string")
+
+        if tag_pattern is not None and not isinstance(tag_pattern, str):
+            raise ValueError("tag_pattern must be a string")
+
         if offset is not None and offset < 0:
             raise ValueError("offset must be greater than or equal to 0")
 
@@ -288,6 +298,11 @@ class LocalCacheService:
 
         rows: list[dict[str, Any]] = []
         for tag in sorted(list(self._keys_by_tag.keys())):
+            if tag_prefix is not None and not tag.startswith(tag_prefix):
+                continue
+            if tag_pattern is not None and not fnmatchcase(tag, tag_pattern):
+                continue
+
             matching_keys: list[str] = []
             for key in sorted(self._keys_by_tag.get(tag, set())):
                 if self._get_entry(key, mark_access=False) is None:
