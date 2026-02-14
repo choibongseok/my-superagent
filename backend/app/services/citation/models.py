@@ -1,6 +1,7 @@
 """Citation and Source data models."""
 
 from enum import Enum
+import re
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 from pydantic import BaseModel, HttpUrl, Field
@@ -44,7 +45,7 @@ class Source(BaseModel):
         Format source as citation string.
 
         Args:
-            style: Citation style (apa, mla, chicago, harvard)
+            style: Citation style (apa, mla, chicago, harvard, vancouver)
 
         Returns:
             Formatted citation string
@@ -57,6 +58,8 @@ class Source(BaseModel):
             return self._format_chicago()
         elif style == "harvard":
             return self._format_harvard()
+        elif style == "vancouver":
+            return self._format_vancouver()
         else:
             return self._format_simple()
 
@@ -141,6 +144,25 @@ class Source(BaseModel):
 
         return " ".join(parts)
 
+    def _format_vancouver(self) -> str:
+        """Format in Vancouver style."""
+        parts = []
+
+        if self.author:
+            parts.append(f"{self.author}.")
+
+        parts.append(f"{self.title}.")
+
+        if self.published_date:
+            parts.append(f"{self.published_date.year}.")
+
+        if self.url:
+            parts.append(f"Available from: {self.url}.")
+            accessed = self.accessed_date.strftime("%Y %b %d")
+            parts.append(f"[cited {accessed}].")
+
+        return " ".join(parts)
+
     def _format_simple(self) -> str:
         """Simple format with basic info."""
         parts = [self.title]
@@ -170,12 +192,21 @@ class Citation(BaseModel):
         default_factory=dict, description="Additional metadata"
     )
 
+    @staticmethod
+    def _vancouver_label(identifier: str) -> str:
+        """Extract numeric labels from citation ids for Vancouver-style inlines."""
+        match = re.search(r"(\d+)$", identifier)
+        if match:
+            return match.group(1)
+
+        return identifier
+
     def to_inline_citation(self, style: str = "apa") -> str:
         """
         Format as inline citation.
 
         Args:
-            style: Citation style (apa, mla, harvard)
+            style: Citation style (apa, mla, harvard, vancouver)
 
         Returns:
             Inline citation string
@@ -206,6 +237,9 @@ class Citation(BaseModel):
             if self.source.author:
                 return f"({self.source.author}, {year})"
             return f"({self.source.title}, {year})"
+
+        elif style == "vancouver":
+            return f"[{self._vancouver_label(self.id)}]"
 
         else:
             # Simple numbered citation

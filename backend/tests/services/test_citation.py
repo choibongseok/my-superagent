@@ -1874,6 +1874,27 @@ class TestCitationTracker:
 
         assert rendered == "Evidence is documented (Jane Doe, 2025)."
 
+    def test_get_inline_citations_supports_vancouver_style(self):
+        """Inline placeholder rendering should support Vancouver numeric output."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(
+            title="AI Reliability Guide",
+            author="Jane Doe",
+            published_date=datetime(2025, 6, 1),
+            type=SourceType.DOCUMENT,
+        )
+        tracker.cite(source_id, quoted_text="Verify every claim")
+        citation = tracker.cite(source_id, quoted_text="Independent cross-check")
+        assert citation is not None
+
+        rendered = tracker.get_inline_citations(
+            f"Evidence is documented [[cite:{citation.id}]].",
+            style="vancouver",
+        )
+
+        assert rendered == "Evidence is documented [2]."
+
     def test_get_inline_citations_keeps_unknown_placeholders(self):
         """Unknown placeholders should remain unchanged for safer debugging."""
         tracker = CitationTracker()
@@ -2558,6 +2579,24 @@ class TestSource:
         assert citation.startswith("Untitled Reference (n.d.).")
         assert citation.count("Untitled Reference") == 1
 
+    def test_citation_format_vancouver(self):
+        """Vancouver format should include publication year and access metadata."""
+        source = Source(
+            id="test_id",
+            type=SourceType.ARTICLE,
+            title="AI Reliability in Production",
+            url="https://example.com/ai-reliability",
+            author="Jane Doe",
+            published_date=datetime(2024, 1, 1),
+            accessed_date=datetime(2026, 2, 14),
+        )
+
+        citation = source.to_citation_format(style="vancouver")
+
+        assert citation.startswith("Jane Doe. AI Reliability in Production. 2024.")
+        assert "Available from: https://example.com/ai-reliability." in citation
+        assert "[cited 2026 Feb 14]." in citation
+
     def test_inline_citation_harvard(self):
         """Inline citation rendering should support Harvard style."""
         source = Source(
@@ -2572,6 +2611,36 @@ class TestSource:
         inline = citation.to_inline_citation(style="harvard")
 
         assert inline == "(Alex Kim, 2023)"
+
+    def test_inline_citation_vancouver_prefers_numeric_suffix(self):
+        """Vancouver inline citations should use numeric suffixes when available."""
+        source = Source(
+            id="source_id",
+            type=SourceType.ARTICLE,
+            title="Reliable Systems",
+            author="Alex Kim",
+            published_date=datetime(2023, 5, 1),
+        )
+        citation = Citation(id="cite_12", source=source)
+
+        inline = citation.to_inline_citation(style="vancouver")
+
+        assert inline == "[12]"
+
+    def test_inline_citation_vancouver_falls_back_to_identifier(self):
+        """Vancouver inline citations should remain stable for non-numeric ids."""
+        source = Source(
+            id="source_id",
+            type=SourceType.ARTICLE,
+            title="Reliable Systems",
+            author="Alex Kim",
+            published_date=datetime(2023, 5, 1),
+        )
+        citation = Citation(id="source_abc", source=source)
+
+        inline = citation.to_inline_citation(style="vancouver")
+
+        assert inline == "[source_abc]"
 
 
 if __name__ == "__main__":

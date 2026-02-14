@@ -21,7 +21,7 @@ class CitationTracker:
 
     Features:
         - Source registration and tracking
-        - Citation generation in multiple formats (APA, MLA, Chicago)
+        - Citation generation in multiple formats (APA, MLA, Chicago, Harvard, Vancouver)
         - Bibliography generation
         - Citation deduplication
 
@@ -1553,7 +1553,7 @@ class CitationTracker:
         Generate bibliography from all sources.
 
         Args:
-            style: Citation style (apa, mla, chicago, harvard)
+            style: Citation style (apa, mla, chicago, harvard, vancouver)
             sort_by: Sort method (author, title, date)
 
         Returns:
