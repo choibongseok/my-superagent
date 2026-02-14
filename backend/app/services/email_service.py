@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import smtplib
 from collections.abc import Sequence
 from email.mime.multipart import MIMEMultipart
@@ -17,6 +18,8 @@ logger = logging.getLogger(__name__)
 class EmailService:
     """Service for sending emails via SMTP."""
 
+    _RECIPIENT_SPLIT_PATTERN = re.compile(r"[;,]")
+
     def __init__(self):
         """Initialize email service with settings."""
         self.smtp_host = settings.SMTP_HOST
@@ -27,8 +30,25 @@ class EmailService:
         self.from_name = settings.FROM_NAME
         self.enabled = settings.EMAIL_ENABLED
 
+    @classmethod
+    def _split_recipient_tokens(cls, value: str) -> list[str]:
+        """Split one recipient input into potential addresses.
+
+        Supports comma/semicolon separated values to make API usage friendlier.
+        """
+        return cls._RECIPIENT_SPLIT_PATTERN.split(value)
+
     @staticmethod
+    def _sanitize_header_value(value: str, *, field_name: str) -> str:
+        """Sanitize header-like values and block CR/LF injection vectors."""
+        if "\r" in value or "\n" in value:
+            raise ValueError(f"{field_name} entries cannot contain newline characters")
+
+        return value.strip()
+
+    @classmethod
     def _normalize_recipients(
+        cls,
         recipients: str | Sequence[str],
         *,
         field_name: str,
@@ -46,20 +66,22 @@ class EmailService:
             if not isinstance(recipient, str):
                 raise TypeError(f"{field_name} entries must be strings")
 
-            email = recipient.strip()
-            if not email:
-                continue
+            for token in cls._split_recipient_tokens(recipient):
+                email = cls._sanitize_header_value(token, field_name=field_name)
+                if not email:
+                    continue
 
-            if email not in normalized:
-                normalized.append(email)
+                if email not in normalized:
+                    normalized.append(email)
 
         if not normalized:
             raise ValueError(f"{field_name} must include at least one email address")
 
         return normalized
 
-    @staticmethod
+    @classmethod
     def _normalize_optional_email(
+        cls,
         email: str | None,
         *,
         field_name: str,
@@ -70,8 +92,16 @@ class EmailService:
         if not isinstance(email, str):
             raise TypeError(f"{field_name} must be a string")
 
-        normalized = email.strip()
-        return normalized or None
+        normalized = cls._sanitize_header_value(email, field_name=field_name)
+        if not normalized:
+            return None
+
+        tokens = [token.strip() for token in cls._split_recipient_tokens(normalized)]
+        non_empty_tokens = [token for token in tokens if token]
+        if len(non_empty_tokens) > 1:
+            raise ValueError(f"{field_name} must include a single email address")
+
+        return non_empty_tokens[0] if non_empty_tokens else None
 
     def _create_message(
         self,

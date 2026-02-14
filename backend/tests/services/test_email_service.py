@@ -192,6 +192,71 @@ class TestEmailService:
         sent_message = mock_server.send_message.call_args[0][0]
         assert sent_message["Reply-To"] == "support@test.com"
 
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_supports_comma_or_semicolon_delimited_recipient_strings(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Recipient strings can include comma/semicolon delimiters."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        result = email_service.send_email(
+            to_email="primary@test.com; secondary@test.com, primary@test.com",
+            cc_emails="cc@test.com; secondary@test.com",
+            bcc_emails="bcc@test.com, cc@test.com",
+            subject="Delimited",
+            html_body="<p>Delimited recipients</p>",
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        delivery_recipients = mock_server.send_message.call_args.kwargs["to_addrs"]
+
+        assert sent_message["To"] == "primary@test.com, secondary@test.com"
+        assert sent_message["Cc"] == "cc@test.com, secondary@test.com"
+        assert delivery_recipients == [
+            "primary@test.com",
+            "secondary@test.com",
+            "cc@test.com",
+            "bcc@test.com",
+        ]
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_rejects_newline_header_injection_in_recipients(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Newline characters in recipient fields should be rejected."""
+        result = email_service.send_email(
+            to_email="victim@test.com\nBCC:attacker@test.com",
+            subject="Unsafe",
+            html_body="<p>should fail</p>",
+        )
+
+        assert result is False
+        mock_smtp.assert_not_called()
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_rejects_multiple_reply_to_addresses(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Reply-To should remain a single address field."""
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Reply-to",
+            html_body="<p>should fail</p>",
+            reply_to_email="support@test.com,helpdesk@test.com",
+        )
+
+        assert result is False
+        mock_smtp.assert_not_called()
+
     def test_send_email_returns_false_for_empty_recipient_values(self, email_service):
         """Test invalid recipients are handled as send failures."""
         result = email_service.send_email(
