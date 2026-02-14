@@ -744,6 +744,8 @@ class CitationTracker:
         max_authority_score: Optional[float] = None,
         min_relevance_score: Optional[float] = None,
         max_relevance_score: Optional[float] = None,
+        min_hybrid_score: Optional[float] = None,
+        max_hybrid_score: Optional[float] = None,
         min_recency_score: Optional[float] = None,
         max_recency_score: Optional[float] = None,
         recency_window_days: int = 730,
@@ -825,6 +827,12 @@ class CitationTracker:
             max_relevance_score: Optional inclusive upper bound for computed
                 relevance score. Useful when isolating weaker/secondary matches
                 for fallback or diversity logic.
+            min_hybrid_score: Optional inclusive lower bound for computed
+                hybrid score. Useful for requiring a minimum blend of lexical
+                relevance and source-quality signals.
+            max_hybrid_score: Optional inclusive upper bound for computed
+                hybrid score. Useful for isolating secondary matches for
+                fallback ranking tiers.
             min_recency_score: Optional inclusive lower bound for computed
                 recency score in the ``0.0`` to ``1.0`` range.
             max_recency_score: Optional inclusive upper bound for computed
@@ -941,6 +949,19 @@ class CitationTracker:
             raise ValueError(
                 "min_relevance_score cannot be greater than max_relevance_score"
             )
+
+        if min_hybrid_score is not None and min_hybrid_score < 0:
+            raise ValueError("min_hybrid_score cannot be negative")
+
+        if max_hybrid_score is not None and max_hybrid_score < 0:
+            raise ValueError("max_hybrid_score cannot be negative")
+
+        if (
+            min_hybrid_score is not None
+            and max_hybrid_score is not None
+            and min_hybrid_score > max_hybrid_score
+        ):
+            raise ValueError("min_hybrid_score cannot be greater than max_hybrid_score")
 
         if min_recency_score is not None and not 0 <= min_recency_score <= 1:
             raise ValueError("min_recency_score must be between 0 and 1")
@@ -1195,6 +1216,18 @@ class CitationTracker:
                 recency_window_days=recency_window_days,
                 recency_profile=recency_profile,
             )
+            hybrid_score = self._compute_hybrid_score(
+                relevance_score=score,
+                citation_count=citation_count,
+                authority_score=authority_score,
+                recency_score=recency_score,
+            )
+
+            if min_hybrid_score is not None and hybrid_score < min_hybrid_score:
+                continue
+
+            if max_hybrid_score is not None and hybrid_score > max_hybrid_score:
+                continue
 
             if min_recency_score is not None and recency_score < min_recency_score:
                 continue
@@ -1208,12 +1241,7 @@ class CitationTracker:
                     citation_count,
                     authority_score,
                     recency_score,
-                    self._compute_hybrid_score(
-                        relevance_score=score,
-                        citation_count=citation_count,
-                        authority_score=authority_score,
-                        recency_score=recency_score,
-                    ),
+                    hybrid_score,
                     source,
                 )
             )
@@ -1397,6 +1425,8 @@ class CitationTracker:
         max_authority_score: Optional[float] = None,
         min_relevance_score: Optional[float] = None,
         max_relevance_score: Optional[float] = None,
+        min_hybrid_score: Optional[float] = None,
+        max_hybrid_score: Optional[float] = None,
         min_recency_score: Optional[float] = None,
         max_recency_score: Optional[float] = None,
         recency_window_days: int = 730,
@@ -1443,6 +1473,8 @@ class CitationTracker:
             max_authority_score=max_authority_score,
             min_relevance_score=min_relevance_score,
             max_relevance_score=max_relevance_score,
+            min_hybrid_score=min_hybrid_score,
+            max_hybrid_score=max_hybrid_score,
             min_recency_score=min_recency_score,
             max_recency_score=max_recency_score,
             recency_window_days=recency_window_days,

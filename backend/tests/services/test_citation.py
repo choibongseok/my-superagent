@@ -1318,6 +1318,117 @@ class TestCitationTracker:
         assert strong_id not in {item["source"].id for item in detailed}
         assert 0.5 <= detailed[0]["relevance_score"] <= 8.0
 
+    def test_search_sources_supports_min_and_max_hybrid_score_filters(self):
+        """Hybrid score bounds should filter blended ranking quality deterministically."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        lower_hybrid_id = tracker.add_source(
+            title="Agent Reliability Workflow Workflow Handbook",
+            type=SourceType.WEB,
+            published_date=anchor_time - timedelta(days=500),
+        )
+        higher_hybrid_id = tracker.add_source(
+            title="Agent Reliability Workflow Reference",
+            type=SourceType.DATABASE,
+            published_date=anchor_time - timedelta(days=3),
+        )
+
+        tracker.cite(higher_hybrid_id, quoted_text="Primary source")
+        tracker.cite(higher_hybrid_id, quoted_text="Secondary source")
+
+        detailed = tracker.search_sources_with_details(
+            "agent reliability workflow",
+            sort_by="hybrid",
+            as_of=anchor_time,
+            recency_window_days=365,
+        )
+        score_by_id = {
+            item["source"].id: item["hybrid_score"]
+            for item in detailed
+        }
+        midpoint = (
+            score_by_id[lower_hybrid_id] + score_by_id[higher_hybrid_id]
+        ) / 2
+
+        minimum_bounded = tracker.search_sources(
+            "agent reliability workflow",
+            min_hybrid_score=midpoint,
+            as_of=anchor_time,
+            recency_window_days=365,
+            sort_by="hybrid",
+        )
+        maximum_bounded = tracker.search_sources(
+            "agent reliability workflow",
+            max_hybrid_score=midpoint,
+            as_of=anchor_time,
+            recency_window_days=365,
+            sort_by="hybrid",
+        )
+
+        assert [source.id for source in minimum_bounded] == [higher_hybrid_id]
+        assert [source.id for source in maximum_bounded] == [lower_hybrid_id]
+
+    def test_search_sources_rejects_invalid_hybrid_score_filters(self):
+        """Hybrid score bounds should enforce non-negative values and valid ranges."""
+        tracker = CitationTracker()
+
+        with pytest.raises(ValueError, match="min_hybrid_score cannot be negative"):
+            tracker.search_sources("agent", min_hybrid_score=-0.1)
+
+        with pytest.raises(ValueError, match="max_hybrid_score cannot be negative"):
+            tracker.search_sources("agent", max_hybrid_score=-0.1)
+
+        with pytest.raises(
+            ValueError,
+            match="min_hybrid_score cannot be greater than max_hybrid_score",
+        ):
+            tracker.search_sources(
+                "agent",
+                min_hybrid_score=10.0,
+                max_hybrid_score=5.0,
+            )
+
+    def test_search_sources_with_details_supports_hybrid_score_range_filters(self):
+        """Detailed search should pass through min/max hybrid constraints."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        tracker.add_source(
+            title="Agent Reliability Workflow Workflow Handbook",
+            type=SourceType.WEB,
+            published_date=anchor_time - timedelta(days=500),
+        )
+        higher_hybrid_id = tracker.add_source(
+            title="Agent Reliability Workflow Reference",
+            type=SourceType.DATABASE,
+            published_date=anchor_time - timedelta(days=3),
+        )
+
+        tracker.cite(higher_hybrid_id, quoted_text="Primary source")
+        tracker.cite(higher_hybrid_id, quoted_text="Secondary source")
+
+        full_details = tracker.search_sources_with_details(
+            "agent reliability workflow",
+            sort_by="hybrid",
+            as_of=anchor_time,
+            recency_window_days=365,
+        )
+        midpoint = (
+            full_details[0]["hybrid_score"] + full_details[1]["hybrid_score"]
+        ) / 2
+
+        filtered_details = tracker.search_sources_with_details(
+            "agent reliability workflow",
+            min_hybrid_score=midpoint,
+            sort_by="hybrid",
+            as_of=anchor_time,
+            recency_window_days=365,
+        )
+
+        assert [item["source"].id for item in filtered_details] == [higher_hybrid_id]
+        assert filtered_details[0]["hybrid_score"] >= midpoint
+
     def test_search_sources_with_details_supports_recency_score_range_filters(self):
         """Detailed search should pass through min/max recency score constraints."""
         tracker = CitationTracker()
