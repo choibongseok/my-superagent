@@ -130,6 +130,42 @@ class PromptRegistry:
 
         return None
 
+    def rollback(
+        self,
+        name: str,
+        target_version: str,
+        *,
+        new_version: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        persist: bool = True,
+    ) -> PromptVersion:
+        """Rollback a prompt to a previous version by cloning it as a new latest.
+
+        This method preserves existing history and creates a new version that
+        copies the target template and variables.
+        """
+        target = self.get(name, version=target_version)
+        if target is None:
+            raise ValueError(
+                f"Prompt '{name}' version '{target_version}' was not found for rollback"
+            )
+
+        rollback_metadata: dict[str, Any] = {
+            **target.metadata,
+            **(metadata or {}),
+            "rollback_from_version": target.version,
+            "rollback_performed_at": datetime.now().isoformat(),
+        }
+
+        return self.register(
+            name=name,
+            template=target.template,
+            variables=list(target.variables),
+            metadata=rollback_metadata,
+            version=new_version,
+            persist=persist,
+        )
+
     def list_versions(self, name: str) -> List[PromptVersion]:
         """List all versions of a prompt."""
         if name in self._cache:

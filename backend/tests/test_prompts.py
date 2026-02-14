@@ -195,6 +195,55 @@ def test_non_persistent_registration_stays_in_memory_only(temp_registry):
     assert not (temp_registry.storage_path / "ephemeral_prompt.json").exists()
 
 
+def test_rollback_creates_new_latest_version_from_target(temp_registry):
+    """Rollback should clone an older version into a new latest release."""
+    temp_registry.register(
+        name="incident_prompt",
+        template="Stable response with {context}",
+        variables=["context"],
+        metadata={"quality": "stable"},
+        version="v1",
+    )
+    temp_registry.register(
+        name="incident_prompt",
+        template="Broken response",
+        variables=[],
+        metadata={"quality": "broken"},
+        version="v2",
+    )
+
+    rollback = temp_registry.rollback(
+        "incident_prompt",
+        target_version="v1",
+        metadata={"reason": "production incident"},
+    )
+
+    assert rollback.version == "v3"
+    assert rollback.template == "Stable response with {context}"
+    assert rollback.variables == ["context"]
+    assert rollback.metadata["quality"] == "stable"
+    assert rollback.metadata["reason"] == "production incident"
+    assert rollback.metadata["rollback_from_version"] == "v1"
+    assert "rollback_performed_at" in rollback.metadata
+
+    latest = temp_registry.get("incident_prompt")
+    assert latest is not None
+    assert latest.version == "v3"
+
+
+def test_rollback_rejects_missing_target_version(temp_registry):
+    """Rollback should fail fast when target version does not exist."""
+    temp_registry.register(
+        name="incident_prompt",
+        template="Stable response",
+        variables=[],
+        version="v1",
+    )
+
+    with pytest.raises(ValueError, match="was not found for rollback"):
+        temp_registry.rollback("incident_prompt", target_version="v9")
+
+
 def test_builtin_templates_are_bootstrapped():
     """Test global prompt registry auto-loads built-in templates."""
     prompt = prompt_registry.get("research_agent", version="v1")
