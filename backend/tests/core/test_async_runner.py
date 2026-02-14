@@ -10,6 +10,7 @@ from app.core.async_runner import (
     run_async_first,
     run_async_many,
     run_async_map,
+    run_async_map_batched,
     run_async_starmap,
 )
 
@@ -506,6 +507,94 @@ def test_run_async_map_empty_input_returns_empty_list():
         return value
 
     assert run_async_map(_noop, []) == []
+
+
+def test_run_async_map_batched_returns_ordered_results_across_batches():
+    async def _double(value: int) -> int:
+        await asyncio.sleep(0.01)
+        return value * 2
+
+    result = run_async_map_batched(_double, [1, 2, 3, 4, 5], batch_size=2)
+
+    assert result == [2, 4, 6, 8, 10]
+
+
+@pytest.mark.asyncio
+async def test_run_async_map_batched_with_existing_event_loop_returns_results():
+    async def _label(value: int) -> str:
+        await asyncio.sleep(0.01)
+        return f"item-{value}"
+
+    result = run_async_map_batched(_label, [1, 2, 3], batch_size=2)
+
+    assert result == ["item-1", "item-2", "item-3"]
+
+
+def test_run_async_map_batched_can_return_exceptions_when_requested():
+    async def _explode(value: int) -> int:
+        if value == 2:
+            raise ValueError("bad")
+        return value
+
+    result = run_async_map_batched(
+        _explode,
+        [1, 2, 3],
+        batch_size=2,
+        return_exceptions=True,
+    )
+
+    assert result[0] == 1
+    assert isinstance(result[1], ValueError)
+    assert str(result[1]) == "bad"
+    assert result[2] == 3
+
+
+def test_run_async_map_batched_rejects_non_positive_batch_size():
+    async def _noop(value: int) -> int:
+        return value
+
+    with pytest.raises(ValueError, match="batch_size must be greater than 0"):
+        run_async_map_batched(_noop, [1], batch_size=0)
+
+
+def test_run_async_map_batched_rejects_non_awaitable_factory_results():
+    def _sync_factory(value: int) -> int:
+        return value
+
+    with pytest.raises(TypeError, match="must return an awaitable"):
+        run_async_map_batched(_sync_factory, [1], batch_size=1)
+
+
+def test_run_async_map_batched_honors_max_concurrency_limit():
+    active = 0
+    max_active = 0
+
+    async def _tracked(value: int) -> int:
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return value
+
+    result = run_async_map_batched(
+        _tracked,
+        [1, 2, 3, 4],
+        batch_size=4,
+        max_concurrency=2,
+    )
+
+    assert result == [1, 2, 3, 4]
+    assert max_active == 2
+
+
+def test_run_async_map_batched_timeout_applies_to_entire_run():
+    async def _sleep(value: int) -> int:
+        await asyncio.sleep(0.03)
+        return value
+
+    with pytest.raises(TimeoutError, match="run_async_map_batched timed out"):
+        run_async_map_batched(_sleep, [1, 2, 3], batch_size=1, timeout=0.05)
 
 
 def test_run_async_starmap_supports_positional_argument_groups():

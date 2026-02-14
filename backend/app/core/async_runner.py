@@ -50,6 +50,12 @@ def _validate_max_concurrency(max_concurrency: int | None) -> None:
         raise ValueError("max_concurrency must be greater than 0")
 
 
+def _validate_batch_size(batch_size: int) -> None:
+    """Validate batch size values used by batched helpers."""
+    if batch_size <= 0:
+        raise ValueError("batch_size must be greater than 0")
+
+
 def _run_with_event_loop_bridge(
     runner: Callable[[], Awaitable[R]],
     *,
@@ -351,6 +357,99 @@ def run_async_map(
         timeout=timeout,
         return_exceptions=return_exceptions,
         max_concurrency=max_concurrency,
+    )
+
+
+def run_async_map_batched(
+    coro_factory: Callable[[I], Awaitable[T]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    return_exceptions: bool = False,
+    max_concurrency: int | None = None,
+) -> list[T] | list[T | BaseException]:
+    """Map an async callable over items in bounded batches.
+
+    Unlike :func:`run_async_map`, this helper builds and executes awaitables in
+    batches to keep memory usage predictable for large iterables.
+
+    Args:
+        coro_factory: Callable that returns an awaitable for each input item.
+        items: Iterable of input values.
+        batch_size: Number of items to execute per batch.
+        timeout: Optional timeout in seconds for the entire batched execution.
+        return_exceptions: Mirror of ``asyncio.gather(return_exceptions=...)``.
+        max_concurrency: Optional cap on concurrent tasks inside each batch.
+
+    Returns:
+        List of results preserving input order.
+
+    Raises:
+        ValueError: If ``batch_size``, ``timeout``, or ``max_concurrency`` are invalid.
+        TypeError: If ``coro_factory`` is not callable or does not return awaitables.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    if not callable(coro_factory):
+        raise TypeError("run_async_map_batched expects a callable coro_factory")
+
+    _validate_batch_size(batch_size)
+    _validate_timeout(timeout)
+    _validate_max_concurrency(max_concurrency)
+
+    async def _run_all_batches() -> list[T] | list[T | BaseException]:
+        results: list[T] | list[T | BaseException] = []
+        batch: list[I] = []
+
+        async def _flush_batch(current_batch: list[I]) -> list[T] | list[T | BaseException]:
+            awaitables: list[Awaitable[T]] = []
+            try:
+                for item in current_batch:
+                    awaitable = coro_factory(item)
+                    if not inspect.isawaitable(awaitable):
+                        raise TypeError(
+                            "coro_factory must return an awaitable for each item"
+                        )
+                    awaitables.append(awaitable)
+            except Exception:
+                for candidate in awaitables:
+                    close = getattr(candidate, "close", None)
+                    if callable(close):
+                        close()
+                raise
+
+            return await _gather_with_optional_limit(
+                awaitables,
+                max_concurrency=max_concurrency,
+                return_exceptions=return_exceptions,
+            )
+
+        for item in items:
+            batch.append(item)
+            if len(batch) < batch_size:
+                continue
+
+            batch_results = await _flush_batch(batch)
+            results.extend(batch_results)
+            batch = []
+
+        if batch:
+            batch_results = await _flush_batch(batch)
+            results.extend(batch_results)
+
+        return results
+
+    async def _run_with_timeout() -> list[T] | list[T | BaseException]:
+        if timeout is None:
+            return await _run_all_batches()
+        return await asyncio.wait_for(_run_all_batches(), timeout=timeout)
+
+    def _timeout_error() -> TimeoutError:
+        return TimeoutError(f"run_async_map_batched timed out after {timeout} seconds")
+
+    return _run_with_event_loop_bridge(
+        _run_with_timeout,
+        timeout_error_factory=_timeout_error,
     )
 
 
