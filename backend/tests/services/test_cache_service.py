@@ -1097,6 +1097,69 @@ def test_local_cache_tag_and_untag_manage_existing_keys_only():
     assert cache.list_tags("session") == []
 
 
+def test_local_cache_list_tag_stats_returns_sorted_counts():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["session", "active"])
+    cache.set_tagged("session:beta", 2, tags=["session"])
+    cache.set_tagged("user:alpha", 3, tags=["active", "user"])
+
+    assert cache.list_tag_stats() == [
+        {"tag": "active", "count": 2},
+        {"tag": "session", "count": 2},
+        {"tag": "user", "count": 1},
+    ]
+
+
+def test_local_cache_list_tag_stats_supports_prefix_and_include_keys():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["session", "active"])
+    cache.set_tagged("session:beta", 2, tags=["session"])
+    cache.set_tagged("user:alpha", 3, tags=["active", "user"])
+
+    assert cache.list_tag_stats(prefix="session:", include_keys=True) == [
+        {"tag": "active", "count": 1, "keys": ["session:alpha"]},
+        {
+            "tag": "session",
+            "count": 2,
+            "keys": ["session:alpha", "session:beta"],
+        },
+    ]
+
+
+def test_local_cache_list_tag_stats_supports_pattern_offset_and_limit():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["session", "active"])
+    cache.set_tagged("session:beta", 2, tags=["session"])
+    cache.set_tagged("user:alpha", 3, tags=["active", "user"])
+
+    assert cache.list_tag_stats(pattern="*:alpha", offset=1, limit=1) == [
+        {"tag": "session", "count": 1}
+    ]
+
+
+def test_local_cache_list_tag_stats_rejects_invalid_pagination_and_flags():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="offset must be greater than or equal to 0"):
+        cache.list_tag_stats(offset=-1)
+
+    with pytest.raises(ValueError, match="limit must be greater than 0"):
+        cache.list_tag_stats(limit=0)
+
+    with pytest.raises(ValueError, match="include_keys must be a boolean"):
+        cache.list_tag_stats(include_keys="yes")  # type: ignore[arg-type]
+
+
+def test_local_cache_list_tag_stats_ignores_expired_entries():
+    cache = LocalCacheService()
+    cache.set_tagged("temp", "value", tags=["volatile"], ttl_seconds=1)
+
+    time.sleep(1.05)
+
+    assert cache.list_tag_stats() == []
+    assert cache.clear_tag("volatile") == 0
+
+
 def test_local_cache_clear_tags_removes_union_of_tagged_keys_once():
     cache = LocalCacheService()
     cache.set_tagged("alpha", 1, tags=["group:a", "shared"])

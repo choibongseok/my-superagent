@@ -248,6 +248,74 @@ class LocalCacheService:
 
         return sorted(self._tags_by_key.get(key, set()))
 
+    def list_tag_stats(
+        self,
+        *,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        offset: int | None = None,
+        limit: int | None = None,
+        include_keys: bool = False,
+    ) -> list[dict[str, Any]]:
+        """List active tags with per-tag entry counts.
+
+        Args:
+            prefix: Optional key prefix filter applied to keys counted per tag.
+            pattern: Optional key glob filter applied with :func:`fnmatchcase`.
+            offset: Optional number of sorted tag rows to skip.
+            limit: Optional maximum number of tag rows to return.
+            include_keys: Include sorted matching keys for each tag row.
+
+        Returns:
+            A sorted list of dictionaries in ``{"tag": str, "count": int}``
+            shape. When ``include_keys`` is ``True``, each row includes
+            ``"keys"`` with the matching key names.
+
+        Notes:
+            Expired keys are ignored and cleaned up during enumeration. This
+            helper does not affect lookup stats or LRU order.
+        """
+        if offset is not None and offset < 0:
+            raise ValueError("offset must be greater than or equal to 0")
+
+        if limit is not None and limit <= 0:
+            raise ValueError("limit must be greater than 0")
+
+        if not isinstance(include_keys, bool):
+            raise ValueError("include_keys must be a boolean")
+
+        self._purge_expired_entries()
+
+        rows: list[dict[str, Any]] = []
+        for tag in sorted(list(self._keys_by_tag.keys())):
+            matching_keys: list[str] = []
+            for key in sorted(self._keys_by_tag.get(tag, set())):
+                if self._get_entry(key, mark_access=False) is None:
+                    continue
+                if prefix is not None and not key.startswith(prefix):
+                    continue
+                if pattern is not None and not fnmatchcase(key, pattern):
+                    continue
+                matching_keys.append(key)
+
+            if not matching_keys:
+                continue
+
+            row: dict[str, Any] = {
+                "tag": tag,
+                "count": len(matching_keys),
+            }
+            if include_keys:
+                row["keys"] = matching_keys
+            rows.append(row)
+
+        if offset:
+            rows = rows[offset:]
+
+        if limit is not None:
+            return rows[:limit]
+        return rows
+
     def clear_tag(self, tag: str) -> int:
         """Delete all keys attached to ``tag`` and return removed count."""
         return self.clear_tags([tag])
