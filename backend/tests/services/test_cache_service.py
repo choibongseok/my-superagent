@@ -874,6 +874,71 @@ def test_local_cache_delete_many_returns_removed_count():
     assert cache.get_many(["alpha", "beta", "gamma"]) == {"beta": 2}
 
 
+def test_local_cache_set_tagged_replaces_key_tags_and_supports_tag_lookup():
+    cache = LocalCacheService()
+
+    cache.set_tagged("profile:1", {"name": "A"}, tags=["users", "profile"])
+
+    assert cache.list_tags("profile:1") == ["profile", "users"]
+
+    cache.set_tagged("profile:1", {"name": "A+"}, tags=["active"])
+
+    assert cache.list_tags("profile:1") == ["active"]
+    assert cache.clear_tag("users") == 0
+    assert cache.clear_tag("active") == 1
+    assert cache.get("profile:1") is None
+
+
+def test_local_cache_tag_and_untag_manage_existing_keys_only():
+    cache = LocalCacheService()
+
+    assert cache.tag("missing", ["alpha"]) is False
+    assert cache.untag("missing") is False
+
+    cache.set("session", "token")
+
+    assert cache.tag("session", ["auth", "sensitive", "auth"]) is True
+    assert cache.list_tags("session") == ["auth", "sensitive"]
+
+    assert cache.untag("session", ["auth"]) is True
+    assert cache.list_tags("session") == ["sensitive"]
+
+    assert cache.untag("session") is True
+    assert cache.list_tags("session") == []
+
+
+def test_local_cache_clear_tags_removes_union_of_tagged_keys_once():
+    cache = LocalCacheService()
+    cache.set_tagged("alpha", 1, tags=["group:a", "shared"])
+    cache.set_tagged("beta", 2, tags=["group:b", "shared"])
+    cache.set_tagged("gamma", 3, tags=["group:c"])
+
+    removed = cache.clear_tags(["shared", "group:c", "shared", ""])
+
+    assert removed == 3
+    assert cache.get("alpha") is None
+    assert cache.get("beta") is None
+    assert cache.get("gamma") is None
+
+
+def test_local_cache_clear_tag_ignores_expired_entries():
+    cache = LocalCacheService()
+    cache.set_tagged("temp", "value", tags=["volatile"], ttl_seconds=1)
+
+    time.sleep(1.05)
+
+    assert cache.get("temp") is None
+    assert cache.clear_tag("volatile") == 0
+
+
+def test_local_cache_tag_rejects_non_string_values():
+    cache = LocalCacheService()
+    cache.set("safe", "value")
+
+    with pytest.raises(TypeError, match="tags must contain only strings"):
+        cache.tag("safe", ["ok", 123])  # type: ignore[list-item]
+
+
 def test_local_cache_clear_prefix_removes_matching_keys_only():
     cache = LocalCacheService()
     cache.set_many(

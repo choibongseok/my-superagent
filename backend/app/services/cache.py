@@ -33,6 +33,10 @@ class LocalCacheService:
         self._store: dict[str, tuple[Any, float | None]] = {}
         # key -> in-flight async population task
         self._inflight: dict[str, asyncio.Task[Any]] = {}
+        # key -> tags attached to the cache entry
+        self._tags_by_key: dict[str, set[str]] = {}
+        # tag -> keys attached to that tag
+        self._keys_by_tag: dict[str, set[str]] = {}
         # insertion/access order for LRU eviction
         self._access_order: OrderedDict[str, None] = OrderedDict()
         self._max_entries = max_entries
@@ -58,6 +62,7 @@ class LocalCacheService:
         """Delete key bookkeeping across all internal structures."""
         self._store.pop(key, None)
         self._access_order.pop(key, None)
+        self._detach_key_from_tags(key)
 
         if not cancel_inflight:
             return
@@ -65,6 +70,50 @@ class LocalCacheService:
         in_flight = self._inflight.pop(key, None)
         if in_flight is not None and not in_flight.done():
             in_flight.cancel()
+
+    @staticmethod
+    def _normalize_tags(tags: Iterable[str]) -> set[str]:
+        """Normalize and validate tag inputs."""
+        normalized: set[str] = set()
+
+        for raw_tag in tags:
+            if not isinstance(raw_tag, str):
+                raise TypeError("tags must contain only strings")
+
+            tag = raw_tag.strip()
+            if tag:
+                normalized.add(tag)
+
+        return normalized
+
+    def _detach_key_from_tags(self, key: str) -> None:
+        """Remove all tag-index references for ``key``."""
+        existing_tags = self._tags_by_key.pop(key, None)
+        if not existing_tags:
+            return
+
+        for tag in existing_tags:
+            tagged_keys = self._keys_by_tag.get(tag)
+            if tagged_keys is None:
+                continue
+
+            tagged_keys.discard(key)
+            if not tagged_keys:
+                self._keys_by_tag.pop(tag, None)
+
+    def _replace_key_tags(self, key: str, tags: Iterable[str]) -> set[str]:
+        """Replace all tags associated with ``key`` and return normalized tags."""
+        normalized_tags = self._normalize_tags(tags)
+        self._detach_key_from_tags(key)
+
+        if not normalized_tags:
+            return normalized_tags
+
+        self._tags_by_key[key] = set(normalized_tags)
+        for tag in normalized_tags:
+            self._keys_by_tag.setdefault(tag, set()).add(key)
+
+        return normalized_tags
 
     def _mark_accessed(self, key: str) -> None:
         """Mark key as recently used for LRU eviction tracking."""
@@ -83,7 +132,7 @@ class LocalCacheService:
         self._purge_expired_entries()
         while len(self._store) >= self._max_entries and self._access_order:
             oldest_key, _ = self._access_order.popitem(last=False)
-            self._store.pop(oldest_key, None)
+            self._delete_key(oldest_key, cancel_inflight=False)
             self._increment_stat("evictions")
 
     def _get_entry(
@@ -133,6 +182,90 @@ class LocalCacheService:
         """Store multiple key/value pairs with an optional shared TTL."""
         for key, value in items.items():
             self.set(key, value, ttl_seconds=ttl_seconds)
+
+    def set_tagged(
+        self,
+        key: str,
+        value: Any,
+        *,
+        tags: Iterable[str],
+        ttl_seconds: int | None = None,
+    ) -> None:
+        """Store a value and replace all tags associated with ``key``."""
+        self.set(key, value, ttl_seconds=ttl_seconds)
+        self._replace_key_tags(key, tags)
+
+    def tag(self, key: str, tags: Iterable[str]) -> bool:
+        """Attach ``tags`` to an existing key.
+
+        Returns ``False`` when the key is missing or expired.
+        """
+        item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
+        if item is None:
+            return False
+
+        normalized_tags = self._normalize_tags(tags)
+        if not normalized_tags:
+            return True
+
+        existing_tags = self._tags_by_key.get(key, set())
+        combined_tags = existing_tags | normalized_tags
+        self._replace_key_tags(key, combined_tags)
+        return True
+
+    def untag(self, key: str, tags: Iterable[str] | None = None) -> bool:
+        """Remove selected tags (or all tags) from an existing key.
+
+        Returns ``False`` when the key is missing/expired.
+        """
+        item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
+        if item is None:
+            return False
+
+        existing_tags = self._tags_by_key.get(key)
+        if not existing_tags:
+            return True
+
+        if tags is None:
+            self._detach_key_from_tags(key)
+            return True
+
+        tags_to_remove = self._normalize_tags(tags)
+        if not tags_to_remove:
+            return True
+
+        remaining_tags = existing_tags - tags_to_remove
+        self._replace_key_tags(key, remaining_tags)
+        return True
+
+    def list_tags(self, key: str) -> list[str]:
+        """List tags associated with ``key`` in sorted order."""
+        item = self._get_entry(key, mark_access=False)
+        if item is None:
+            return []
+
+        return sorted(self._tags_by_key.get(key, set()))
+
+    def clear_tag(self, tag: str) -> int:
+        """Delete all keys attached to ``tag`` and return removed count."""
+        return self.clear_tags([tag])
+
+    def clear_tags(self, tags: Iterable[str]) -> int:
+        """Delete all keys attached to any tag in ``tags``.
+
+        Empty tags are ignored and matching keys are de-duplicated.
+        """
+        normalized_tags = self._normalize_tags(tags)
+        if not normalized_tags:
+            return 0
+
+        matching_keys: set[str] = set()
+        for tag in normalized_tags:
+            matching_keys.update(self._keys_by_tag.get(tag, set()))
+
+        return self.delete_many(matching_keys)
 
     def replace(
         self,
@@ -1055,6 +1188,8 @@ class LocalCacheService:
         self._store.clear()
         self._access_order.clear()
         self._inflight.clear()
+        self._tags_by_key.clear()
+        self._keys_by_tag.clear()
         if removed:
             self._increment_stat("deletes", removed)
 
