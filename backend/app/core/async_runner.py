@@ -13,7 +13,10 @@ P = ParamSpec("P")
 T = TypeVar("T")
 R = TypeVar("R")
 I = TypeVar("I")
+D = TypeVar("D")
 K = TypeVar("K", bound=Hashable)
+
+_MISSING = object()
 
 
 @overload
@@ -995,3 +998,138 @@ def run_async_dict(
         _run_with_timeout,
         timeout_error_factory=_timeout_error,
     )
+
+
+@overload
+def run_async_find(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> I:
+    ...
+
+
+@overload
+def run_async_find(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    default: D,
+) -> I | D:
+    ...
+
+
+def run_async_find(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    default: Any = _MISSING,
+) -> I | D:
+    """Return the first item matching an async predicate.
+
+    Args:
+        coro_predicate: Async callable returning ``True`` for matching items.
+        items: Iterable of candidate values.
+        timeout: Optional timeout in seconds for the full predicate run.
+        max_concurrency: Optional cap on predicate concurrency.
+        default: Fallback value returned when no items match.
+
+    Raises:
+        TypeError: If predicate is not callable or returns non-bool values.
+        ValueError: If timeout/max_concurrency are invalid.
+        LookupError: If no items match and ``default`` is not provided.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    if not callable(coro_predicate):
+        raise TypeError("run_async_find expects a callable coro_predicate")
+
+    materialized_items = list(items)
+    if not materialized_items:
+        if default is _MISSING:
+            raise LookupError("run_async_find did not match any items")
+        return cast(D, default)
+
+    predicate_results = run_async_map(
+        coro_predicate,
+        materialized_items,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    for item, include in zip(materialized_items, predicate_results, strict=True):
+        if _coerce_filter_result(include, function_name="run_async_find"):
+            return item
+
+    if default is _MISSING:
+        raise LookupError("run_async_find did not match any items")
+
+    return cast(D, default)
+
+
+@overload
+def run_async_find_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> I:
+    ...
+
+
+@overload
+def run_async_find_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    default: D,
+) -> I | D:
+    ...
+
+
+def run_async_find_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    default: Any = _MISSING,
+) -> I | D:
+    """Batch-oriented variant of :func:`run_async_find`."""
+    if not callable(coro_predicate):
+        raise TypeError("run_async_find_batched expects a callable coro_predicate")
+
+    materialized_items = list(items)
+    if not materialized_items:
+        _validate_batch_size(batch_size)
+        if default is _MISSING:
+            raise LookupError("run_async_find_batched did not match any items")
+        return cast(D, default)
+
+    predicate_results = run_async_map_batched(
+        coro_predicate,
+        materialized_items,
+        batch_size=batch_size,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    for item, include in zip(materialized_items, predicate_results, strict=True):
+        if _coerce_filter_result(include, function_name="run_async_find_batched"):
+            return item
+
+    if default is _MISSING:
+        raise LookupError("run_async_find_batched did not match any items")
+
+    return cast(D, default)
