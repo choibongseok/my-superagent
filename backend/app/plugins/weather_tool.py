@@ -378,6 +378,56 @@ class Plugin(ToolPlugin):
 
         return temperature_celsius
 
+    @staticmethod
+    def _convert_wind_speed_to_kmh(wind_speed: float, units: str) -> float:
+        """Convert unit-normalized wind speed values into km/h."""
+        if units == "imperial":
+            return wind_speed * 1.60934
+        if units == "standard":
+            return wind_speed * 3.6
+
+        return wind_speed
+
+    @classmethod
+    def _calculate_wind_chill(
+        cls,
+        *,
+        temperature: Any,
+        wind_speed: Any,
+        units: str,
+    ) -> float | None:
+        """Estimate wind-chill temperature for cold and windy conditions."""
+        if isinstance(temperature, bool) or isinstance(wind_speed, bool):
+            return None
+
+        try:
+            temperature_value = float(temperature)
+            wind_speed_value = float(wind_speed)
+        except (TypeError, ValueError):
+            return None
+
+        temperature_celsius = cls._convert_temperature_to_celsius(
+            temperature_value,
+            units,
+        )
+        wind_speed_kmh = cls._convert_wind_speed_to_kmh(wind_speed_value, units)
+
+        # Environment Canada / NOAA metric wind-chill formula guidance.
+        # Valid for temperatures <= 10°C and wind speeds > 4.8 km/h.
+        if temperature_celsius > 10 or wind_speed_kmh <= 4.8:
+            return None
+
+        wind_factor = wind_speed_kmh**0.16
+        wind_chill_celsius = (
+            13.12
+            + (0.6215 * temperature_celsius)
+            - (11.37 * wind_factor)
+            + (0.3965 * temperature_celsius * wind_factor)
+        )
+
+        wind_chill = cls._convert_celsius_to_units(wind_chill_celsius, units)
+        return round(wind_chill, 1)
+
     @classmethod
     def _calculate_dew_point(
         cls,
@@ -646,6 +696,11 @@ class Plugin(ToolPlugin):
             humidity=65,
             units=units,
         )
+        wind_chill = self._calculate_wind_chill(
+            temperature=temperature,
+            wind_speed=wind_speed,
+            units=units,
+        )
 
         return {
             "location": location,
@@ -655,6 +710,8 @@ class Plugin(ToolPlugin):
             "dew_point_unit": temperature_unit if dew_point is not None else None,
             "heat_index": heat_index,
             "heat_index_unit": temperature_unit if heat_index is not None else None,
+            "wind_chill": wind_chill,
+            "wind_chill_unit": temperature_unit if wind_chill is not None else None,
             "feels_like": feels_like,
             "condition": "Partly Cloudy",
             "humidity": 65,
@@ -912,6 +969,8 @@ class Plugin(ToolPlugin):
                 "dew_point_unit": str | None,
                 "heat_index": float | None,
                 "heat_index_unit": str | None,
+                "wind_chill": float | None,
+                "wind_chill_unit": str | None,
                 "feels_like": float,
                 "condition": str,
                 "humidity": int,
@@ -1066,6 +1125,11 @@ class Plugin(ToolPlugin):
                     wind_payload.get("gust"),
                     resolved_units,
                 )
+                wind_chill = self._calculate_wind_chill(
+                    temperature=temperature,
+                    wind_speed=wind_speed,
+                    units=resolved_units,
+                )
                 wind_direction_degrees = self._normalize_wind_direction_degrees(
                     wind_payload.get("deg")
                 )
@@ -1086,6 +1150,10 @@ class Plugin(ToolPlugin):
                     "heat_index": heat_index,
                     "heat_index_unit": temperature_unit
                     if heat_index is not None
+                    else None,
+                    "wind_chill": wind_chill,
+                    "wind_chill_unit": temperature_unit
+                    if wind_chill is not None
                     else None,
                     "feels_like": feels_like,
                     "condition": data["weather"][0]["description"].title(),
@@ -1187,6 +1255,8 @@ class Plugin(ToolPlugin):
         dew_point_unit = str(result.get("dew_point_unit") or temperature_unit)
         heat_index = result.get("heat_index")
         heat_index_unit = str(result.get("heat_index_unit") or temperature_unit)
+        wind_chill = result.get("wind_chill")
+        wind_chill_unit = str(result.get("wind_chill_unit") or temperature_unit)
         feels_like = result.get("feels_like", result["temperature"])
         pressure = result.get("pressure")
         pressure_unit = result.get("pressure_unit")
@@ -1219,6 +1289,8 @@ class Plugin(ToolPlugin):
             lines.append(f"Dew Point: {dew_point}{dew_point_unit}")
         if heat_index is not None:
             lines.append(f"Heat Index: {heat_index}{heat_index_unit}")
+        if wind_chill is not None:
+            lines.append(f"Wind Chill: {wind_chill}{wind_chill_unit}")
         if cloudiness is not None:
             lines.append(f"Cloudiness: {cloudiness}%")
         if isinstance(daylight_status, str) and daylight_status.strip():
@@ -1262,7 +1334,7 @@ class Plugin(ToolPlugin):
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
             "Set refresh_cache=true to bypass cached responses and force a fresh API fetch. "
-            "Returns temperature, dew-point temperature, heat-index temperature, feels-like temperature, weather condition, humidity, cloud coverage, daylight status, pressure, wind speed, optional wind gust, wind direction, visibility, and precipitation summaries when available. "
+            "Returns temperature, dew-point temperature, heat-index temperature, wind-chill temperature, feels-like temperature, weather condition, humidity, cloud coverage, daylight status, pressure, wind speed, optional wind gust, wind direction, visibility, and precipitation summaries when available. "
             "Requires OpenWeatherMap API key in plugin config."
         )
 
@@ -1270,8 +1342,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.23.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point and heat-index insights, wind speed and gust details, wind direction details, visibility details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
+            version="1.24.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point/heat-index/wind-chill insights, wind speed and gust details, wind direction details, visibility details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -1303,6 +1375,8 @@ class Plugin(ToolPlugin):
                 "dew_point_unit": "string | null (°C, °F, or K)",
                 "heat_index": "float | null",
                 "heat_index_unit": "string | null (°C, °F, or K)",
+                "wind_chill": "float | null",
+                "wind_chill_unit": "string | null (°C, °F, or K)",
                 "feels_like": "float",
                 "condition": "string",
                 "humidity": "integer",
