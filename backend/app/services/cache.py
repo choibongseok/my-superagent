@@ -905,6 +905,30 @@ class LocalCacheService:
         self.set(key, value, ttl_seconds=ttl_seconds)
         return value
 
+    def get_and_touch_many(
+        self,
+        keys: Iterable[str],
+        ttl_seconds: int | None,
+    ) -> dict[str, Any]:
+        """Return values for existing keys and refresh TTL in one pass.
+
+        Duplicate keys are processed once, preserving the order of first
+        appearance. Missing or expired keys are skipped.
+        """
+        values: dict[str, Any] = {}
+
+        for key in dict.fromkeys(keys):
+            item = self._get_entry(key)
+            self._record_lookup(hit=item is not None)
+            if item is None:
+                continue
+
+            value, _ = item
+            self.set(key, value, ttl_seconds=ttl_seconds)
+            values[key] = value
+
+        return values
+
     def increment(
         self,
         key: str,

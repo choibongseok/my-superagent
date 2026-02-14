@@ -691,6 +691,56 @@ def test_local_cache_get_and_touch_returns_default_on_miss_and_tracks_lookup():
     assert stats["misses"] == 1
 
 
+def test_local_cache_get_and_touch_many_returns_values_once_and_refreshes_ttl():
+    cache = LocalCacheService()
+    cache.set("session:a", "alpha", ttl_seconds=1)
+    cache.set("session:b", "beta", ttl_seconds=1)
+
+    time.sleep(0.4)
+
+    values = cache.get_and_touch_many(
+        ["session:a", "missing", "session:a", "session:b"],
+        ttl_seconds=2,
+    )
+
+    assert values == {
+        "session:a": "alpha",
+        "session:b": "beta",
+    }
+
+    ttl_a = cache.ttl_remaining("session:a")
+    ttl_b = cache.ttl_remaining("session:b")
+    assert ttl_a is not None and 1.5 <= ttl_a <= 2
+    assert ttl_b is not None and 1.5 <= ttl_b <= 2
+
+
+def test_local_cache_get_and_touch_many_skips_missing_keys_and_tracks_lookups_once():
+    cache = LocalCacheService()
+    cache.set("present", 1)
+
+    values = cache.get_and_touch_many(["present", "missing", "present"], ttl_seconds=5)
+
+    assert values == {"present": 1}
+
+    stats = cache.stats()
+    assert stats["hits"] == 1
+    assert stats["misses"] == 1
+
+
+def test_local_cache_get_and_touch_many_can_make_entries_non_expiring():
+    cache = LocalCacheService()
+    cache.set("session", "token", ttl_seconds=1)
+
+    assert cache.get_and_touch_many(["session"], ttl_seconds=None) == {
+        "session": "token"
+    }
+
+    time.sleep(1.05)
+
+    assert cache.get("session") == "token"
+    assert cache.ttl_remaining("session") is None
+
+
 def test_local_cache_increment_initializes_missing_key():
     cache = LocalCacheService()
 
