@@ -40,6 +40,15 @@ def _validate_timeout(timeout: float | None) -> None:
         raise ValueError("timeout must be greater than 0")
 
 
+def _validate_max_concurrency(max_concurrency: int | None) -> None:
+    """Validate optional max concurrency values."""
+    if max_concurrency is None:
+        return
+
+    if max_concurrency <= 0:
+        raise ValueError("max_concurrency must be greater than 0")
+
+
 def _run_with_event_loop_bridge(
     runner: Callable[[], Awaitable[R]],
     *,
@@ -132,10 +141,34 @@ def run_async(
     )
 
 
+async def _gather_with_optional_limit(
+    awaitables: list[Awaitable[T]],
+    *,
+    max_concurrency: int | None,
+    return_exceptions: bool,
+) -> list[T] | list[T | BaseException]:
+    """Gather awaitables, optionally capping concurrent execution."""
+    if max_concurrency is None or max_concurrency >= len(awaitables):
+        return await asyncio.gather(*awaitables, return_exceptions=return_exceptions)
+
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    async def _run(awaitable: Awaitable[T]) -> T:
+        async with semaphore:
+            return await awaitable
+
+    wrapped_awaitables = [_run(awaitable) for awaitable in awaitables]
+    return await asyncio.gather(
+        *wrapped_awaitables,
+        return_exceptions=return_exceptions,
+    )
+
+
 def run_async_many(
     *awaitables: Awaitable[T],
     timeout: float | None = None,
     return_exceptions: bool = False,
+    max_concurrency: int | None = None,
 ) -> list[T] | list[T | BaseException]:
     """Run multiple awaitables concurrently from synchronous code.
 
@@ -143,16 +176,18 @@ def run_async_many(
         *awaitables: Awaitables to execute concurrently.
         timeout: Optional timeout in seconds for the entire batch.
         return_exceptions: Mirror of ``asyncio.gather(return_exceptions=...)``.
+        max_concurrency: Optional cap on how many awaitables run at once.
 
     Returns:
         List of results preserving input order.
 
     Raises:
-        ValueError: If ``timeout`` is not positive.
+        ValueError: If ``timeout`` or ``max_concurrency`` are not positive.
         TypeError: If any argument is not awaitable.
         TimeoutError: If execution exceeds ``timeout``.
     """
     _validate_timeout(timeout)
+    _validate_max_concurrency(max_concurrency)
 
     if not awaitables:
         return []
@@ -167,8 +202,9 @@ def run_async_many(
             raise TypeError("run_async_many expects awaitable arguments")
 
     async def _run_with_timeout() -> list[T] | list[T | BaseException]:
-        gatherer = asyncio.gather(
-            *normalized_awaitables,
+        gatherer = _gather_with_optional_limit(
+            normalized_awaitables,
+            max_concurrency=max_concurrency,
             return_exceptions=return_exceptions,
         )
         if timeout is None:
@@ -189,6 +225,7 @@ def run_async_dict(
     *,
     timeout: float | None = None,
     return_exceptions: bool = False,
+    max_concurrency: int | None = None,
 ) -> dict[K, T] | dict[K, T | BaseException]:
     """Run labeled awaitables concurrently from synchronous code.
 
@@ -196,16 +233,18 @@ def run_async_dict(
         awaitables: Mapping of labels to awaitables.
         timeout: Optional timeout in seconds for the entire batch.
         return_exceptions: Mirror of ``asyncio.gather(return_exceptions=...)``.
+        max_concurrency: Optional cap on how many awaitables run at once.
 
     Returns:
         Dictionary preserving insertion order with each label's result.
 
     Raises:
-        ValueError: If ``timeout`` is not positive.
+        ValueError: If ``timeout`` or ``max_concurrency`` are not positive.
         TypeError: If any mapping value is not awaitable.
         TimeoutError: If execution exceeds ``timeout``.
     """
     _validate_timeout(timeout)
+    _validate_max_concurrency(max_concurrency)
 
     if not awaitables:
         return {}
@@ -224,7 +263,11 @@ def run_async_dict(
     values = [awaitable for _, awaitable in labeled_awaitables]
 
     async def _run_with_timeout() -> dict[K, T] | dict[K, T | BaseException]:
-        gatherer = asyncio.gather(*values, return_exceptions=return_exceptions)
+        gatherer = _gather_with_optional_limit(
+            values,
+            max_concurrency=max_concurrency,
+            return_exceptions=return_exceptions,
+        )
         if timeout is None:
             results = await gatherer
         else:

@@ -180,6 +180,39 @@ def test_run_async_many_empty_input_returns_empty_list():
     assert run_async_many() == []
 
 
+def test_run_async_many_rejects_non_positive_max_concurrency():
+    coroutine = _compute_value()
+    try:
+        with pytest.raises(ValueError, match="max_concurrency must be greater than 0"):
+            run_async_many(coroutine, max_concurrency=0)
+    finally:
+        coroutine.close()
+
+
+def test_run_async_many_honors_max_concurrency_limit():
+    active = 0
+    max_active = 0
+
+    async def _tracked(value: int) -> int:
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return value
+
+    results = run_async_many(
+        _tracked(1),
+        _tracked(2),
+        _tracked(3),
+        _tracked(4),
+        max_concurrency=2,
+    )
+
+    assert results == [1, 2, 3, 4]
+    assert max_active == 2
+
+
 def test_run_async_dict_without_existing_event_loop_returns_results():
     async def _double(value: int) -> int:
         await asyncio.sleep(0.01)
@@ -252,6 +285,41 @@ def test_run_async_dict_rejects_non_awaitable_values():
             run_async_dict({"ok": coroutine, "bad": 123})  # type: ignore[arg-type]
     finally:
         coroutine.close()
+
+
+def test_run_async_dict_rejects_non_positive_max_concurrency():
+    coroutine = _compute_value()
+    try:
+        with pytest.raises(ValueError, match="max_concurrency must be greater than 0"):
+            run_async_dict({"ok": coroutine}, max_concurrency=0)
+    finally:
+        coroutine.close()
+
+
+def test_run_async_dict_honors_max_concurrency_limit():
+    active = 0
+    max_active = 0
+
+    async def _tracked(value: int) -> int:
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return value
+
+    result = run_async_dict(
+        {
+            "a": _tracked(1),
+            "b": _tracked(2),
+            "c": _tracked(3),
+            "d": _tracked(4),
+        },
+        max_concurrency=2,
+    )
+
+    assert result == {"a": 1, "b": 2, "c": 3, "d": 4}
+    assert max_active == 2
 
 
 def test_run_async_dict_empty_input_returns_empty_dict():
