@@ -186,6 +186,80 @@ def test_rate_limit_middleware_applies_longest_prefix_path_request_cost(
         assert response.headers["X-RateLimit-Remaining"] == "1"
 
 
+def test_rate_limit_middleware_supports_method_scoped_path_request_costs(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/reports")
+    async def get_reports() -> dict[str, bool]:
+        return {"ok": True}
+
+    @app.post("/reports")
+    async def create_report() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=6,
+        request_costs={"POST": 3},
+        path_request_costs={
+            "/reports": 2,
+            "POST /reports": 5,
+        },
+    )
+
+    with TestClient(app) as client:
+        post_response = client.post("/reports")
+        assert post_response.status_code == 200
+        assert post_response.headers["X-RateLimit-Request-Cost"] == "5"
+        assert post_response.headers["X-RateLimit-Remaining"] == "1"
+
+        get_response = client.get("/reports")
+        assert get_response.status_code == 429
+        assert get_response.headers["X-RateLimit-Request-Cost"] == "2"
+
+
+def test_rate_limit_middleware_prioritizes_method_scoped_prefix_path_costs(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/api/v1/jobs/{job_id}")
+    async def read_job(job_id: str) -> dict[str, str]:
+        return {"job_id": job_id}
+
+    @app.post("/api/v1/jobs/{job_id}")
+    async def update_job(job_id: str) -> dict[str, str]:
+        return {"job_id": job_id}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=8,
+        path_request_costs={
+            "/api/*": 2,
+            "POST /api/v1/jobs/*": 6,
+        },
+    )
+
+    with TestClient(app) as client:
+        post_response = client.post("/api/v1/jobs/1")
+        assert post_response.status_code == 200
+        assert post_response.headers["X-RateLimit-Request-Cost"] == "6"
+
+        get_response = client.get("/api/v1/jobs/1")
+        assert get_response.status_code == 200
+        assert get_response.headers["X-RateLimit-Request-Cost"] == "2"
+
+
 def test_rate_limit_middleware_rejects_invalid_path_request_costs() -> None:
     app = FastAPI()
 
@@ -194,6 +268,12 @@ def test_rate_limit_middleware_rejects_invalid_path_request_costs() -> None:
         match="path_request_costs keys must start with '/'",
     ):
         RateLimitMiddleware(app, path_request_costs={"tasks": 1})
+
+    with pytest.raises(
+        ValueError,
+        match="path_request_costs method prefix must be alphabetic",
+    ):
+        RateLimitMiddleware(app, path_request_costs={"P0ST /tasks": 1})
 
     with pytest.raises(
         ValueError,

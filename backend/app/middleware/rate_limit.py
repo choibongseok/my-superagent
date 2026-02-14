@@ -1,6 +1,7 @@
 """Rate limiting middleware using Token Bucket algorithm."""
 
 import math
+import re
 import time
 from typing import Callable, Mapping, Optional
 
@@ -140,7 +141,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             request_costs: Optional per-method token costs (e.g. {"POST": 2})
             path_request_costs: Optional per-path token costs where keys are
                 exact paths (e.g. ``"/api/v1/tasks"``) or prefix patterns
-                ending in ``*`` (e.g. ``"/api/v1/tasks/*"``)
+                ending in ``*`` (e.g. ``"/api/v1/tasks/*"``). Rules may
+                optionally be scoped to an HTTP method using
+                ``"METHOD /path"`` or ``"METHOD /prefix/*"`` syntax.
         """
         super().__init__(app)
 
@@ -195,22 +198,45 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         return normalized_costs
 
+    @staticmethod
+    def _split_path_request_cost_pattern(
+        path_pattern: str,
+    ) -> tuple[Optional[str], str]:
+        """Split optional METHOD prefixes from path request-cost patterns."""
+        normalized_pattern = path_pattern.strip()
+        parts = normalized_pattern.split(None, 1)
+        if (
+            len(parts) == 2
+            and parts[1].startswith("/")
+            and not parts[0].startswith("/")
+        ):
+            method = parts[0].strip().upper()
+            if not re.fullmatch(r"[A-Z]+", method):
+                raise ValueError(
+                    "path_request_costs method prefix must be alphabetic (e.g. 'GET /path')"
+                )
+            return method, parts[1].strip()
+
+        return None, normalized_pattern
+
     def _normalize_path_request_costs(
         self,
         path_request_costs: Optional[Mapping[str, int]],
-    ) -> dict[str, int]:
+    ) -> dict[tuple[Optional[str], str], int]:
         """Normalize and validate optional path/prefix token costs."""
         if path_request_costs is None:
             return {}
 
-        normalized_path_costs: dict[str, int] = {}
-        for path_pattern, cost in path_request_costs.items():
-            if not isinstance(path_pattern, str) or not path_pattern.strip():
+        normalized_path_costs: dict[tuple[Optional[str], str], int] = {}
+        for raw_pattern, cost in path_request_costs.items():
+            if not isinstance(raw_pattern, str) or not raw_pattern.strip():
                 raise ValueError(
                     "path_request_costs keys must be non-empty path pattern strings"
                 )
 
-            normalized_pattern = path_pattern.strip()
+            method, path_pattern = self._split_path_request_cost_pattern(raw_pattern)
+
+            normalized_pattern = path_pattern
             if normalized_pattern.endswith("*"):
                 normalized_pattern = normalized_pattern[:-1]
 
@@ -226,7 +252,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if cost > self.burst_size:
                 raise ValueError("path_request_costs values cannot exceed burst_size")
 
-            normalized_path_costs[path_pattern.strip()] = cost
+            normalized_path_costs[(method, path_pattern)] = cost
 
         return normalized_path_costs
 
@@ -253,19 +279,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         return f"ip:{client_ip}"
 
-    def _get_request_cost(self, request: Request) -> int:
-        """Resolve token cost for path-specific rules and HTTP method."""
-        path = request.url.path
-
-        # Exact path cost has highest precedence.
-        if path in self.path_request_costs:
-            return self.path_request_costs[path]
+    def _resolve_path_request_cost(
+        self,
+        path: str,
+        *,
+        method: Optional[str],
+    ) -> Optional[int]:
+        """Resolve path request cost for one method scope (or generic scope)."""
+        exact_cost = self.path_request_costs.get((method, path))
+        if exact_cost is not None:
+            return exact_cost
 
         # Prefix pattern costs use trailing ``*``. Longest prefix wins.
         best_prefix_cost: int | None = None
         best_prefix_length = -1
-        for pattern, cost in self.path_request_costs.items():
-            if not pattern.endswith("*"):
+        for (rule_method, pattern), cost in self.path_request_costs.items():
+            if rule_method != method or not pattern.endswith("*"):
                 continue
 
             prefix = pattern[:-1]
@@ -273,10 +302,24 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 best_prefix_length = len(prefix)
                 best_prefix_cost = cost
 
-        if best_prefix_cost is not None:
-            return best_prefix_cost
+        return best_prefix_cost
 
-        return self.request_costs.get(request.method.upper(), 1)
+    def _get_request_cost(self, request: Request) -> int:
+        """Resolve token cost for path-specific rules and HTTP method."""
+        path = request.url.path
+        method = request.method.upper()
+
+        # Method-specific path rules take highest precedence.
+        method_scoped_cost = self._resolve_path_request_cost(path, method=method)
+        if method_scoped_cost is not None:
+            return method_scoped_cost
+
+        # Fallback to method-agnostic path rules.
+        generic_cost = self._resolve_path_request_cost(path, method=None)
+        if generic_cost is not None:
+            return generic_cost
+
+        return self.request_costs.get(method, 1)
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """
