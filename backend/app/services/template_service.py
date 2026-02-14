@@ -227,6 +227,34 @@ def _length_of(value: object) -> int:
         raise ValueError("length expects a sized or iterable value") from exc
 
 
+def _select_boundary_item(value: object, boundary: str) -> object:
+    """Select the first/last item from a non-string iterable."""
+    if boundary not in {"first", "last"}:
+        raise ValueError("boundary must be either 'first' or 'last'")
+
+    if isinstance(value, (str, bytes, bytearray)):
+        raise ValueError(f"{boundary} expects an iterable value, not a string")
+
+    try:
+        iterator = iter(value)
+    except TypeError as exc:
+        raise ValueError(f"{boundary} expects an iterable value") from exc
+
+    try:
+        first_item = next(iterator)
+    except StopIteration as exc:
+        raise ValueError(f"{boundary} expects a non-empty iterable value") from exc
+
+    if boundary == "first":
+        return first_item
+
+    last_item = first_item
+    for item in iterator:
+        last_item = item
+
+    return last_item
+
+
 class TemplateService:
     """Service for template management."""
 
@@ -434,6 +462,7 @@ class TemplateService:
         - ``{name->replace("Agent", "Assistant")}``
         - ``{tags->unique->sort(desc)->join(" | ")}``
         - ``{items->length}``
+        - ``{backlog->first}``, ``{backlog->last}``
 
         Returns:
             Tuple of ``(field_path, default_value, transforms)``.
@@ -473,6 +502,8 @@ class TemplateService:
             "unique": _unique_values,
             "sort": lambda raw: _sort_values(raw, ""),
             "length": _length_of,
+            "first": lambda raw: _select_boundary_item(raw, "first"),
+            "last": lambda raw: _select_boundary_item(raw, "last"),
         }
         supported_transforms = sorted(
             [
@@ -575,7 +606,8 @@ class TemplateService:
         ``{variable->camel_case}``, ``{variable->pascal_case}``,
         ``{summary->truncate(120)}``, ``{title->replace("Agent", "Assistant")}``,
         ``{tags->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
-        ``{payload->json}``, or ``{payload->json_pretty}``).
+        ``{queue->first}``, ``{queue->last}``, ``{payload->json}``, or
+        ``{payload->json_pretty}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)

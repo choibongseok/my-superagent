@@ -1025,6 +1025,91 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_first_and_last_transforms(
+        self, service_with_mock_db
+    ):
+        """first/last should pick boundary values from iterable inputs."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=("First task: {tasks->first}, Last task: {tasks->last}"),
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "tasks": ["collect requirements", "design flow", "ship v1"],
+                },
+                user_id,
+            )
+
+        assert (
+            result["prompt"] == "First task: collect requirements, Last task: ship v1"
+        )
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_last_transform_for_generators(
+        self, service_with_mock_db
+    ):
+        """last should consume iterables like generators and return the tail value."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Final item: {items->last}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"items": (f"item-{index}" for index in range(4))},
+                user_id,
+            )
+
+        assert result["prompt"] == "Final item: item-3"
+        assert template.usage_count == 3
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_first_transform_for_empty_iterables(
+        self, service_with_mock_db
+    ):
+        """first should fail fast when iterable input is empty."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="First owner: {owners->first}",
+            category="docs",
+            usage_count=5,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match="Failed to apply template transform 'first'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"owners": []},
+                    user_id,
+                )
+
+        assert template.usage_count == 5
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_rejects_length_transform_for_non_iterable_values(
         self, service_with_mock_db
     ):
