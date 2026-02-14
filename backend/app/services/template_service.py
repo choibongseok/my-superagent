@@ -113,6 +113,27 @@ def _truncate_text(value: object, max_length_spec: str) -> str:
     return text[: max_length - 1].rstrip() + "…"
 
 
+def _truncate_words(value: object, max_words_spec: str) -> str:
+    """Truncate text by word count using an ellipsis when truncation occurs."""
+    try:
+        max_words = int(max_words_spec.strip())
+    except ValueError as exc:
+        raise ValueError("truncate_words expects an integer max word count") from exc
+
+    if max_words < 0:
+        raise ValueError("truncate_words max word count must be non-negative")
+
+    if max_words == 0:
+        return ""
+
+    text = str(value)
+    words = re.findall(r"\S+", text)
+    if len(words) <= max_words:
+        return text
+
+    return " ".join(words[:max_words]) + "…"
+
+
 def _compact_whitespace(value: object) -> str:
     """Collapse repeated whitespace into single spaces and trim edges."""
     return " ".join(str(value).split())
@@ -166,9 +187,7 @@ def _replace_regex_text(value: object, argument_spec: str) -> str:
         for flag in raw_flags:
             mapped_flag = supported_flags.get(flag)
             if mapped_flag is None:
-                raise ValueError(
-                    "replace_regex flags must use only i, m, s, or x"
-                )
+                raise ValueError("replace_regex flags must use only i, m, s, or x")
             re_flags |= mapped_flag
 
     try:
@@ -671,6 +690,7 @@ class TemplateService:
             [
                 *available_transforms.keys(),
                 "truncate(<max_length>)",
+                "truncate_words(<max_words>)",
                 "replace(<search>,<replacement>)",
                 "replace_regex(<pattern>,<replacement>[,<flags>])",
                 "join([separator])",
@@ -695,6 +715,11 @@ class TemplateService:
                 if transform_name == "truncate":
                     operation = lambda raw, spec=argument_spec: _truncate_text(
                         raw, spec
+                    )
+                elif transform_name == "truncate_words":
+                    operation = lambda raw, spec=argument_spec: _truncate_words(
+                        raw,
+                        spec,
                     )
                 elif transform_name == "replace":
                     operation = lambda raw, spec=argument_spec: _replace_text(raw, spec)
@@ -778,7 +803,8 @@ class TemplateService:
         ``{project_name->snake_case}``, ``{release_title->kebab_case}``,
         ``{service->dot_case}``, ``{build_target->constant_case}``,
         ``{variable->camel_case}``, ``{variable->pascal_case}``,
-        ``{summary->truncate(120)}``, ``{title->replace("Agent", "Assistant")}``,
+        ``{summary->truncate(120)}``, ``{summary->truncate_words(40)}``,
+        ``{title->replace("Agent", "Assistant")}``,
         ``{title->replace_regex("agent","assistant","i")}``,
         ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
         ``{queue->first}``, ``{queue->last}``, ``{tasks->reverse}``,

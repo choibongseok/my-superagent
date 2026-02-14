@@ -567,6 +567,37 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_truncate_words_transform(
+        self, service_with_mock_db
+    ):
+        """truncate_words should cap word counts for prompt-compression workflows."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Summary: {summary->compact->truncate_words(5)}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "summary": "  Build resilient multi-region failover playbooks for launch readiness now  ",
+                },
+                user_id,
+            )
+
+        assert (
+            result["prompt"]
+            == "Summary: Build resilient multi-region failover playbooks…"
+        )
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_json_transform(self, service_with_mock_db):
         """json transform should serialize nested values into compact JSON."""
         service, db = service_with_mock_db
@@ -1778,6 +1809,35 @@ class TestTemplateServiceUseTemplate:
             with pytest.raises(
                 ValueError,
                 match=r"Failed to apply template transform 'truncate\(abc\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"summary": "control-plane rollout"},
+                    user_id,
+                )
+
+        assert template.usage_count == 1
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_invalid_truncate_words_argument(
+        self, service_with_mock_db
+    ):
+        """truncate_words should fail fast when max word count is not numeric."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Summary: {summary->truncate_words(two)}",
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'truncate_words\(two\)'",
             ):
                 await service.use_template(
                     template_id,
