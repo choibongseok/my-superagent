@@ -132,6 +132,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         request_costs: Optional[Mapping[str, int]] = None,
         path_request_costs: Optional[Mapping[str, int]] = None,
         exclude_paths: Optional[Iterable[str]] = None,
+        client_id_header: Optional[str] = None,
     ):
         """
         Initialize rate limit middleware.
@@ -150,6 +151,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 exact paths (``"/internal/health"``), prefix rules
                 (``"/internal/*"``), and method-scoped rules
                 (``"POST /admin/*"``).
+            client_id_header: Optional HTTP header name used to identify
+                clients for bucket isolation (e.g. ``"X-API-Key"``). When
+                provided and present on a request, it takes precedence over
+                ``request.state.user_id`` and IP-based identification.
         """
         super().__init__(app)
 
@@ -164,6 +169,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.burst_size = resolved_burst_size
         self.request_costs = self._normalize_request_costs(request_costs)
         self.path_request_costs = self._normalize_path_request_costs(path_request_costs)
+        self.client_id_header = self._normalize_client_id_header(client_id_header)
 
         # Token bucket: refills at requests_per_minute rate
         # Max capacity: burst_size
@@ -181,6 +187,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             "/openapi.json",
         }
         self.exclude_path_rules = self._normalize_exclude_paths(exclude_paths)
+
+    @staticmethod
+    def _normalize_client_id_header(client_id_header: Optional[str]) -> Optional[str]:
+        """Normalize optional header names used for rate-limit identity keys."""
+        if client_id_header is None:
+            return None
+        if not isinstance(client_id_header, str) or not client_id_header.strip():
+            raise ValueError("client_id_header must be a non-empty string")
+
+        return client_id_header.strip()
 
     def _normalize_request_costs(
         self,
@@ -330,6 +346,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         Returns:
             Client identifier (user_id or IP address)
         """
+        # Prefer explicit client identity headers when configured.
+        if self.client_id_header is not None:
+            client_header_value = request.headers.get(self.client_id_header)
+            if client_header_value is not None:
+                normalized_client_header_value = client_header_value.strip()
+                if normalized_client_header_value:
+                    return f"header:{normalized_client_header_value}"
+
         # Try to get user ID from request state (set by auth middleware)
         if hasattr(request.state, "user_id"):
             return f"user:{request.state.user_id}"
@@ -459,6 +483,7 @@ def get_rate_limit_middleware(
     request_costs: Optional[Mapping[str, int]] = None,
     path_request_costs: Optional[Mapping[str, int]] = None,
     exclude_paths: Optional[Iterable[str]] = None,
+    client_id_header: Optional[str] = None,
 ):
     """
     Create rate limit middleware factory.
@@ -468,6 +493,7 @@ def get_rate_limit_middleware(
         request_costs: Optional per-method token costs
         path_request_costs: Optional exact/prefix path token costs
         exclude_paths: Optional exact/prefix/method-scoped exclusion rules
+        client_id_header: Optional HTTP header name used for client identity
 
     Returns:
         Callable middleware factory compatible with ``add_middleware``
@@ -480,4 +506,5 @@ def get_rate_limit_middleware(
         request_costs=request_costs,
         path_request_costs=path_request_costs,
         exclude_paths=exclude_paths,
+        client_id_header=client_id_header,
     )

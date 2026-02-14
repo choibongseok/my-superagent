@@ -354,6 +354,42 @@ def test_rate_limit_middleware_supports_method_scoped_exclude_path_prefixes(
         assert post_second.status_code == 429
 
 
+def test_rate_limit_middleware_uses_client_id_header_for_bucket_isolation(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+        client_id_header="X-API-Key",
+    )
+
+    with TestClient(app) as client:
+        first_alpha = client.get("/limited", headers={"X-API-Key": "alpha"})
+        second_alpha = client.get("/limited", headers={"X-API-Key": "alpha"})
+        first_beta = client.get("/limited", headers={"X-API-Key": "beta"})
+
+        assert first_alpha.status_code == 200
+        assert second_alpha.status_code == 429
+        assert first_beta.status_code == 200
+
+
+def test_rate_limit_middleware_rejects_invalid_client_id_header() -> None:
+    app = FastAPI()
+
+    with pytest.raises(ValueError, match="client_id_header must be a non-empty string"):
+        RateLimitMiddleware(app, client_id_header="")
+
+
 def test_rate_limit_middleware_rejects_invalid_exclude_paths() -> None:
     app = FastAPI()
 
