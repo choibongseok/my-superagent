@@ -1664,6 +1664,7 @@ class LocalCacheService:
         match_all_tags: bool = False,
         offset: int | None = None,
         limit: int | None = None,
+        descending: bool = False,
     ) -> list[str]:
         """List active keys with optional prefix/glob/tag filtering.
 
@@ -1677,6 +1678,8 @@ class LocalCacheService:
                 ``True`` requires keys to contain every provided tag.
             offset: Optional number of sorted matching keys to skip.
             limit: Optional maximum number of keys to return.
+            descending: Return keys in descending lexicographic order when
+                ``True``.
 
         Keys are returned in deterministic lexicographic order and do not affect
         hit/miss counters or LRU order.
@@ -1689,6 +1692,9 @@ class LocalCacheService:
 
         if not isinstance(match_all_tags, bool):
             raise ValueError("match_all_tags must be a boolean")
+
+        if not isinstance(descending, bool):
+            raise ValueError("descending must be a boolean")
 
         self._purge_expired_entries()
 
@@ -1708,7 +1714,7 @@ class LocalCacheService:
                 continue
             matching_keys.append(key)
 
-        matching_keys.sort()
+        matching_keys.sort(reverse=descending)
 
         if offset:
             matching_keys = matching_keys[offset:]
@@ -1726,6 +1732,7 @@ class LocalCacheService:
         match_all_tags: bool = False,
         offset: int | None = None,
         limit: int | None = None,
+        descending: bool = False,
         include_values: bool = False,
         include_entry_tags: bool = False,
         include_expires_at: bool = False,
@@ -1734,6 +1741,7 @@ class LocalCacheService:
 
         Args:
             offset: Optional number of sorted matching entries to skip.
+            descending: Return entries in descending key order when ``True``.
             include_values: Include cached values in each entry payload.
             include_entry_tags: Include sorted tags associated with each key.
             include_expires_at: Include absolute unix expiration timestamps.
@@ -1746,6 +1754,7 @@ class LocalCacheService:
             match_all_tags=match_all_tags,
             offset=offset,
             limit=limit,
+            descending=descending,
         ):
             value, expires_at = self._store[key]
             entry: dict[str, Any] = {
@@ -1774,6 +1783,7 @@ class LocalCacheService:
         match_all_tags: bool = False,
         offset: int | None = None,
         limit: int | None = None,
+        descending: bool = False,
     ) -> dict[str, Any]:
         """Export active cache entries into a serializable snapshot.
 
@@ -1788,6 +1798,8 @@ class LocalCacheService:
             match_all_tags: Require all tags to match when ``tags`` is provided.
             offset: Optional number of sorted matching keys to skip.
             limit: Optional max number of matching keys to export.
+            descending: Export keys in descending lexicographic order when
+                ``True``.
         """
         self._purge_expired_entries()
 
@@ -1798,6 +1810,7 @@ class LocalCacheService:
             match_all_tags=match_all_tags,
             offset=offset,
             limit=limit,
+            descending=descending,
         )
 
         entries: list[dict[str, Any]] = []

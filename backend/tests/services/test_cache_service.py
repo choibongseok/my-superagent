@@ -1886,6 +1886,21 @@ def test_local_cache_list_keys_supports_offset_and_limit_after_sorting():
     assert cache.list_keys(offset=10) == []
 
 
+def test_local_cache_list_keys_supports_descending_sort_order():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "alpha": 1,
+            "beta": 2,
+            "gamma": 3,
+            "delta": 4,
+        }
+    )
+
+    assert cache.list_keys(descending=True) == ["gamma", "delta", "beta", "alpha"]
+    assert cache.list_keys(descending=True, offset=1, limit=2) == ["delta", "beta"]
+
+
 def test_local_cache_list_keys_supports_tag_filters_with_any_or_all_matching():
     cache = LocalCacheService()
     cache.set_tagged("alpha", 1, tags=["group:a", "shared"])
@@ -1913,6 +1928,13 @@ def test_local_cache_list_keys_rejects_invalid_match_all_tags_flag():
 
     with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
         cache.list_keys(match_all_tags="yes")  # type: ignore[arg-type]
+
+
+def test_local_cache_list_keys_rejects_non_boolean_descending_flag():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="descending must be a boolean"):
+        cache.list_keys(descending="yes")  # type: ignore[arg-type]
 
 
 def test_local_cache_list_keys_rejects_non_string_tags():
@@ -1983,6 +2005,31 @@ def test_local_cache_list_entries_supports_offset_and_limit_after_filtering():
     assert entries == [
         {"key": "session:beta", "ttl_seconds": None, "value": {"v": 2}},
         {"key": "session:delta", "ttl_seconds": None, "value": {"v": 4}},
+    ]
+
+
+def test_local_cache_list_entries_supports_descending_sort_order():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "session:alpha": {"v": 1},
+            "session:beta": {"v": 2},
+            "session:delta": {"v": 4},
+            "session:gamma": {"v": 3},
+        }
+    )
+
+    entries = cache.list_entries(
+        prefix="session:",
+        descending=True,
+        offset=1,
+        limit=2,
+        include_values=True,
+    )
+
+    assert entries == [
+        {"key": "session:delta", "ttl_seconds": None, "value": {"v": 4}},
+        {"key": "session:beta", "ttl_seconds": None, "value": {"v": 2}},
     ]
 
 
@@ -2341,6 +2388,12 @@ def test_local_cache_export_state_supports_filters_and_pagination():
     paginated = cache.export_state(prefix="session:", offset=1, limit=1)
     assert [entry["key"] for entry in paginated["entries"]] == ["session:beta"]
 
+    descending = cache.export_state(prefix="session:", descending=True)
+    assert [entry["key"] for entry in descending["entries"]] == [
+        "session:beta",
+        "session:alpha",
+    ]
+
     match_all = cache.export_state(
         tags=["session", "active"],
         match_all_tags=True,
@@ -2360,6 +2413,9 @@ def test_local_cache_export_state_validates_filter_arguments():
 
     with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
         cache.export_state(match_all_tags="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="descending must be a boolean"):
+        cache.export_state(descending="yes")  # type: ignore[arg-type]
 
 
 def test_local_cache_import_state_restores_entries_and_can_clear_existing_data():
