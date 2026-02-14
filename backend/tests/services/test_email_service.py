@@ -266,3 +266,64 @@ class TestEmailService:
         )
 
         assert result is False
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_supports_display_name_recipients_and_case_insensitive_dedupe(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Display-name addresses should parse correctly and dedupe case-insensitively."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        result = email_service.send_email(
+            to_email=['"Doe, Jane" <Jane@Test.com>', "jane@test.com"],
+            cc_emails=["Ops Team <ops@test.com>"],
+            bcc_emails=["OPS@test.com", "Audit Team <audit@test.com>"],
+            subject="Display Names",
+            html_body="<p>hello</p>",
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        delivery_recipients = mock_server.send_message.call_args.kwargs["to_addrs"]
+
+        assert sent_message["To"] == "Jane@Test.com"
+        assert sent_message["Cc"] == "ops@test.com"
+        assert delivery_recipients == ["Jane@Test.com", "ops@test.com", "audit@test.com"]
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_allows_display_name_reply_to(self, mock_smtp, email_service):
+        """Reply-To should accept display-name syntax and store normalized address."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Support",
+            html_body="<p>reply here</p>",
+            reply_to_email="Support Team <support@test.com>",
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        assert sent_message["Reply-To"] == "support@test.com"
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_rejects_invalid_email_format(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Malformed email addresses should fail before SMTP is contacted."""
+        result = email_service.send_email(
+            to_email="not-an-email",
+            subject="Invalid",
+            html_body="<p>should fail</p>",
+        )
+
+        assert result is False
+        mock_smtp.assert_not_called()

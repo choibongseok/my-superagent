@@ -8,6 +8,7 @@ import smtplib
 from collections.abc import Sequence
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import getaddresses
 from typing import Optional
 
 from app.core.config import settings
@@ -18,7 +19,13 @@ logger = logging.getLogger(__name__)
 class EmailService:
     """Service for sending emails via SMTP."""
 
-    _RECIPIENT_SPLIT_PATTERN = re.compile(r"[;,]")
+    _RECIPIENT_SEPARATOR_PATTERN = re.compile(r";")
+    _EMAIL_ADDRESS_PATTERN = re.compile(
+        r"^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+        r"(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)"
+        r"(?:\.(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?))*$",
+        flags=re.IGNORECASE,
+    )
 
     def __init__(self):
         """Initialize email service with settings."""
@@ -30,14 +37,6 @@ class EmailService:
         self.from_name = settings.FROM_NAME
         self.enabled = settings.EMAIL_ENABLED
 
-    @classmethod
-    def _split_recipient_tokens(cls, value: str) -> list[str]:
-        """Split one recipient input into potential addresses.
-
-        Supports comma/semicolon separated values to make API usage friendlier.
-        """
-        return cls._RECIPIENT_SPLIT_PATTERN.split(value)
-
     @staticmethod
     def _sanitize_header_value(value: str, *, field_name: str) -> str:
         """Sanitize header-like values and block CR/LF injection vectors."""
@@ -45,6 +44,39 @@ class EmailService:
             raise ValueError(f"{field_name} entries cannot contain newline characters")
 
         return value.strip()
+
+    @classmethod
+    def _parse_recipient_addresses(
+        cls,
+        value: str,
+        *,
+        field_name: str,
+    ) -> list[str]:
+        """Parse one recipient entry into normalized addresses.
+
+        Supports comma/semicolon-separated addresses and RFC display-name forms
+        like ``Jane Doe <jane@example.com>``.
+        """
+        sanitized_value = cls._sanitize_header_value(value, field_name=field_name)
+        if not sanitized_value:
+            return []
+
+        normalized_value = cls._RECIPIENT_SEPARATOR_PATTERN.sub(",", sanitized_value)
+        parsed_addresses = getaddresses([normalized_value])
+
+        normalized_addresses: list[str] = []
+        for _, raw_address in parsed_addresses:
+            address = cls._sanitize_header_value(raw_address, field_name=field_name)
+            if not address:
+                continue
+            if not cls._EMAIL_ADDRESS_PATTERN.fullmatch(address):
+                raise ValueError(
+                    f"{field_name} contains an invalid email address: {address}"
+                )
+
+            normalized_addresses.append(address)
+
+        return normalized_addresses
 
     @classmethod
     def _normalize_recipients(
@@ -62,17 +94,21 @@ class EmailService:
             raise TypeError(f"{field_name} must be a string or sequence of strings")
 
         normalized: list[str] = []
+        seen_addresses: set[str] = set()
         for recipient in candidate_recipients:
             if not isinstance(recipient, str):
                 raise TypeError(f"{field_name} entries must be strings")
 
-            for token in cls._split_recipient_tokens(recipient):
-                email = cls._sanitize_header_value(token, field_name=field_name)
-                if not email:
+            for address in cls._parse_recipient_addresses(
+                recipient,
+                field_name=field_name,
+            ):
+                dedupe_key = address.casefold()
+                if dedupe_key in seen_addresses:
                     continue
 
-                if email not in normalized:
-                    normalized.append(email)
+                seen_addresses.add(dedupe_key)
+                normalized.append(address)
 
         if not normalized:
             raise ValueError(f"{field_name} must include at least one email address")
@@ -92,16 +128,32 @@ class EmailService:
         if not isinstance(email, str):
             raise TypeError(f"{field_name} must be a string")
 
-        normalized = cls._sanitize_header_value(email, field_name=field_name)
-        if not normalized:
+        parsed_addresses = cls._parse_recipient_addresses(email, field_name=field_name)
+        if not parsed_addresses:
             return None
 
-        tokens = [token.strip() for token in cls._split_recipient_tokens(normalized)]
-        non_empty_tokens = [token for token in tokens if token]
-        if len(non_empty_tokens) > 1:
+        unique_addresses = {address.casefold() for address in parsed_addresses}
+        if len(unique_addresses) > 1:
             raise ValueError(f"{field_name} must include a single email address")
 
-        return non_empty_tokens[0] if non_empty_tokens else None
+        return parsed_addresses[0]
+
+    @staticmethod
+    def _merge_unique_recipients(*recipient_groups: Sequence[str]) -> list[str]:
+        """Merge recipient groups while preserving first-seen order (case-insensitive)."""
+        merged: list[str] = []
+        seen: set[str] = set()
+
+        for group in recipient_groups:
+            for address in group:
+                dedupe_key = address.casefold()
+                if dedupe_key in seen:
+                    continue
+
+                seen.add(dedupe_key)
+                merged.append(address)
+
+        return merged
 
     def _create_message(
         self,
@@ -182,15 +234,11 @@ class EmailService:
                 field_name="reply_to_email",
             )
 
-            delivery_recipients = [
-                *to_recipients,
-                *[email for email in cc_recipients if email not in to_recipients],
-                *[
-                    email
-                    for email in bcc_recipients
-                    if email not in to_recipients and email not in cc_recipients
-                ],
-            ]
+            delivery_recipients = self._merge_unique_recipients(
+                to_recipients,
+                cc_recipients,
+                bcc_recipients,
+            )
 
             msg = self._create_message(
                 to_recipients,
