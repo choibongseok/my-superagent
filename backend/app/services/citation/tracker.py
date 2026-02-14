@@ -726,6 +726,7 @@ class CitationTracker:
             SourceType | str | Iterable[SourceType | str]
         ] = None,
         limit: Optional[int] = None,
+        offset: Optional[int] = None,
         match_mode: Literal["all", "any"] = "all",
         published_after: Optional[datetime] = None,
         published_before: Optional[datetime] = None,
@@ -776,6 +777,8 @@ class CitationTracker:
                 source types are excluded even when they also appear in
                 ``source_type``/``source_types`` filters.
             limit: Optional max number of results. Must be > 0 when set.
+            offset: Optional zero-based number of ranked results to skip
+                before returning results. Must be >= 0 when set.
             match_mode: Token matching strategy. ``"all"`` requires every
                 query token to appear in the searchable source text, while
                 ``"any"`` returns sources that match at least one token.
@@ -855,6 +858,12 @@ class CitationTracker:
         """
         if limit is not None and limit <= 0:
             raise ValueError("limit must be greater than 0")
+
+        if offset is not None:
+            if isinstance(offset, bool) or not isinstance(offset, int):
+                raise ValueError("offset must be an integer")
+            if offset < 0:
+                raise ValueError("offset cannot be negative")
 
         if source_type is not None and source_types is not None:
             raise ValueError("source_type and source_types cannot be used together")
@@ -1288,6 +1297,9 @@ class CitationTracker:
 
             sources = diversity_capped_sources
 
+        if offset is not None:
+            sources = sources[offset:]
+
         if limit is not None:
             sources = sources[:limit]
 
@@ -1363,6 +1375,7 @@ class CitationTracker:
             SourceType | str | Iterable[SourceType | str]
         ] = None,
         limit: Optional[int] = None,
+        offset: Optional[int] = None,
         match_mode: Literal["all", "any"] = "all",
         published_after: Optional[datetime] = None,
         published_before: Optional[datetime] = None,
@@ -1408,6 +1421,7 @@ class CitationTracker:
             source_types=source_types,
             exclude_source_types=exclude_source_types,
             limit=limit,
+            offset=offset,
             match_mode=match_mode,
             published_after=published_after,
             published_before=published_before,

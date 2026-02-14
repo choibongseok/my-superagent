@@ -303,6 +303,35 @@ class TestCitationTracker:
         with pytest.raises(ValueError, match="limit must be greater than 0"):
             tracker.search_sources("agent", limit=0)
 
+    def test_search_sources_supports_offset_pagination(self):
+        """offset should skip ranked results before applying limit."""
+        tracker = CitationTracker()
+
+        first_id = tracker.add_source(title="Agentic Alpha")
+        second_id = tracker.add_source(title="Agentic Beta")
+        third_id = tracker.add_source(title="Agentic Gamma")
+
+        matches = tracker.search_sources("agentic", offset=1, limit=1)
+
+        assert [source.id for source in matches] == [second_id]
+        assert third_id in {
+            source.id for source in tracker.search_sources("agentic", offset=2)
+        }
+        assert first_id not in {source.id for source in matches}
+
+    def test_search_sources_rejects_invalid_offset(self):
+        """offset should enforce integer and non-negative values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(ValueError, match="offset must be an integer"):
+            tracker.search_sources("agent", offset=1.5)
+
+        with pytest.raises(ValueError, match="offset must be an integer"):
+            tracker.search_sources("agent", offset=True)
+
+        with pytest.raises(ValueError, match="offset cannot be negative"):
+            tracker.search_sources("agent", offset=-1)
+
     def test_search_sources_match_mode_any_returns_partial_token_matches(self):
         """match_mode='any' should return partial token matches, unlike default all."""
         tracker = CitationTracker()
@@ -879,6 +908,24 @@ class TestCitationTracker:
         assert all(item["query_phrase_match"] is False for item in detailed)
         assert all(item["token_hit_count"] == 0 for item in detailed)
         assert all(item["relevance_score"] == 0.0 for item in detailed)
+
+    def test_search_sources_with_details_supports_offset_pagination(self):
+        """Detailed search should preserve rank after offset/limit pagination."""
+        tracker = CitationTracker()
+
+        tracker.add_source(title="Agentic Alpha")
+        tracker.add_source(title="Agentic Beta")
+        tracker.add_source(title="Agentic Gamma")
+
+        detailed = tracker.search_sources_with_details(
+            "agentic",
+            offset=1,
+            limit=1,
+        )
+
+        assert len(detailed) == 1
+        assert detailed[0]["source"].title == "Agentic Beta"
+        assert detailed[0]["rank"] == 1
 
     def test_search_sources_with_details_supports_source_id_filters(self):
         """Detailed search should pass include/exclude source filters through."""
