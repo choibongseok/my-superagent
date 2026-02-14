@@ -1292,6 +1292,67 @@ class LocalCacheService:
 
         return self.delete_many(matching_keys)
 
+    def pop_where(
+        self,
+        *,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        tags: Iterable[str] | None = None,
+        match_all_tags: bool = False,
+    ) -> dict[str, Any]:
+        """Pop values for keys matching combined prefix/glob/tag filters.
+
+        This behaves like :meth:`clear_where` but returns removed cache values
+        for matching stored keys. Matching in-flight population tasks are
+        cancelled and removed, but naturally have no value payload to return.
+
+        Args:
+            prefix: Optional key prefix to match.
+            pattern: Optional glob pattern matched with :func:`fnmatchcase`.
+            tags: Optional tag filter. When provided, only keys associated with
+                matching tags are considered.
+            match_all_tags: Tag matching mode when ``tags`` are provided.
+                ``False`` (default) matches keys with any provided tag, while
+                ``True`` requires keys to contain every provided tag.
+
+        Returns:
+            Mapping of removed key/value pairs for matching stored entries.
+
+        Raises:
+            ValueError: If no filters are provided or ``match_all_tags`` is not
+                a boolean.
+        """
+        if not isinstance(match_all_tags, bool):
+            raise ValueError("match_all_tags must be a boolean")
+
+        if prefix is None and pattern is None and tags is None:
+            raise ValueError("at least one filter must be provided")
+
+        self._purge_expired_entries()
+
+        if tags is None:
+            candidate_keys: set[str] = self._all_known_keys()
+        else:
+            candidate_keys = self._resolve_keys_for_tags(
+                tags,
+                match_all_tags=match_all_tags,
+            )
+
+        matching_keys = {
+            key
+            for key in candidate_keys
+            if (prefix is None or key.startswith(prefix))
+            and (pattern is None or fnmatchcase(key, pattern))
+        }
+
+        popped_values = self.pop_many(sorted(matching_keys))
+
+        remaining_keys = matching_keys - set(popped_values)
+        if remaining_keys:
+            self.delete_many(remaining_keys)
+
+        return popped_values
+
     def list_keys(
         self,
         *,
