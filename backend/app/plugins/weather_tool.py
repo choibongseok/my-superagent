@@ -207,11 +207,25 @@ class Plugin(ToolPlugin):
         # OpenWeatherMap already returns mph for imperial and m/s for standard.
         return round(api_wind_speed, 1)
 
+    @staticmethod
+    def _normalize_visibility_for_units(
+        api_visibility_meters: float,
+        units: str,
+    ) -> tuple[float, str]:
+        """Normalize OpenWeatherMap visibility distance to requested output units."""
+        if units == "imperial":
+            return round(api_visibility_meters / 1609.34, 1), "mi"
+        if units == "metric":
+            return round(api_visibility_meters / 1000, 1), "km"
+
+        return round(api_visibility_meters, 1), "m"
+
     def _build_mock_weather_response(self, location: str, units: str) -> Dict[str, Any]:
         """Build deterministic mock weather data for offline/test mode."""
         temperature_celsius = 22.5
         feels_like_celsius = 21.3
         wind_kmh = 12.3
+        visibility_meters = 10_000
 
         if units == "imperial":
             temperature = self._convert_metric_to_imperial_temperature(
@@ -234,13 +248,21 @@ class Plugin(ToolPlugin):
             feels_like = feels_like_celsius
             wind_speed = wind_kmh
 
+        visibility, visibility_unit = self._normalize_visibility_for_units(
+            visibility_meters,
+            units,
+        )
+
         return {
             "location": location,
             "temperature": temperature,
             "feels_like": feels_like,
             "condition": "Partly Cloudy",
             "humidity": 65,
+            "pressure": 1013,
             "wind_speed": wind_speed,
+            "visibility": visibility,
+            "visibility_unit": visibility_unit,
             "units": units,
         }
 
@@ -477,7 +499,10 @@ class Plugin(ToolPlugin):
                 "feels_like": float,
                 "condition": str,
                 "humidity": int,
+                "pressure": int | None,
                 "wind_speed": float,
+                "visibility": float | None,
+                "visibility_unit": str | None,
                 "units": str
             }
         """
@@ -554,16 +579,28 @@ class Plugin(ToolPlugin):
                 temperature = round(main["temp"], 1)
                 feels_like = round(main.get("feels_like", main["temp"]), 1)
 
+                visibility_value = data.get("visibility")
+                visibility = None
+                visibility_unit = None
+                if visibility_value is not None:
+                    visibility, visibility_unit = self._normalize_visibility_for_units(
+                        float(visibility_value),
+                        resolved_units,
+                    )
+
                 result = {
                     "location": data.get("name") or normalized_location,
                     "temperature": temperature,
                     "feels_like": feels_like,
                     "condition": data["weather"][0]["description"].title(),
                     "humidity": main["humidity"],
+                    "pressure": main.get("pressure"),
                     "wind_speed": self._normalize_wind_speed_for_units(
                         data["wind"]["speed"],
                         resolved_units,
                     ),
+                    "visibility": visibility,
+                    "visibility_unit": visibility_unit,
                     "units": resolved_units,
                 }
 
@@ -614,15 +651,26 @@ class Plugin(ToolPlugin):
             wind_unit = "km/h"
 
         feels_like = result.get("feels_like", result["temperature"])
+        pressure = result.get("pressure")
+        visibility = result.get("visibility")
+        visibility_unit = result.get("visibility_unit")
 
-        return (
-            f"Weather in {result['location']}:\n"
-            f"Temperature: {result['temperature']}{temperature_unit}\n"
-            f"Feels Like: {feels_like}{temperature_unit}\n"
-            f"Condition: {result['condition']}\n"
-            f"Humidity: {result['humidity']}%\n"
-            f"Wind Speed: {result['wind_speed']} {wind_unit}"
-        )
+        lines = [
+            f"Weather in {result['location']}:",
+            f"Temperature: {result['temperature']}{temperature_unit}",
+            f"Feels Like: {feels_like}{temperature_unit}",
+            f"Condition: {result['condition']}",
+            f"Humidity: {result['humidity']}%",
+            f"Wind Speed: {result['wind_speed']} {wind_unit}",
+        ]
+
+        if pressure is not None:
+            lines.append(f"Pressure: {pressure} hPa")
+        if visibility is not None:
+            visibility_suffix = f" {visibility_unit}" if visibility_unit else ""
+            lines.append(f"Visibility: {visibility}{visibility_suffix}")
+
+        return "\n".join(lines)
 
     def get_tool_description(self) -> str:
         """Get tool description for agent."""
@@ -639,7 +687,7 @@ class Plugin(ToolPlugin):
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
             "Set refresh_cache=true to bypass cached responses and force a fresh API fetch. "
-            "Returns temperature, weather condition, humidity, and wind speed. "
+            "Returns temperature, feels-like temperature, weather condition, humidity, pressure, wind speed, and visibility. "
             "Requires OpenWeatherMap API key in plugin config."
         )
 
@@ -647,8 +695,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.13.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching and state-aware city lookup",
+            version="1.14.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, and pressure/visibility details",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -676,7 +724,10 @@ class Plugin(ToolPlugin):
                 "feels_like": "float",
                 "condition": "string",
                 "humidity": "integer",
+                "pressure": "integer | null (hPa)",
                 "wind_speed": "float",
+                "visibility": "float | null",
+                "visibility_unit": "string | null (km, mi, or m)",
                 "units": "string (metric, imperial, or standard)",
             },
         )

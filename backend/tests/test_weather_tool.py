@@ -29,7 +29,10 @@ class TestWeatherTool:
         assert result["feels_like"] == 21.3
         assert result["condition"] == "Partly Cloudy"
         assert result["humidity"] == 65
+        assert result["pressure"] == 1013
         assert result["wind_speed"] == 12.3
+        assert result["visibility"] == 10.0
+        assert result["visibility_unit"] == "km"
 
     def test_units_aliases_are_normalized(self):
         """Test celsius/fahrenheit/kelvin aliases normalize to OpenWeather units."""
@@ -258,6 +261,8 @@ class TestWeatherTool:
         assert "Condition:" in result
         assert "Humidity:" in result
         assert "Wind Speed:" in result
+        assert "Pressure:" in result
+        assert "Visibility:" in result
 
     @pytest.mark.asyncio
     async def test_real_api_call_success(self, api_plugin):
@@ -265,9 +270,15 @@ class TestWeatherTool:
         mock_response = AsyncMock()
         mock_response.json.return_value = {
             "name": "London",
-            "main": {"temp": 15.3, "feels_like": 14.7, "humidity": 72},
+            "main": {
+                "temp": 15.3,
+                "feels_like": 14.7,
+                "humidity": 72,
+                "pressure": 1008,
+            },
             "weather": [{"description": "light rain"}],
             "wind": {"speed": 5.2},  # m/s
+            "visibility": 7500,  # meters
         }
         mock_response.raise_for_status = AsyncMock()
 
@@ -283,7 +294,10 @@ class TestWeatherTool:
             assert result["feels_like"] == 14.7
             assert result["condition"] == "Light Rain"
             assert result["humidity"] == 72
+            assert result["pressure"] == 1008
             assert result["wind_speed"] == 18.7  # 5.2 m/s * 3.6 = 18.72 km/h
+            assert result["visibility"] == 7.5
+            assert result["visibility_unit"] == "km"
 
     @pytest.mark.asyncio
     async def test_real_api_call_defaults_feels_like_to_temperature(self, api_plugin):
@@ -306,6 +320,29 @@ class TestWeatherTool:
 
             assert result["temperature"] == 11.2
             assert result["feels_like"] == 11.2
+
+    @pytest.mark.asyncio
+    async def test_api_response_without_visibility_or_pressure(self, api_plugin):
+        """Missing optional visibility/pressure fields should map to None values."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "London",
+            "main": {"temp": 11.2, "humidity": 80},
+            "weather": [{"description": "mist"}],
+            "wind": {"speed": 4.0},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response
+            )
+
+            result = await api_plugin.execute({"location": "London"})
+
+            assert result["pressure"] is None
+            assert result["visibility"] is None
+            assert result["visibility_unit"] is None
 
     @pytest.mark.asyncio
     async def test_location_not_found(self, api_plugin):
@@ -366,9 +403,10 @@ class TestWeatherTool:
         mock_response = AsyncMock()
         mock_response.json.return_value = {
             "name": "New York",
-            "main": {"temp": 68.5, "humidity": 55},  # Fahrenheit
+            "main": {"temp": 68.5, "humidity": 55, "pressure": 1002},
             "weather": [{"description": "clear sky"}],
             "wind": {"speed": 10.5},  # mph in imperial mode
+            "visibility": 1609,
         }
         mock_response.raise_for_status = AsyncMock()
 
@@ -380,7 +418,10 @@ class TestWeatherTool:
             result = await plugin.execute({"location": "New York"})
 
             assert result["temperature"] == 68.5
+            assert result["pressure"] == 1002
             assert result["wind_speed"] == 10.5  # No conversion for imperial
+            assert result["visibility"] == 1.0
+            assert result["visibility_unit"] == "mi"
 
     @pytest.mark.asyncio
     async def test_run_tool_formats_imperial_units(self):
@@ -417,6 +458,8 @@ class TestWeatherTool:
         assert result["temperature"] == 72.5
         assert result["feels_like"] == 70.3
         assert result["wind_speed"] == 7.6
+        assert result["visibility"] == 6.2
+        assert result["visibility_unit"] == "mi"
 
     @pytest.mark.asyncio
     async def test_standard_units_override_changes_mock_response_units(self):
@@ -430,6 +473,8 @@ class TestWeatherTool:
         assert result["temperature"] == 295.6
         assert result["feels_like"] == 294.4
         assert result["wind_speed"] == 3.4
+        assert result["visibility"] == 10000.0
+        assert result["visibility_unit"] == "m"
 
     @pytest.mark.asyncio
     async def test_standard_units_preserve_api_wind_speed_in_ms(self):
@@ -950,7 +995,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.13.0"
+        assert manifest.version == "1.14.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
@@ -967,6 +1012,9 @@ class TestWeatherTool:
         assert "lang" in manifest.inputs
         assert "refresh_cache" in manifest.inputs
         assert "feels_like" in manifest.outputs
+        assert "pressure" in manifest.outputs
+        assert "visibility" in manifest.outputs
+        assert "visibility_unit" in manifest.outputs
         assert (
             "required when city_id, zip_code, and latitude/longitude"
             in manifest.inputs["location"]
@@ -984,6 +1032,8 @@ class TestWeatherTool:
         assert "coordinates" in description
         assert "standard/kelvin" in description
         assert "feels-like temperature" in description
+        assert "pressure" in description
+        assert "visibility" in description
         assert "lang" in description
         assert "cache_ttl_seconds" in description
         assert "refresh_cache" in description
