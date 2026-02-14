@@ -44,7 +44,7 @@ class Source(BaseModel):
         Format source as citation string.
 
         Args:
-            style: Citation style (apa, mla, chicago)
+            style: Citation style (apa, mla, chicago, harvard)
 
         Returns:
             Formatted citation string
@@ -55,6 +55,8 @@ class Source(BaseModel):
             return self._format_mla()
         elif style == "chicago":
             return self._format_chicago()
+        elif style == "harvard":
+            return self._format_harvard()
         else:
             return self._format_simple()
 
@@ -119,6 +121,26 @@ class Source(BaseModel):
 
         return " ".join(parts)
 
+    def _format_harvard(self) -> str:
+        """Format in Harvard style."""
+        parts = []
+
+        year = str(self.published_date.year) if self.published_date else "n.d."
+
+        if self.author:
+            parts.append(f"{self.author} ({year}).")
+            parts.append(f"{self.title}.")
+        else:
+            parts.append(f"{self.title} ({year}).")
+
+        if self.url:
+            parts.append(f"Available at: {self.url}.")
+
+        accessed = self.accessed_date.strftime("%d %B %Y")
+        parts.append(f"Accessed {accessed}.")
+
+        return " ".join(parts)
+
     def _format_simple(self) -> str:
         """Simple format with basic info."""
         parts = [self.title]
@@ -153,7 +175,7 @@ class Citation(BaseModel):
         Format as inline citation.
 
         Args:
-            style: Citation style
+            style: Citation style (apa, mla, harvard)
 
         Returns:
             Inline citation string
@@ -174,6 +196,16 @@ class Citation(BaseModel):
                 return f"({self.source.author})"
             else:
                 return f'("{self.source.title}")'
+
+        elif style == "harvard":
+            year = (
+                str(self.source.published_date.year)
+                if self.source.published_date
+                else "n.d."
+            )
+            if self.source.author:
+                return f"({self.source.author}, {year})"
+            return f"({self.source.title}, {year})"
 
         else:
             # Simple numbered citation

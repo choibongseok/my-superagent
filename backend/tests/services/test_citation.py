@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime, timedelta, timezone
 
 from app.services.citation.tracker import CitationTracker
-from app.services.citation.models import Source, SourceType
+from app.services.citation.models import Citation, Source, SourceType
 
 
 class TestCitationTracker:
@@ -1314,6 +1314,29 @@ class TestCitationTracker:
         assert "Bob Johnson" in bibliography[0]
         assert "Machine Learning Basics" in bibliography[0]
 
+    def test_get_bibliography_harvard(self):
+        """Test bibliography generation in Harvard style."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(
+            title="Machine Learning Basics",
+            url="https://example.com/ml",
+            author="Bob Johnson",
+            published_date=datetime(2023, 4, 15),
+            type=SourceType.WEB,
+        )
+        source = tracker.get_source(source_id)
+        assert source is not None
+        source.accessed_date = datetime(2026, 2, 14)
+
+        bibliography = tracker.get_bibliography(style="harvard")
+
+        assert len(bibliography) == 1
+        assert "Bob Johnson (2023)." in bibliography[0]
+        assert "Machine Learning Basics." in bibliography[0]
+        assert "Available at: https://example.com/ml." in bibliography[0]
+        assert "Accessed 14 February 2026." in bibliography[0]
+
     def test_get_bibliography_sorted(self):
         """Test bibliography sorting."""
         tracker = CitationTracker()
@@ -1365,6 +1388,26 @@ class TestCitationTracker:
 
         assert rendered == "Reference design guidance (Ada Lovelace)."
         assert len(tracker.citations) == 0
+
+    def test_get_inline_citations_supports_harvard_style(self):
+        """Inline placeholder rendering should support Harvard style output."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(
+            title="AI Reliability Guide",
+            author="Jane Doe",
+            published_date=datetime(2025, 6, 1),
+            type=SourceType.DOCUMENT,
+        )
+        citation = tracker.cite(source_id, quoted_text="Verify every claim")
+        assert citation is not None
+
+        rendered = tracker.get_inline_citations(
+            f"Evidence is documented [[cite:{citation.id}]].",
+            style="harvard",
+        )
+
+        assert rendered == "Evidence is documented (Jane Doe, 2025)."
 
     def test_get_inline_citations_keeps_unknown_placeholders(self):
         """Unknown placeholders should remain unchanged for safer debugging."""
@@ -1884,6 +1927,55 @@ class TestSource:
 
         assert "John Smith" in citation
         assert '"Machine Learning Guide"' in citation
+
+    def test_citation_format_harvard(self):
+        """Test Harvard citation format."""
+        source = Source(
+            id="test_id",
+            type=SourceType.ARTICLE,
+            title="AI Reliability in Production",
+            url="https://example.com/ai-reliability",
+            author="Jane Doe",
+            published_date=datetime(2024, 1, 1),
+            accessed_date=datetime(2026, 2, 14),
+        )
+
+        citation = source.to_citation_format(style="harvard")
+
+        assert "Jane Doe (2024)." in citation
+        assert "AI Reliability in Production." in citation
+        assert "Available at: https://example.com/ai-reliability." in citation
+        assert "Accessed 14 February 2026." in citation
+
+    def test_citation_format_harvard_handles_missing_author_and_date(self):
+        """Harvard format should fall back to title + n.d. when metadata is missing."""
+        source = Source(
+            id="test_id",
+            type=SourceType.WEB,
+            title="Untitled Reference",
+            url="https://example.com/reference",
+            accessed_date=datetime(2026, 2, 14),
+        )
+
+        citation = source.to_citation_format(style="harvard")
+
+        assert citation.startswith("Untitled Reference (n.d.).")
+        assert citation.count("Untitled Reference") == 1
+
+    def test_inline_citation_harvard(self):
+        """Inline citation rendering should support Harvard style."""
+        source = Source(
+            id="source_id",
+            type=SourceType.ARTICLE,
+            title="Reliable Systems",
+            author="Alex Kim",
+            published_date=datetime(2023, 5, 1),
+        )
+        citation = Citation(id="citation_id", source=source)
+
+        inline = citation.to_inline_citation(style="harvard")
+
+        assert inline == "(Alex Kim, 2023)"
 
 
 if __name__ == "__main__":
