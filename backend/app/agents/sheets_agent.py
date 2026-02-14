@@ -62,6 +62,7 @@ class SheetsAgent(BaseAgent):
                 "create_spreadsheet",
                 "read_data",
                 "write_data",
+                "append_data",
                 "format_cells",
                 "create_chart",
                 "share_sheet"
@@ -158,6 +159,61 @@ class SheetsAgent(BaseAgent):
             except Exception as e:
                 logger.error(f"Failed to write data: {e}")
                 return f"Error writing data: {str(e)}"
+
+        def append_data(
+            spreadsheet_id: str,
+            range_name: str,
+            values: List[List[Any]],
+            value_input_option: str = "USER_ENTERED",
+            insert_data_option: str = "INSERT_ROWS",
+        ) -> str:
+            """
+            Append rows to the next available rows in a range.
+
+            Args:
+                spreadsheet_id: Spreadsheet ID
+                range_name: Target range in A1 notation (e.g., 'Sheet1!A:C')
+                values: 2D array of values to append
+                value_input_option: USER_ENTERED or RAW
+                insert_data_option: INSERT_ROWS or OVERWRITE
+
+            Returns:
+                Success message with append metadata
+            """
+            if not self.sheets_service:
+                return "Error: Google Sheets API not initialized. Missing credentials."
+
+            try:
+                logger.info(f"Appending data to {spreadsheet_id} range {range_name}")
+
+                body = {"values": values}
+                result = self.sheets_service.spreadsheets().values().append(
+                    spreadsheetId=spreadsheet_id,
+                    range=range_name,
+                    valueInputOption=value_input_option,
+                    insertDataOption=insert_data_option,
+                    body=body,
+                ).execute()
+
+                updates = result.get("updates", {})
+                updated_rows = updates.get("updatedRows", len(values))
+                updated_cells = updates.get("updatedCells", 0)
+                updated_range = updates.get("updatedRange", range_name)
+
+                logger.info(
+                    "Appended %s rows (%s cells) into %s",
+                    updated_rows,
+                    updated_cells,
+                    updated_range,
+                )
+                return (
+                    f"Successfully appended {updated_rows} rows "
+                    f"({updated_cells} cells) to {updated_range}"
+                )
+
+            except Exception as e:
+                logger.error(f"Failed to append data: {e}")
+                return f"Error appending data: {str(e)}"
         
         def read_data(spreadsheet_id: str, range_name: str) -> str:
             """
@@ -461,6 +517,11 @@ class SheetsAgent(BaseAgent):
                 func=lambda args: write_data(**json.loads(args) if isinstance(args, str) else args)
             ),
             Tool(
+                name="append_data",
+                description="Append rows to the next available rows in a spreadsheet range",
+                func=lambda args: append_data(**json.loads(args) if isinstance(args, str) else args)
+            ),
+            Tool(
                 name="read_data",
                 description="Read data from a specific range in a spreadsheet",
                 func=lambda args: read_data(**json.loads(args) if isinstance(args, str) else args)
@@ -496,6 +557,7 @@ When working with spreadsheets:
 Current tools available:
 - create_spreadsheet: Create new spreadsheets
 - write_data: Write data to ranges
+- append_data: Append rows to existing tables
 - read_data: Read data from ranges
 - format_cells: Apply cell formatting
 - create_chart: Generate charts from data
