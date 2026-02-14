@@ -1878,6 +1878,11 @@ class CitationTracker:
         recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
         as_of: Optional[datetime] = None,
         include_source_breakdown: bool = False,
+        source_types: Optional[SourceType | str | Iterable[SourceType | str]] = None,
+        domains: Optional[str | Iterable[str]] = None,
+        include_source_ids: Optional[str | Iterable[str]] = None,
+        exclude_source_ids: Optional[str | Iterable[str]] = None,
+        cited_only: bool = False,
     ) -> Dict[str, Any]:
         """Generate a lightweight fact-check confidence report for current sources.
 
@@ -1894,6 +1899,14 @@ class CitationTracker:
                 calculations. When omitted, uses current UTC time.
             include_source_breakdown: When ``True``, include per-source scoring
                 details in ``source_breakdown`` for explainability/debugging.
+            source_types: Optional source type allow-list. Accepts a single
+                source type or iterable of source types.
+            domains: Optional domain allow-list. Matching is case-insensitive
+                and includes subdomains.
+            include_source_ids: Optional source-id allow-list.
+            exclude_source_ids: Optional source-id deny-list.
+            cited_only: When ``True``, include only sources that are cited at
+                least once in the current tracker.
 
         Returns:
             Dictionary with aggregate confidence score, level, gaps, and metrics.
@@ -1906,8 +1919,77 @@ class CitationTracker:
             raise ValueError(
                 "recency_profile must be one of: strict, balanced, lenient"
             )
+        if not isinstance(cited_only, bool):
+            raise ValueError("cited_only must be a boolean")
 
-        total_sources = len(self.sources)
+        normalized_source_types = self._normalize_source_types(
+            source_types,
+            argument_name="source_types",
+        )
+        normalized_domains = self._normalize_domains(domains)
+        normalized_include_source_ids = self._normalize_source_ids(
+            include_source_ids,
+            argument_name="include_source_ids",
+        )
+        normalized_exclude_source_ids = self._normalize_source_ids(
+            exclude_source_ids,
+            argument_name="exclude_source_ids",
+        )
+
+        reference_time = self._normalize_datetime(
+            as_of if as_of is not None else datetime.now(timezone.utc)
+        )
+        citation_counts = Counter(
+            citation.source.id for citation in self.citations.values()
+        )
+
+        scoped_sources: List[Source] = []
+        for source in self.sources.values():
+            if (
+                normalized_include_source_ids is not None
+                and source.id not in normalized_include_source_ids
+            ):
+                continue
+
+            if (
+                normalized_exclude_source_ids is not None
+                and source.id in normalized_exclude_source_ids
+            ):
+                continue
+
+            source_type_value = (
+                source.type.value
+                if isinstance(source.type, SourceType)
+                else str(source.type)
+            )
+            normalized_source_type = self._normalize_text(source_type_value)
+            if (
+                normalized_source_types is not None
+                and normalized_source_type not in normalized_source_types
+            ):
+                continue
+
+            if normalized_domains is not None:
+                if not source.url:
+                    continue
+
+                try:
+                    source_hostname = self._normalize_domain(str(source.url))
+                except ValueError:
+                    continue
+
+                if not self._domain_matches_allowed(
+                    source_hostname,
+                    normalized_domains,
+                ):
+                    continue
+
+            if cited_only and citation_counts.get(source.id, 0) == 0:
+                continue
+
+            scoped_sources.append(source)
+
+        total_sources = len(scoped_sources)
         if total_sources == 0:
             report: Dict[str, Any] = {
                 "confidence_score": 0.0,
@@ -1919,6 +2001,16 @@ class CitationTracker:
                 ],
                 "metrics": {
                     "total_sources": 0,
+                    "total_available_sources": len(self.sources),
+                    "filters_applied": any(
+                        [
+                            normalized_source_types,
+                            normalized_domains,
+                            normalized_include_source_ids,
+                            normalized_exclude_source_ids,
+                            cited_only,
+                        ]
+                    ),
                     "unique_domains": 0,
                     "cited_sources": 0,
                     "citation_coverage": 0.0,
@@ -1933,21 +2025,14 @@ class CitationTracker:
                 report["source_breakdown"] = []
             return report
 
-        reference_time = self._normalize_datetime(
-            as_of if as_of is not None else datetime.now(timezone.utc)
-        )
-        citation_counts = Counter(
-            citation.source.id for citation in self.citations.values()
-        )
-        source_ids_with_citations = set(citation_counts)
         cited_sources = sum(
-            1 for source_id in self.sources if source_id in source_ids_with_citations
+            1 for source in scoped_sources if citation_counts.get(source.id, 0) > 0
         )
         citation_coverage = cited_sources / total_sources
 
         unique_domains = {
             parsed.hostname.casefold()
-            for source in self.sources.values()
+            for source in scoped_sources
             if source.url
             for parsed in [urlparse(str(source.url))]
             if parsed.hostname
@@ -1957,7 +2042,7 @@ class CitationTracker:
         recency_scores = []
         source_breakdown: List[Dict[str, Any]] = []
 
-        for source in self.sources.values():
+        for source in scoped_sources:
             authority_score_for_source = self.SOURCE_AUTHORITY_WEIGHTS.get(
                 source.type,
                 0.5,
@@ -2035,6 +2120,16 @@ class CitationTracker:
             "gaps": gaps,
             "metrics": {
                 "total_sources": total_sources,
+                "total_available_sources": len(self.sources),
+                "filters_applied": any(
+                    [
+                        normalized_source_types,
+                        normalized_domains,
+                        normalized_include_source_ids,
+                        normalized_exclude_source_ids,
+                        cited_only,
+                    ]
+                ),
                 "unique_domains": len(unique_domains),
                 "cited_sources": cited_sources,
                 "citation_coverage": round(citation_coverage, 3),

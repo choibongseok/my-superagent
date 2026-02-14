@@ -2100,6 +2100,75 @@ class TestCitationTracker:
         assert uncited_entry["source_type"] == SourceType.WEB.value
         assert uncited_entry["age_days"] == pytest.approx(500.0, abs=0.001)
 
+    def test_get_validation_report_supports_source_scoping_filters(self):
+        """Validation report should support source-type/domain/id scoping."""
+        tracker = CitationTracker()
+
+        api_source_id = tracker.add_source(
+            title="API Reference",
+            url="https://docs.example.com/api",
+            type=SourceType.API,
+        )
+        web_source_id = tracker.add_source(
+            title="Blog Post",
+            url="https://blog.example.com/post",
+            type=SourceType.WEB,
+        )
+        tracker.add_source(
+            title="External Study",
+            url="https://journal.other.org/study",
+            type=SourceType.ARTICLE,
+        )
+
+        tracker.cite(api_source_id, quoted_text="API endpoint guarantees")
+        tracker.cite(web_source_id, quoted_text="Community implementation notes")
+
+        report = tracker.get_validation_report(
+            min_sources=1,
+            source_types=[SourceType.API, "WEB"],
+            domains="example.com",
+            exclude_source_ids=web_source_id,
+            include_source_breakdown=True,
+        )
+
+        assert report["metrics"]["total_sources"] == 1
+        assert report["metrics"]["total_available_sources"] == 3
+        assert report["metrics"]["filters_applied"] is True
+        assert report["metrics"]["cited_sources"] == 1
+        assert report["metrics"]["citation_coverage"] == 1.0
+        assert report["metrics"]["unique_domains"] == 1
+        assert report["source_breakdown"][0]["source_id"] == api_source_id
+
+    def test_get_validation_report_supports_cited_only_scope(self):
+        """cited_only should limit validation to sources used in citations."""
+        tracker = CitationTracker()
+
+        cited_source_id = tracker.add_source(
+            title="Cited Source",
+            url="https://docs.example.com/cited",
+            type=SourceType.DOCUMENT,
+        )
+        tracker.add_source(
+            title="Uncited Source",
+            url="https://docs.example.com/uncited",
+            type=SourceType.DOCUMENT,
+        )
+        tracker.cite(cited_source_id, quoted_text="Only this source is cited")
+
+        report = tracker.get_validation_report(min_sources=1, cited_only=True)
+
+        assert report["metrics"]["total_sources"] == 1
+        assert report["metrics"]["cited_sources"] == 1
+        assert report["metrics"]["citation_coverage"] == 1.0
+        assert report["metrics"]["filters_applied"] is True
+
+    def test_get_validation_report_rejects_non_boolean_cited_only(self):
+        """cited_only should reject non-boolean values for deterministic semantics."""
+        tracker = CitationTracker()
+
+        with pytest.raises(ValueError, match="cited_only must be a boolean"):
+            tracker.get_validation_report(cited_only="true")
+
     def test_to_dict_and_from_dict(self):
         """Test serialization and deserialization."""
         tracker = CitationTracker()
