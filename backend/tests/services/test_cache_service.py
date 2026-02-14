@@ -827,6 +827,43 @@ def test_local_cache_rename_same_key_is_noop_for_existing_and_missing_keys():
     assert cache.rename("missing", "missing") is False
 
 
+def test_local_cache_rename_many_moves_only_successful_mappings():
+    cache = LocalCacheService()
+    cache.set_many({"alpha": 1, "beta": 2, "target": "occupied"})
+
+    renamed = cache.rename_many(
+        {
+            "alpha": "renamed:alpha",
+            "missing": "renamed:missing",
+            "beta": "target",
+        }
+    )
+
+    assert renamed == 1
+    assert cache.get("alpha") is None
+    assert cache.get("renamed:alpha") == 1
+    assert cache.get("beta") == 2
+    assert cache.get("target") == "occupied"
+
+
+def test_local_cache_rename_many_supports_overwrite_for_each_mapping():
+    cache = LocalCacheService()
+    cache.set("source", "fresh", ttl_seconds=1)
+    cache.set("target", "stale")
+
+    time.sleep(0.4)
+
+    renamed = cache.rename_many({"source": "target"}, overwrite=True)
+
+    assert renamed == 1
+    assert cache.get("source") is None
+    assert cache.get("target") == "fresh"
+
+    ttl = cache.ttl_remaining("target")
+    assert ttl is not None
+    assert 0 < ttl < 1
+
+
 def test_local_cache_delete_many_returns_removed_count():
     cache = LocalCacheService()
     cache.set_many({"alpha": 1, "beta": 2, "gamma": 3})

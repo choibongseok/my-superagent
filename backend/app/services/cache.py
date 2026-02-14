@@ -856,6 +856,20 @@ class LocalCacheService:
         self._increment_stat("sets")
         return True
 
+    def rename_many(
+        self,
+        key_mapping: Mapping[str, str],
+        *,
+        overwrite: bool = False,
+    ) -> int:
+        """Rename multiple keys and return the number of successful moves."""
+        renamed = 0
+        for source_key, target_key in key_mapping.items():
+            if self.rename(source_key, target_key, overwrite=overwrite):
+                renamed += 1
+
+        return renamed
+
     def delete(self, key: str) -> None:
         """Delete a cached key if present."""
         if key in self._store or key in self._inflight:
