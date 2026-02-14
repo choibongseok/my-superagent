@@ -75,6 +75,79 @@ def test_get_latest_prompt(temp_registry):
     assert latest.template == "Version 2"
 
 
+def test_render_prompt_with_declared_variables(temp_registry):
+    """Render should inject variables into the selected prompt version."""
+    temp_registry.register(
+        name="greeting_prompt",
+        template="Hello {name}! Welcome to {team}.",
+        variables=["name", "team"],
+        version="v1",
+    )
+
+    rendered = temp_registry.render(
+        "greeting_prompt",
+        variables={"name": "Codex", "team": "AgentHQ"},
+    )
+
+    assert rendered == "Hello Codex! Welcome to AgentHQ."
+
+
+def test_render_prompt_requires_all_declared_variables(temp_registry):
+    """Render should fail fast when required variables are missing."""
+    temp_registry.register(
+        name="summary_prompt",
+        template="Topic: {topic}\nAudience: {audience}",
+        variables=["topic", "audience"],
+        version="v1",
+    )
+
+    with pytest.raises(ValueError, match="Missing prompt variables"):
+        temp_registry.render(
+            "summary_prompt",
+            variables={"topic": "Roadmap"},
+        )
+
+
+def test_render_prompt_rejects_unexpected_variables_in_strict_mode(temp_registry):
+    """Strict render mode should prevent undeclared variables from slipping in."""
+    temp_registry.register(
+        name="strict_prompt",
+        template="Only {value}",
+        variables=["value"],
+        version="v1",
+    )
+
+    with pytest.raises(ValueError, match="Unexpected prompt variables"):
+        temp_registry.render(
+            "strict_prompt",
+            variables={"value": "ok", "extra": "not-allowed"},
+        )
+
+
+def test_render_prompt_allows_extra_variables_when_not_strict(temp_registry):
+    """Non-strict mode should ignore undeclared extra values."""
+    temp_registry.register(
+        name="non_strict_prompt",
+        template="Value: {value}",
+        variables=["value"],
+        version="v1",
+    )
+
+    rendered = temp_registry.render(
+        "non_strict_prompt",
+        variables={"value": "42", "extra": "ignored"},
+        strict=False,
+    )
+
+    assert rendered == "Value: 42"
+
+
+def test_render_prompt_raises_for_unknown_prompt_name(temp_registry):
+    """Rendering should fail when prompt name/version does not exist."""
+    with pytest.raises(ValueError, match="was not found"):
+        temp_registry.render("missing_prompt", variables={"value": "x"})
+
+
 def test_list_versions(temp_registry):
     """Test listing all versions of a prompt."""
     # Register multiple versions

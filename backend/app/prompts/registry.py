@@ -7,7 +7,7 @@ import pkgutil
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from pydantic import BaseModel
 
@@ -129,6 +129,73 @@ class PromptRegistry:
                 return prompt_version
 
         return None
+
+    def render(
+        self,
+        name: str,
+        variables: Mapping[str, Any] | None = None,
+        *,
+        version: str | None = None,
+        strict: bool = True,
+    ) -> str:
+        """Render a prompt template with runtime variables.
+
+        Args:
+            name: Prompt name.
+            variables: Mapping of template variable values.
+            version: Optional version label; defaults to latest.
+            strict: When ``True``, reject unexpected variables that are not
+                declared by the prompt version.
+
+        Returns:
+            Rendered prompt text.
+
+        Raises:
+            ValueError: When the prompt/version is missing or required variables
+                are not provided.
+        """
+        prompt_version = self.get(name, version=version)
+        if prompt_version is None:
+            version_suffix = "" if version is None else f" version '{version}'"
+            raise ValueError(f"Prompt '{name}'{version_suffix} was not found")
+
+        provided_variables = dict(variables or {})
+        required_variables = prompt_version.variables
+
+        missing_variables = [
+            required
+            for required in required_variables
+            if required not in provided_variables
+        ]
+        if missing_variables:
+            missing_display = ", ".join(missing_variables)
+            raise ValueError(
+                f"Missing prompt variables for '{name}': {missing_display}"
+            )
+
+        if strict:
+            unexpected_variables = sorted(
+                set(provided_variables) - set(required_variables)
+            )
+            if unexpected_variables:
+                unexpected_display = ", ".join(unexpected_variables)
+                raise ValueError(
+                    f"Unexpected prompt variables for '{name}': {unexpected_display}"
+                )
+
+        format_values = {
+            variable_name: provided_variables[variable_name]
+            for variable_name in required_variables
+        }
+
+        try:
+            return prompt_version.template.format(**format_values)
+        except KeyError as error:
+            missing_variable = str(error).strip("'")
+            raise ValueError(
+                "Prompt template references undeclared variable "
+                f"'{missing_variable}' for '{name}'"
+            ) from error
 
     def rollback(
         self,
