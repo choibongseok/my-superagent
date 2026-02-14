@@ -5,18 +5,16 @@ semantic similarity search across conversation history.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from contextlib import contextmanager
 from datetime import datetime
-import json
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
+from langchain.embeddings import OpenAIEmbeddings
 from langchain.memory import VectorStoreRetrieverMemory
 from langchain.vectorstores import PGVector
-from langchain.embeddings import OpenAIEmbeddings
 from langchain_core.documents import Document
-from sqlalchemy import text
 
 from app.core.config import settings
-from app.core.database import engine
 
 logger = logging.getLogger(__name__)
 
@@ -536,9 +534,63 @@ class VectorStoreMemory:
 
         return "\n\n".join(context_parts)
 
-    def delete_session_memories(self, session_id: str) -> int:
+    @contextmanager
+    def _collection_session(
+        self,
+    ) -> Generator[Tuple[Optional[Any], Optional[Any]], None, None]:
+        """Yield an active vector-store session and target collection.
+
+        Yields:
+            Tuple of (session, collection). Either value can be None when
+            the backend is unavailable or the collection does not exist.
         """
-        Delete all memories for a specific session.
+        if not self.available:
+            logger.warning(
+                "Vector store unavailable for user=%s, session=%s",
+                self.user_id,
+                self.session_id,
+            )
+            yield None, None
+            return
+
+        session_factory = getattr(self.vector_store, "_make_session", None)
+        get_collection = getattr(self.vector_store, "get_collection", None)
+        if not callable(session_factory) or not callable(get_collection):
+            logger.warning(
+                "Vector store does not expose session helpers for collection operations"
+            )
+            yield None, None
+            return
+
+        with session_factory() as session:
+            collection = get_collection(session)
+            if collection is None:
+                logger.debug(
+                    "Collection '%s' not found for user=%s",
+                    self.collection_name,
+                    self.user_id,
+                )
+            yield session, collection
+
+    def _fetch_collection_embeddings(
+        self,
+        session: Any,
+        collection: Any,
+    ) -> List[Any]:
+        """Fetch all embedding rows for the active collection."""
+        embedding_store = getattr(self.vector_store, "EmbeddingStore", None)
+        if embedding_store is None:
+            logger.warning("Vector store EmbeddingStore model is unavailable")
+            return []
+
+        return (
+            session.query(embedding_store)
+            .filter(embedding_store.collection_id == collection.uuid)
+            .all()
+        )
+
+    def delete_session_memories(self, session_id: str) -> int:
+        """Delete all memories for a specific session.
 
         Args:
             session_id: Session identifier
@@ -546,33 +598,95 @@ class VectorStoreMemory:
         Returns:
             Number of deleted memories
         """
-        # Note: PGVector doesn't have built-in delete by metadata
-        # This would require custom SQL or recreating the collection
-        logger.warning(
-            f"Session memory deletion not fully implemented. "
-            f"Consider recreating collection for session {session_id}"
-        )
-        return 0
+        if not session_id:
+            raise ValueError("session_id is required")
 
-    def clear_user_memories(self) -> None:
-        """Clear all memories for the current user."""
-        # This would require dropping the entire collection
-        logger.warning(
-            f"User memory clearing not fully implemented. "
-            f"Consider dropping collection {self.collection_name}"
-        )
+        with self._collection_session() as (session, collection):
+            if session is None or collection is None:
+                return 0
 
-    def get_memory_count(self) -> int:
-        """
-        Get total number of memories for user.
+            embeddings = self._fetch_collection_embeddings(session, collection)
+            to_delete = []
+            for embedding in embeddings:
+                metadata = getattr(embedding, "cmetadata", None)
+                if not isinstance(metadata, dict):
+                    metadata = {}
+
+                metadata_user_id = metadata.get("user_id")
+                if metadata_user_id and metadata_user_id != self.user_id:
+                    continue
+
+                if metadata.get("session_id") == session_id:
+                    to_delete.append(embedding)
+
+            for embedding in to_delete:
+                session.delete(embedding)
+
+            if to_delete:
+                session.commit()
+
+            deleted_count = len(to_delete)
+            logger.info(
+                "Deleted %d vector memories for user=%s session=%s",
+                deleted_count,
+                self.user_id,
+                session_id,
+            )
+            return deleted_count
+
+    def clear_user_memories(self) -> int:
+        """Clear all memories for the current user.
 
         Returns:
-            Memory count
+            Number of deleted memories
         """
-        # This would require querying the vector store
-        # For now, return estimate
-        logger.warning("Memory count not implemented, returning 0")
-        return 0
+        with self._collection_session() as (session, collection):
+            if session is None or collection is None:
+                return 0
+
+            embeddings = self._fetch_collection_embeddings(session, collection)
+            to_delete = []
+            for embedding in embeddings:
+                metadata = getattr(embedding, "cmetadata", None)
+                if not isinstance(metadata, dict):
+                    metadata = {}
+
+                metadata_user_id = metadata.get("user_id")
+                if metadata_user_id and metadata_user_id != self.user_id:
+                    continue
+
+                to_delete.append(embedding)
+
+            for embedding in to_delete:
+                session.delete(embedding)
+
+            if to_delete:
+                session.commit()
+
+            deleted_count = len(to_delete)
+            logger.info(
+                "Cleared %d vector memories for user=%s",
+                deleted_count,
+                self.user_id,
+            )
+            return deleted_count
+
+    def get_memory_count(self) -> int:
+        """Get total number of memories for the current user."""
+        with self._collection_session() as (session, collection):
+            if session is None or collection is None:
+                return 0
+
+            embedding_store = getattr(self.vector_store, "EmbeddingStore", None)
+            if embedding_store is None:
+                logger.warning("Vector store EmbeddingStore model is unavailable")
+                return 0
+
+            return (
+                session.query(embedding_store)
+                .filter(embedding_store.collection_id == collection.uuid)
+                .count()
+            )
 
 
 __all__ = ["VectorStoreMemory"]
