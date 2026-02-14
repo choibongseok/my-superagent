@@ -709,6 +709,7 @@ class CitationTracker:
         metadata_filters: Optional[Mapping[str, Any]] = None,
         domains: Optional[str | Iterable[str]] = None,
         exclude_domains: Optional[str | Iterable[str]] = None,
+        has_url: Optional[bool] = None,
         include_source_ids: Optional[str | Iterable[str]] = None,
         exclude_source_ids: Optional[str | Iterable[str]] = None,
         min_citations: Optional[int] = None,
@@ -764,6 +765,8 @@ class CitationTracker:
             exclude_domains: Optional domain deny-list filter(s). Sources whose
                 hostnames match any configured domain (including subdomains)
                 are excluded from results.
+            has_url: Optional URL presence filter. ``True`` keeps only sources
+                with URLs, ``False`` keeps only URL-less sources.
             include_source_ids: Optional source-id allow-list. When provided,
                 only matching source IDs are considered.
             exclude_source_ids: Optional source-id deny-list. Matching source
@@ -821,6 +824,9 @@ class CitationTracker:
 
         if source_type is not None and source_types is not None:
             raise ValueError("source_type and source_types cannot be used together")
+
+        if has_url is not None and not isinstance(has_url, bool):
+            raise ValueError("has_url must be a boolean when provided")
 
         if (
             published_after is not None
@@ -1037,6 +1043,12 @@ class CitationTracker:
                     normalized_domains,
                 )
             ):
+                continue
+
+            source_has_url = source.url is not None
+            if has_url is True and not source_has_url:
+                continue
+            if has_url is False and source_has_url:
                 continue
 
             if not self._matches_metadata_filters(
@@ -1276,6 +1288,7 @@ class CitationTracker:
         metadata_filters: Optional[Mapping[str, Any]] = None,
         domains: Optional[str | Iterable[str]] = None,
         exclude_domains: Optional[str | Iterable[str]] = None,
+        has_url: Optional[bool] = None,
         include_source_ids: Optional[str | Iterable[str]] = None,
         exclude_source_ids: Optional[str | Iterable[str]] = None,
         min_citations: Optional[int] = None,
@@ -1317,6 +1330,7 @@ class CitationTracker:
             metadata_filters=metadata_filters,
             domains=domains,
             exclude_domains=exclude_domains,
+            has_url=has_url,
             include_source_ids=include_source_ids,
             exclude_source_ids=exclude_source_ids,
             min_citations=min_citations,

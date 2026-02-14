@@ -1243,6 +1243,54 @@ class TestCitationTracker:
 
         assert [item["source"].id for item in detailed_matches] == [keep_id]
 
+
+    def test_search_sources_supports_has_url_filter(self):
+        """has_url should allow filtering URL-backed and URL-less sources."""
+        tracker = CitationTracker()
+
+        with_url_id = tracker.add_source(
+            title="AI Reliability Update",
+            url="https://example.com/reliability",
+        )
+        without_url_id = tracker.add_source(
+            title="AI Reliability Internal Memo",
+        )
+
+        with_url_matches = tracker.search_sources("ai reliability", has_url=True)
+        without_url_matches = tracker.search_sources("ai reliability", has_url=False)
+
+        assert [source.id for source in with_url_matches] == [with_url_id]
+        assert [source.id for source in without_url_matches] == [without_url_id]
+
+    def test_search_sources_with_details_supports_has_url_filter(self):
+        """Detailed search should pass has_url filtering to the base search."""
+        tracker = CitationTracker()
+
+        tracker.add_source(
+            title="Agent Deployment Runbook",
+            url="https://docs.example.com/agent-deploy",
+        )
+        without_url_id = tracker.add_source(
+            title="Agent Deployment Internal Checklist",
+        )
+
+        detailed = tracker.search_sources_with_details(
+            "agent deployment",
+            has_url=False,
+        )
+
+        assert [item["source"].id for item in detailed] == [without_url_id]
+
+    def test_search_sources_rejects_invalid_has_url_filter(self):
+        """has_url should accept only boolean values when provided."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="has_url must be a boolean when provided",
+        ):
+            tracker.search_sources("ai", has_url="true")  # type: ignore[arg-type]
+
     def test_search_sources_rejects_invalid_domains_filters(self):
         """Domain filters should validate payload shape and non-empty values."""
         tracker = CitationTracker()
