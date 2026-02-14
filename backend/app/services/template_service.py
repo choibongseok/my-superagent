@@ -141,6 +141,44 @@ def _replace_text(value: object, argument_spec: str) -> str:
     return str(value).replace(search, replacement)
 
 
+def _replace_regex_text(value: object, argument_spec: str) -> str:
+    """Regex replacement helper for ``replace_regex(pattern,replacement[,flags])``."""
+    args = _parse_transform_args(argument_spec)
+    if len(args) not in {2, 3}:
+        raise ValueError(
+            "replace_regex expects two or three arguments: pattern,replacement[,flags]"
+        )
+
+    pattern, replacement = args[0], args[1]
+    if pattern == "":
+        raise ValueError("replace_regex pattern argument must not be empty")
+
+    re_flags = 0
+    if len(args) == 3:
+        raw_flags = args[2].strip().lower()
+        supported_flags = {
+            "i": re.IGNORECASE,
+            "m": re.MULTILINE,
+            "s": re.DOTALL,
+            "x": re.VERBOSE,
+        }
+
+        for flag in raw_flags:
+            mapped_flag = supported_flags.get(flag)
+            if mapped_flag is None:
+                raise ValueError(
+                    "replace_regex flags must use only i, m, s, or x"
+                )
+            re_flags |= mapped_flag
+
+    try:
+        compiled_pattern = re.compile(pattern, flags=re_flags)
+    except re.error as exc:
+        raise ValueError(f"replace_regex pattern is invalid: {exc}") from exc
+
+    return compiled_pattern.sub(replacement, str(value))
+
+
 def _join_values(value: object, argument_spec: str) -> str:
     """Join iterable values into a single string.
 
@@ -571,6 +609,7 @@ class TemplateService:
         - ``{field|default value->strip->title}``
         - ``{summary->truncate(120)}``
         - ``{name->replace("Agent", "Assistant")}``
+        - ``{title->replace_regex("agent","assistant","i")}``
         - ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``
         - ``{items->length}``
         - ``{backlog->first}``, ``{backlog->last}``
@@ -633,6 +672,7 @@ class TemplateService:
                 *available_transforms.keys(),
                 "truncate(<max_length>)",
                 "replace(<search>,<replacement>)",
+                "replace_regex(<pattern>,<replacement>[,<flags>])",
                 "join([separator])",
                 "split([separator[,maxsplit]])",
                 "sort([asc|desc])",
@@ -658,6 +698,11 @@ class TemplateService:
                     )
                 elif transform_name == "replace":
                     operation = lambda raw, spec=argument_spec: _replace_text(raw, spec)
+                elif transform_name == "replace_regex":
+                    operation = lambda raw, spec=argument_spec: _replace_regex_text(
+                        raw,
+                        spec,
+                    )
                 elif transform_name == "join":
                     operation = lambda raw, spec=argument_spec: _join_values(raw, spec)
                 elif transform_name == "split":
@@ -734,6 +779,7 @@ class TemplateService:
         ``{service->dot_case}``, ``{build_target->constant_case}``,
         ``{variable->camel_case}``, ``{variable->pascal_case}``,
         ``{summary->truncate(120)}``, ``{title->replace("Agent", "Assistant")}``,
+        ``{title->replace_regex("agent","assistant","i")}``,
         ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
         ``{queue->first}``, ``{queue->last}``, ``{tasks->reverse}``,
         ``{milestones->slice(0,2)}``, ``{notes->dedent->strip}``,
