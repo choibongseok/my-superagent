@@ -33,6 +33,18 @@ class Plugin(ToolPlugin):
         "kelvin": "standard",
         "k": "standard",
     }
+    PRESSURE_UNIT_ALIASES = {
+        "hpa": "hpa",
+        "hectopascal": "hpa",
+        "hectopascals": "hpa",
+        "kpa": "kpa",
+        "kilopascal": "kpa",
+        "kilopascals": "kpa",
+        "inhg": "inhg",
+        "inchesofmercury": "inhg",
+        "mmhg": "mmhg",
+        "millimetersofmercury": "mmhg",
+    }
     LANGUAGE_PATTERN = re.compile(r"^[a-z]{2}(?:[_-][a-z]{2})?$")
 
     def __init__(self, config: Dict[str, Any]):
@@ -42,6 +54,7 @@ class Plugin(ToolPlugin):
         Config:
             api_key: OpenWeatherMap API key (optional, uses mock data if not provided)
             units: Temperature units ('metric'/'celsius', 'imperial'/'fahrenheit', or 'standard'/'kelvin'; default: 'metric')
+            pressure_unit: Pressure output units ('hpa', 'kpa', 'inhg', or 'mmhg'; default: 'hpa')
             lang: Optional language code for localized weather descriptions (e.g., 'en', 'ko', 'pt_br')
             cache_ttl_seconds: Optional positive integer TTL for response caching (default: 0 disables caching)
             cache_max_entries: Optional maximum cache entries (default: 256)
@@ -49,6 +62,9 @@ class Plugin(ToolPlugin):
         super().__init__(config)
         self.api_key = config.get("api_key")
         self.units = self._normalize_units(config.get("units", "metric"))
+        self.pressure_unit = self._normalize_pressure_unit(
+            config.get("pressure_unit", "hpa")
+        )
         self.lang = self._normalize_language(config.get("lang"))
         self.cache_ttl_seconds = self._normalize_cache_ttl(
             config.get("cache_ttl_seconds", 0)
@@ -90,6 +106,32 @@ class Plugin(ToolPlugin):
             return self.units
 
         return self._normalize_units(requested_units)
+
+    def _normalize_pressure_unit(self, pressure_unit: Any) -> str:
+        """Normalize pressure unit aliases to canonical values."""
+        if pressure_unit is None:
+            return "hpa"
+        if not isinstance(pressure_unit, str):
+            raise ValueError("pressure_unit must be a string")
+
+        normalized_pressure_unit = re.sub(r"[\s_-]+", "", pressure_unit.strip().lower())
+        if not normalized_pressure_unit:
+            return "hpa"
+
+        canonical_pressure_unit = self.PRESSURE_UNIT_ALIASES.get(
+            normalized_pressure_unit
+        )
+        if canonical_pressure_unit is None:
+            raise ValueError("Unsupported pressure_unit. Use hpa, kpa, inhg, or mmhg")
+
+        return canonical_pressure_unit
+
+    def _resolve_pressure_unit(self, requested_pressure_unit: Any) -> str:
+        """Resolve effective pressure unit for a request."""
+        if requested_pressure_unit is None:
+            return self.pressure_unit
+
+        return self._normalize_pressure_unit(requested_pressure_unit)
 
     def _normalize_language(self, language: Any) -> str | None:
         """Normalize optional language code for OpenWeatherMap localization."""
@@ -167,10 +209,11 @@ class Plugin(ToolPlugin):
         location: str,
         units: str,
         language: str | None,
+        pressure_unit: str,
     ) -> str:
         """Build deterministic cache keys for weather responses."""
         language_key = language or "default"
-        return f"weather:{location.lower()}|{units}|{language_key}"
+        return f"weather:{location.lower()}|{units}|{language_key}|{pressure_unit}"
 
     @staticmethod
     def _clone_weather_result(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -196,6 +239,31 @@ class Plugin(ToolPlugin):
     def _convert_kmh_to_ms(kmh: float) -> float:
         """Convert km/h to m/s."""
         return round(kmh / 3.6, 1)
+
+    @staticmethod
+    def _convert_pressure_from_hpa(pressure_hpa: float, pressure_unit: str) -> float:
+        """Convert pressure from hPa into the requested output pressure unit."""
+        if pressure_unit == "hpa":
+            return round(pressure_hpa, 1)
+        if pressure_unit == "kpa":
+            return round(pressure_hpa / 10, 1)
+        if pressure_unit == "inhg":
+            return round(pressure_hpa * 0.0295299830714, 2)
+        if pressure_unit == "mmhg":
+            return round(pressure_hpa * 0.750061683, 1)
+
+        raise ValueError("Unsupported pressure_unit. Use hpa, kpa, inhg, or mmhg")
+
+    @staticmethod
+    def _pressure_unit_label(pressure_unit: str) -> str:
+        """Return display labels for pressure units in formatted output."""
+        labels = {
+            "hpa": "hPa",
+            "kpa": "kPa",
+            "inhg": "inHg",
+            "mmhg": "mmHg",
+        }
+        return labels.get(pressure_unit, pressure_unit)
 
     @staticmethod
     def _normalize_wind_speed_for_units(api_wind_speed: float, units: str) -> float:
@@ -281,11 +349,17 @@ class Plugin(ToolPlugin):
         label = precipitation_type.title() if precipitation_type else "Precipitation"
         return f"{label} ({', '.join(intervals)})"
 
-    def _build_mock_weather_response(self, location: str, units: str) -> Dict[str, Any]:
+    def _build_mock_weather_response(
+        self,
+        location: str,
+        units: str,
+        pressure_unit: str,
+    ) -> Dict[str, Any]:
         """Build deterministic mock weather data for offline/test mode."""
         temperature_celsius = 22.5
         feels_like_celsius = 21.3
         wind_kmh = 12.3
+        pressure_hpa = 1013.0
         visibility_meters = 10_000
 
         if units == "imperial":
@@ -320,7 +394,8 @@ class Plugin(ToolPlugin):
             "feels_like": feels_like,
             "condition": "Partly Cloudy",
             "humidity": 65,
-            "pressure": 1013,
+            "pressure": self._convert_pressure_from_hpa(pressure_hpa, pressure_unit),
+            "pressure_unit": pressure_unit,
             "wind_speed": wind_speed,
             "visibility": visibility,
             "visibility_unit": visibility_unit,
@@ -552,6 +627,7 @@ class Plugin(ToolPlugin):
                 "latitude": float (optional, requires longitude),
                 "longitude": float (optional, requires latitude),
                 "units": str (optional, metric/celsius, imperial/fahrenheit, or standard/kelvin),
+                "pressure_unit": str (optional, hpa/kpa/inhg/mmhg; overrides plugin default),
                 "lang": str (optional, ISO 639-1 code with optional locale such as 'ko' or 'pt_br'),
                 "refresh_cache": bool (optional, when true bypasses cache lookup and forces a fresh fetch)
             }
@@ -563,7 +639,8 @@ class Plugin(ToolPlugin):
                 "feels_like": float,
                 "condition": str,
                 "humidity": int,
-                "pressure": int | None,
+                "pressure": float | None,
+                "pressure_unit": str | None,
                 "wind_speed": float,
                 "visibility": float | None,
                 "visibility_unit": str | None,
@@ -575,6 +652,7 @@ class Plugin(ToolPlugin):
         """
         normalized_location, location_params = self._resolve_location_inputs(inputs)
         resolved_units = self._resolve_units(inputs.get("units"))
+        resolved_pressure_unit = self._resolve_pressure_unit(inputs.get("pressure_unit"))
         resolved_language = self._resolve_language(inputs.get("lang"))
         refresh_cache = self._normalize_refresh_cache(inputs.get("refresh_cache"))
 
@@ -584,6 +662,7 @@ class Plugin(ToolPlugin):
                 location=normalized_location,
                 units=resolved_units,
                 language=resolved_language,
+                pressure_unit=resolved_pressure_unit,
             )
             if not refresh_cache:
                 cached_result = self._response_cache.get(cache_key)
@@ -602,7 +681,9 @@ class Plugin(ToolPlugin):
                 resolved_language,
             )
             result = self._build_mock_weather_response(
-                normalized_location, resolved_units
+                normalized_location,
+                resolved_units,
+                resolved_pressure_unit,
             )
             if cache_key is not None and self._response_cache is not None:
                 self._response_cache.set(
@@ -655,6 +736,14 @@ class Plugin(ToolPlugin):
                         resolved_units,
                     )
 
+                pressure = None
+                pressure_hpa = main.get("pressure")
+                if pressure_hpa is not None:
+                    pressure = self._convert_pressure_from_hpa(
+                        float(pressure_hpa),
+                        resolved_pressure_unit,
+                    )
+
                 precipitation_1h = self._extract_precipitation_amount(data, "1h")
                 precipitation_3h = self._extract_precipitation_amount(data, "3h")
                 precipitation_type = self._determine_precipitation_type(data)
@@ -665,7 +754,8 @@ class Plugin(ToolPlugin):
                     "feels_like": feels_like,
                     "condition": data["weather"][0]["description"].title(),
                     "humidity": main["humidity"],
-                    "pressure": main.get("pressure"),
+                    "pressure": pressure,
+                    "pressure_unit": resolved_pressure_unit if pressure is not None else None,
                     "wind_speed": self._normalize_wind_speed_for_units(
                         data["wind"]["speed"],
                         resolved_units,
@@ -726,6 +816,7 @@ class Plugin(ToolPlugin):
 
         feels_like = result.get("feels_like", result["temperature"])
         pressure = result.get("pressure")
+        pressure_unit = result.get("pressure_unit")
         visibility = result.get("visibility")
         visibility_unit = result.get("visibility_unit")
         precipitation_summary = self._format_precipitation_summary(
@@ -744,7 +835,10 @@ class Plugin(ToolPlugin):
         ]
 
         if pressure is not None:
-            lines.append(f"Pressure: {pressure} hPa")
+            resolved_pressure_unit = self._pressure_unit_label(
+                str(pressure_unit or "hpa")
+            )
+            lines.append(f"Pressure: {pressure} {resolved_pressure_unit}")
         if visibility is not None:
             visibility_suffix = f" {visibility_unit}" if visibility_unit else ""
             lines.append(f"Visibility: {visibility}{visibility_suffix}")
@@ -764,6 +858,7 @@ class Plugin(ToolPlugin):
             "or coordinates (e.g., '37.5665,126.9780'). "
             "Per-request units override is supported via units='metric/celsius', "
             "units='imperial/fahrenheit', or units='standard/kelvin'. "
+            "Pressure output units can be configured globally or overridden per request via pressure_unit='hpa'/'kpa'/'inhg'/'mmhg'. "
             "Responses include both actual temperature and feels-like temperature. "
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
@@ -776,13 +871,14 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.15.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, pressure/visibility details, and precipitation insights",
+            version="1.16.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, configurable pressure units, visibility details, and precipitation insights",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
                 "api_key": "string (optional, OpenWeatherMap API key - uses mock data if not provided)",
                 "units": "string (optional, metric/celsius, imperial/fahrenheit, or standard/kelvin; default: metric)",
+                "pressure_unit": "string (optional, hpa/kpa/inhg/mmhg; default: hpa)",
                 "lang": "string (optional, ISO 639-1 code with optional locale, e.g., en or pt_br)",
                 "cache_ttl_seconds": "integer (optional, >0 enables per-location response cache for this many seconds; default: 0)",
                 "cache_max_entries": "integer (optional, maximum cached responses; default: 256)",
@@ -796,6 +892,7 @@ class Plugin(ToolPlugin):
                 "latitude": "number (optional, must be used with longitude)",
                 "longitude": "number (optional, must be used with latitude)",
                 "units": "string (optional, metric/celsius, imperial/fahrenheit, or standard/kelvin; overrides plugin default)",
+                "pressure_unit": "string (optional, hpa/kpa/inhg/mmhg; overrides plugin default)",
                 "lang": "string (optional, ISO 639-1 code with optional locale, overrides plugin default)",
                 "refresh_cache": "boolean (optional, true bypasses cache lookup and forces a fresh fetch)",
             },
@@ -805,7 +902,8 @@ class Plugin(ToolPlugin):
                 "feels_like": "float",
                 "condition": "string",
                 "humidity": "integer",
-                "pressure": "integer | null (hPa)",
+                "pressure": "float | null",
+                "pressure_unit": "string | null (hpa, kpa, inhg, or mmhg)",
                 "wind_speed": "float",
                 "visibility": "float | null",
                 "visibility_unit": "string | null (km, mi, or m)",

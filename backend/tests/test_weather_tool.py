@@ -55,6 +55,20 @@ class TestWeatherTool:
         ):
             WeatherPlugin(config={"units": "rankine"})
 
+    def test_pressure_unit_aliases_are_normalized(self):
+        """pressure_unit aliases should normalize to canonical internal units."""
+        plugin = WeatherPlugin(config={"pressure_unit": " in-hg "})
+
+        assert plugin.pressure_unit == "inhg"
+
+    def test_invalid_pressure_units_are_rejected(self):
+        """Unsupported pressure_unit values should fail fast."""
+        with pytest.raises(
+            ValueError,
+            match="Unsupported pressure_unit. Use hpa, kpa, inhg, or mmhg",
+        ):
+            WeatherPlugin(config={"pressure_unit": "psi"})
+
     def test_language_codes_are_normalized(self):
         """Test language config values are normalized for API compatibility."""
         plugin = WeatherPlugin(config={"lang": "PT-BR"})
@@ -148,6 +162,45 @@ class TestWeatherTool:
 
             assert metric_result["units"] == "metric"
             assert imperial_result["units"] == "imperial"
+            assert mock_get.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_response_cache_key_includes_pressure_unit(self):
+        """Different pressure_unit overrides should generate separate cache entries."""
+        plugin = WeatherPlugin(config={"api_key": "test_key", "cache_ttl_seconds": 30})
+
+        first_response = AsyncMock()
+        first_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 20.0, "humidity": 40, "pressure": 1013},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 3.0},
+        }
+        first_response.raise_for_status = AsyncMock()
+
+        second_response = AsyncMock()
+        second_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 20.0, "humidity": 40, "pressure": 1013},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 3.0},
+        }
+        second_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(side_effect=[first_response, second_response])
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            hpa_result = await plugin.execute(
+                {"location": "Seoul", "pressure_unit": "hpa"}
+            )
+            inhg_result = await plugin.execute(
+                {"location": "Seoul", "pressure_unit": "inhg"}
+            )
+
+            assert hpa_result["pressure_unit"] == "hpa"
+            assert inhg_result["pressure_unit"] == "inhg"
+            assert hpa_result["pressure"] != inhg_result["pressure"]
             assert mock_get.await_count == 2
 
     @pytest.mark.asyncio
@@ -296,6 +349,32 @@ class TestWeatherTool:
             result = await plugin.run_tool("Seattle")
 
         assert "Precipitation: Rain (1h 0.8 mm, 3h 2.1 mm)" in result
+
+    @pytest.mark.asyncio
+    async def test_run_tool_formats_pressure_units_from_execute_result(self):
+        """run_tool should show the pressure unit returned by execute()."""
+        plugin = WeatherPlugin(config={"units": "metric"})
+
+        with patch.object(
+            plugin,
+            "execute",
+            AsyncMock(
+                return_value={
+                    "location": "London",
+                    "temperature": 12.5,
+                    "feels_like": 10.9,
+                    "condition": "Cloudy",
+                    "humidity": 70,
+                    "pressure": 29.91,
+                    "pressure_unit": "inhg",
+                    "wind_speed": 9.0,
+                    "units": "metric",
+                }
+            ),
+        ):
+            result = await plugin.run_tool("London")
+
+        assert "Pressure: 29.91 inHg" in result
 
     @pytest.mark.asyncio
     async def test_real_api_call_success(self, api_plugin):
@@ -537,6 +616,16 @@ class TestWeatherTool:
         assert result["visibility_unit"] == "m"
 
     @pytest.mark.asyncio
+    async def test_pressure_unit_override_changes_pressure_output_in_mock_mode(self):
+        """pressure_unit override should convert pressure values in mock mode."""
+        plugin = WeatherPlugin(config={"units": "metric"})
+
+        result = await plugin.execute({"location": "Seoul", "pressure_unit": "kPa"})
+
+        assert result["pressure"] == 101.3
+        assert result["pressure_unit"] == "kpa"
+
+    @pytest.mark.asyncio
     async def test_standard_units_preserve_api_wind_speed_in_ms(self):
         """Test API wind speed is not re-converted when units are standard."""
         plugin = WeatherPlugin(config={"api_key": "test_key", "units": "standard"})
@@ -645,6 +734,35 @@ class TestWeatherTool:
 
         assert "70.0°F" in result
         assert "8.0 mph" in result
+
+    @pytest.mark.asyncio
+    async def test_pressure_unit_override_converts_api_pressure(self, api_plugin):
+        """API pressure values should convert using requested pressure_unit."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "London",
+            "main": {
+                "temp": 15.3,
+                "feels_like": 14.7,
+                "humidity": 72,
+                "pressure": 1013,
+            },
+            "weather": [{"description": "light rain"}],
+            "wind": {"speed": 5.2},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response
+            )
+
+            result = await api_plugin.execute(
+                {"location": "London", "pressure_unit": "inhg"}
+            )
+
+            assert result["pressure"] == 29.91
+            assert result["pressure_unit"] == "inhg"
 
     @pytest.mark.asyncio
     async def test_language_override_updates_api_request_parameters(self, api_plugin):
@@ -1055,10 +1173,11 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.15.0"
+        assert manifest.version == "1.16.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
+        assert "pressure_unit" in manifest.config_schema
         assert "lang" in manifest.config_schema
         assert "cache_ttl_seconds" in manifest.config_schema
         assert "cache_max_entries" in manifest.config_schema
@@ -1069,10 +1188,12 @@ class TestWeatherTool:
         assert "latitude" in manifest.inputs
         assert "longitude" in manifest.inputs
         assert "units" in manifest.inputs
+        assert "pressure_unit" in manifest.inputs
         assert "lang" in manifest.inputs
         assert "refresh_cache" in manifest.inputs
         assert "feels_like" in manifest.outputs
         assert "pressure" in manifest.outputs
+        assert "pressure_unit" in manifest.outputs
         assert "visibility" in manifest.outputs
         assert "visibility_unit" in manifest.outputs
         assert "precipitation_1h" in manifest.outputs
@@ -1094,6 +1215,7 @@ class TestWeatherTool:
         assert "zip_code" in description
         assert "coordinates" in description
         assert "standard/kelvin" in description
+        assert "pressure_unit" in description
         assert "feels-like temperature" in description
         assert "pressure" in description
         assert "visibility" in description
