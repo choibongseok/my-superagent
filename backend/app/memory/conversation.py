@@ -7,7 +7,7 @@ context across multiple turns in agent conversations.
 import logging
 import re
 from difflib import SequenceMatcher
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, Iterable, List, Literal, Optional
 from datetime import datetime
 
 from langchain.memory import ConversationBufferMemory, ConversationSummaryMemory
@@ -166,10 +166,55 @@ class ConversationMemory:
 
         return messages
 
+    @staticmethod
+    def _normalize_role_filter(
+        role: str | Iterable[str],
+    ) -> Optional[set[str]]:
+        """Normalize role filters used by message search.
+
+        Args:
+            role: Either a single role (``"human"``), a comma-separated role
+                string (``"human,ai"``), or an iterable of role strings.
+
+        Returns:
+            ``None`` when all roles should be included (``"any"``), otherwise
+            a set of normalized role keys.
+
+        Raises:
+            ValueError: If provided roles are invalid.
+        """
+        normalized_roles: set[str] = set()
+
+        if isinstance(role, str):
+            raw_roles: Iterable[str] = role.split(",") if "," in role else [role]
+        else:
+            raw_roles = role
+
+        for raw_role in raw_roles:
+            if not isinstance(raw_role, str):
+                raise ValueError("role must be one of: any, human, ai, system")
+
+            normalized_role = raw_role.strip().lower()
+            if not normalized_role:
+                raise ValueError("role must be one of: any, human, ai, system")
+
+            if normalized_role == "any":
+                return None
+
+            if normalized_role not in {"human", "ai", "system"}:
+                raise ValueError("role must be one of: any, human, ai, system")
+
+            normalized_roles.add(normalized_role)
+
+        if not normalized_roles:
+            raise ValueError("role must be one of: any, human, ai, system")
+
+        return normalized_roles
+
     def search_messages(
         self,
         query: str,
-        role: Literal["any", "human", "ai", "system"] = "any",
+        role: str | Iterable[str] = "any",
         *,
         case_sensitive: bool = False,
         last_n: Optional[int] = None,
@@ -181,7 +226,9 @@ class ConversationMemory:
 
         Args:
             query: Query string used for matching message content
-            role: Restrict results to "human", "ai", "system", or "any"
+            role: Restrict results to role(s): "human", "ai", "system", or
+                "any". Accepts a single value, comma-separated values, or an
+                iterable of roles.
             case_sensitive: Whether to match query with exact case
             last_n: Restrict search to the last N messages
             limit: Maximum number of matched messages to return
@@ -202,9 +249,7 @@ class ConversationMemory:
         if not normalized_query:
             raise ValueError("query must be a non-empty string")
 
-        normalized_role = role.lower()
-        if normalized_role not in {"any", "human", "ai", "system"}:
-            raise ValueError("role must be one of: any, human, ai, system")
+        normalized_roles = self._normalize_role_filter(role)
 
         if limit is not None and limit <= 0:
             raise ValueError("limit must be greater than 0")
@@ -231,12 +276,10 @@ class ConversationMemory:
 
         matches: List[BaseMessage] = []
         for message in self.get_messages(last_n=last_n):
-            if normalized_role == "human" and not isinstance(message, HumanMessage):
-                continue
-            if normalized_role == "ai" and not isinstance(message, AIMessage):
-                continue
-            if normalized_role == "system" and not isinstance(message, SystemMessage):
-                continue
+            if normalized_roles is not None:
+                message_role = self._get_role_key(message)
+                if message_role not in normalized_roles:
+                    continue
 
             content = str(message.content)
             searchable_content = content if case_sensitive else content.lower()

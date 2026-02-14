@@ -184,6 +184,47 @@ class TestConversationMemory:
         assert isinstance(matches[0], SystemMessage)
         assert matches[0].content == "Use concise responses"
 
+    def test_search_messages_supports_multiple_role_filters(self):
+        """Search role filters should accept iterables and comma-separated strings."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_system_message("project kickoff checklist")
+        memory.add_user_message("project status update")
+        memory.add_ai_message("project plan delivered")
+
+        iterable_matches = memory.search_messages(
+            "project",
+            role=["system", "ai"],
+        )
+        comma_matches = memory.search_messages("project", role="human,ai")
+
+        assert [message.content for message in iterable_matches] == [
+            "project kickoff checklist",
+            "project plan delivered",
+        ]
+        assert [message.content for message in comma_matches] == [
+            "project status update",
+            "project plan delivered",
+        ]
+
+    def test_search_messages_role_filter_any_in_iterable_matches_all_roles(self):
+        """Including 'any' in role filters should include all message roles."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_system_message("project policy")
+        memory.add_user_message("project question")
+        memory.add_ai_message("project answer")
+
+        matches = memory.search_messages("project", role=["system", "any"])
+
+        assert len(matches) == 3
+
     def test_search_messages_respects_last_n_window(self):
         """Test restricting search scope with last_n."""
         memory = ConversationMemory(
@@ -261,6 +302,12 @@ class TestConversationMemory:
 
         with pytest.raises(ValueError, match="role must be one of"):
             memory.search_messages("hello", role="manager")
+
+        with pytest.raises(ValueError, match="role must be one of"):
+            memory.search_messages("hello", role=["human", "manager"])
+
+        with pytest.raises(ValueError, match="role must be one of"):
+            memory.search_messages("hello", role=[])
 
         with pytest.raises(ValueError, match="limit must be greater than 0"):
             memory.search_messages("hello", limit=0)

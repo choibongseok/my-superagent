@@ -5,7 +5,7 @@ memory (short-term) and vector store memory (long-term).
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 from datetime import datetime
 
 from langchain_openai import ChatOpenAI
@@ -213,7 +213,7 @@ class MemoryManager:
     def search_conversation(
         self,
         query: str,
-        role: str = "any",
+        role: str | Iterable[str] = "any",
         *,
         case_sensitive: bool = False,
         last_n: Optional[int] = None,
@@ -225,7 +225,9 @@ class MemoryManager:
 
         Args:
             query: Query string used for matching
-            role: Restrict results to "human", "ai", "system", or "any"
+            role: Restrict results to one or more roles: "human", "ai",
+                "system", or "any". Accepts a single value, comma-separated
+                values, or an iterable of role strings.
             case_sensitive: Whether search should be case-sensitive
             last_n: Restrict search to the last N messages
             limit: Maximum number of matched messages to return
