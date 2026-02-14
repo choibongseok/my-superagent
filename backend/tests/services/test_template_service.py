@@ -656,6 +656,86 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_split_transform_with_whitespace_defaults(
+        self, service_with_mock_db
+    ):
+        """split() should tokenize whitespace-delimited strings for pipeline chaining."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Owners: {owners->split()->join(" | ")}',
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"owners": "Mina   Jin   Alex"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Owners: Mina | Jin | Alex"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_split_transform_with_separator_and_maxsplit(
+        self, service_with_mock_db
+    ):
+        """split(separator,maxsplit) should preserve remaining text after maxsplit."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Headline: {headline->split(" ",2)->join(" | ")}',
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"headline": "AgentHQ ships context intelligence beta"},
+                user_id,
+            )
+
+        assert (
+            result["prompt"] == "Headline: AgentHQ | ships | context intelligence beta"
+        )
+        assert template.usage_count == 3
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_split_unique_sort_join_pipeline(
+        self, service_with_mock_db
+    ):
+        """split should compose with unique/sort/join for CSV-like input fields."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Tags: {tags_csv->split(",")->unique->sort->join(" | ")}',
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"tags_csv": "beta,alpha,beta,gamma"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Tags: alpha | beta | gamma"
+        assert template.usage_count == 2
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_sort_transform_for_strings(
         self, service_with_mock_db
     ):
@@ -937,6 +1017,64 @@ class TestTemplateServiceUseTemplate:
                 )
 
         assert template.usage_count == 4
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_split_transform_for_non_string_values(
+        self, service_with_mock_db
+    ):
+        """split should reject non-string inputs to avoid implicit coercion surprises."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Owners: {owners->split(",")}',
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'split",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"owners": ["Mina", "Jin"]},
+                    user_id,
+                )
+
+        assert template.usage_count == 3
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_split_transform_with_invalid_maxsplit(
+        self, service_with_mock_db
+    ):
+        """split should validate maxsplit as an integer argument."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Owners: {owners->split(",",abc)}',
+            category="docs",
+            usage_count=5,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'split",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"owners": "Mina,Jin"},
+                    user_id,
+                )
+
+        assert template.usage_count == 5
         db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio

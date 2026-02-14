@@ -148,6 +148,43 @@ def _join_values(value: object, argument_spec: str) -> str:
     return separator.join(str(item) for item in iterator)
 
 
+def _split_text(value: object, argument_spec: str) -> list[str]:
+    """Split string values into token lists for downstream transforms.
+
+    ``split()`` uses whitespace splitting.
+    ``split(",")`` uses a custom separator.
+    ``split(",",2)`` supports optional maxsplit control.
+    """
+    if not isinstance(value, str):
+        raise ValueError("split expects a string value")
+
+    args: list[str] = []
+    if argument_spec.strip():
+        args = _parse_transform_args(argument_spec)
+
+    if len(args) > 2:
+        raise ValueError("split expects zero to two arguments: [separator[,maxsplit]]")
+
+    separator: str | None = None
+    maxsplit = -1
+
+    if args:
+        separator = args[0]
+        if separator == "":
+            raise ValueError("split separator must not be empty")
+
+    if len(args) == 2:
+        try:
+            maxsplit = int(args[1].strip())
+        except ValueError as exc:
+            raise ValueError("split maxsplit must be an integer") from exc
+
+        if maxsplit < -1:
+            raise ValueError("split maxsplit must be greater than or equal to -1")
+
+    return value.split(separator, maxsplit)
+
+
 def _unique_values(value: object) -> list[object]:
     """Return iterable values with duplicates removed in first-seen order."""
     if isinstance(value, (str, bytes, bytearray)):
@@ -515,7 +552,7 @@ class TemplateService:
         - ``{field|default value->strip->title}``
         - ``{summary->truncate(120)}``
         - ``{name->replace("Agent", "Assistant")}``
-        - ``{tags->unique->sort(desc)->join(" | ")}``
+        - ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``
         - ``{items->length}``
         - ``{backlog->first}``, ``{backlog->last}``
         - ``{steps->reverse->join(" | ")}``
@@ -556,6 +593,7 @@ class TemplateService:
             "pascal_case": _to_pascal_case,
             "json": lambda raw: _to_json(raw, pretty=False),
             "json_pretty": lambda raw: _to_json(raw, pretty=True),
+            "split": lambda raw: _split_text(raw, ""),
             "unique": _unique_values,
             "sort": lambda raw: _sort_values(raw, ""),
             "length": _length_of,
@@ -569,6 +607,7 @@ class TemplateService:
                 "truncate(<max_length>)",
                 "replace(<search>,<replacement>)",
                 "join([separator])",
+                "split([separator[,maxsplit]])",
                 "sort([asc|desc])",
                 "slice(<start>[,<end>])",
             ]
@@ -594,6 +633,8 @@ class TemplateService:
                     operation = lambda raw, spec=argument_spec: _replace_text(raw, spec)
                 elif transform_name == "join":
                     operation = lambda raw, spec=argument_spec: _join_values(raw, spec)
+                elif transform_name == "split":
+                    operation = lambda raw, spec=argument_spec: _split_text(raw, spec)
                 elif transform_name == "sort":
                     operation = lambda raw, spec=argument_spec: _sort_values(raw, spec)
                 elif transform_name == "slice":
@@ -666,7 +707,7 @@ class TemplateService:
         ``{service->dot_case}``, ``{build_target->constant_case}``,
         ``{variable->camel_case}``, ``{variable->pascal_case}``,
         ``{summary->truncate(120)}``, ``{title->replace("Agent", "Assistant")}``,
-        ``{tags->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
+        ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
         ``{queue->first}``, ``{queue->last}``, ``{tasks->reverse}``,
         ``{milestones->slice(0,2)}``, ``{payload->json}``,
         or ``{payload->json_pretty}``).
