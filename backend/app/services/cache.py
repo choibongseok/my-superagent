@@ -702,6 +702,50 @@ class LocalCacheService:
 
         return values
 
+    def rename(self, key: str, new_key: str, *, overwrite: bool = False) -> bool:
+        """Rename an active key while preserving value and remaining TTL.
+
+        Args:
+            key: Existing cache key to move.
+            new_key: Destination cache key.
+            overwrite: When ``True``, replace ``new_key`` if it already exists.
+
+        Returns:
+            ``True`` when ``key`` exists and rename succeeds, ``False`` otherwise.
+        """
+        if key == new_key:
+            exists = self._get_entry(key) is not None
+            self._record_lookup(hit=exists)
+            return exists
+
+        item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
+        if item is None:
+            return False
+
+        target_exists = self._get_entry(new_key) is not None
+        self._record_lookup(hit=target_exists)
+        if target_exists and not overwrite:
+            return False
+
+        removed_entries = 0
+        if key in self._store or key in self._inflight:
+            self._delete_key(key)
+            removed_entries += 1
+
+        if target_exists or new_key in self._inflight:
+            self._delete_key(new_key)
+            removed_entries += 1
+
+        value, expires_at = item
+        self._store[new_key] = (value, expires_at)
+        self._mark_accessed(new_key)
+
+        if removed_entries:
+            self._increment_stat("deletes", removed_entries)
+        self._increment_stat("sets")
+        return True
+
     def delete(self, key: str) -> None:
         """Delete a cached key if present."""
         if key in self._store or key in self._inflight:

@@ -601,6 +601,56 @@ def test_local_cache_pop_many_skips_expired_keys_and_tracks_lookup_stats():
     assert stats["deletes"] == 1
 
 
+def test_local_cache_rename_moves_value_and_preserves_remaining_ttl():
+    cache = LocalCacheService()
+    cache.set("session:old", "token", ttl_seconds=2)
+
+    time.sleep(0.4)
+
+    assert cache.rename("session:old", "session:new") is True
+    assert cache.get("session:old") is None
+    assert cache.get("session:new") == "token"
+
+    ttl = cache.ttl_remaining("session:new")
+    assert ttl is not None
+    assert 1.0 <= ttl <= 2
+
+
+def test_local_cache_rename_fails_when_source_missing_or_target_exists_without_overwrite():
+    cache = LocalCacheService()
+    cache.set_many({"source": "value", "target": "other"})
+
+    assert cache.rename("missing", "new-target") is False
+    assert cache.rename("source", "target") is False
+
+    assert cache.get("source") == "value"
+    assert cache.get("target") == "other"
+
+
+def test_local_cache_rename_can_overwrite_target_and_preserve_source_ttl():
+    cache = LocalCacheService()
+    cache.set("source", "fresh", ttl_seconds=1)
+    cache.set("target", "stale")
+
+    time.sleep(0.4)
+
+    assert cache.rename("source", "target", overwrite=True) is True
+    assert cache.get("source") is None
+    assert cache.get("target") == "fresh"
+
+    ttl = cache.ttl_remaining("target")
+    assert ttl is not None
+    assert 0 < ttl < 1
+
+
+def test_local_cache_rename_same_key_is_noop_for_existing_and_missing_keys():
+    cache = LocalCacheService()
+    cache.set("stable", "value")
+
+    assert cache.rename("stable", "stable") is True
+    assert cache.rename("missing", "missing") is False
+
+
 def test_local_cache_delete_many_returns_removed_count():
     cache = LocalCacheService()
     cache.set_many({"alpha": 1, "beta": 2, "gamma": 3})
