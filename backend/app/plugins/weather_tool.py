@@ -289,7 +289,9 @@ class Plugin(ToolPlugin):
         return round(api_visibility_meters, 1), "m"
 
     @staticmethod
-    def _extract_precipitation_amount(data: Dict[str, Any], period: str) -> float | None:
+    def _extract_precipitation_amount(
+        data: Dict[str, Any], period: str
+    ) -> float | None:
         """Return combined rain/snow precipitation (mm) for the requested period."""
         total_precipitation = 0.0
         has_precipitation = False
@@ -349,6 +351,68 @@ class Plugin(ToolPlugin):
         label = precipitation_type.title() if precipitation_type else "Precipitation"
         return f"{label} ({', '.join(intervals)})"
 
+    @staticmethod
+    def _normalize_cloudiness(cloudiness: Any) -> int | None:
+        """Normalize cloud coverage percentages from API payloads."""
+        if cloudiness is None:
+            return None
+
+        try:
+            normalized_cloudiness = int(round(float(cloudiness)))
+        except (TypeError, ValueError):
+            return None
+
+        if not 0 <= normalized_cloudiness <= 100:
+            return None
+
+        return normalized_cloudiness
+
+    @staticmethod
+    def _normalize_unix_timestamp(value: Any) -> int | None:
+        """Best-effort unix timestamp parsing for daylight detection fields."""
+        if value is None or isinstance(value, bool):
+            return None
+
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _determine_daylight_status(
+        cls,
+        observed_at: Any,
+        sunrise_at: Any,
+        sunset_at: Any,
+    ) -> str | None:
+        """Return day/night status when observation and sunrise/sunset are available."""
+        observed_timestamp = cls._normalize_unix_timestamp(observed_at)
+        sunrise_timestamp = cls._normalize_unix_timestamp(sunrise_at)
+        sunset_timestamp = cls._normalize_unix_timestamp(sunset_at)
+
+        if (
+            observed_timestamp is None
+            or sunrise_timestamp is None
+            or sunset_timestamp is None
+            or sunrise_timestamp == sunset_timestamp
+        ):
+            return None
+
+        if sunrise_timestamp < sunset_timestamp:
+            return (
+                "day"
+                if sunrise_timestamp <= observed_timestamp < sunset_timestamp
+                else "night"
+            )
+
+        # Handles polar/twilight edge cases where API sunset may roll to next UTC day.
+        return (
+            "day"
+            if observed_timestamp >= sunrise_timestamp
+            or observed_timestamp < sunset_timestamp
+            else "night"
+        )
+
     def _build_mock_weather_response(
         self,
         location: str,
@@ -394,6 +458,8 @@ class Plugin(ToolPlugin):
             "feels_like": feels_like,
             "condition": "Partly Cloudy",
             "humidity": 65,
+            "cloudiness": 40,
+            "daylight_status": "day",
             "pressure": self._convert_pressure_from_hpa(pressure_hpa, pressure_unit),
             "pressure_unit": pressure_unit,
             "wind_speed": wind_speed,
@@ -639,6 +705,8 @@ class Plugin(ToolPlugin):
                 "feels_like": float,
                 "condition": str,
                 "humidity": int,
+                "cloudiness": int | None,
+                "daylight_status": str | None,
                 "pressure": float | None,
                 "pressure_unit": str | None,
                 "wind_speed": float,
@@ -652,7 +720,9 @@ class Plugin(ToolPlugin):
         """
         normalized_location, location_params = self._resolve_location_inputs(inputs)
         resolved_units = self._resolve_units(inputs.get("units"))
-        resolved_pressure_unit = self._resolve_pressure_unit(inputs.get("pressure_unit"))
+        resolved_pressure_unit = self._resolve_pressure_unit(
+            inputs.get("pressure_unit")
+        )
         resolved_language = self._resolve_language(inputs.get("lang"))
         refresh_cache = self._normalize_refresh_cache(inputs.get("refresh_cache"))
 
@@ -747,6 +817,20 @@ class Plugin(ToolPlugin):
                 precipitation_1h = self._extract_precipitation_amount(data, "1h")
                 precipitation_3h = self._extract_precipitation_amount(data, "3h")
                 precipitation_type = self._determine_precipitation_type(data)
+                cloudiness = self._normalize_cloudiness(
+                    data.get("clouds", {}).get("all")
+                    if isinstance(data.get("clouds"), dict)
+                    else None
+                )
+                daylight_status = self._determine_daylight_status(
+                    data.get("dt"),
+                    data.get("sys", {}).get("sunrise")
+                    if isinstance(data.get("sys"), dict)
+                    else None,
+                    data.get("sys", {}).get("sunset")
+                    if isinstance(data.get("sys"), dict)
+                    else None,
+                )
 
                 result = {
                     "location": data.get("name") or normalized_location,
@@ -754,8 +838,12 @@ class Plugin(ToolPlugin):
                     "feels_like": feels_like,
                     "condition": data["weather"][0]["description"].title(),
                     "humidity": main["humidity"],
+                    "cloudiness": cloudiness,
+                    "daylight_status": daylight_status,
                     "pressure": pressure,
-                    "pressure_unit": resolved_pressure_unit if pressure is not None else None,
+                    "pressure_unit": resolved_pressure_unit
+                    if pressure is not None
+                    else None,
                     "wind_speed": self._normalize_wind_speed_for_units(
                         data["wind"]["speed"],
                         resolved_units,
@@ -819,6 +907,8 @@ class Plugin(ToolPlugin):
         pressure_unit = result.get("pressure_unit")
         visibility = result.get("visibility")
         visibility_unit = result.get("visibility_unit")
+        cloudiness = self._normalize_cloudiness(result.get("cloudiness"))
+        daylight_status = result.get("daylight_status")
         precipitation_summary = self._format_precipitation_summary(
             precipitation_type=result.get("precipitation_type"),
             precipitation_1h=result.get("precipitation_1h"),
@@ -834,6 +924,10 @@ class Plugin(ToolPlugin):
             f"Wind Speed: {result['wind_speed']} {wind_unit}",
         ]
 
+        if cloudiness is not None:
+            lines.append(f"Cloudiness: {cloudiness}%")
+        if isinstance(daylight_status, str) and daylight_status.strip():
+            lines.append(f"Daylight: {daylight_status.strip().title()}")
         if pressure is not None:
             resolved_pressure_unit = self._pressure_unit_label(
                 str(pressure_unit or "hpa")
@@ -863,7 +957,7 @@ class Plugin(ToolPlugin):
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
             "Set refresh_cache=true to bypass cached responses and force a fresh API fetch. "
-            "Returns temperature, feels-like temperature, weather condition, humidity, pressure, wind speed, visibility, and precipitation summaries when available. "
+            "Returns temperature, feels-like temperature, weather condition, humidity, cloud coverage, daylight status, pressure, wind speed, visibility, and precipitation summaries when available. "
             "Requires OpenWeatherMap API key in plugin config."
         )
 
@@ -871,8 +965,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.16.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, configurable pressure units, visibility details, and precipitation insights",
+            version="1.17.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, configurable pressure units, visibility details, cloud coverage, daylight status, and precipitation insights",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -902,6 +996,8 @@ class Plugin(ToolPlugin):
                 "feels_like": "float",
                 "condition": "string",
                 "humidity": "integer",
+                "cloudiness": "integer | null (cloud coverage percentage)",
+                "daylight_status": "string | null (day or night based on sunrise/sunset)",
                 "pressure": "float | null",
                 "pressure_unit": "string | null (hpa, kpa, inhg, or mmhg)",
                 "wind_speed": "float",

@@ -29,6 +29,8 @@ class TestWeatherTool:
         assert result["feels_like"] == 21.3
         assert result["condition"] == "Partly Cloudy"
         assert result["humidity"] == 65
+        assert result["cloudiness"] == 40
+        assert result["daylight_status"] == "day"
         assert result["pressure"] == 1013
         assert result["wind_speed"] == 12.3
         assert result["visibility"] == 10.0
@@ -317,6 +319,8 @@ class TestWeatherTool:
         assert "Condition:" in result
         assert "Humidity:" in result
         assert "Wind Speed:" in result
+        assert "Cloudiness:" in result
+        assert "Daylight:" in result
         assert "Pressure:" in result
         assert "Visibility:" in result
 
@@ -390,6 +394,9 @@ class TestWeatherTool:
             },
             "weather": [{"description": "light rain"}],
             "wind": {"speed": 5.2},  # m/s
+            "clouds": {"all": 88},
+            "sys": {"sunrise": 1700000000, "sunset": 1700036000},
+            "dt": 1700018000,
             "visibility": 7500,  # meters
         }
         mock_response.raise_for_status = AsyncMock()
@@ -406,6 +413,8 @@ class TestWeatherTool:
             assert result["feels_like"] == 14.7
             assert result["condition"] == "Light Rain"
             assert result["humidity"] == 72
+            assert result["cloudiness"] == 88
+            assert result["daylight_status"] == "day"
             assert result["pressure"] == 1008
             assert result["wind_speed"] == 18.7  # 5.2 m/s * 3.6 = 18.72 km/h
             assert result["visibility"] == 7.5
@@ -453,6 +462,8 @@ class TestWeatherTool:
             result = await api_plugin.execute({"location": "London"})
 
             assert result["pressure"] is None
+            assert result["cloudiness"] is None
+            assert result["daylight_status"] is None
             assert result["visibility"] is None
             assert result["visibility_unit"] is None
 
@@ -482,6 +493,33 @@ class TestWeatherTool:
             assert result["precipitation_1h"] == 1.0
             assert result["precipitation_3h"] == 1.4
             assert result["precipitation_type"] == "mixed"
+
+    @pytest.mark.asyncio
+    async def test_api_response_marks_night_when_outside_sunrise_window(
+        self, api_plugin
+    ):
+        """daylight_status should be night when observation is outside sunrise/sunset."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "London",
+            "main": {"temp": 8.8, "humidity": 81},
+            "weather": [{"description": "broken clouds"}],
+            "wind": {"speed": 4.2},
+            "clouds": {"all": 82},
+            "sys": {"sunrise": 1700000000, "sunset": 1700036000},
+            "dt": 1700041000,
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response
+            )
+
+            result = await api_plugin.execute({"location": "London"})
+
+            assert result["cloudiness"] == 82
+            assert result["daylight_status"] == "night"
 
     @pytest.mark.asyncio
     async def test_location_not_found(self, api_plugin):
@@ -1173,7 +1211,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.16.0"
+        assert manifest.version == "1.17.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
@@ -1194,6 +1232,8 @@ class TestWeatherTool:
         assert "feels_like" in manifest.outputs
         assert "pressure" in manifest.outputs
         assert "pressure_unit" in manifest.outputs
+        assert "cloudiness" in manifest.outputs
+        assert "daylight_status" in manifest.outputs
         assert "visibility" in manifest.outputs
         assert "visibility_unit" in manifest.outputs
         assert "precipitation_1h" in manifest.outputs
@@ -1218,6 +1258,8 @@ class TestWeatherTool:
         assert "pressure_unit" in description
         assert "feels-like temperature" in description
         assert "pressure" in description
+        assert "cloud coverage" in description
+        assert "daylight status" in description
         assert "visibility" in description
         assert "precipitation" in description
         assert "lang" in description
