@@ -332,6 +332,25 @@ class CitationTracker:
         )
 
     @classmethod
+    def _extract_source_hostname(cls, source: Source) -> str | None:
+        """Extract a normalized domain bucket used for diversity capping."""
+        if not source.url:
+            return None
+
+        try:
+            hostname = cls._normalize_domain(str(source.url))
+        except ValueError:
+            return None
+
+        parts = hostname.split(".")
+        if len(parts) <= 2:
+            return hostname
+
+        # Heuristic eTLD+1 collapse keeps related subdomains together
+        # (for example, ``news.example.com`` and ``blog.example.com``).
+        return ".".join(parts[-2:])
+
+    @classmethod
     def _matches_metadata_filters(
         cls,
         source_metadata: Mapping[str, Any],
@@ -704,6 +723,7 @@ class CitationTracker:
         recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
         as_of: Optional[datetime] = None,
         min_token_matches: Optional[int] = None,
+        max_results_per_domain: Optional[int] = None,
         sort_by: Literal[
             "relevance",
             "title",
@@ -780,6 +800,10 @@ class CitationTracker:
                 that must appear in a source's searchable text. Useful for
                 reducing weak single-token matches when using
                 ``match_mode='any'``. Ignored when the query is blank.
+            max_results_per_domain: Optional cap for how many results can be
+                returned per normalized domain bucket (case-insensitive and
+                without ``www``). Subdomains are grouped using a lightweight
+                eTLD+1 heuristic. Sources without parseable URLs are not capped.
             sort_by: Result ordering strategy. ``"relevance"`` favors textual
                 score, ``"title"`` sorts alphabetically, ``"published_date"``
                 sorts newest-first with undated sources last,
@@ -878,6 +902,14 @@ class CitationTracker:
                 raise ValueError("min_token_matches must be an integer")
             if min_token_matches <= 0:
                 raise ValueError("min_token_matches must be greater than 0")
+
+        if max_results_per_domain is not None:
+            if isinstance(max_results_per_domain, bool) or not isinstance(
+                max_results_per_domain, int
+            ):
+                raise ValueError("max_results_per_domain must be an integer")
+            if max_results_per_domain <= 0:
+                raise ValueError("max_results_per_domain must be greater than 0")
 
         normalized_match_mode = self._normalize_text(match_mode)
         if normalized_match_mode not in {"all", "any"}:
@@ -1145,6 +1177,24 @@ class CitationTracker:
             )
 
         sources = [source for *_, source in ranked_matches]
+
+        if max_results_per_domain is not None:
+            domain_counts: Counter[str] = Counter()
+            diversity_capped_sources: List[Source] = []
+            for source in sources:
+                hostname = self._extract_source_hostname(source)
+                if hostname is None:
+                    diversity_capped_sources.append(source)
+                    continue
+
+                if domain_counts[hostname] >= max_results_per_domain:
+                    continue
+
+                domain_counts[hostname] += 1
+                diversity_capped_sources.append(source)
+
+            sources = diversity_capped_sources
+
         if limit is not None:
             sources = sources[:limit]
 
@@ -1240,6 +1290,7 @@ class CitationTracker:
         recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
         as_of: Optional[datetime] = None,
         min_token_matches: Optional[int] = None,
+        max_results_per_domain: Optional[int] = None,
         sort_by: Literal[
             "relevance",
             "title",
@@ -1280,6 +1331,7 @@ class CitationTracker:
             recency_profile=recency_profile,
             as_of=as_of,
             min_token_matches=min_token_matches,
+            max_results_per_domain=max_results_per_domain,
             sort_by=sort_by,
         )
 

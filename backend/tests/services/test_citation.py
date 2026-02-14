@@ -383,6 +383,52 @@ class TestCitationTracker:
         ):
             tracker.search_sources("agentic workflow", min_token_matches=3)
 
+    def test_search_sources_supports_max_results_per_domain_cap(self):
+        """Domain diversity cap should limit duplicate hostnames in ranked output."""
+        tracker = CitationTracker()
+
+        first_example_id = tracker.add_source(
+            title="Agentic Workflow Alpha",
+            url="https://news.example.com/alpha",
+        )
+        tracker.add_source(
+            title="Agentic Workflow Beta",
+            url="https://blog.example.com/beta",
+        )
+        external_id = tracker.add_source(
+            title="Agentic Workflow Gamma",
+            url="https://research.org/gamma",
+        )
+
+        matches = tracker.search_sources(
+            "agentic workflow",
+            max_results_per_domain=1,
+        )
+
+        assert [source.id for source in matches] == [first_example_id, external_id]
+
+    def test_search_sources_rejects_invalid_max_results_per_domain(self):
+        """max_results_per_domain should validate integer and positive values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="max_results_per_domain must be an integer",
+        ):
+            tracker.search_sources("agent", max_results_per_domain=1.5)
+
+        with pytest.raises(
+            ValueError,
+            match="max_results_per_domain must be an integer",
+        ):
+            tracker.search_sources("agent", max_results_per_domain=True)
+
+        with pytest.raises(
+            ValueError,
+            match="max_results_per_domain must be greater than 0",
+        ):
+            tracker.search_sources("agent", max_results_per_domain=0)
+
     def test_search_sources_with_details_supports_min_token_matches_filter(self):
         """Detailed search should apply min_token_matches consistently."""
         tracker = CitationTracker()
@@ -397,6 +443,33 @@ class TestCitationTracker:
         )
 
         assert [item["source"].id for item in detailed] == [keep_id]
+
+    def test_search_sources_with_details_supports_max_results_per_domain_cap(self):
+        """Detailed search should pass max_results_per_domain through consistently."""
+        tracker = CitationTracker()
+
+        first_example_id = tracker.add_source(
+            title="Agent Reliability Alpha",
+            url="https://docs.example.com/alpha",
+        )
+        tracker.add_source(
+            title="Agent Reliability Beta",
+            url="https://blog.example.com/beta",
+        )
+        external_id = tracker.add_source(
+            title="Agent Reliability Delta",
+            url="https://other.org/delta",
+        )
+
+        detailed = tracker.search_sources_with_details(
+            "agent reliability",
+            max_results_per_domain=1,
+        )
+
+        assert [item["source"].id for item in detailed] == [
+            first_example_id,
+            external_id,
+        ]
 
     def test_search_sources_supports_include_source_ids_filter(self):
         """include_source_ids should restrict results to the provided IDs."""
