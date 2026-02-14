@@ -113,6 +113,11 @@ def _truncate_text(value: object, max_length_spec: str) -> str:
     return text[: max_length - 1].rstrip() + "…"
 
 
+def _compact_whitespace(value: object) -> str:
+    """Collapse repeated whitespace into single spaces and trim edges."""
+    return " ".join(str(value).split())
+
+
 def _parse_transform_args(argument_spec: str) -> list[str]:
     """Parse comma-separated transform arguments, supporting CSV quoting."""
     try:
@@ -574,6 +579,7 @@ class TemplateService:
         - ``{notes->dedent->strip}``
         - ``{search_query->urlencode}``
         - ``{title->slug}``
+        - ``{summary->compact}``
 
         Returns:
             Tuple of ``(field_path, default_value, transforms)``.
@@ -601,6 +607,7 @@ class TemplateService:
             "title": lambda raw: str(raw).title(),
             "capitalize": lambda raw: str(raw).capitalize(),
             "dedent": lambda raw: textwrap.dedent(str(raw)),
+            "compact": _compact_whitespace,
             "snake_case": lambda raw: "_".join(_tokenize_case_transform(raw)),
             "kebab_case": lambda raw: "-".join(_tokenize_case_transform(raw)),
             "dot_case": lambda raw: ".".join(_tokenize_case_transform(raw)),
@@ -731,7 +738,8 @@ class TemplateService:
         ``{queue->first}``, ``{queue->last}``, ``{tasks->reverse}``,
         ``{milestones->slice(0,2)}``, ``{notes->dedent->strip}``,
         ``{payload->json}``, ``{payload->json_pretty}``,
-        ``{search_query->urlencode}``, or ``{title->slug}``).
+        ``{search_query->urlencode}``, ``{title->slug}``, or
+        ``{summary->compact}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)

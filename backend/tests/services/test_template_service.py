@@ -714,6 +714,54 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_compact_transform(self, service_with_mock_db):
+        """compact should normalize repeated whitespace into single spaces."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Summary: {summary->compact}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "summary": "  AgentHQ\n\tlaunch   checklist\t\tupdated  ",
+                },
+                user_id,
+            )
+
+        assert result["prompt"] == "Summary: AgentHQ launch checklist updated"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_compact_transform_with_defaults(
+        self, service_with_mock_db
+    ):
+        """compact should also normalize fallback defaults."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Summary: {summary|  launch\n   retrospective   notes  ->compact}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(template_id, {}, user_id)
+
+        assert result["prompt"] == "Summary: launch retrospective notes"
+        assert template.usage_count == 3
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_replace_transform(self, service_with_mock_db):
         """replace transform should substitute a target substring in-place."""
         service, db = service_with_mock_db
