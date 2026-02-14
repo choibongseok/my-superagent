@@ -17,6 +17,7 @@ from app.core.async_runner import (
     run_async_map_batched,
     run_async_partition,
     run_async_partition_batched,
+    run_async_reduce,
     run_async_retry,
     run_async_starmap,
     run_async_starmap_batched,
@@ -912,6 +913,67 @@ def test_run_async_partition_batched_rejects_non_positive_batch_size_for_empty_i
 
     with pytest.raises(ValueError, match="batch_size must be greater than 0"):
         run_async_partition_batched(_always_true, [], batch_size=0)
+
+
+def test_run_async_reduce_without_initial_uses_first_item_as_accumulator():
+    async def _add(accumulator: int, value: int) -> int:
+        await asyncio.sleep(0.01)
+        return accumulator + value
+
+    assert run_async_reduce(_add, [1, 2, 3, 4]) == 10
+
+
+@pytest.mark.asyncio
+async def test_run_async_reduce_with_existing_event_loop_returns_value():
+    async def _concat(accumulator: str, value: str) -> str:
+        await asyncio.sleep(0.01)
+        return f"{accumulator}-{value}"
+
+    assert (
+        run_async_reduce(_concat, ["a", "b", "c"], initial="start")
+        == "start-a-b-c"
+    )
+
+
+def test_run_async_reduce_supports_initial_value_for_empty_iterables():
+    async def _add(accumulator: int, value: int) -> int:
+        await asyncio.sleep(0.01)
+        return accumulator + value
+
+    assert run_async_reduce(_add, [], initial=42) == 42
+
+
+def test_run_async_reduce_raises_lookup_error_for_empty_iterable_without_initial():
+    async def _add(accumulator: int, value: int) -> int:
+        return accumulator + value
+
+    with pytest.raises(
+        LookupError,
+        match="cannot reduce an empty iterable",
+    ):
+        run_async_reduce(_add, [])
+
+
+def test_run_async_reduce_rejects_non_callable_reducer():
+    with pytest.raises(TypeError, match="expects a callable coro_reducer"):
+        run_async_reduce(123, [1, 2, 3])  # type: ignore[arg-type]
+
+
+def test_run_async_reduce_rejects_non_awaitable_reducer_results():
+    def _sync_add(accumulator: int, value: int) -> int:
+        return accumulator + value
+
+    with pytest.raises(TypeError, match="must return an awaitable"):
+        run_async_reduce(_sync_add, [1, 2, 3])
+
+
+def test_run_async_reduce_timeout_applies_to_entire_reduction():
+    async def _slow_add(accumulator: int, value: int) -> int:
+        await asyncio.sleep(0.03)
+        return accumulator + value
+
+    with pytest.raises(TimeoutError, match="run_async_reduce timed out"):
+        run_async_reduce(_slow_add, [1, 2, 3], initial=0, timeout=0.05)
 
 
 def test_run_async_starmap_supports_positional_argument_groups():

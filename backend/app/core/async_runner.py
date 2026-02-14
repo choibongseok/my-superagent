@@ -15,6 +15,7 @@ R = TypeVar("R")
 I = TypeVar("I")
 D = TypeVar("D")
 K = TypeVar("K", bound=Hashable)
+A = TypeVar("A")
 
 _MISSING = object()
 
@@ -741,6 +742,73 @@ def run_async_partition_batched(
             rejected.append(item)
 
     return matched, rejected
+
+
+def run_async_reduce(
+    coro_reducer: Callable[[A, I], Awaitable[A]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    initial: A | object = _MISSING,
+) -> A:
+    """Reduce ``items`` using an async reducer from synchronous code.
+
+    Args:
+        coro_reducer: Async callable receiving ``(accumulator, item)``.
+        items: Iterable of values to reduce.
+        timeout: Optional timeout in seconds for the full reduction.
+        initial: Optional initial accumulator value. When omitted, the first
+            item is used as the starting accumulator (matching ``functools.reduce``).
+
+    Returns:
+        Final reduced accumulator value.
+
+    Raises:
+        TypeError: If ``coro_reducer`` is not callable or does not return an awaitable.
+        ValueError: If ``timeout`` is not positive.
+        LookupError: If ``items`` is empty and ``initial`` is not provided.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    if not callable(coro_reducer):
+        raise TypeError("run_async_reduce expects a callable coro_reducer")
+
+    _validate_timeout(timeout)
+
+    materialized_items = list(items)
+
+    if initial is _MISSING:
+        if not materialized_items:
+            raise LookupError(
+                "run_async_reduce cannot reduce an empty iterable without an initial value"
+            )
+        accumulator: A = cast(A, materialized_items[0])
+        remaining_items = materialized_items[1:]
+    else:
+        accumulator = cast(A, initial)
+        remaining_items = materialized_items
+
+    async def _run_reducer() -> A:
+        current = accumulator
+        for item in remaining_items:
+            produced = coro_reducer(current, item)
+            if not inspect.isawaitable(produced):
+                raise TypeError("coro_reducer must return an awaitable")
+            current = await cast(Awaitable[A], produced)
+
+        return current
+
+    async def _run_with_timeout() -> A:
+        if timeout is None:
+            return await _run_reducer()
+        return await asyncio.wait_for(_run_reducer(), timeout=timeout)
+
+    def _timeout_error() -> TimeoutError:
+        return TimeoutError(f"run_async_reduce timed out after {timeout} seconds")
+
+    return _run_with_event_loop_bridge(
+        _run_with_timeout,
+        timeout_error_factory=_timeout_error,
+    )
 
 
 def _build_starmap_awaitable(
