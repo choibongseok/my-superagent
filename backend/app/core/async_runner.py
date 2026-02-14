@@ -6,12 +6,13 @@ import asyncio
 import inspect
 import queue
 import threading
-from collections.abc import Awaitable, Callable, Hashable, Mapping
+from collections.abc import Awaitable, Callable, Hashable, Iterable, Mapping
 from typing import Any, ParamSpec, TypeVar, cast, overload
 
 P = ParamSpec("P")
 T = TypeVar("T")
 R = TypeVar("R")
+I = TypeVar("I")
 K = TypeVar("K", bound=Hashable)
 
 
@@ -217,6 +218,57 @@ def run_async_many(
     return _run_with_event_loop_bridge(
         _run_with_timeout,
         timeout_error_factory=_timeout_error,
+    )
+
+
+def run_async_map(
+    coro_factory: Callable[[I], Awaitable[T]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    return_exceptions: bool = False,
+    max_concurrency: int | None = None,
+) -> list[T] | list[T | BaseException]:
+    """Map an async callable over items from synchronous code.
+
+    Args:
+        coro_factory: Callable that returns an awaitable for each input item.
+        items: Iterable of input values.
+        timeout: Optional timeout in seconds for the entire mapped batch.
+        return_exceptions: Mirror of ``asyncio.gather(return_exceptions=...)``.
+        max_concurrency: Optional cap on how many mapped tasks run at once.
+
+    Returns:
+        List of results preserving input order.
+
+    Raises:
+        ValueError: If ``timeout`` or ``max_concurrency`` are not positive.
+        TypeError: If ``coro_factory`` is not callable or does not return awaitables.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    if not callable(coro_factory):
+        raise TypeError("run_async_map expects a callable coro_factory")
+
+    built_awaitables: list[Awaitable[T]] = []
+
+    try:
+        for item in items:
+            awaitable = coro_factory(item)
+            if not inspect.isawaitable(awaitable):
+                raise TypeError("coro_factory must return an awaitable for each item")
+            built_awaitables.append(awaitable)
+    except Exception:
+        for candidate in built_awaitables:
+            close = getattr(candidate, "close", None)
+            if callable(close):
+                close()
+        raise
+
+    return run_async_many(
+        *built_awaitables,
+        timeout=timeout,
+        return_exceptions=return_exceptions,
+        max_concurrency=max_concurrency,
     )
 
 

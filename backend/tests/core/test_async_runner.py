@@ -4,7 +4,12 @@ import asyncio
 
 import pytest
 
-from app.core.async_runner import run_async, run_async_dict, run_async_many
+from app.core.async_runner import (
+    run_async,
+    run_async_dict,
+    run_async_many,
+    run_async_map,
+)
 
 
 async def _compute_value() -> int:
@@ -324,3 +329,86 @@ def test_run_async_dict_honors_max_concurrency_limit():
 
 def test_run_async_dict_empty_input_returns_empty_dict():
     assert run_async_dict({}) == {}
+
+
+def test_run_async_map_without_existing_event_loop_returns_ordered_results():
+    async def _double(value: int) -> int:
+        await asyncio.sleep(0.01)
+        return value * 2
+
+    result = run_async_map(_double, [1, 2, 3])
+
+    assert result == [2, 4, 6]
+
+
+@pytest.mark.asyncio
+async def test_run_async_map_with_existing_event_loop_returns_results():
+    async def _label(value: int) -> str:
+        await asyncio.sleep(0.01)
+        return f"item-{value}"
+
+    result = run_async_map(_label, [1, 2])
+
+    assert result == ["item-1", "item-2"]
+
+
+def test_run_async_map_propagates_exceptions_by_default():
+    async def _explode(value: int) -> int:
+        if value == 2:
+            raise RuntimeError("boom")
+        return value
+
+    with pytest.raises(RuntimeError, match="boom"):
+        run_async_map(_explode, [1, 2, 3])
+
+
+def test_run_async_map_can_return_exceptions_when_requested():
+    async def _explode(value: int) -> int:
+        if value == 2:
+            raise ValueError("bad")
+        return value
+
+    result = run_async_map(_explode, [1, 2, 3], return_exceptions=True)
+
+    assert result[0] == 1
+    assert isinstance(result[1], ValueError)
+    assert str(result[1]) == "bad"
+    assert result[2] == 3
+
+
+def test_run_async_map_rejects_non_callable_factory():
+    with pytest.raises(TypeError, match="expects a callable coro_factory"):
+        run_async_map(123, [1, 2])  # type: ignore[arg-type]
+
+
+def test_run_async_map_rejects_non_awaitable_factory_results():
+    def _sync_factory(value: int) -> int:
+        return value
+
+    with pytest.raises(TypeError, match="must return an awaitable"):
+        run_async_map(_sync_factory, [1, 2])
+
+
+def test_run_async_map_honors_max_concurrency_limit():
+    active = 0
+    max_active = 0
+
+    async def _tracked(value: int) -> int:
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return value
+
+    result = run_async_map(_tracked, [1, 2, 3, 4], max_concurrency=2)
+
+    assert result == [1, 2, 3, 4]
+    assert max_active == 2
+
+
+def test_run_async_map_empty_input_returns_empty_list():
+    async def _noop(value: int) -> int:
+        return value
+
+    assert run_async_map(_noop, []) == []
