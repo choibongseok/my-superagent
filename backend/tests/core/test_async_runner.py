@@ -12,6 +12,7 @@ from app.core.async_runner import (
     run_async_map,
     run_async_map_batched,
     run_async_starmap,
+    run_async_starmap_batched,
 )
 
 
@@ -673,3 +674,112 @@ def test_run_async_starmap_rejects_non_awaitable_factory_results():
 
     with pytest.raises(TypeError, match="must return an awaitable"):
         run_async_starmap(_sync_add, [(1, 2)])
+
+
+def test_run_async_starmap_batched_returns_ordered_results_across_batches():
+    async def _add(left: int, right: int) -> int:
+        await asyncio.sleep(0.01)
+        return left + right
+
+    result = run_async_starmap_batched(
+        _add,
+        [(1, 2), {"left": 20, "right": 22}, (3, 4)],
+        batch_size=2,
+    )
+
+    assert result == [3, 42, 7]
+
+
+@pytest.mark.asyncio
+async def test_run_async_starmap_batched_with_existing_event_loop_returns_results():
+    async def _format(prefix: str, index: int) -> str:
+        await asyncio.sleep(0.01)
+        return f"{prefix}-{index}"
+
+    result = run_async_starmap_batched(
+        _format,
+        [("task", 1), {"prefix": "task", "index": 2}],
+        batch_size=1,
+    )
+
+    assert result == ["task-1", "task-2"]
+
+
+def test_run_async_starmap_batched_can_return_exceptions_when_requested():
+    async def _explode(left: int, right: int) -> int:
+        if left == 2:
+            raise ValueError("bad")
+        return left + right
+
+    result = run_async_starmap_batched(
+        _explode,
+        [(1, 1), (2, 2), (3, 3)],
+        batch_size=2,
+        return_exceptions=True,
+    )
+
+    assert result[0] == 2
+    assert isinstance(result[1], ValueError)
+    assert str(result[1]) == "bad"
+    assert result[2] == 6
+
+
+def test_run_async_starmap_batched_rejects_non_positive_batch_size():
+    async def _noop(*args: int) -> int:
+        return len(args)
+
+    with pytest.raises(ValueError, match="batch_size must be greater than 0"):
+        run_async_starmap_batched(_noop, [(1,)], batch_size=0)
+
+
+def test_run_async_starmap_batched_rejects_invalid_item_shapes():
+    async def _noop(*args: int) -> int:
+        return len(args)
+
+    with pytest.raises(
+        TypeError,
+        match="items must be iterables of args or mappings of kwargs",
+    ):
+        run_async_starmap_batched(_noop, [123], batch_size=1)  # type: ignore[list-item]
+
+
+def test_run_async_starmap_batched_rejects_non_awaitable_factory_results():
+    def _sync_add(left: int, right: int) -> int:
+        return left + right
+
+    with pytest.raises(TypeError, match="must return an awaitable"):
+        run_async_starmap_batched(_sync_add, [(1, 2)], batch_size=1)
+
+
+def test_run_async_starmap_batched_honors_max_concurrency_limit():
+    active = 0
+    max_active = 0
+
+    async def _tracked(left: int, right: int) -> int:
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return left + right
+
+    result = run_async_starmap_batched(
+        _tracked,
+        [(1, 1), (2, 2), (3, 3), (4, 4)],
+        batch_size=4,
+        max_concurrency=2,
+    )
+
+    assert result == [2, 4, 6, 8]
+    assert max_active == 2
+
+
+def test_run_async_starmap_batched_timeout_applies_to_entire_run():
+    async def _sleep(left: int, right: int) -> int:
+        await asyncio.sleep(0.03)
+        return left + right
+
+    with pytest.raises(TimeoutError, match="run_async_starmap_batched timed out"):
+        run_async_starmap_batched(
+            _sleep, [(1, 1), (2, 2), (3, 3)], batch_size=1, timeout=0.05
+        )

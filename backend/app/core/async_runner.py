@@ -401,7 +401,9 @@ def run_async_map_batched(
         results: list[T] | list[T | BaseException] = []
         batch: list[I] = []
 
-        async def _flush_batch(current_batch: list[I]) -> list[T] | list[T | BaseException]:
+        async def _flush_batch(
+            current_batch: list[I],
+        ) -> list[T] | list[T | BaseException]:
             awaitables: list[Awaitable[T]] = []
             try:
                 for item in current_batch:
@@ -453,6 +455,38 @@ def run_async_map_batched(
     )
 
 
+def _build_starmap_awaitable(
+    coro_factory: Callable[..., Awaitable[T]],
+    item: Iterable[Any] | Mapping[str, Any],
+    *,
+    function_name: str,
+) -> Awaitable[T]:
+    """Build one awaitable for ``run_async_starmap`` helpers."""
+    if isinstance(item, Mapping):
+        awaitable = coro_factory(**dict(item))
+    else:
+        if isinstance(item, (str, bytes, bytearray)):
+            raise TypeError(
+                f"{function_name} items must be iterables of args "
+                "or mappings of kwargs"
+            )
+
+        try:
+            args = tuple(item)
+        except TypeError as exc:
+            raise TypeError(
+                f"{function_name} items must be iterables of args "
+                "or mappings of kwargs"
+            ) from exc
+
+        awaitable = coro_factory(*args)
+
+    if not inspect.isawaitable(awaitable):
+        raise TypeError("coro_factory must return an awaitable for each item")
+
+    return cast(Awaitable[T], awaitable)
+
+
 def run_async_starmap(
     coro_factory: Callable[..., Awaitable[T]],
     items: Iterable[Iterable[Any] | Mapping[str, Any]],
@@ -493,29 +527,13 @@ def run_async_starmap(
 
     try:
         for item in items:
-            if isinstance(item, Mapping):
-                awaitable = coro_factory(**dict(item))
-            else:
-                if isinstance(item, (str, bytes, bytearray)):
-                    raise TypeError(
-                        "run_async_starmap items must be iterables of args "
-                        "or mappings of kwargs"
-                    )
-
-                try:
-                    args = tuple(item)
-                except TypeError as exc:
-                    raise TypeError(
-                        "run_async_starmap items must be iterables of args "
-                        "or mappings of kwargs"
-                    ) from exc
-
-                awaitable = coro_factory(*args)
-
-            if not inspect.isawaitable(awaitable):
-                raise TypeError("coro_factory must return an awaitable for each item")
-
-            built_awaitables.append(awaitable)
+            built_awaitables.append(
+                _build_starmap_awaitable(
+                    coro_factory,
+                    item,
+                    function_name="run_async_starmap",
+                )
+            )
     except Exception:
         for candidate in built_awaitables:
             close = getattr(candidate, "close", None)
@@ -528,6 +546,105 @@ def run_async_starmap(
         timeout=timeout,
         return_exceptions=return_exceptions,
         max_concurrency=max_concurrency,
+    )
+
+
+def run_async_starmap_batched(
+    coro_factory: Callable[..., Awaitable[T]],
+    items: Iterable[Iterable[Any] | Mapping[str, Any]],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    return_exceptions: bool = False,
+    max_concurrency: int | None = None,
+) -> list[T] | list[T | BaseException]:
+    """Map an async callable over unpacked items in bounded batches.
+
+    This batched variant of :func:`run_async_starmap` limits in-memory awaitable
+    creation for large iterables while preserving input order.
+
+    Args:
+        coro_factory: Callable that returns an awaitable for each unpacked item.
+        items: Iterable of positional-arg iterables or kwarg mappings.
+        batch_size: Number of unpacked items to execute per batch.
+        timeout: Optional timeout in seconds for the entire batched execution.
+        return_exceptions: Mirror of ``asyncio.gather(return_exceptions=...)``.
+        max_concurrency: Optional cap on concurrent tasks inside each batch.
+
+    Returns:
+        List of results preserving input order.
+
+    Raises:
+        ValueError: If ``batch_size``, ``timeout``, or ``max_concurrency`` are invalid.
+        TypeError: If ``coro_factory`` is not callable, an item cannot be unpacked,
+            or factory calls do not return awaitables.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    if not callable(coro_factory):
+        raise TypeError("run_async_starmap_batched expects a callable coro_factory")
+
+    _validate_batch_size(batch_size)
+    _validate_timeout(timeout)
+    _validate_max_concurrency(max_concurrency)
+
+    async def _run_all_batches() -> list[T] | list[T | BaseException]:
+        results: list[T] | list[T | BaseException] = []
+        batch: list[Iterable[Any] | Mapping[str, Any]] = []
+
+        async def _flush_batch(
+            current_batch: list[Iterable[Any] | Mapping[str, Any]],
+        ) -> list[T] | list[T | BaseException]:
+            awaitables: list[Awaitable[T]] = []
+            try:
+                for item in current_batch:
+                    awaitables.append(
+                        _build_starmap_awaitable(
+                            coro_factory,
+                            item,
+                            function_name="run_async_starmap_batched",
+                        )
+                    )
+            except Exception:
+                for candidate in awaitables:
+                    close = getattr(candidate, "close", None)
+                    if callable(close):
+                        close()
+                raise
+
+            return await _gather_with_optional_limit(
+                awaitables,
+                max_concurrency=max_concurrency,
+                return_exceptions=return_exceptions,
+            )
+
+        for item in items:
+            batch.append(item)
+            if len(batch) < batch_size:
+                continue
+
+            batch_results = await _flush_batch(batch)
+            results.extend(batch_results)
+            batch = []
+
+        if batch:
+            batch_results = await _flush_batch(batch)
+            results.extend(batch_results)
+
+        return results
+
+    async def _run_with_timeout() -> list[T] | list[T | BaseException]:
+        if timeout is None:
+            return await _run_all_batches()
+        return await asyncio.wait_for(_run_all_batches(), timeout=timeout)
+
+    def _timeout_error() -> TimeoutError:
+        return TimeoutError(
+            f"run_async_starmap_batched timed out after {timeout} seconds"
+        )
+
+    return _run_with_event_loop_bridge(
+        _run_with_timeout,
+        timeout_error_factory=_timeout_error,
     )
 
 
