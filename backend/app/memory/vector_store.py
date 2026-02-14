@@ -386,6 +386,7 @@ class VectorStoreMemory:
         min_adaptive_threshold: float = 0.5,
         min_confidence: Optional[str] = None,
         min_relevance: Optional[str] = None,
+        sort_by_score: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Search memories with similarity scores.
@@ -408,6 +409,9 @@ class VectorStoreMemory:
             min_relevance: Optional relevance floor filter. Accepted values are
                 ``"very_low"``, ``"low"``, ``"medium"``, and ``"high"``.
                 When set, results below that relevance level are excluded.
+            sort_by_score: When ``True``, sort accepted results by descending score
+                before applying the final ``k`` limit. Ties preserve original
+                vector-store order for deterministic pagination.
 
         Returns:
             List of memories with scores and enhanced relevance metadata
@@ -576,7 +580,7 @@ class VectorStoreMemory:
                 (doc, score)
                 for doc, score in results
                 if score >= adaptive_threshold_value
-            ][:k]
+            ]
 
             applied_threshold = adaptive_threshold_value
 
@@ -585,6 +589,14 @@ class VectorStoreMemory:
                 f"(mean={mean_score:.3f}, std={std_dev:.3f}, cv={cv:.3f}, "
                 f"multiplier={dynamic_multiplier:.2f}, top={top_score:.3f})"
             )
+
+        if sort_by_score:
+            indexed_results = list(enumerate(results))
+            indexed_results.sort(key=lambda item: (-item[1][1], item[0]))
+            results = [result for _, result in indexed_results]
+
+        if len(results) > k:
+            results = results[:k]
 
         formatted_results = []
         for doc, score in results:

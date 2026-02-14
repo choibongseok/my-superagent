@@ -145,4 +145,37 @@ class TestMemoryManagerContext:
             "score_threshold": 0.65,
             "min_confidence": "moderate",
             "min_relevance": "medium",
+            "filter_dict": None,
+            "sort_by_score": False,
+        }
+
+    def test_search_memory_supports_session_scoping_and_score_sorting(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="session-42",
+            use_vector_memory=False,
+        )
+        manager.vector_memory = RecordingVectorMemory()
+
+        results = manager.search_memory(
+            query="roadmap",
+            k=3,
+            score_threshold=0.5,
+            filter_dict={"topic": "planning"},
+            session_only=True,
+            sort_by_score=True,
+        )
+
+        assert results == [{"content": "cached"}]
+        assert manager.vector_memory.last_search_with_scores_kwargs == {
+            "query": "roadmap",
+            "k": 3,
+            "score_threshold": 0.5,
+            "min_confidence": None,
+            "min_relevance": None,
+            "filter_dict": {
+                "topic": "planning",
+                "session_id": "session-42",
+            },
+            "sort_by_score": True,
         }

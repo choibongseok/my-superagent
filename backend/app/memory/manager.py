@@ -312,6 +312,9 @@ class MemoryManager:
         score_threshold: float = 0.7,
         min_confidence: Optional[str] = None,
         min_relevance: Optional[str] = None,
+        filter_dict: Optional[Dict[str, Any]] = None,
+        session_only: bool = False,
+        sort_by_score: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Search long-term memory.
@@ -322,6 +325,9 @@ class MemoryManager:
             score_threshold: Minimum similarity score
             min_confidence: Optional confidence floor (weak/moderate/strong)
             min_relevance: Optional relevance floor (very_low/low/medium/high)
+            filter_dict: Optional metadata filters forwarded to vector memory.
+            session_only: Restrict matches to the manager's active session_id.
+            sort_by_score: Sort accepted matches by descending similarity score.
 
         Returns:
             List of matching memories
@@ -330,6 +336,14 @@ class MemoryManager:
             logger.warning("Vector memory not enabled")
             return []
 
+        resolved_filter: Optional[Dict[str, Any]] = None
+        if filter_dict is not None:
+            resolved_filter = dict(filter_dict)
+
+        if session_only:
+            resolved_filter = resolved_filter or {}
+            resolved_filter["session_id"] = self.session_id
+
         try:
             return self.vector_memory.search_with_scores(
                 query=query,
@@ -337,6 +351,8 @@ class MemoryManager:
                 score_threshold=score_threshold,
                 min_confidence=min_confidence,
                 min_relevance=min_relevance,
+                filter_dict=resolved_filter,
+                sort_by_score=sort_by_score,
             )
         except Exception as e:
             logger.error(f"Memory search failed: {e}")

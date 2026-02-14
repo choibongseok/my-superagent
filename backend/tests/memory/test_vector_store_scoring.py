@@ -536,3 +536,64 @@ class TestEpsilonConsistency:
 
         # Should accept all results (high uniform quality)
         assert len(results) == 3
+
+
+class TestScoreSorting:
+    """Test optional score-based sorting for deterministic ranking."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_sort_by_score_orders_results_descending(self):
+        """sort_by_score should reorder results by descending similarity score."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        low_doc = Document(page_content="low", metadata={})
+        high_doc = Document(page_content="high", metadata={})
+        medium_doc = Document(page_content="medium", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (low_doc, 0.31),
+                (high_doc, 0.92),
+                (medium_doc, 0.65),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            sort_by_score=True,
+        )
+
+        assert [result["content"] for result in results] == ["high", "medium", "low"]
+        assert [result["score"] for result in results] == [0.92, 0.65, 0.31]
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_sort_by_score_preserves_input_order_for_ties(self):
+        """Equal scores should keep original order for stable pagination."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        first_doc = Document(page_content="first", metadata={})
+        second_doc = Document(page_content="second", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (first_doc, 0.8),
+                (second_doc, 0.8),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            sort_by_score=True,
+        )
+
+        assert [result["content"] for result in results] == ["first", "second"]
