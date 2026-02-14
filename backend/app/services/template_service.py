@@ -211,6 +211,22 @@ def _sort_values(value: object, argument_spec: str) -> list[object]:
         return sorted(items, key=lambda item: str(item), reverse=reverse)
 
 
+def _length_of(value: object) -> int:
+    """Return collection length for strings, mappings, and iterables."""
+    if isinstance(value, (str, bytes, bytearray, list, tuple, dict, set, frozenset)):
+        return len(value)
+
+    try:
+        return len(value)  # type: ignore[arg-type]
+    except TypeError:
+        pass
+
+    try:
+        return sum(1 for _ in iter(value))
+    except TypeError as exc:
+        raise ValueError("length expects a sized or iterable value") from exc
+
+
 class TemplateService:
     """Service for template management."""
 
@@ -417,6 +433,7 @@ class TemplateService:
         - ``{summary->truncate(120)}``
         - ``{name->replace("Agent", "Assistant")}``
         - ``{tags->unique->sort(desc)->join(" | ")}``
+        - ``{items->length}``
 
         Returns:
             Tuple of ``(field_path, default_value, transforms)``.
@@ -455,6 +472,7 @@ class TemplateService:
             "json_pretty": lambda raw: _to_json(raw, pretty=True),
             "unique": _unique_values,
             "sort": lambda raw: _sort_values(raw, ""),
+            "length": _length_of,
         }
         supported_transforms = sorted(
             [
@@ -556,8 +574,8 @@ class TemplateService:
         ``{service->dot_case}``, ``{build_target->constant_case}``,
         ``{variable->camel_case}``, ``{variable->pascal_case}``,
         ``{summary->truncate(120)}``, ``{title->replace("Agent", "Assistant")}``,
-        ``{tags->unique->sort(desc)->join(" | ")}``, ``{payload->json}``, or
-        ``{payload->json_pretty}``).
+        ``{tags->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
+        ``{payload->json}``, or ``{payload->json_pretty}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)

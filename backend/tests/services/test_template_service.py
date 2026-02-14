@@ -966,6 +966,94 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_length_transform_for_collections(
+        self, service_with_mock_db
+    ):
+        """length should return collection size for list/string/map values."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "Owners: {owners->length}, title chars: {title->length}, "
+                "meta keys: {metadata->length}"
+            ),
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "owners": ["Mina", "Jin", "Alex"],
+                    "title": "AgentHQ",
+                    "metadata": {"priority": "high", "region": "seoul"},
+                },
+                user_id,
+            )
+
+        assert result["prompt"] == "Owners: 3, title chars: 7, meta keys: 2"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_length_transform_for_generators(
+        self, service_with_mock_db
+    ):
+        """length should count generator values even when len() is unavailable."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Queued tasks: {tasks->length}",
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"tasks": (f"task-{idx}" for idx in range(4))},
+                user_id,
+            )
+
+        assert result["prompt"] == "Queued tasks: 4"
+        assert template.usage_count == 2
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_length_transform_for_non_iterable_values(
+        self, service_with_mock_db
+    ):
+        """length should fail fast for scalars that are neither sized nor iterable."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Count: {value->length}",
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match="Failed to apply template transform 'length'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"value": object()},
+                    user_id,
+                )
+
+        assert template.usage_count == 3
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_reports_transform_execution_errors(
         self, service_with_mock_db
     ):
