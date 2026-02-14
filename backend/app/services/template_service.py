@@ -364,13 +364,13 @@ def _reverse_value(value: object) -> object:
 
 
 def _slice_value(value: object, argument_spec: str) -> object:
-    """Slice strings/iterables using ``slice(start[,end])`` arguments."""
+    """Slice strings/iterables using ``slice(start[,end[,step]])`` arguments."""
     if not argument_spec.strip():
-        raise ValueError("slice expects one or two integer arguments")
+        raise ValueError("slice expects one to three integer arguments")
 
     args = _parse_transform_args(argument_spec)
-    if len(args) == 0 or len(args) > 2:
-        raise ValueError("slice expects one or two arguments: start[,end]")
+    if len(args) == 0 or len(args) > 3:
+        raise ValueError("slice expects one to three arguments: start[,end[,step]]")
 
     def _parse_index(raw_value: str, *, field_name: str) -> int | None:
         normalized = raw_value.strip()
@@ -383,20 +383,24 @@ def _slice_value(value: object, argument_spec: str) -> object:
             raise ValueError(f"slice {field_name} must be an integer") from exc
 
     start = _parse_index(args[0], field_name="start")
-    end = _parse_index(args[1], field_name="end") if len(args) == 2 else None
+    end = _parse_index(args[1], field_name="end") if len(args) >= 2 else None
+    step = _parse_index(args[2], field_name="step") if len(args) == 3 else None
 
-    if start is None and end is None:
+    if start is None and end is None and step is None:
         raise ValueError("slice requires at least one numeric boundary")
 
+    if step == 0:
+        raise ValueError("slice step must not be 0")
+
     if isinstance(value, (str, bytes, bytearray)):
-        return value[start:end]
+        return value[start:end:step]
 
     try:
         items = list(iter(value))
     except TypeError as exc:
         raise ValueError("slice expects a string or iterable value") from exc
 
-    return items[start:end]
+    return items[start:end:step]
 
 
 def _length_of(value: object) -> int:
@@ -681,6 +685,7 @@ class TemplateService:
         - ``{backlog->first}``, ``{backlog->last}``
         - ``{steps->reverse->join(" | ")}``
         - ``{milestones->slice(0,2)->join(", ")}``
+        - ``{items->slice(0,10,2)->join(", ")}``
         - ``{notes->dedent->strip}``
         - ``{search_query->urlencode}``
         - ``{title->slug}``
@@ -746,7 +751,7 @@ class TemplateService:
                 "join([separator])",
                 "split([separator[,maxsplit]])",
                 "sort([asc|desc])",
-                "slice(<start>[,<end>])",
+                "slice(<start>[,<end>[,<step>]])",
                 "fallback(<value>)",
             ]
         )
@@ -877,7 +882,8 @@ class TemplateService:
         ``{path->strip_prefix("/tmp/")->strip_suffix(".txt")}``,
         ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
         ``{queue->first}``, ``{queue->last}``, ``{tasks->reverse}``,
-        ``{milestones->slice(0,2)}``, ``{notes->dedent->strip}``,
+        ``{milestones->slice(0,2)}``, ``{items->slice(0,10,2)}``,
+        ``{notes->dedent->strip}``,
         ``{payload->json}``, ``{payload->json_pretty}``,
         ``{search_query->urlencode}``, ``{title->slug}``,
         ``{summary->compact}``, or ``{nickname->strip->fallback("friend")}``).

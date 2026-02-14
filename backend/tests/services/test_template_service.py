@@ -1805,6 +1805,87 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_slice_transform_with_step_for_iterables(
+        self, service_with_mock_db
+    ):
+        """slice(start,end,step) should support strided iterable selection."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Cadence: {steps->slice(0,5,2)->join(" | ")}',
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"steps": ["Discover", "Design", "Build", "Test", "Launch"]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Cadence: Discover | Build | Launch"
+        assert template.usage_count == 2
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_slice_transform_with_negative_step_for_strings(
+        self, service_with_mock_db
+    ):
+        """slice with a negative step should support reverse window extraction."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Window: {text->slice(6,1,-2)}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"text": "ABCDEFGH"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Window: GEC"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_slice_transform_with_zero_step(
+        self, service_with_mock_db
+    ):
+        """slice should reject a zero step because Python slicing forbids it."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Window: {text->slice(0,5,0)}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'slice\(0,5,0\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"text": "agentic"},
+                    user_id,
+                )
+
+        assert template.usage_count == 2
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_rejects_slice_transform_with_invalid_arguments(
         self, service_with_mock_db
     ):
