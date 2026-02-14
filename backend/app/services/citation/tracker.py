@@ -703,6 +703,7 @@ class CitationTracker:
         recency_window_days: int = 730,
         recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
         as_of: Optional[datetime] = None,
+        min_token_matches: Optional[int] = None,
         sort_by: Literal[
             "relevance",
             "title",
@@ -775,6 +776,10 @@ class CitationTracker:
                 more aggressively, while ``"lenient"`` decays slower.
             as_of: Optional reference timestamp for deterministic recency
                 calculations when ``sort_by='recency'``.
+            min_token_matches: Optional minimum number of unique query tokens
+                that must appear in a source's searchable text. Useful for
+                reducing weak single-token matches when using
+                ``match_mode='any'``. Ignored when the query is blank.
             sort_by: Result ordering strategy. ``"relevance"`` favors textual
                 score, ``"title"`` sorts alphabetically, ``"published_date"``
                 sorts newest-first with undated sources last,
@@ -866,6 +871,14 @@ class CitationTracker:
                 "recency_profile must be one of: strict, balanced, lenient"
             )
 
+        if min_token_matches is not None:
+            if isinstance(min_token_matches, bool) or not isinstance(
+                min_token_matches, int
+            ):
+                raise ValueError("min_token_matches must be an integer")
+            if min_token_matches <= 0:
+                raise ValueError("min_token_matches must be greater than 0")
+
         normalized_match_mode = self._normalize_text(match_mode)
         if normalized_match_mode not in {"all", "any"}:
             raise ValueError("match_mode must be 'all' or 'any'")
@@ -887,6 +900,16 @@ class CitationTracker:
 
         normalized_query = self._normalize_text(query)
         query_tokens = [token for token in normalized_query.split(" ") if token]
+        unique_query_tokens = list(dict.fromkeys(query_tokens))
+
+        if (
+            min_token_matches is not None
+            and unique_query_tokens
+            and min_token_matches > len(unique_query_tokens)
+        ):
+            raise ValueError(
+                "min_token_matches cannot exceed number of unique query tokens"
+            )
 
         normalized_source_types = self._normalize_source_types(
             source_types if source_types is not None else source_type,
@@ -1023,6 +1046,13 @@ class CitationTracker:
 
                 if not has_match:
                     continue
+
+                if min_token_matches is not None:
+                    token_match_count = sum(
+                        token in searchable_text for token in unique_query_tokens
+                    )
+                    if token_match_count < min_token_matches:
+                        continue
 
             score = self._compute_relevance_score(
                 source,
@@ -1209,6 +1239,7 @@ class CitationTracker:
         recency_window_days: int = 730,
         recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
         as_of: Optional[datetime] = None,
+        min_token_matches: Optional[int] = None,
         sort_by: Literal[
             "relevance",
             "title",
@@ -1248,6 +1279,7 @@ class CitationTracker:
             recency_window_days=recency_window_days,
             recency_profile=recency_profile,
             as_of=as_of,
+            min_token_matches=min_token_matches,
             sort_by=sort_by,
         )
 

@@ -331,6 +331,73 @@ class TestCitationTracker:
         with pytest.raises(ValueError, match="match_mode must be 'all' or 'any'"):
             tracker.search_sources("agent", match_mode="partial")
 
+    def test_search_sources_supports_min_token_matches_filter(self):
+        """min_token_matches should drop sources that match too few unique query tokens."""
+        tracker = CitationTracker()
+
+        strong_id = tracker.add_source(title="Agentic Workflow Reliability Handbook")
+        medium_id = tracker.add_source(title="Agentic Workflow Playbook")
+        tracker.add_source(title="Agentic Glossary")
+
+        matches = tracker.search_sources(
+            "agentic workflow reliability",
+            match_mode="any",
+            min_token_matches=2,
+        )
+
+        assert [source.id for source in matches] == [strong_id, medium_id]
+
+    def test_search_sources_min_token_matches_uses_unique_query_tokens(self):
+        """Repeated query tokens should not inflate min_token_matches requirements."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(title="Agentic Workflow Guide")
+
+        matches = tracker.search_sources(
+            "agentic agentic workflow",
+            match_mode="any",
+            min_token_matches=2,
+        )
+
+        assert [source.id for source in matches] == [source_id]
+
+    def test_search_sources_rejects_invalid_min_token_matches(self):
+        """min_token_matches should enforce integer, positive, and bounded values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="min_token_matches must be an integer",
+        ):
+            tracker.search_sources("agentic workflow", min_token_matches=1.5)
+
+        with pytest.raises(
+            ValueError,
+            match="min_token_matches must be greater than 0",
+        ):
+            tracker.search_sources("agentic workflow", min_token_matches=0)
+
+        with pytest.raises(
+            ValueError,
+            match="min_token_matches cannot exceed number of unique query tokens",
+        ):
+            tracker.search_sources("agentic workflow", min_token_matches=3)
+
+    def test_search_sources_with_details_supports_min_token_matches_filter(self):
+        """Detailed search should apply min_token_matches consistently."""
+        tracker = CitationTracker()
+
+        keep_id = tracker.add_source(title="Agentic Workflow Reliability Handbook")
+        tracker.add_source(title="Workflow Notes")
+
+        detailed = tracker.search_sources_with_details(
+            "agentic workflow reliability",
+            match_mode="any",
+            min_token_matches=2,
+        )
+
+        assert [item["source"].id for item in detailed] == [keep_id]
+
     def test_search_sources_supports_include_source_ids_filter(self):
         """include_source_ids should restrict results to the provided IDs."""
         tracker = CitationTracker()
