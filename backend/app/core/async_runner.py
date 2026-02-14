@@ -272,6 +272,84 @@ def run_async_map(
     )
 
 
+def run_async_starmap(
+    coro_factory: Callable[..., Awaitable[T]],
+    items: Iterable[Iterable[Any] | Mapping[str, Any]],
+    *,
+    timeout: float | None = None,
+    return_exceptions: bool = False,
+    max_concurrency: int | None = None,
+) -> list[T] | list[T | BaseException]:
+    """Map an async callable over iterable arg-tuples or kwarg mappings.
+
+    Each item can be either:
+    - an iterable of positional arguments, or
+    - a mapping of keyword arguments.
+
+    This is a synchronous bridge around an async equivalent of
+    :func:`itertools.starmap`.
+
+    Args:
+        coro_factory: Callable that returns an awaitable for each unpacked item.
+        items: Iterable of positional-arg iterables or kwarg mappings.
+        timeout: Optional timeout in seconds for the entire mapped batch.
+        return_exceptions: Mirror of ``asyncio.gather(return_exceptions=...)``.
+        max_concurrency: Optional cap on how many mapped tasks run at once.
+
+    Returns:
+        List of results preserving input order.
+
+    Raises:
+        ValueError: If ``timeout`` or ``max_concurrency`` are not positive.
+        TypeError: If ``coro_factory`` is not callable, an item cannot be unpacked,
+            or factory calls do not return awaitables.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    if not callable(coro_factory):
+        raise TypeError("run_async_starmap expects a callable coro_factory")
+
+    built_awaitables: list[Awaitable[T]] = []
+
+    try:
+        for item in items:
+            if isinstance(item, Mapping):
+                awaitable = coro_factory(**dict(item))
+            else:
+                if isinstance(item, (str, bytes, bytearray)):
+                    raise TypeError(
+                        "run_async_starmap items must be iterables of args "
+                        "or mappings of kwargs"
+                    )
+
+                try:
+                    args = tuple(item)
+                except TypeError as exc:
+                    raise TypeError(
+                        "run_async_starmap items must be iterables of args "
+                        "or mappings of kwargs"
+                    ) from exc
+
+                awaitable = coro_factory(*args)
+
+            if not inspect.isawaitable(awaitable):
+                raise TypeError("coro_factory must return an awaitable for each item")
+
+            built_awaitables.append(awaitable)
+    except Exception:
+        for candidate in built_awaitables:
+            close = getattr(candidate, "close", None)
+            if callable(close):
+                close()
+        raise
+
+    return run_async_many(
+        *built_awaitables,
+        timeout=timeout,
+        return_exceptions=return_exceptions,
+        max_concurrency=max_concurrency,
+    )
+
+
 def run_async_dict(
     awaitables: Mapping[K, Awaitable[T]],
     *,

@@ -9,6 +9,7 @@ from app.core.async_runner import (
     run_async_dict,
     run_async_many,
     run_async_map,
+    run_async_starmap,
 )
 
 
@@ -412,3 +413,81 @@ def test_run_async_map_empty_input_returns_empty_list():
         return value
 
     assert run_async_map(_noop, []) == []
+
+
+def test_run_async_starmap_supports_positional_argument_groups():
+    async def _add(left: int, right: int) -> int:
+        await asyncio.sleep(0.01)
+        return left + right
+
+    result = run_async_starmap(_add, [(1, 2), (20, 22)])
+
+    assert result == [3, 42]
+
+
+@pytest.mark.asyncio
+async def test_run_async_starmap_with_existing_event_loop_returns_results():
+    async def _format(prefix: str, index: int) -> str:
+        await asyncio.sleep(0.01)
+        return f"{prefix}-{index}"
+
+    result = run_async_starmap(_format, [("task", 1), ("task", 2)])
+
+    assert result == ["task-1", "task-2"]
+
+
+def test_run_async_starmap_supports_keyword_argument_mappings():
+    async def _label(*, prefix: str, value: int) -> str:
+        await asyncio.sleep(0.01)
+        return f"{prefix}:{value}"
+
+    result = run_async_starmap(
+        _label,
+        [
+            {"prefix": "item", "value": 1},
+            {"value": 2, "prefix": "item"},
+        ],
+    )
+
+    assert result == ["item:1", "item:2"]
+
+
+def test_run_async_starmap_honors_max_concurrency_limit():
+    active = 0
+    max_active = 0
+
+    async def _tracked(left: int, right: int) -> int:
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return left + right
+
+    result = run_async_starmap(
+        _tracked,
+        [(1, 1), (2, 2), (3, 3), (4, 4)],
+        max_concurrency=2,
+    )
+
+    assert result == [2, 4, 6, 8]
+    assert max_active == 2
+
+
+def test_run_async_starmap_rejects_invalid_item_shapes():
+    async def _noop(*args: int) -> int:
+        return len(args)
+
+    with pytest.raises(
+        TypeError,
+        match="items must be iterables of args or mappings of kwargs",
+    ):
+        run_async_starmap(_noop, [123])  # type: ignore[list-item]
+
+
+def test_run_async_starmap_rejects_non_awaitable_factory_results():
+    def _sync_add(left: int, right: int) -> int:
+        return left + right
+
+    with pytest.raises(TypeError, match="must return an awaitable"):
+        run_async_starmap(_sync_add, [(1, 2)])
