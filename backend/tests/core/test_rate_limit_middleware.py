@@ -280,3 +280,91 @@ def test_rate_limit_middleware_rejects_invalid_path_request_costs() -> None:
         match="path_request_costs values cannot exceed burst_size",
     ):
         RateLimitMiddleware(app, burst_size=2, path_request_costs={"/tasks": 3})
+
+
+def test_rate_limit_middleware_allows_custom_exact_exclude_paths(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/internal/ping")
+    async def internal_ping() -> dict[str, bool]:
+        return {"ok": True}
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+        exclude_paths=["/internal/ping"],
+    )
+
+    with TestClient(app) as client:
+        excluded_first = client.get("/internal/ping")
+        excluded_second = client.get("/internal/ping")
+
+        assert excluded_first.status_code == 200
+        assert excluded_second.status_code == 200
+        assert "X-RateLimit-Remaining" not in excluded_first.headers
+
+        limited_first = client.get("/limited")
+        limited_second = client.get("/limited")
+
+        assert limited_first.status_code == 200
+        assert limited_second.status_code == 429
+
+
+def test_rate_limit_middleware_supports_method_scoped_exclude_path_prefixes(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/admin/tasks/1")
+    async def admin_get() -> dict[str, bool]:
+        return {"ok": True}
+
+    @app.post("/admin/tasks/1")
+    async def admin_post() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+        exclude_paths=["GET /admin/*"],
+    )
+
+    with TestClient(app) as client:
+        assert client.get("/admin/tasks/1").status_code == 200
+        assert client.get("/admin/tasks/1").status_code == 200
+
+        post_first = client.post("/admin/tasks/1")
+        post_second = client.post("/admin/tasks/1")
+
+        assert post_first.status_code == 200
+        assert post_second.status_code == 429
+
+
+def test_rate_limit_middleware_rejects_invalid_exclude_paths() -> None:
+    app = FastAPI()
+
+    with pytest.raises(
+        ValueError,
+        match="exclude_paths entries must start with '/'",
+    ):
+        RateLimitMiddleware(app, exclude_paths=["internal"])  # missing leading slash
+
+    with pytest.raises(
+        ValueError,
+        match="exclude_paths must contain non-empty path pattern strings",
+    ):
+        RateLimitMiddleware(app, exclude_paths=[""])

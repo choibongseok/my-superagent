@@ -3,6 +3,7 @@
 import math
 import re
 import time
+from collections.abc import Iterable
 from typing import Callable, Mapping, Optional
 
 from fastapi import Request, Response, status
@@ -130,6 +131,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         burst_size: Optional[int] = None,
         request_costs: Optional[Mapping[str, int]] = None,
         path_request_costs: Optional[Mapping[str, int]] = None,
+        exclude_paths: Optional[Iterable[str]] = None,
     ):
         """
         Initialize rate limit middleware.
@@ -144,6 +146,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 ending in ``*`` (e.g. ``"/api/v1/tasks/*"``). Rules may
                 optionally be scoped to an HTTP method using
                 ``"METHOD /path"`` or ``"METHOD /prefix/*"`` syntax.
+            exclude_paths: Optional custom path exclusion rules. Supports
+                exact paths (``"/internal/health"``), prefix rules
+                (``"/internal/*"``), and method-scoped rules
+                (``"POST /admin/*"``).
         """
         super().__init__(app)
 
@@ -166,7 +172,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             refill_rate=requests_per_minute / 60.0,  # Convert to per-second
         )
 
-        # Exclude health check and docs from rate limiting
+        # Built-in exclusions for service metadata routes.
         self.exclude_paths = {
             "/health",
             "/",
@@ -174,6 +180,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             "/redoc",
             "/openapi.json",
         }
+        self.exclude_path_rules = self._normalize_exclude_paths(exclude_paths)
 
     def _normalize_request_costs(
         self,
@@ -256,6 +263,63 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         return normalized_path_costs
 
+    def _normalize_exclude_paths(
+        self,
+        exclude_paths: Optional[Iterable[str]],
+    ) -> list[tuple[Optional[str], str]]:
+        """Normalize optional custom path exclusions.
+
+        Supports exact paths (``"/path"``), prefix rules (``"/path/*"``), and
+        optional method scoping (``"GET /path"``, ``"POST /path/*"``).
+        """
+        if exclude_paths is None:
+            return []
+
+        normalized_rules: list[tuple[Optional[str], str]] = []
+        for raw_pattern in exclude_paths:
+            if not isinstance(raw_pattern, str) or not raw_pattern.strip():
+                raise ValueError(
+                    "exclude_paths must contain non-empty path pattern strings"
+                )
+
+            method, path_pattern = self._split_path_request_cost_pattern(raw_pattern)
+            normalized_pattern = (
+                path_pattern[:-1] if path_pattern.endswith("*") else path_pattern
+            )
+
+            if not normalized_pattern.startswith("/"):
+                raise ValueError(
+                    "exclude_paths entries must start with '/' and may end with '*'"
+                )
+
+            normalized_rules.append((method, path_pattern))
+
+        return normalized_rules
+
+    @staticmethod
+    def _path_matches_rule(path: str, pattern: str) -> bool:
+        """Return ``True`` when ``path`` matches exact or prefix rule ``pattern``."""
+        if pattern.endswith("*"):
+            return path.startswith(pattern[:-1])
+
+        return path == pattern
+
+    def _is_excluded_path(self, request: Request) -> bool:
+        """Return whether current request should bypass rate limiting."""
+        path = request.url.path
+        if path in self.exclude_paths:
+            return True
+
+        method = request.method.upper()
+
+        for rule_method, pattern in self.exclude_path_rules:
+            if rule_method not in (None, method):
+                continue
+            if self._path_matches_rule(path, pattern):
+                return True
+
+        return False
+
     def _get_client_id(self, request: Request) -> str:
         """
         Get client identifier for rate limiting.
@@ -333,7 +397,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             HTTP response
         """
         # Skip rate limiting for excluded paths
-        if request.url.path in self.exclude_paths:
+        if self._is_excluded_path(request):
             return await call_next(request)
 
         # Get client identifier and method-specific token cost
@@ -394,6 +458,7 @@ def get_rate_limit_middleware(
     requests_per_minute: Optional[int] = None,
     request_costs: Optional[Mapping[str, int]] = None,
     path_request_costs: Optional[Mapping[str, int]] = None,
+    exclude_paths: Optional[Iterable[str]] = None,
 ):
     """
     Create rate limit middleware factory.
@@ -402,6 +467,7 @@ def get_rate_limit_middleware(
         requests_per_minute: Request rate limit (defaults to settings)
         request_costs: Optional per-method token costs
         path_request_costs: Optional exact/prefix path token costs
+        exclude_paths: Optional exact/prefix/method-scoped exclusion rules
 
     Returns:
         Callable middleware factory compatible with ``add_middleware``
@@ -413,4 +479,5 @@ def get_rate_limit_middleware(
         requests_per_minute=rpm,
         request_costs=request_costs,
         path_request_costs=path_request_costs,
+        exclude_paths=exclude_paths,
     )
