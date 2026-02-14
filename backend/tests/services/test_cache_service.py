@@ -601,6 +601,96 @@ def test_local_cache_pop_many_skips_expired_keys_and_tracks_lookup_stats():
     assert stats["deletes"] == 1
 
 
+def test_local_cache_copy_preserves_source_and_remaining_ttl():
+    cache = LocalCacheService()
+    cache.set("session:source", "token", ttl_seconds=2)
+
+    time.sleep(0.4)
+
+    assert cache.copy("session:source", "session:copy") is True
+    assert cache.get("session:source") == "token"
+    assert cache.get("session:copy") == "token"
+
+    ttl_source = cache.ttl_remaining("session:source")
+    ttl_copy = cache.ttl_remaining("session:copy")
+    assert ttl_source is not None
+    assert ttl_copy is not None
+    assert 1.0 <= ttl_copy <= 2
+    assert abs(ttl_source - ttl_copy) < 0.2
+
+
+def test_local_cache_copy_fails_when_source_missing_or_target_exists_without_overwrite():
+    cache = LocalCacheService()
+    cache.set_many({"source": "value", "target": "other"})
+
+    assert cache.copy("missing", "new-target") is False
+    assert cache.copy("source", "target") is False
+
+    assert cache.get("source") == "value"
+    assert cache.get("target") == "other"
+
+
+def test_local_cache_copy_can_overwrite_target_and_tracks_mutations():
+    cache = LocalCacheService()
+    cache.set("source", "fresh", ttl_seconds=1)
+    cache.set("target", "stale")
+
+    time.sleep(0.4)
+
+    assert cache.copy("source", "target", overwrite=True) is True
+    assert cache.get("source") == "fresh"
+    assert cache.get("target") == "fresh"
+
+    ttl = cache.ttl_remaining("target")
+    assert ttl is not None
+    assert 0 < ttl < 1
+
+    stats = cache.stats()
+    assert stats["sets"] == 3
+    assert stats["deletes"] == 1
+
+
+def test_local_cache_copy_many_copies_only_successful_mappings():
+    cache = LocalCacheService()
+    cache.set_many({"alpha": 1, "beta": 2})
+
+    copied = cache.copy_many(
+        {
+            "alpha": "copy:alpha",
+            "missing": "copy:missing",
+            "beta": "copy:beta",
+        }
+    )
+
+    assert copied == 2
+    assert cache.get_many(["alpha", "beta", "copy:alpha", "copy:beta"]) == {
+        "alpha": 1,
+        "beta": 2,
+        "copy:alpha": 1,
+        "copy:beta": 2,
+    }
+
+
+def test_local_cache_copy_same_key_is_noop_for_existing_and_missing_keys():
+    cache = LocalCacheService()
+    cache.set("stable", "value")
+
+    assert cache.copy("stable", "stable") is True
+    assert cache.copy("missing", "missing") is False
+
+
+def test_local_cache_copy_respects_lru_eviction_when_cache_is_full():
+    cache = LocalCacheService(max_entries=2)
+    cache.set("alpha", 1)
+    cache.set("beta", 2)
+
+    assert cache.copy("alpha", "gamma") is True
+
+    assert cache.get("alpha") == 1
+    assert cache.get("beta") is None
+    assert cache.get("gamma") == 1
+
+
 def test_local_cache_rename_moves_value_and_preserves_remaining_ttl():
     cache = LocalCacheService()
     cache.set("session:old", "token", ttl_seconds=2)

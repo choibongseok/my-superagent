@@ -702,6 +702,58 @@ class LocalCacheService:
 
         return values
 
+    def copy(self, key: str, new_key: str, *, overwrite: bool = False) -> bool:
+        """Copy an active key while preserving remaining TTL.
+
+        Args:
+            key: Existing cache key to copy from.
+            new_key: Destination cache key.
+            overwrite: When ``True``, replace ``new_key`` if it already exists.
+
+        Returns:
+            ``True`` when ``key`` exists and copy succeeds, ``False`` otherwise.
+        """
+        if key == new_key:
+            exists = self._get_entry(key) is not None
+            self._record_lookup(hit=exists)
+            return exists
+
+        item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
+        if item is None:
+            return False
+
+        target_exists = self._get_entry(new_key) is not None
+        self._record_lookup(hit=target_exists)
+        if target_exists and not overwrite:
+            return False
+
+        if target_exists or new_key in self._inflight:
+            self._delete_key(new_key)
+            self._increment_stat("deletes")
+        else:
+            self._evict_if_needed()
+
+        value, expires_at = item
+        self._store[new_key] = (value, expires_at)
+        self._mark_accessed(new_key)
+        self._increment_stat("sets")
+        return True
+
+    def copy_many(
+        self,
+        key_mapping: Mapping[str, str],
+        *,
+        overwrite: bool = False,
+    ) -> int:
+        """Copy multiple keys and return the number of successful copies."""
+        copied = 0
+        for source_key, target_key in key_mapping.items():
+            if self.copy(source_key, target_key, overwrite=overwrite):
+                copied += 1
+
+        return copied
+
     def rename(self, key: str, new_key: str, *, overwrite: bool = False) -> bool:
         """Rename an active key while preserving value and remaining TTL.
 
