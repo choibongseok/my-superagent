@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import textwrap
+import unicodedata
 from string import Formatter
 from typing import List, Optional
 from urllib.parse import quote_plus
@@ -76,6 +77,17 @@ def _to_json(value: object, *, pretty: bool = False) -> str:
         return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
 
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def _to_slug(value: object) -> str:
+    """Convert values into a lowercase, hyphen-delimited slug."""
+    normalized = unicodedata.normalize("NFKD", str(value))
+    without_diacritics = "".join(
+        char for char in normalized if not unicodedata.combining(char)
+    )
+
+    slug = re.sub(r"[^0-9A-Za-z]+", "-", without_diacritics.lower())
+    return slug.strip("-")
 
 
 def _truncate_text(value: object, max_length_spec: str) -> str:
@@ -561,6 +573,7 @@ class TemplateService:
         - ``{milestones->slice(0,2)->join(", ")}``
         - ``{notes->dedent->strip}``
         - ``{search_query->urlencode}``
+        - ``{title->slug}``
 
         Returns:
             Tuple of ``(field_path, default_value, transforms)``.
@@ -599,6 +612,7 @@ class TemplateService:
             "json": lambda raw: _to_json(raw, pretty=False),
             "json_pretty": lambda raw: _to_json(raw, pretty=True),
             "urlencode": lambda raw: quote_plus(str(raw), safe=""),
+            "slug": _to_slug,
             "split": lambda raw: _split_text(raw, ""),
             "unique": _unique_values,
             "sort": lambda raw: _sort_values(raw, ""),
@@ -716,8 +730,8 @@ class TemplateService:
         ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
         ``{queue->first}``, ``{queue->last}``, ``{tasks->reverse}``,
         ``{milestones->slice(0,2)}``, ``{notes->dedent->strip}``,
-        ``{payload->json}``, ``{payload->json_pretty}``, or
-        ``{search_query->urlencode}``).
+        ``{payload->json}``, ``{payload->json_pretty}``,
+        ``{search_query->urlencode}``, or ``{title->slug}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)

@@ -668,6 +668,52 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_slug_transform(self, service_with_mock_db):
+        """slug transform should normalize text into a URL-safe identifier."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Slug: {title->slug}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"title": "  Crème Brûlée Release v2!  "},
+                user_id,
+            )
+
+        assert result["prompt"] == "Slug: creme-brulee-release-v2"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_slug_transform_with_defaults(
+        self, service_with_mock_db
+    ):
+        """slug should apply after default fallback values when input is blank."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Path: /docs/{title|AgentHQ Sprint Plan->slug}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(template_id, {"title": "   "}, user_id)
+
+        assert result["prompt"] == "Path: /docs/agenthq-sprint-plan"
+        assert template.usage_count == 3
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_replace_transform(self, service_with_mock_db):
         """replace transform should substitute a target substring in-place."""
         service, db = service_with_mock_db
