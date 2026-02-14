@@ -128,6 +128,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         requests_per_minute: int = 60,
         burst_size: Optional[int] = None,
         request_costs: Optional[Mapping[str, int]] = None,
+        path_request_costs: Optional[Mapping[str, int]] = None,
     ):
         """
         Initialize rate limit middleware.
@@ -137,6 +138,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             requests_per_minute: Sustained request rate
             burst_size: Maximum burst requests (defaults to 2x rate)
             request_costs: Optional per-method token costs (e.g. {"POST": 2})
+            path_request_costs: Optional per-path token costs where keys are
+                exact paths (e.g. ``"/api/v1/tasks"``) or prefix patterns
+                ending in ``*`` (e.g. ``"/api/v1/tasks/*"``)
         """
         super().__init__(app)
 
@@ -150,6 +154,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.requests_per_minute = requests_per_minute
         self.burst_size = resolved_burst_size
         self.request_costs = self._normalize_request_costs(request_costs)
+        self.path_request_costs = self._normalize_path_request_costs(path_request_costs)
 
         # Token bucket: refills at requests_per_minute rate
         # Max capacity: burst_size
@@ -190,6 +195,41 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         return normalized_costs
 
+    def _normalize_path_request_costs(
+        self,
+        path_request_costs: Optional[Mapping[str, int]],
+    ) -> dict[str, int]:
+        """Normalize and validate optional path/prefix token costs."""
+        if path_request_costs is None:
+            return {}
+
+        normalized_path_costs: dict[str, int] = {}
+        for path_pattern, cost in path_request_costs.items():
+            if not isinstance(path_pattern, str) or not path_pattern.strip():
+                raise ValueError(
+                    "path_request_costs keys must be non-empty path pattern strings"
+                )
+
+            normalized_pattern = path_pattern.strip()
+            if normalized_pattern.endswith("*"):
+                normalized_pattern = normalized_pattern[:-1]
+
+            if not normalized_pattern.startswith("/"):
+                raise ValueError(
+                    "path_request_costs keys must start with '/' and may end with '*'"
+                )
+
+            if isinstance(cost, bool) or not isinstance(cost, int) or cost <= 0:
+                raise ValueError(
+                    "path_request_costs values must be positive integer token costs"
+                )
+            if cost > self.burst_size:
+                raise ValueError("path_request_costs values cannot exceed burst_size")
+
+            normalized_path_costs[path_pattern.strip()] = cost
+
+        return normalized_path_costs
+
     def _get_client_id(self, request: Request) -> str:
         """
         Get client identifier for rate limiting.
@@ -214,7 +254,28 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return f"ip:{client_ip}"
 
     def _get_request_cost(self, request: Request) -> int:
-        """Resolve token cost for the current HTTP method."""
+        """Resolve token cost for path-specific rules and HTTP method."""
+        path = request.url.path
+
+        # Exact path cost has highest precedence.
+        if path in self.path_request_costs:
+            return self.path_request_costs[path]
+
+        # Prefix pattern costs use trailing ``*``. Longest prefix wins.
+        best_prefix_cost: int | None = None
+        best_prefix_length = -1
+        for pattern, cost in self.path_request_costs.items():
+            if not pattern.endswith("*"):
+                continue
+
+            prefix = pattern[:-1]
+            if path.startswith(prefix) and len(prefix) > best_prefix_length:
+                best_prefix_length = len(prefix)
+                best_prefix_cost = cost
+
+        if best_prefix_cost is not None:
+            return best_prefix_cost
+
         return self.request_costs.get(request.method.upper(), 1)
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
@@ -289,6 +350,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 def get_rate_limit_middleware(
     requests_per_minute: Optional[int] = None,
     request_costs: Optional[Mapping[str, int]] = None,
+    path_request_costs: Optional[Mapping[str, int]] = None,
 ):
     """
     Create rate limit middleware factory.
@@ -296,6 +358,7 @@ def get_rate_limit_middleware(
     Args:
         requests_per_minute: Request rate limit (defaults to settings)
         request_costs: Optional per-method token costs
+        path_request_costs: Optional exact/prefix path token costs
 
     Returns:
         Callable middleware factory compatible with ``add_middleware``
@@ -306,4 +369,5 @@ def get_rate_limit_middleware(
         app,
         requests_per_minute=rpm,
         request_costs=request_costs,
+        path_request_costs=path_request_costs,
     )

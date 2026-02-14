@@ -128,3 +128,75 @@ def test_rate_limit_middleware_rejects_invalid_request_costs() -> None:
         ValueError, match="request_costs values cannot exceed burst_size"
     ):
         RateLimitMiddleware(app, burst_size=2, request_costs={"POST": 3})
+
+
+def test_rate_limit_middleware_applies_exact_path_request_costs(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/reports")
+    async def reports() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=5,
+        request_costs={"GET": 1},
+        path_request_costs={"/reports": 4},
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/reports")
+        assert response.status_code == 200
+        assert response.headers["X-RateLimit-Request-Cost"] == "4"
+        assert response.headers["X-RateLimit-Remaining"] == "1"
+
+
+def test_rate_limit_middleware_applies_longest_prefix_path_request_cost(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/api/v1/tasks/{task_id}")
+    async def read_task(task_id: str) -> dict[str, str]:
+        return {"task_id": task_id}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=6,
+        path_request_costs={
+            "/api/*": 2,
+            "/api/v1/tasks/*": 5,
+        },
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/tasks/abc")
+        assert response.status_code == 200
+        assert response.headers["X-RateLimit-Request-Cost"] == "5"
+        assert response.headers["X-RateLimit-Remaining"] == "1"
+
+
+def test_rate_limit_middleware_rejects_invalid_path_request_costs() -> None:
+    app = FastAPI()
+
+    with pytest.raises(
+        ValueError,
+        match="path_request_costs keys must start with '/'",
+    ):
+        RateLimitMiddleware(app, path_request_costs={"tasks": 1})
+
+    with pytest.raises(
+        ValueError,
+        match="path_request_costs values cannot exceed burst_size",
+    ):
+        RateLimitMiddleware(app, burst_size=2, path_request_costs={"/tasks": 3})
