@@ -91,3 +91,22 @@ class TestMemoryManagerContext:
 
         assert len(matches) == 1
         assert matches[0].content == "python basics"
+
+    def test_search_conversation_supports_fuzzy_match_mode(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="test_session",
+            use_vector_memory=False,
+        )
+
+        manager.add_user_message("I like pythonn")
+        manager.add_ai_message("I like ruby")
+
+        matches = manager.search_conversation(
+            "python",
+            match_mode="fuzzy",
+            fuzzy_threshold=0.8,
+        )
+
+        assert len(matches) == 1
+        assert matches[0].content == "I like pythonn"

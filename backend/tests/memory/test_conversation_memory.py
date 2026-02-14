@@ -230,6 +230,25 @@ class TestConversationMemory:
 
         assert len(matches) == 2
 
+    def test_search_messages_supports_fuzzy_matching(self):
+        """Fuzzy mode should tolerate minor typos."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("I use pythonn for scripts")
+        memory.add_ai_message("JavaScript is also nice")
+
+        matches = memory.search_messages(
+            "python",
+            match_mode="fuzzy",
+            fuzzy_threshold=0.8,
+        )
+
+        assert len(matches) == 1
+        assert matches[0].content == "I use pythonn for scripts"
+
     def test_search_messages_rejects_invalid_inputs(self):
         """Test validation errors for invalid search parameters."""
         memory = ConversationMemory(
@@ -247,7 +266,14 @@ class TestConversationMemory:
             memory.search_messages("hello", limit=0)
 
         with pytest.raises(ValueError, match="match_mode must be one of"):
-            memory.search_messages("hello", match_mode="fuzzy")
+            memory.search_messages("hello", match_mode="semantic")
+
+        with pytest.raises(ValueError, match="fuzzy_threshold must be in"):
+            memory.search_messages(
+                "hello",
+                match_mode="fuzzy",
+                fuzzy_threshold=1.2,
+            )
 
         with pytest.raises(ValueError, match="invalid regular expression"):
             memory.search_messages("(", match_mode="regex")

@@ -219,6 +219,7 @@ class MemoryManager:
         last_n: Optional[int] = None,
         limit: Optional[int] = None,
         match_mode: str = "substring",
+        fuzzy_threshold: float = 0.75,
     ) -> List[BaseMessage]:
         """Search conversation memory for keyword or pattern matches.
 
@@ -228,7 +229,8 @@ class MemoryManager:
             case_sensitive: Whether search should be case-sensitive
             last_n: Restrict search to the last N messages
             limit: Maximum number of matched messages to return
-            match_mode: Matching strategy (substring, word, regex)
+            match_mode: Matching strategy (substring, word, regex, fuzzy)
+            fuzzy_threshold: Similarity threshold when using fuzzy mode (0-1)
 
         Returns:
             Matching conversation messages
@@ -240,6 +242,7 @@ class MemoryManager:
             last_n=last_n,
             limit=limit,
             match_mode=match_mode,
+            fuzzy_threshold=fuzzy_threshold,
         )
 
     def get_conversation_context(self) -> str:

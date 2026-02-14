@@ -6,6 +6,7 @@ context across multiple turns in agent conversations.
 
 import logging
 import re
+from difflib import SequenceMatcher
 from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime
 
@@ -173,7 +174,8 @@ class ConversationMemory:
         case_sensitive: bool = False,
         last_n: Optional[int] = None,
         limit: Optional[int] = None,
-        match_mode: Literal["substring", "word", "regex"] = "substring",
+        match_mode: Literal["substring", "word", "regex", "fuzzy"] = "substring",
+        fuzzy_threshold: float = 0.75,
     ) -> List[BaseMessage]:
         """Search conversation messages by query text and optional role.
 
@@ -187,12 +189,14 @@ class ConversationMemory:
                 - "substring": query appears anywhere in content (default)
                 - "word": query matches whole-word boundaries
                 - "regex": query is treated as a regular expression
+                - "fuzzy": typo-tolerant matching using similarity ratio
+            fuzzy_threshold: Similarity threshold used by fuzzy matching (0-1)
 
         Returns:
             List of matched messages in chronological order
 
         Raises:
-            ValueError: If query/role/limit/match_mode values are invalid
+            ValueError: If query/role/limit/match_mode/fuzzy_threshold is invalid
         """
         normalized_query = query.strip()
         if not normalized_query:
@@ -206,8 +210,11 @@ class ConversationMemory:
             raise ValueError("limit must be greater than 0")
 
         normalized_match_mode = match_mode.lower()
-        if normalized_match_mode not in {"substring", "word", "regex"}:
-            raise ValueError("match_mode must be one of: substring, word, regex")
+        if normalized_match_mode not in {"substring", "word", "regex", "fuzzy"}:
+            raise ValueError("match_mode must be one of: substring, word, regex, fuzzy")
+
+        if not (0.0 <= fuzzy_threshold <= 1.0):
+            raise ValueError("fuzzy_threshold must be in [0, 1]")
 
         target_query = normalized_query if case_sensitive else normalized_query.lower()
         regex_pattern: Optional[re.Pattern[str]] = None
@@ -236,9 +243,16 @@ class ConversationMemory:
 
             if normalized_match_mode == "substring":
                 is_match = target_query in searchable_content
-            else:
+            elif normalized_match_mode in {"word", "regex"}:
                 # regex_pattern is guaranteed for "word" and "regex" modes.
                 is_match = bool(regex_pattern and regex_pattern.search(content))
+            else:
+                is_match = self._fuzzy_match(
+                    query=normalized_query,
+                    content=content,
+                    case_sensitive=case_sensitive,
+                    threshold=fuzzy_threshold,
+                )
 
             if is_match:
                 matches.append(message)
@@ -247,6 +261,51 @@ class ConversationMemory:
                     break
 
         return matches
+
+    @staticmethod
+    def _tokenize_for_fuzzy_match(text: str) -> List[str]:
+        """Return lowercase-ish word tokens used by fuzzy matching."""
+        return re.findall(r"\w+", text)
+
+    @classmethod
+    def _fuzzy_match(
+        cls,
+        *,
+        query: str,
+        content: str,
+        case_sensitive: bool,
+        threshold: float,
+    ) -> bool:
+        """Determine if content approximately matches query using token windows."""
+        normalized_query = query if case_sensitive else query.lower()
+        normalized_content = content if case_sensitive else content.lower()
+
+        # Fast path for exact containment.
+        if normalized_query in normalized_content:
+            return True
+
+        query_tokens = cls._tokenize_for_fuzzy_match(normalized_query)
+        content_tokens = cls._tokenize_for_fuzzy_match(normalized_content)
+
+        if not query_tokens or not content_tokens:
+            return False
+
+        window_size = len(query_tokens)
+        if window_size == 1:
+            candidates = content_tokens
+        elif len(content_tokens) < window_size:
+            candidates = [" ".join(content_tokens)]
+        else:
+            candidates = [
+                " ".join(content_tokens[index : index + window_size])
+                for index in range(len(content_tokens) - window_size + 1)
+            ]
+
+        max_similarity = max(
+            SequenceMatcher(None, normalized_query, candidate).ratio()
+            for candidate in candidates
+        )
+        return max_similarity >= threshold
 
     def get_context(self) -> str:
         """
