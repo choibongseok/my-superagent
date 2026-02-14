@@ -220,6 +220,67 @@ class Plugin(ToolPlugin):
 
         return round(api_visibility_meters, 1), "m"
 
+    @staticmethod
+    def _extract_precipitation_amount(data: Dict[str, Any], period: str) -> float | None:
+        """Return combined rain/snow precipitation (mm) for the requested period."""
+        total_precipitation = 0.0
+        has_precipitation = False
+
+        for precipitation_kind in ("rain", "snow"):
+            precipitation_data = data.get(precipitation_kind)
+            if not isinstance(precipitation_data, dict):
+                continue
+
+            precipitation_value = precipitation_data.get(period)
+            if precipitation_value is None:
+                continue
+
+            try:
+                total_precipitation += float(precipitation_value)
+                has_precipitation = True
+            except (TypeError, ValueError):
+                continue
+
+        if not has_precipitation:
+            return None
+
+        return round(total_precipitation, 1)
+
+    @staticmethod
+    def _determine_precipitation_type(data: Dict[str, Any]) -> str | None:
+        """Determine whether precipitation is rain, snow, or mixed."""
+        has_rain = isinstance(data.get("rain"), dict)
+        has_snow = isinstance(data.get("snow"), dict)
+
+        if has_rain and has_snow:
+            return "mixed"
+        if has_rain:
+            return "rain"
+        if has_snow:
+            return "snow"
+
+        return None
+
+    @staticmethod
+    def _format_precipitation_summary(
+        *,
+        precipitation_type: str | None,
+        precipitation_1h: float | None,
+        precipitation_3h: float | None,
+    ) -> str | None:
+        """Format precipitation values for user-facing output."""
+        intervals: list[str] = []
+        if precipitation_1h is not None:
+            intervals.append(f"1h {precipitation_1h} mm")
+        if precipitation_3h is not None:
+            intervals.append(f"3h {precipitation_3h} mm")
+
+        if not intervals:
+            return None
+
+        label = precipitation_type.title() if precipitation_type else "Precipitation"
+        return f"{label} ({', '.join(intervals)})"
+
     def _build_mock_weather_response(self, location: str, units: str) -> Dict[str, Any]:
         """Build deterministic mock weather data for offline/test mode."""
         temperature_celsius = 22.5
@@ -263,6 +324,9 @@ class Plugin(ToolPlugin):
             "wind_speed": wind_speed,
             "visibility": visibility,
             "visibility_unit": visibility_unit,
+            "precipitation_1h": None,
+            "precipitation_3h": None,
+            "precipitation_type": None,
             "units": units,
         }
 
@@ -503,6 +567,9 @@ class Plugin(ToolPlugin):
                 "wind_speed": float,
                 "visibility": float | None,
                 "visibility_unit": str | None,
+                "precipitation_1h": float | None,
+                "precipitation_3h": float | None,
+                "precipitation_type": str | None,
                 "units": str
             }
         """
@@ -588,6 +655,10 @@ class Plugin(ToolPlugin):
                         resolved_units,
                     )
 
+                precipitation_1h = self._extract_precipitation_amount(data, "1h")
+                precipitation_3h = self._extract_precipitation_amount(data, "3h")
+                precipitation_type = self._determine_precipitation_type(data)
+
                 result = {
                     "location": data.get("name") or normalized_location,
                     "temperature": temperature,
@@ -601,6 +672,9 @@ class Plugin(ToolPlugin):
                     ),
                     "visibility": visibility,
                     "visibility_unit": visibility_unit,
+                    "precipitation_1h": precipitation_1h,
+                    "precipitation_3h": precipitation_3h,
+                    "precipitation_type": precipitation_type,
                     "units": resolved_units,
                 }
 
@@ -654,6 +728,11 @@ class Plugin(ToolPlugin):
         pressure = result.get("pressure")
         visibility = result.get("visibility")
         visibility_unit = result.get("visibility_unit")
+        precipitation_summary = self._format_precipitation_summary(
+            precipitation_type=result.get("precipitation_type"),
+            precipitation_1h=result.get("precipitation_1h"),
+            precipitation_3h=result.get("precipitation_3h"),
+        )
 
         lines = [
             f"Weather in {result['location']}:",
@@ -669,6 +748,8 @@ class Plugin(ToolPlugin):
         if visibility is not None:
             visibility_suffix = f" {visibility_unit}" if visibility_unit else ""
             lines.append(f"Visibility: {visibility}{visibility_suffix}")
+        if precipitation_summary is not None:
+            lines.append(f"Precipitation: {precipitation_summary}")
 
         return "\n".join(lines)
 
@@ -687,7 +768,7 @@ class Plugin(ToolPlugin):
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
             "Set refresh_cache=true to bypass cached responses and force a fresh API fetch. "
-            "Returns temperature, feels-like temperature, weather condition, humidity, pressure, wind speed, and visibility. "
+            "Returns temperature, feels-like temperature, weather condition, humidity, pressure, wind speed, visibility, and precipitation summaries when available. "
             "Requires OpenWeatherMap API key in plugin config."
         )
 
@@ -695,8 +776,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.14.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, and pressure/visibility details",
+            version="1.15.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, pressure/visibility details, and precipitation insights",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -728,6 +809,9 @@ class Plugin(ToolPlugin):
                 "wind_speed": "float",
                 "visibility": "float | null",
                 "visibility_unit": "string | null (km, mi, or m)",
+                "precipitation_1h": "float | null (mm of rain/snow in the last 1 hour)",
+                "precipitation_3h": "float | null (mm of rain/snow in the last 3 hours)",
+                "precipitation_type": "string | null (rain, snow, mixed)",
                 "units": "string (metric, imperial, or standard)",
             },
         )
