@@ -668,6 +668,75 @@ def run_async_filter_batched(
     ]
 
 
+def run_async_count(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> int:
+    """Count items matching an async predicate from synchronous code.
+
+    Args:
+        coro_predicate: Async callable returning ``True`` when item is counted.
+        items: Iterable of candidate values.
+        timeout: Optional timeout in seconds for the full predicate run.
+        max_concurrency: Optional cap on predicate concurrency.
+
+    Returns:
+        Number of items whose predicate result is ``True``.
+
+    Raises:
+        TypeError: If predicate is not callable or returns non-bool values.
+        ValueError: If timeout/max_concurrency are invalid.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    if not callable(coro_predicate):
+        raise TypeError("run_async_count expects a callable coro_predicate")
+
+    predicate_results = run_async_map(
+        coro_predicate,
+        list(items),
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    return sum(
+        _coerce_filter_result(include, function_name="run_async_count")
+        for include in predicate_results
+    )
+
+
+def run_async_count_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> int:
+    """Batch-oriented variant of :func:`run_async_count`.
+
+    This helper bounds in-memory awaitable creation for large iterables while
+    counting predicate matches.
+    """
+    if not callable(coro_predicate):
+        raise TypeError("run_async_count_batched expects a callable coro_predicate")
+
+    predicate_results = run_async_map_batched(
+        coro_predicate,
+        list(items),
+        batch_size=batch_size,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    return sum(
+        _coerce_filter_result(include, function_name="run_async_count_batched")
+        for include in predicate_results
+    )
+
+
 def run_async_partition(
     coro_predicate: Callable[[I], Awaitable[bool]],
     items: Iterable[I],

@@ -6,6 +6,8 @@ import pytest
 
 from app.core.async_runner import (
     run_async,
+    run_async_count,
+    run_async_count_batched,
     run_async_dict,
     run_async_filter,
     run_async_filter_batched,
@@ -776,6 +778,55 @@ def test_run_async_filter_batched_rejects_non_positive_batch_size_for_empty_item
 
     with pytest.raises(ValueError, match="batch_size must be greater than 0"):
         run_async_filter_batched(_always_true, [], batch_size=0)
+
+
+def test_run_async_count_returns_number_of_matching_items():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_count(_is_even, [1, 2, 3, 4, 5]) == 2
+
+
+@pytest.mark.asyncio
+async def test_run_async_count_with_existing_event_loop_returns_count():
+    async def _contains_agent(value: str) -> bool:
+        await asyncio.sleep(0.01)
+        return "agent" in value
+
+    assert run_async_count(_contains_agent, ["agent-1", "task-2", "agent-3"]) == 2
+
+
+def test_run_async_count_rejects_non_bool_predicate_results():
+    async def _invalid(_: int) -> str:
+        return "yes"
+
+    with pytest.raises(TypeError, match="predicate must return bool"):
+        run_async_count(_invalid, [1])
+
+
+def test_run_async_count_batched_returns_number_of_matching_items():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_count_batched(_is_even, [1, 2, 3, 4, 5], batch_size=2) == 2
+
+
+def test_run_async_count_batched_rejects_non_bool_predicate_results():
+    async def _invalid(_: int) -> int:
+        return 1
+
+    with pytest.raises(TypeError, match="predicate must return bool"):
+        run_async_count_batched(_invalid, [1], batch_size=1)
+
+
+def test_run_async_count_batched_rejects_non_positive_batch_size_for_empty_items():
+    async def _always_true(_: int) -> bool:
+        return True
+
+    with pytest.raises(ValueError, match="batch_size must be greater than 0"):
+        run_async_count_batched(_always_true, [], batch_size=0)
 
 
 def test_run_async_find_returns_first_item_matching_predicate():
