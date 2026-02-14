@@ -111,9 +111,7 @@ class VectorStoreMemory:
             )
 
             # Create retriever
-            self.retriever = self.vector_store.as_retriever(
-                search_kwargs={"k": top_k}
-            )
+            self.retriever = self.vector_store.as_retriever(search_kwargs={"k": top_k})
 
             # LangChain memory wrapper
             self.memory = VectorStoreRetrieverMemory(
@@ -203,9 +201,7 @@ class VectorStoreMemory:
                 "timestamp": datetime.utcnow().isoformat(),
                 **metadata,
             }
-            documents.append(
-                Document(page_content=content, metadata=memory_metadata)
-            )
+            documents.append(Document(page_content=content, metadata=memory_metadata))
 
         ids = self.vector_store.add_documents(documents)
 
@@ -217,17 +213,15 @@ class VectorStoreMemory:
         return ids
 
     def _classify_relevance(
-        self, 
-        score: float, 
-        adaptive_threshold: Optional[float] = None
+        self, score: float, adaptive_threshold: Optional[float] = None
     ) -> tuple[str, str]:
         """
         Classify relevance and confidence levels based on similarity score.
-        
+
         Args:
             score: Similarity score (0-1)
             adaptive_threshold: Optional adaptive threshold for dynamic classification
-            
+
         Returns:
             Tuple of (relevance_level, confidence_level)
             - relevance: "high", "medium", "low", "very_low"
@@ -235,11 +229,10 @@ class VectorStoreMemory:
         """
         # Dynamic relevance classification based on score distribution
         # Combines adaptive threshold awareness with absolute quality bounds
-        dynamic_high = (
-            adaptive_threshold is not None 
-            and score >= max(adaptive_threshold * 1.3, 0.8)
+        dynamic_high = adaptive_threshold is not None and score >= max(
+            adaptive_threshold * 1.3, 0.8
         )
-        
+
         if dynamic_high or score >= 0.85:
             relevance = "high"
         elif score >= 0.7:
@@ -248,7 +241,7 @@ class VectorStoreMemory:
             relevance = "low"
         else:
             relevance = "very_low"
-        
+
         # Confidence classification
         if score >= 0.85:
             confidence = "strong"
@@ -256,8 +249,32 @@ class VectorStoreMemory:
             confidence = "moderate"
         else:
             confidence = "weak"
-            
+
         return relevance, confidence
+
+    def _build_user_scoped_filter(
+        self,
+        filter_dict: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Build a metadata filter scoped to the current user.
+
+        Args:
+            filter_dict: Optional metadata filter from caller.
+
+        Returns:
+            Filter dictionary with enforced ``user_id``.
+
+        Raises:
+            ValueError: If filter_dict is provided and is not a dictionary.
+        """
+        if filter_dict is None:
+            return {"user_id": self.user_id}
+
+        if not isinstance(filter_dict, dict):
+            raise ValueError("filter_dict must be a dictionary when provided")
+
+        # Enforce user scoping even if caller tries to override user_id.
+        return {**filter_dict, "user_id": self.user_id}
 
     def search(
         self,
@@ -279,16 +296,10 @@ class VectorStoreMemory:
         k = k or self.top_k
 
         # Build search kwargs
-        search_kwargs = {"k": k}
-        if filter_dict:
-            # Add user_id filter
-            filter_dict = {
-                "user_id": self.user_id,
-                **filter_dict,
-            }
-            search_kwargs["filter"] = filter_dict
-        else:
-            search_kwargs["filter"] = {"user_id": self.user_id}
+        search_kwargs = {
+            "k": k,
+            "filter": self._build_user_scoped_filter(filter_dict),
+        }
 
         # Search
         results = self.vector_store.similarity_search(query, **search_kwargs)
@@ -313,6 +324,7 @@ class VectorStoreMemory:
         self,
         query: str,
         k: Optional[int] = None,
+        filter_dict: Optional[Dict[str, Any]] = None,
         score_threshold: Optional[float] = None,
         adaptive_threshold: bool = True,
         adaptive_std_multiplier: float = 1.5,
@@ -324,6 +336,7 @@ class VectorStoreMemory:
         Args:
             query: Search query
             k: Number of results
+            filter_dict: Optional metadata filters (always scoped to current user)
             score_threshold: Minimum similarity score (0-1). If None and
                 adaptive_threshold is True, will be calculated based on result quality.
             adaptive_threshold: When True and score_threshold is None, automatically
@@ -335,21 +348,28 @@ class VectorStoreMemory:
 
         Returns:
             List of memories with scores and enhanced relevance metadata
-            
+
         Raises:
             ValueError: If score_threshold is not in [0, 1] range or if parameters are invalid
         """
         # Input validation
         if score_threshold is not None and not (0.0 <= score_threshold <= 1.0):
-            raise ValueError(f"score_threshold must be in [0, 1], got {score_threshold}")
-        
+            raise ValueError(
+                f"score_threshold must be in [0, 1], got {score_threshold}"
+            )
+
         if not (0.0 <= min_adaptive_threshold <= 1.0):
-            raise ValueError(f"min_adaptive_threshold must be in [0, 1], got {min_adaptive_threshold}")
-        
+            raise ValueError(
+                f"min_adaptive_threshold must be in [0, 1], got {min_adaptive_threshold}"
+            )
+
         if adaptive_std_multiplier < 0:
-            raise ValueError(f"adaptive_std_multiplier must be non-negative, got {adaptive_std_multiplier}")
-        
+            raise ValueError(
+                f"adaptive_std_multiplier must be non-negative, got {adaptive_std_multiplier}"
+            )
+
         k = k or self.top_k
+        search_filter = self._build_user_scoped_filter(filter_dict)
 
         # Use a low initial threshold or None to get all candidates
         initial_threshold = score_threshold if score_threshold is not None else 0.0
@@ -358,7 +378,7 @@ class VectorStoreMemory:
             query,
             k=k * 2 if adaptive_threshold and score_threshold is None else k,
             score_threshold=initial_threshold,
-            filter={"user_id": self.user_id},
+            filter=search_filter,
         )
 
         # Validate and sanitize scores from vector store
@@ -375,17 +395,17 @@ class VectorStoreMemory:
                     f"Score {score} out of [0, 1] range, clamped to {clamped_score}"
                 )
             sanitized_results.append((doc, clamped_score))
-        
+
         results = sanitized_results
 
         # Apply adaptive threshold if requested and no explicit threshold provided
         applied_threshold = score_threshold
-        
+
         # Handle empty results early
         if len(results) == 0:
             logger.debug(f"No results found for query: '{query[:50]}...'")
             return []
-        
+
         # Handle single-result edge case
         if adaptive_threshold and score_threshold is None and len(results) == 1:
             single_score = results[0][1]
@@ -407,24 +427,26 @@ class VectorStoreMemory:
         elif adaptive_threshold and score_threshold is None and len(results) > 1:
             scores = [score for _, score in results]
             mean_score = sum(scores) / len(scores)
-            
+
             # Calculate standard deviation with Bessel's correction for sample variance
             # Using n-1 instead of n provides better estimate for population variance
-            variance = sum((s - mean_score) ** 2 for s in scores) / max(len(scores) - 1, 1)
-            std_dev = variance ** 0.5
-            
+            variance = sum((s - mean_score) ** 2 for s in scores) / max(
+                len(scores) - 1, 1
+            )
+            std_dev = variance**0.5
+
             # Dynamic threshold based on score distribution
             # Uses coefficient of variation (CV) to adjust sensitivity:
             # - High CV (diverse scores) -> more selective (higher threshold)
             # - Low CV (similar scores) -> less selective (lower threshold)
             cv = std_dev / mean_score if mean_score > 0 else 0
-            
+
             # Adjust multiplier based on variation
             # More variation = stricter filtering to avoid low-quality outliers
             # Cap CV influence to prevent extreme adjustments
             cv_adjustment = min(cv * 0.5, 0.8)
             dynamic_multiplier = adaptive_std_multiplier * (1 + cv_adjustment)
-            
+
             # Keep results within dynamic standard deviations below mean
             # Special case: if std_dev is near-zero (all scores virtually identical)
             if std_dev < SCORE_EPSILON:
@@ -432,10 +454,14 @@ class VectorStoreMemory:
                 # But ensure we still filter out uniformly low-quality results
                 if mean_score >= 0.7:
                     # High uniform quality - accept all
-                    adaptive_threshold_value = max(min_adaptive_threshold, mean_score * 0.95)
+                    adaptive_threshold_value = max(
+                        min_adaptive_threshold, mean_score * 0.95
+                    )
                 elif mean_score >= 0.5:
                     # Medium uniform quality - be slightly more selective
-                    adaptive_threshold_value = max(min_adaptive_threshold, mean_score * 0.9)
+                    adaptive_threshold_value = max(
+                        min_adaptive_threshold, mean_score * 0.9
+                    )
                 else:
                     # Low uniform quality - use minimum threshold to filter
                     adaptive_threshold_value = min_adaptive_threshold
@@ -445,34 +471,37 @@ class VectorStoreMemory:
                     )
             else:
                 adaptive_threshold_value = max(
-                    min_adaptive_threshold,
-                    mean_score - dynamic_multiplier * std_dev
+                    min_adaptive_threshold, mean_score - dynamic_multiplier * std_dev
                 )
-            
+
             # Additional safeguard: if top score is very high, be more selective
             # Use a smooth transition based on top score quality
             top_score = max(scores)
             # Clamp top_score to [0, 1] as a safety guard (shouldn't exceed 1.0 in normal operation)
             top_score = min(max(top_score, 0.0), 1.0)
-            
+
             if top_score >= 0.85:
                 # Scale selectivity based on top score quality
                 # High scores (0.85-1.0) require proportionally higher threshold
                 # Linear interpolation: 0.85->0.65, 1.0->0.70 (clamped to prevent overflow)
                 score_range = min(top_score - 0.85, 0.15)  # Max 0.15 for top_score=1.0
-                selectivity_factor = 0.65 + score_range * (0.33 / 0.15)  # Normalized multiplier
+                selectivity_factor = 0.65 + score_range * (
+                    0.33 / 0.15
+                )  # Normalized multiplier
                 top_score_threshold = top_score * selectivity_factor
                 adaptive_threshold_value = max(
-                    adaptive_threshold_value,
-                    top_score_threshold
+                    adaptive_threshold_value, top_score_threshold
                 )
-            
+
             # Filter results
-            results = [(doc, score) for doc, score in results 
-                      if score >= adaptive_threshold_value][:k]
-            
+            results = [
+                (doc, score)
+                for doc, score in results
+                if score >= adaptive_threshold_value
+            ][:k]
+
             applied_threshold = adaptive_threshold_value
-            
+
             logger.debug(
                 f"Applied adaptive threshold: {adaptive_threshold_value:.3f} "
                 f"(mean={mean_score:.3f}, std={std_dev:.3f}, cv={cv:.3f}, "
@@ -482,7 +511,7 @@ class VectorStoreMemory:
         formatted_results = []
         for doc, score in results:
             relevance, confidence = self._classify_relevance(score, applied_threshold)
-            
+
             formatted_results.append(
                 {
                     "content": doc.page_content,
@@ -494,9 +523,7 @@ class VectorStoreMemory:
             )
 
         threshold_label = (
-            f"{applied_threshold:.3f}"
-            if applied_threshold is not None
-            else "N/A"
+            f"{applied_threshold:.3f}" if applied_threshold is not None else "N/A"
         )
         logger.debug(
             f"Found {len(formatted_results)} memories above threshold "
@@ -528,9 +555,7 @@ class VectorStoreMemory:
         context_parts = []
         for i, result in enumerate(results, 1):
             timestamp = result["metadata"].get("timestamp", "Unknown")
-            context_parts.append(
-                f"[Memory {i}] ({timestamp})\n{result['content']}"
-            )
+            context_parts.append(f"[Memory {i}] ({timestamp})\n{result['content']}")
 
         return "\n\n".join(context_parts)
 
