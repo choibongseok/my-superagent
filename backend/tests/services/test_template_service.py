@@ -689,6 +689,116 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_round_transform_with_precision(
+        self, service_with_mock_db
+    ):
+        """round(ndigits) should round numeric values to requested precision."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Confidence: {score->round(2)}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"score": 0.9876},
+                user_id,
+            )
+
+        assert result["prompt"] == "Confidence: 0.99"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_round_transform_without_arguments(
+        self, service_with_mock_db
+    ):
+        """round should default to whole-number rounding when no precision is set."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Estimate: {estimate->round}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"estimate": "12.6"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Estimate: 13"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_round_transform_with_invalid_precision(
+        self, service_with_mock_db
+    ):
+        """round should fail fast when ndigits is not an integer."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Score: {score->round(two)}",
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'round\(two\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"score": 0.42},
+                    user_id,
+                )
+
+        assert template.usage_count == 1
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_round_transform_for_non_numeric_values(
+        self, service_with_mock_db
+    ):
+        """round should reject values that cannot be coerced into numbers."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Score: {score->round(2)}",
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'round\(2\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"score": "high"},
+                    user_id,
+                )
+
+        assert template.usage_count == 3
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_json_transform(self, service_with_mock_db):
         """json transform should serialize nested values into compact JSON."""
         service, db = service_with_mock_db

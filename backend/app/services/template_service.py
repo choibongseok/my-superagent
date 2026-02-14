@@ -455,6 +455,34 @@ def _length_of(value: object) -> int:
         raise ValueError("length expects a sized or iterable value") from exc
 
 
+def _round_numeric(value: object, argument_spec: str) -> int | float:
+    """Round numeric values with optional decimal precision."""
+    args: list[str] = []
+    if argument_spec.strip():
+        args = _parse_transform_args(argument_spec)
+
+    if len(args) > 1:
+        raise ValueError("round expects zero or one argument: ndigits")
+
+    if isinstance(value, bool):
+        raise ValueError("round expects a numeric value")
+
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("round expects a numeric value") from exc
+
+    if not args:
+        return round(numeric_value)
+
+    try:
+        ndigits = int(args[0].strip())
+    except ValueError as exc:
+        raise ValueError("round ndigits must be an integer") from exc
+
+    return round(numeric_value, ndigits)
+
+
 def _fallback_value(value: object, argument_spec: str) -> object:
     """Return fallback when values are missing, blank, or empty collections."""
     args = _parse_transform_args(argument_spec)
@@ -727,6 +755,7 @@ class TemplateService:
         - ``{title->slug}``
         - ``{summary->compact}``
         - ``{ticket->prepend("#")}``, ``{title->append(" ✅")}``
+        - ``{score->round(2)}``
         - ``{nickname->strip->fallback("friend")}``
 
         Returns:
@@ -776,6 +805,7 @@ class TemplateService:
             "first": lambda raw: _select_boundary_item(raw, "first"),
             "last": lambda raw: _select_boundary_item(raw, "last"),
             "reverse": _reverse_value,
+            "round": lambda raw: _round_numeric(raw, ""),
         }
         supported_transforms = sorted(
             [
@@ -794,6 +824,7 @@ class TemplateService:
                 "slice(<start>[,<end>[,<step>]])",
                 "fallback(<value>)",
                 "indent([prefix])",
+                "round([ndigits])",
             ]
         )
 
@@ -864,6 +895,10 @@ class TemplateService:
                     )
                 elif transform_name == "indent":
                     operation = lambda raw, spec=argument_spec: _indent_text(raw, spec)
+                elif transform_name == "round":
+                    operation = lambda raw, spec=argument_spec: _round_numeric(
+                        raw, spec
+                    )
 
             if operation is None:
                 supported = ", ".join(supported_transforms)
@@ -942,7 +977,8 @@ class TemplateService:
         ``{payload->json}``, ``{payload->json_pretty}``,
         ``{search_query->urlencode}``, ``{title->slug}``,
         ``{summary->compact}``, ``{ticket->prepend("#")}``,
-        ``{title->append(" ✅")}``, or ``{nickname->strip->fallback("friend")}``).
+        ``{title->append(" ✅")}``, ``{score->round(2)}``,
+        or ``{nickname->strip->fallback("friend")}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)
