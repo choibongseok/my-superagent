@@ -1390,6 +1390,58 @@ class CitationTracker:
         logger.debug("Deleted citation: %s", citation_id)
         return True
 
+    @staticmethod
+    def _normalize_identifier_batch(
+        identifiers: str | Iterable[str],
+        *,
+        argument_name: str,
+    ) -> list[str]:
+        """Normalize batch identifier arguments for bulk delete helpers."""
+        if isinstance(identifiers, str):
+            raw_identifiers = [identifiers]
+        else:
+            raw_identifiers = list(identifiers)
+
+        if not raw_identifiers:
+            raise ValueError(f"{argument_name} must include at least one id")
+
+        normalized_identifiers: list[str] = []
+        seen: set[str] = set()
+
+        for identifier in raw_identifiers:
+            if not isinstance(identifier, str):
+                raise ValueError(f"{argument_name} must contain only string ids")
+
+            normalized_identifier = identifier.strip()
+            if not normalized_identifier:
+                raise ValueError(f"{argument_name} must contain non-empty ids")
+
+            if normalized_identifier in seen:
+                continue
+
+            seen.add(normalized_identifier)
+            normalized_identifiers.append(normalized_identifier)
+
+        return normalized_identifiers
+
+    def delete_citations(
+        self,
+        citation_ids: str | Iterable[str],
+    ) -> Dict[str, bool]:
+        """Delete multiple citations and return per-id removal status.
+
+        Duplicate IDs are processed once in first-seen order.
+        """
+        normalized_citation_ids = self._normalize_identifier_batch(
+            citation_ids,
+            argument_name="citation_ids",
+        )
+
+        return {
+            citation_id: self.delete_citation(citation_id)
+            for citation_id in normalized_citation_ids
+        }
+
     def delete_source(self, source_id: str, cascade: bool = True) -> bool:
         """Delete a source by ID.
 
@@ -1444,6 +1496,26 @@ class CitationTracker:
             len(dependent_citation_ids),
         )
         return True
+
+    def delete_sources(
+        self,
+        source_ids: str | Iterable[str],
+        *,
+        cascade: bool = True,
+    ) -> Dict[str, bool]:
+        """Delete multiple sources and return per-id removal status.
+
+        Duplicate IDs are processed once in first-seen order.
+        """
+        normalized_source_ids = self._normalize_identifier_batch(
+            source_ids,
+            argument_name="source_ids",
+        )
+
+        return {
+            source_id: self.delete_source(source_id, cascade=cascade)
+            for source_id in normalized_source_ids
+        }
 
     def clear(self) -> None:
         """Clear all sources and citations."""

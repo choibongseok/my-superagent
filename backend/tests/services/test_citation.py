@@ -1319,6 +1319,50 @@ class TestCitationTracker:
         assert tracker.get_citation(citation.id) is None
         assert tracker.delete_citation(citation.id) is False
 
+    def test_delete_citations_returns_per_id_status_and_deduplicates_inputs(self):
+        """Bulk citation deletion should report outcomes once per unique id."""
+        tracker = CitationTracker()
+        source_id = tracker.add_source(title="Batch Citation Source")
+        citation_one = tracker.cite(source_id, quoted_text="One")
+        citation_two = tracker.cite(source_id, quoted_text="Two")
+
+        assert citation_one is not None
+        assert citation_two is not None
+
+        result = tracker.delete_citations(
+            [citation_one.id, citation_one.id, "missing-citation", citation_two.id]
+        )
+
+        assert result == {
+            citation_one.id: True,
+            "missing-citation": False,
+            citation_two.id: True,
+        }
+        assert tracker.get_citation(citation_one.id) is None
+        assert tracker.get_citation(citation_two.id) is None
+
+    def test_delete_citations_validates_batch_input(self):
+        """Bulk citation deletion should reject empty and malformed id payloads."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="citation_ids must include at least one id",
+        ):
+            tracker.delete_citations([])
+
+        with pytest.raises(
+            ValueError,
+            match="citation_ids must contain only string ids",
+        ):
+            tracker.delete_citations([123])
+
+        with pytest.raises(
+            ValueError,
+            match="citation_ids must contain non-empty ids",
+        ):
+            tracker.delete_citations(["   "])
+
     def test_delete_source_cascade_removes_source_citations_and_lookups(self):
         """Cascade deletion should remove source, citation references, and lookup indexes."""
         tracker = CitationTracker()
@@ -1356,6 +1400,48 @@ class TestCitationTracker:
         assert tracker.delete_source(source_id, cascade=False) is False
         assert tracker.get_source(source_id) is not None
         assert tracker.get_citation(citation.id) is not None
+
+    def test_delete_sources_supports_bulk_deletion_with_mixed_outcomes(self):
+        """Bulk source deletion should return per-id statuses in stable order."""
+        tracker = CitationTracker()
+        removable_id = tracker.add_source(title="Removable")
+        blocked_id = tracker.add_source(title="Blocked")
+        tracker.cite(blocked_id, quoted_text="Still referenced")
+
+        result = tracker.delete_sources(
+            [removable_id, blocked_id, "missing-source", removable_id],
+            cascade=False,
+        )
+
+        assert result == {
+            removable_id: True,
+            blocked_id: False,
+            "missing-source": False,
+        }
+        assert tracker.get_source(removable_id) is None
+        assert tracker.get_source(blocked_id) is not None
+
+    def test_delete_sources_validates_batch_input(self):
+        """Bulk source deletion should reject empty and malformed id payloads."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="source_ids must include at least one id",
+        ):
+            tracker.delete_sources([])
+
+        with pytest.raises(
+            ValueError,
+            match="source_ids must contain only string ids",
+        ):
+            tracker.delete_sources([123])
+
+        with pytest.raises(
+            ValueError,
+            match="source_ids must contain non-empty ids",
+        ):
+            tracker.delete_sources(["   "])
 
     def test_clear_tracker(self):
         """Test clearing all citations and sources."""
