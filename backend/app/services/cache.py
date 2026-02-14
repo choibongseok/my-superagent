@@ -1145,9 +1145,15 @@ class LocalCacheService:
 
         return len(expired_keys)
 
+    def _all_known_keys(self) -> set[str]:
+        """Return keys known to cache storage or in-flight population tasks."""
+        return set(self._store) | set(self._inflight)
+
     def clear_prefix(self, prefix: str) -> int:
         """Delete all keys that start with ``prefix`` and return removal count."""
-        matching_keys = [key for key in self._store if key.startswith(prefix)]
+        matching_keys = [
+            key for key in self._all_known_keys() if key.startswith(prefix)
+        ]
         return self.delete_many(matching_keys)
 
     def clear_prefixes(self, prefixes: Iterable[str]) -> int:
@@ -1162,7 +1168,7 @@ class LocalCacheService:
 
         matching_keys = {
             key
-            for key in self._store
+            for key in self._all_known_keys()
             if any(key.startswith(prefix) for prefix in prefix_list)
         }
         return self.delete_many(matching_keys)
@@ -1173,7 +1179,9 @@ class LocalCacheService:
         Pattern syntax follows :mod:`fnmatch` conventions (for example,
         ``"user:*:profile"`` or ``"workspace:?"``).
         """
-        matching_keys = [key for key in self._store if fnmatchcase(key, pattern)]
+        matching_keys = [
+            key for key in self._all_known_keys() if fnmatchcase(key, pattern)
+        ]
         return self.delete_many(matching_keys)
 
     def clear_patterns(self, patterns: Iterable[str]) -> int:
@@ -1184,7 +1192,7 @@ class LocalCacheService:
 
         matching_keys = {
             key
-            for key in self._store
+            for key in self._all_known_keys()
             if any(fnmatchcase(key, pattern) for pattern in pattern_list)
         }
         return self.delete_many(matching_keys)

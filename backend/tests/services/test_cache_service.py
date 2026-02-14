@@ -1180,6 +1180,90 @@ def test_local_cache_clear_patterns_returns_zero_for_empty_patterns():
     assert cache.get("stable") == "value"
 
 
+@pytest.mark.asyncio
+async def test_local_cache_clear_prefix_cancels_matching_inflight_tasks():
+    cache = LocalCacheService()
+    gate = asyncio.Event()
+
+    async def factory() -> str:
+        await gate.wait()
+        return "ready"
+
+    task = asyncio.create_task(cache.get_or_set_async("session:pending", factory))
+    await asyncio.sleep(0)
+
+    removed = cache.clear_prefix("session:")
+    gate.set()
+
+    assert removed == 1
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cache.get("session:pending") is None
+
+
+@pytest.mark.asyncio
+async def test_local_cache_clear_prefixes_cancels_matching_inflight_tasks():
+    cache = LocalCacheService()
+    gate = asyncio.Event()
+
+    async def factory() -> str:
+        await gate.wait()
+        return "ready"
+
+    task = asyncio.create_task(cache.get_or_set_async("job:pending", factory))
+    await asyncio.sleep(0)
+
+    removed = cache.clear_prefixes(["session:", "job:"])
+    gate.set()
+
+    assert removed == 1
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cache.get("job:pending") is None
+
+
+@pytest.mark.asyncio
+async def test_local_cache_clear_pattern_cancels_matching_inflight_tasks():
+    cache = LocalCacheService()
+    gate = asyncio.Event()
+
+    async def factory() -> str:
+        await gate.wait()
+        return "ready"
+
+    task = asyncio.create_task(cache.get_or_set_async("user:42:pending", factory))
+    await asyncio.sleep(0)
+
+    removed = cache.clear_pattern("user:*:pending")
+    gate.set()
+
+    assert removed == 1
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cache.get("user:42:pending") is None
+
+
+@pytest.mark.asyncio
+async def test_local_cache_clear_patterns_cancels_matching_inflight_tasks():
+    cache = LocalCacheService()
+    gate = asyncio.Event()
+
+    async def factory() -> str:
+        await gate.wait()
+        return "ready"
+
+    task = asyncio.create_task(cache.get_or_set_async("task:99:error", factory))
+    await asyncio.sleep(0)
+
+    removed = cache.clear_patterns(["task:*:result", "task:*:error"])
+    gate.set()
+
+    assert removed == 1
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cache.get("task:99:error") is None
+
+
 def test_local_cache_prune_expired_removes_only_expired_entries():
     cache = LocalCacheService()
     cache.set("short", "x", ttl_seconds=1)
