@@ -3,6 +3,7 @@
 from typing import Any, Dict, List, Optional
 import logging
 import json
+import re
 from uuid import UUID
 
 from google.oauth2.credentials import Credentials
@@ -27,6 +28,51 @@ class SlidesAgent(BaseAgent):
     - Generate speaker notes
     - Share and manage permissions
     """
+
+    _NAMED_THEME_COLORS: Dict[str, Dict[str, float]] = {
+        "blue": {"red": 0.0, "green": 0.5, "blue": 1.0},
+        "red": {"red": 1.0, "green": 0.0, "blue": 0.0},
+        "green": {"red": 0.0, "green": 0.8, "blue": 0.0},
+        "purple": {"red": 0.6, "green": 0.0, "blue": 0.8},
+        "orange": {"red": 1.0, "green": 0.5, "blue": 0.0},
+        "teal": {"red": 0.0, "green": 0.7, "blue": 0.7},
+    }
+
+    @classmethod
+    def _parse_hex_color(cls, value: str) -> Dict[str, float] | None:
+        """Parse #RRGGBB (or RRGGBB) into a Google Slides rgbColor payload."""
+        match = re.fullmatch(r"#?([0-9a-fA-F]{6})", value.strip())
+        if match is None:
+            return None
+
+        hex_value = match.group(1)
+        return {
+            "red": int(hex_value[0:2], 16) / 255,
+            "green": int(hex_value[2:4], 16) / 255,
+            "blue": int(hex_value[4:6], 16) / 255,
+        }
+
+    @classmethod
+    def _resolve_theme_color(cls, theme_id: str) -> tuple[Dict[str, float], str]:
+        """Resolve a named theme or hex color into rgbColor + display label."""
+        if not isinstance(theme_id, str) or not theme_id.strip():
+            raise ValueError("theme_id must be a non-empty string")
+
+        normalized = theme_id.strip().lower()
+        named_color = cls._NAMED_THEME_COLORS.get(normalized)
+        if named_color is not None:
+            return dict(named_color), normalized
+
+        parsed_hex = cls._parse_hex_color(normalized)
+        if parsed_hex is not None:
+            canonical_hex = f"#{normalized.removeprefix('#').upper()}"
+            return parsed_hex, canonical_hex
+
+        supported_themes = ", ".join(sorted(cls._NAMED_THEME_COLORS))
+        raise ValueError(
+            f"Unsupported theme '{theme_id}'. Use one of: {supported_themes}, "
+            "or a hex color like #3366FF."
+        )
     
     def __init__(
         self,
@@ -334,20 +380,8 @@ class SlidesAgent(BaseAgent):
                 return "Error: Google Slides API not initialized. Missing credentials."
             
             try:
-                logger.info(f"Applying theme {theme_id} to {presentation_id}")
-                
-                # Map theme names to colors
-                theme_colors = {
-                    'blue': {'red': 0.0, 'green': 0.5, 'blue': 1.0},
-                    'red': {'red': 1.0, 'green': 0.0, 'blue': 0.0},
-                    'green': {'red': 0.0, 'green': 0.8, 'blue': 0.0},
-                    'purple': {'red': 0.6, 'green': 0.0, 'blue': 0.8},
-                    'orange': {'red': 1.0, 'green': 0.5, 'blue': 0.0},
-                    'teal': {'red': 0.0, 'green': 0.7, 'blue': 0.7},
-                }
-                
-                # Get color
-                color = theme_colors.get(theme_id.lower(), theme_colors['blue'])
+                color, theme_label = self._resolve_theme_color(theme_id)
+                logger.info(f"Applying theme {theme_label} to {presentation_id}")
                 
                 # Get all slides
                 presentation = self.slides_service.presentations().get(
@@ -383,8 +417,8 @@ class SlidesAgent(BaseAgent):
                         body={"requests": requests}
                     ).execute()
                 
-                logger.info(f"Applied {theme_id} theme to presentation {presentation_id}")
-                return f"Successfully applied {theme_id} theme to presentation"
+                logger.info(f"Applied {theme_label} theme to presentation {presentation_id}")
+                return f"Successfully applied {theme_label} theme to presentation"
                 
             except Exception as e:
                 logger.error(f"Failed to apply theme: {e}")
