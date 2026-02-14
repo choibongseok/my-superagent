@@ -2248,3 +2248,62 @@ def test_local_cache_import_state_validates_snapshot_shape():
                 ]
             }
         )
+
+
+def test_local_cache_import_state_can_restore_exported_stats():
+    source = LocalCacheService(max_entries=10)
+    source.set("alpha", 1)
+    source.get("alpha")
+    source.get("missing")
+
+    snapshot = source.export_state(include_stats=True)
+
+    target = LocalCacheService(max_entries=10)
+    target.set("stale", True)
+    target.get("stale")
+    target.get("other-miss")
+
+    imported = target.import_state(
+        snapshot,
+        clear_existing=True,
+        restore_stats=True,
+    )
+
+    assert imported == 1
+    restored_stats = target.stats()
+    for stat_name in (
+        "hits",
+        "misses",
+        "sets",
+        "deletes",
+        "evictions",
+        "expirations",
+    ):
+        assert restored_stats[stat_name] == snapshot["stats"][stat_name]
+
+
+def test_local_cache_import_state_restore_stats_requires_valid_stats_payload():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="restore_stats must be a boolean"):
+        cache.import_state({"entries": []}, restore_stats="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="stats"):
+        cache.import_state(
+            {"entries": [{"key": "alpha", "value": 1}]},
+            restore_stats=True,
+        )
+
+    with pytest.raises(TypeError, match="snapshot stats field 'hits'"):
+        cache.import_state(
+            {"entries": [], "stats": {"hits": "bad"}},
+            restore_stats=True,
+        )
+
+    with pytest.raises(
+        ValueError, match="snapshot stats field 'hits' must be non-negative"
+    ):
+        cache.import_state(
+            {"entries": [], "stats": {"hits": -1}},
+            restore_stats=True,
+        )

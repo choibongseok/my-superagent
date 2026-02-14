@@ -1743,23 +1743,56 @@ class LocalCacheService:
 
         return snapshot
 
+    def _normalize_snapshot_stats(self, raw_stats: Any) -> dict[str, int]:
+        """Validate and normalize snapshot stats payloads."""
+        if not isinstance(raw_stats, Mapping):
+            raise TypeError("snapshot stats must be a mapping")
+
+        normalized_stats: dict[str, int] = {}
+        for stat_name in self._stats:
+            raw_value = raw_stats.get(stat_name, 0)
+            if isinstance(raw_value, bool) or not isinstance(raw_value, Real):
+                raise TypeError(
+                    f"snapshot stats field '{stat_name}' must be a non-negative integer"
+                )
+
+            if int(raw_value) != raw_value:
+                raise TypeError(
+                    f"snapshot stats field '{stat_name}' must be a non-negative integer"
+                )
+
+            value = int(raw_value)
+            if value < 0:
+                raise ValueError(
+                    f"snapshot stats field '{stat_name}' must be non-negative"
+                )
+
+            normalized_stats[stat_name] = value
+
+        return normalized_stats
+
     def import_state(
         self,
         snapshot: Mapping[str, Any],
         *,
         clear_existing: bool = False,
+        restore_stats: bool = False,
     ) -> int:
         """Import entries from :meth:`export_state` snapshots.
 
         Args:
             snapshot: Mapping payload with an ``entries`` collection.
             clear_existing: Remove existing cache data before import.
+            restore_stats: Restore exported operational counters when ``True``.
 
         Returns:
             Number of successfully imported entries.
         """
         if not isinstance(snapshot, Mapping):
             raise TypeError("snapshot must be a mapping")
+
+        if not isinstance(restore_stats, bool):
+            raise ValueError("restore_stats must be a boolean")
 
         if "entries" not in snapshot:
             raise ValueError("snapshot must include an 'entries' field")
@@ -1811,6 +1844,13 @@ class LocalCacheService:
                 self.set(key, raw_entry["value"], ttl_seconds=ttl_seconds)
 
             imported += 1
+
+        if restore_stats:
+            if "stats" not in snapshot:
+                raise ValueError(
+                    "snapshot must include a 'stats' field when restore_stats=True"
+                )
+            self._stats = self._normalize_snapshot_stats(snapshot["stats"])
 
         return imported
 
