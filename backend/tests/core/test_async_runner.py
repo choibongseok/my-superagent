@@ -13,6 +13,8 @@ from app.core.async_runner import (
     run_async_many,
     run_async_map,
     run_async_map_batched,
+    run_async_partition,
+    run_async_partition_batched,
     run_async_starmap,
     run_async_starmap_batched,
 )
@@ -680,6 +682,68 @@ def test_run_async_filter_batched_rejects_non_positive_batch_size_for_empty_item
 
     with pytest.raises(ValueError, match="batch_size must be greater than 0"):
         run_async_filter_batched(_always_true, [], batch_size=0)
+
+
+def test_run_async_partition_returns_matched_and_rejected_lists():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    matched, rejected = run_async_partition(_is_even, [1, 2, 3, 4, 5])
+
+    assert matched == [2, 4]
+    assert rejected == [1, 3, 5]
+
+
+@pytest.mark.asyncio
+async def test_run_async_partition_with_existing_event_loop_returns_partitions():
+    async def _is_agent(task_name: str) -> bool:
+        await asyncio.sleep(0.01)
+        return task_name.startswith("agent")
+
+    matched, rejected = run_async_partition(
+        _is_agent,
+        ["agent-1", "task-2", "agent-3"],
+    )
+
+    assert matched == ["agent-1", "agent-3"]
+    assert rejected == ["task-2"]
+
+
+def test_run_async_partition_rejects_non_callable_predicate():
+    with pytest.raises(TypeError, match="expects a callable coro_predicate"):
+        run_async_partition(123, [1, 2])  # type: ignore[arg-type]
+
+
+def test_run_async_partition_rejects_non_bool_predicate_results():
+    async def _invalid(_: int) -> str:
+        return "yes"
+
+    with pytest.raises(TypeError, match="predicate must return bool"):
+        run_async_partition(_invalid, [1])
+
+
+def test_run_async_partition_batched_returns_matched_and_rejected_lists():
+    async def _is_positive(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value > 0
+
+    matched, rejected = run_async_partition_batched(
+        _is_positive,
+        [-2, -1, 0, 1, 2],
+        batch_size=2,
+    )
+
+    assert matched == [1, 2]
+    assert rejected == [-2, -1, 0]
+
+
+def test_run_async_partition_batched_rejects_non_positive_batch_size_for_empty_items():
+    async def _always_true(_: int) -> bool:
+        return True
+
+    with pytest.raises(ValueError, match="batch_size must be greater than 0"):
+        run_async_partition_batched(_always_true, [], batch_size=0)
 
 
 def test_run_async_starmap_supports_positional_argument_groups():

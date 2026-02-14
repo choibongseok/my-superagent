@@ -542,6 +542,82 @@ def run_async_filter_batched(
     ]
 
 
+def run_async_partition(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> tuple[list[I], list[I]]:
+    """Partition items into matching/non-matching groups via async predicate.
+
+    Returns a two-item tuple ``(matched, rejected)`` preserving input order
+    inside each partition.
+    """
+    if not callable(coro_predicate):
+        raise TypeError("run_async_partition expects a callable coro_predicate")
+
+    materialized_items = list(items)
+    if not materialized_items:
+        return [], []
+
+    predicate_results = run_async_map(
+        coro_predicate,
+        materialized_items,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    matched: list[I] = []
+    rejected: list[I] = []
+    for item, include in zip(materialized_items, predicate_results, strict=True):
+        if _coerce_filter_result(include, function_name="run_async_partition"):
+            matched.append(item)
+        else:
+            rejected.append(item)
+
+    return matched, rejected
+
+
+def run_async_partition_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> tuple[list[I], list[I]]:
+    """Batch-oriented variant of :func:`run_async_partition`."""
+    if not callable(coro_predicate):
+        raise TypeError("run_async_partition_batched expects a callable coro_predicate")
+
+    materialized_items = list(items)
+    if not materialized_items:
+        _validate_batch_size(batch_size)
+        return [], []
+
+    predicate_results = run_async_map_batched(
+        coro_predicate,
+        materialized_items,
+        batch_size=batch_size,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    matched: list[I] = []
+    rejected: list[I] = []
+    for item, include in zip(materialized_items, predicate_results, strict=True):
+        if _coerce_filter_result(
+            include,
+            function_name="run_async_partition_batched",
+        ):
+            matched.append(item)
+        else:
+            rejected.append(item)
+
+    return matched, rejected
+
+
 def _build_starmap_awaitable(
     coro_factory: Callable[..., Awaitable[T]],
     item: Iterable[Any] | Mapping[str, Any],
