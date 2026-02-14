@@ -78,9 +78,7 @@ class PluginManager:
 
             # Validate plugin class inherits from BasePlugin
             if not issubclass(plugin_class, BasePlugin):
-                raise ValueError(
-                    f"Plugin class must inherit from BasePlugin"
-                )
+                raise ValueError(f"Plugin class must inherit from BasePlugin")
 
             # Instantiate plugin
             plugin = plugin_class(config or {})
@@ -88,9 +86,7 @@ class PluginManager:
             # Get and validate manifest
             manifest = plugin.get_manifest()
             if not isinstance(manifest, PluginManifest):
-                raise ValueError(
-                    f"Plugin manifest must be a PluginManifest instance"
-                )
+                raise ValueError(f"Plugin manifest must be a PluginManifest instance")
 
             # Initialize plugin
             await plugin.initialize()
@@ -192,10 +188,7 @@ class PluginManager:
         config_map: Mapping[str, Mapping[str, Any]] = plugin_configs or {}
 
         include_selectors = (
-            {
-                self._normalize_module_selector(selector)
-                for selector in include_plugins
-            }
+            {self._normalize_module_selector(selector) for selector in include_plugins}
             if include_plugins is not None
             else None
         )
@@ -233,15 +226,13 @@ class PluginManager:
             module_path = f"app.plugins.{module_name}"
 
             if include_selectors is not None and not any(
-                fnmatchcase(module_name, selector)
-                for selector in include_selectors
+                fnmatchcase(module_name, selector) for selector in include_selectors
             ):
                 logger.debug("Skipping plugin %s (not in include list)", module_name)
                 continue
 
             if any(
-                fnmatchcase(module_name, selector)
-                for selector in exclude_selectors
+                fnmatchcase(module_name, selector) for selector in exclude_selectors
             ):
                 logger.debug("Skipping plugin %s (in exclude list)", module_name)
                 continue
@@ -319,28 +310,106 @@ class PluginManager:
             )
             raise
 
+    @staticmethod
+    def _manifest_matches_selectors(
+        manifest_name: str,
+        module_path: str,
+        selectors: set[str],
+    ) -> bool:
+        """Return whether a manifest/module identity matches any selector."""
+        module_stem = module_path.split(".")[-1] if module_path else ""
+        normalized_manifest = manifest_name.replace("-", "_")
+        candidates = {
+            candidate
+            for candidate in (manifest_name, normalized_manifest, module_stem)
+            if candidate
+        }
+
+        return any(
+            fnmatchcase(candidate, selector)
+            for selector in selectors
+            for candidate in candidates
+        )
+
     def list_plugins(
         self,
         required_permissions: Optional[Sequence[str]] = None,
+        *,
+        include_plugins: Optional[Sequence[str]] = None,
+        exclude_plugins: Optional[Sequence[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
-        List loaded plugins, optionally filtered by permissions.
+        List loaded plugins with optional selector and permission filters.
 
         Args:
             required_permissions: If provided, only plugins with all listed
                 permissions are returned.
+            include_plugins: Optional allowlist of plugin selectors. Selectors
+                may reference manifest names (for example ``"weather-plugin"``),
+                module stems (``"weather_tool"``), module paths
+                (``"app.plugins.weather_tool"``), filenames
+                (``"weather_tool.py"``), or glob patterns.
+            exclude_plugins: Optional denylist of selectors in the same format
+                as ``include_plugins``.
 
         Returns:
-            List of plugin manifests
+            List of plugin manifests.
         """
+        include_selectors = (
+            {self._normalize_module_selector(selector) for selector in include_plugins}
+            if include_plugins is not None
+            else None
+        )
+        exclude_selectors = {
+            self._normalize_module_selector(selector)
+            for selector in (exclude_plugins or [])
+        }
+        normalized_required_permissions = self._normalize_required_permissions(
+            required_permissions
+        )
+
+        if include_selectors is not None:
+            overlap = include_selectors & exclude_selectors
+            if overlap:
+                conflicting = ", ".join(sorted(overlap))
+                raise ValueError(
+                    f"Plugins cannot be both included and excluded: {conflicting}"
+                )
+
         manifests = list(self.manifests.values())
 
-        if required_permissions:
-            required = set(required_permissions)
+        if include_selectors is not None or exclude_selectors:
+            filtered_manifests: List[PluginManifest] = []
+            for manifest in manifests:
+                plugin = self.plugins.get(manifest.name)
+                module_path = plugin.__class__.__module__ if plugin else ""
+
+                if (
+                    include_selectors is not None
+                    and not self._manifest_matches_selectors(
+                        manifest.name,
+                        module_path,
+                        include_selectors,
+                    )
+                ):
+                    continue
+
+                if exclude_selectors and self._manifest_matches_selectors(
+                    manifest.name,
+                    module_path,
+                    exclude_selectors,
+                ):
+                    continue
+
+                filtered_manifests.append(manifest)
+
+            manifests = filtered_manifests
+
+        if normalized_required_permissions is not None:
             manifests = [
                 manifest
                 for manifest in manifests
-                if required.issubset(set(manifest.permissions))
+                if set(manifest.permissions).issuperset(normalized_required_permissions)
             ]
 
         return [manifest.to_dict() for manifest in manifests]

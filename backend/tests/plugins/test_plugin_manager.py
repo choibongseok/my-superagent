@@ -377,6 +377,88 @@ async def test_list_plugins_filters_by_required_permissions(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_list_plugins_supports_include_and_exclude_selectors(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+    (tmp_path / "slack_notifier.py").write_text("# slack", encoding="utf-8")
+
+    modules = {
+        "app.plugins.weather_tool": _plugin_module(
+            "app.plugins.weather_tool",
+            _build_plugin_class("weather-plugin", ["network.http"]),
+        ),
+        "app.plugins.slack_notifier": _plugin_module(
+            "app.plugins.slack_notifier",
+            _build_plugin_class("slack-plugin", ["network.http"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    included = manager.list_plugins(include_plugins=["app.plugins.weather_tool"])
+    assert [item["name"] for item in included] == ["weather-plugin"]
+
+    excluded = manager.list_plugins(exclude_plugins=["weather_*"])
+    assert [item["name"] for item in excluded] == ["slack-plugin"]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_rejects_include_exclude_overlap(tmp_path, monkeypatch):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+
+    module = _plugin_module(
+        "app.plugins.weather_tool",
+        _build_plugin_class("weather-plugin", ["network.http"]),
+    )
+
+    def _import_module(name: str):
+        if name == "app.plugins.weather_tool":
+            return module
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    with pytest.raises(
+        ValueError,
+        match="Plugins cannot be both included and excluded: weather_tool",
+    ):
+        manager.list_plugins(
+            include_plugins=["app.plugins.weather_tool"],
+            exclude_plugins=["weather_tool.py"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_required_permissions_validates_payload(tmp_path):
+    manager = PluginManager(plugin_dir=str(tmp_path))
+
+    with pytest.raises(
+        ValueError,
+        match="required_permissions must contain only strings",
+    ):
+        manager.list_plugins(required_permissions=["network.http", 1])
+
+    with pytest.raises(
+        ValueError,
+        match="required_permissions cannot contain blank values",
+    ):
+        manager.list_plugins(required_permissions=["   "])
+
+
+@pytest.mark.asyncio
 async def test_reload_plugin_reuses_existing_config_and_cleans_up_old_instance(
     tmp_path,
     monkeypatch,
