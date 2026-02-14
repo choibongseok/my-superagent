@@ -177,6 +177,40 @@ def _unique_values(value: object) -> list[object]:
     return unique_items
 
 
+def _sort_values(value: object, argument_spec: str) -> list[object]:
+    """Sort iterable values with optional ``asc``/``desc`` order selection."""
+    if isinstance(value, (str, bytes, bytearray)):
+        raise ValueError("sort expects an iterable value, not a string")
+
+    args: list[str] = []
+    if argument_spec.strip():
+        args = _parse_transform_args(argument_spec)
+
+    if len(args) > 1:
+        raise ValueError("sort expects zero or one argument: asc|desc")
+
+    order = args[0].strip().lower() if args else "asc"
+    if order == "":
+        order = "asc"
+    if order not in {"asc", "desc"}:
+        raise ValueError("sort argument must be 'asc' or 'desc'")
+
+    try:
+        items = list(iter(value))
+    except TypeError as exc:
+        raise ValueError("sort expects an iterable value") from exc
+
+    reverse = order == "desc"
+
+    if all(isinstance(item, str) for item in items):
+        return sorted(items, key=str.casefold, reverse=reverse)
+
+    try:
+        return sorted(items, reverse=reverse)
+    except TypeError:
+        return sorted(items, key=lambda item: str(item), reverse=reverse)
+
+
 class TemplateService:
     """Service for template management."""
 
@@ -382,7 +416,7 @@ class TemplateService:
         - ``{field|default value->strip->title}``
         - ``{summary->truncate(120)}``
         - ``{name->replace("Agent", "Assistant")}``
-        - ``{tags->unique->join(" | ")}``
+        - ``{tags->unique->sort(desc)->join(" | ")}``
 
         Returns:
             Tuple of ``(field_path, default_value, transforms)``.
@@ -420,6 +454,7 @@ class TemplateService:
             "json": lambda raw: _to_json(raw, pretty=False),
             "json_pretty": lambda raw: _to_json(raw, pretty=True),
             "unique": _unique_values,
+            "sort": lambda raw: _sort_values(raw, ""),
         }
         supported_transforms = sorted(
             [
@@ -427,6 +462,7 @@ class TemplateService:
                 "truncate(<max_length>)",
                 "replace(<search>,<replacement>)",
                 "join([separator])",
+                "sort([asc|desc])",
             ]
         )
 
@@ -450,6 +486,8 @@ class TemplateService:
                     operation = lambda raw, spec=argument_spec: _replace_text(raw, spec)
                 elif transform_name == "join":
                     operation = lambda raw, spec=argument_spec: _join_values(raw, spec)
+                elif transform_name == "sort":
+                    operation = lambda raw, spec=argument_spec: _sort_values(raw, spec)
 
             if operation is None:
                 supported = ", ".join(supported_transforms)
@@ -518,7 +556,7 @@ class TemplateService:
         ``{service->dot_case}``, ``{build_target->constant_case}``,
         ``{variable->camel_case}``, ``{variable->pascal_case}``,
         ``{summary->truncate(120)}``, ``{title->replace("Agent", "Assistant")}``,
-        ``{tags->unique->join(" | ")}``, ``{payload->json}``, or
+        ``{tags->unique->sort(desc)->join(" | ")}``, ``{payload->json}``, or
         ``{payload->json_pretty}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)

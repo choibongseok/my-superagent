@@ -656,6 +656,84 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_sort_transform_for_strings(
+        self, service_with_mock_db
+    ):
+        """sort should normalize iterable ordering before downstream transforms."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Tags: {tags->sort->join(" | ")}',
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"tags": ["beta", "Alpha", "gamma"]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Tags: Alpha | beta | gamma"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_sort_transform_descending_order(
+        self, service_with_mock_db
+    ):
+        """sort(desc) should reverse deterministic ordering for iterables."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Priorities: {priorities->sort(desc)->join(",")}',
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"priorities": [2, 1, 5, 3]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Priorities: 5,3,2,1"
+        assert template.usage_count == 2
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_unique_sort_and_join_chaining(
+        self, service_with_mock_db
+    ):
+        """sort should compose cleanly with unique/join transform pipelines."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Tags: {tags->unique->sort(desc)->join(" | ")}',
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"tags": ["agent", "safety", "agent", "automation"]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Tags: safety | automation | agent"
+        assert template.usage_count == 3
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_unique_transform_before_join(
         self, service_with_mock_db
     ):
@@ -743,6 +821,64 @@ class TestTemplateServiceUseTemplate:
                 )
 
         assert template.usage_count == 6
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_sort_transform_for_string_values(
+        self, service_with_mock_db
+    ):
+        """sort should reject plain strings to avoid character-level sorting."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Tags: {tags->sort}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match="Failed to apply template transform 'sort'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"tags": "agent"},
+                    user_id,
+                )
+
+        assert template.usage_count == 0
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_sort_transform_with_invalid_argument(
+        self, service_with_mock_db
+    ):
+        """sort should allow only asc/desc argument values."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Tags: {tags->sort(random)}",
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'sort\(random\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"tags": ["agent", "automation"]},
+                    user_id,
+                )
+
+        assert template.usage_count == 1
         db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
