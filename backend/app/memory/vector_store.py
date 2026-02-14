@@ -421,6 +421,7 @@ class VectorStoreMemory:
         sort_by_score: bool = False,
         include_score_context: bool = False,
         unique_content: bool = False,
+        offset: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search memories with similarity scores.
@@ -455,15 +456,18 @@ class VectorStoreMemory:
                 and threshold margin).
             unique_content: When ``True``, collapse duplicate memories by
                 normalized content (case/whitespace insensitive) before applying
-                the final ``k`` limit.
+                pagination.
+            offset: Optional zero-based pagination offset applied after filtering
+                and ordering but before the final ``k`` limit. Must be >= 0 when
+                provided.
 
         Returns:
             List of memories with scores and enhanced relevance metadata
 
         Raises:
             ValueError: If thresholds/parameters are invalid, including unsupported
-                ``min_confidence``/``min_relevance`` values or non-boolean
-                ``include_score_context``/``unique_content``.
+                ``min_confidence``/``min_relevance`` values, invalid ``offset``
+                values, or non-boolean ``include_score_context``/``unique_content``.
         """
         # Input validation
         if score_threshold is not None and not (0.0 <= score_threshold <= 1.0):
@@ -486,6 +490,12 @@ class VectorStoreMemory:
 
         if not isinstance(unique_content, bool):
             raise ValueError("unique_content must be a boolean")
+
+        if offset is not None:
+            if isinstance(offset, bool) or not isinstance(offset, int):
+                raise ValueError("offset must be an integer")
+            if offset < 0:
+                raise ValueError("offset cannot be negative")
 
         if max_score_gap is not None:
             if isinstance(max_score_gap, bool) or not isinstance(
@@ -516,14 +526,20 @@ class VectorStoreMemory:
         )
 
         k = k or self.top_k
+        normalized_offset = offset or 0
         search_filter = self._build_user_scoped_filter(filter_dict)
+
+        # Request enough candidates to support post-filter pagination.
+        requested_result_count = k + normalized_offset
 
         # Use a low initial threshold or None to get all candidates
         initial_threshold = score_threshold if score_threshold is not None else 0.0
 
         results = self.vector_store.similarity_search_with_relevance_scores(
             query,
-            k=k * 2 if adaptive_threshold and score_threshold is None else k,
+            k=(requested_result_count * 2)
+            if adaptive_threshold and score_threshold is None
+            else requested_result_count,
             score_threshold=initial_threshold,
             filter=search_filter,
         )
@@ -684,6 +700,9 @@ class VectorStoreMemory:
                 original_count,
                 len(results),
             )
+
+        if normalized_offset:
+            results = results[normalized_offset:]
 
         if len(results) > k:
             results = results[:k]

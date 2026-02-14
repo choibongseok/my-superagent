@@ -599,6 +599,84 @@ class TestScoreSorting:
         assert [result["content"] for result in results] == ["first", "second"]
 
 
+class TestOffsetPagination:
+    """Test optional offset pagination for scored search results."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_offset_validation(self):
+        """offset must be an integer >= 0 when provided."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(ValueError, match="offset must be an integer"):
+            memory.search_with_scores(query="test", offset=1.5)
+
+        with pytest.raises(ValueError, match="offset must be an integer"):
+            memory.search_with_scores(query="test", offset=True)
+
+        with pytest.raises(ValueError, match="offset cannot be negative"):
+            memory.search_with_scores(query="test", offset=-1)
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_offset_skips_ranked_results_before_k_limit(self):
+        """offset should paginate after ordering and before final k trimming."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        top_doc = Document(page_content="top", metadata={})
+        second_doc = Document(page_content="second", metadata={})
+        third_doc = Document(page_content="third", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (top_doc, 0.91),
+                (second_doc, 0.84),
+                (third_doc, 0.77),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            k=2,
+            offset=1,
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            sort_by_score=True,
+        )
+
+        assert [result["content"] for result in results] == ["second", "third"]
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_offset_increases_requested_candidate_count(self):
+        """Vector-store candidate fetch size should account for offset + k."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        doc = Document(page_content="only", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[(doc, 0.8)]
+        )
+
+        memory.search_with_scores(
+            query="test",
+            k=2,
+            offset=3,
+            adaptive_threshold=False,
+            score_threshold=0.0,
+        )
+
+        memory.vector_store.similarity_search_with_relevance_scores.assert_called_once_with(
+            "test",
+            k=5,
+            score_threshold=0.0,
+            filter={"user_id": "test_user"},
+        )
+
+
 class TestUniqueContentDeduplication:
     """Test optional duplicate collapsing based on memory content."""
 
