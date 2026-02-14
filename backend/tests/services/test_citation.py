@@ -1312,10 +1312,10 @@ class TestCitationTracker:
         """Test getting citation statistics."""
         tracker = CitationTracker()
 
-        tracker.add_source(
+        web_source_id = tracker.add_source(
             title="Web Article", url="https://example.com", type=SourceType.WEB
         )
-        tracker.add_source(title="Book", type=SourceType.BOOK)
+        book_source_id = tracker.add_source(title="Book", type=SourceType.BOOK)
         source_id = tracker.add_source(
             title="Another Web", url="https://example.org", type=SourceType.WEB
         )
@@ -1330,6 +1330,31 @@ class TestCitationTracker:
         assert stats["source_types"][SourceType.BOOK] == 1
         assert stats["unique_urls"] == 2
         assert stats["unique_source_fingerprints"] == 3
+        assert stats["most_cited_source_id"] == source_id
+        assert stats["most_cited_count"] == 1
+        assert stats["least_cited_count"] == 0
+        assert stats["least_cited_source_id"] in {web_source_id, book_source_id}
+        assert stats["cited_source_count"] == 1
+        assert stats["uncited_source_count"] == 2
+        assert stats["citation_coverage"] == pytest.approx(0.333, abs=0.001)
+        assert stats["citation_counts_by_source"][source_id] == 1
+        assert stats["citation_counts_by_source"][web_source_id] == 0
+
+    def test_get_statistics_includes_uncited_sources_in_most_and_least_cited(self):
+        """Most/least cited stats should remain deterministic even when all counts are zero."""
+        tracker = CitationTracker()
+
+        alpha_id = tracker.add_source(title="Alpha")
+        beta_id = tracker.add_source(title="Beta")
+
+        stats = tracker.get_statistics()
+
+        assert stats["total_citations"] == 0
+        assert stats["most_cited_count"] == 0
+        assert stats["least_cited_count"] == 0
+        assert stats["most_cited_source_id"] == alpha_id
+        assert stats["least_cited_source_id"] == alpha_id
+        assert stats["citation_counts_by_source"] == {alpha_id: 0, beta_id: 0}
 
     def test_get_validation_report_returns_low_confidence_when_no_sources(self):
         """Validation report should clearly explain empty evidence state."""

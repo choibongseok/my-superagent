@@ -847,7 +847,9 @@ class CitationTracker:
             and max_recency_score is not None
             and min_recency_score > max_recency_score
         ):
-            raise ValueError("min_recency_score cannot be greater than max_recency_score")
+            raise ValueError(
+                "min_recency_score cannot be greater than max_recency_score"
+            )
 
         if recency_window_days <= 0:
             raise ValueError("recency_window_days must be greater than 0")
@@ -1753,26 +1755,72 @@ class CitationTracker:
         for source in self.sources.values():
             source_types[source.type] = source_types.get(source.type, 0) + 1
 
-        # Calculate average citations per source
+        total_sources = len(self.sources)
         total_citations = len(self.citations)
-        avg_citations = total_citations / len(self.sources) if self.sources else 0.0
+        avg_citations = total_citations / total_sources if total_sources else 0.0
 
-        # Find most and least cited sources
         citation_counts = Counter(
             citation.source.id for citation in self.citations.values()
         )
-        most_cited = citation_counts.most_common(1)
-        least_cited = citation_counts.most_common()[:-2:-1] if citation_counts else []
+
+        per_source_citation_counts = {
+            source.id: citation_counts.get(source.id, 0)
+            for source in self.sources.values()
+        }
+
+        source_count_items = list(per_source_citation_counts.items())
+
+        least_cited = (
+            min(
+                source_count_items,
+                key=lambda item: (
+                    item[1],
+                    self._normalize_text(self.sources[item[0]].title),
+                    item[0],
+                ),
+            )
+            if source_count_items
+            else None
+        )
+        most_cited = (
+            min(
+                source_count_items,
+                key=lambda item: (
+                    -item[1],
+                    self._normalize_text(self.sources[item[0]].title),
+                    item[0],
+                ),
+            )
+            if source_count_items
+            else None
+        )
+
+        least_cited_source_id = least_cited[0] if least_cited else None
+        least_cited_count = least_cited[1] if least_cited else 0
+        most_cited_source_id = most_cited[0] if most_cited else None
+        most_cited_count = most_cited[1] if most_cited else 0
+
+        cited_source_count = sum(
+            1 for count in per_source_citation_counts.values() if count > 0
+        )
+        uncited_source_count = total_sources - cited_source_count
+        citation_coverage = cited_source_count / total_sources if total_sources else 0.0
 
         return {
-            "total_sources": len(self.sources),
+            "total_sources": total_sources,
             "total_citations": total_citations,
             "average_citations_per_source": round(avg_citations, 2),
             "source_types": source_types,
             "unique_urls": len(self.source_url_map),
             "unique_source_fingerprints": len(self.source_fingerprint_map),
-            "most_cited_source_id": most_cited[0][0] if most_cited else None,
-            "most_cited_count": most_cited[0][1] if most_cited else 0,
+            "most_cited_source_id": most_cited_source_id,
+            "most_cited_count": most_cited_count,
+            "least_cited_source_id": least_cited_source_id,
+            "least_cited_count": least_cited_count,
+            "cited_source_count": cited_source_count,
+            "uncited_source_count": uncited_source_count,
+            "citation_coverage": round(citation_coverage, 3),
+            "citation_counts_by_source": per_source_citation_counts,
         }
 
     def to_dict(self) -> Dict[str, Any]:
