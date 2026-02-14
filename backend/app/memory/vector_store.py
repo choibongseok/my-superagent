@@ -418,6 +418,7 @@ class VectorStoreMemory:
         min_confidence: Optional[str] = None,
         min_relevance: Optional[str] = None,
         max_score_gap: Optional[float] = None,
+        min_score_margin: Optional[float] = None,
         sort_by_score: bool = False,
         include_score_context: bool = False,
         unique_content: bool = False,
@@ -448,6 +449,11 @@ class VectorStoreMemory:
                 strongest candidate after thresholding. When set, only results
                 where ``top_score - score <= max_score_gap`` are retained.
                 Accepted range is ``[0, 1]``.
+            min_score_margin: Optional minimum margin above the active
+                threshold baseline. When set, only results where
+                ``score >= baseline_threshold + min_score_margin`` are kept.
+                Baseline threshold is the adaptive/explicit threshold when
+                available, otherwise ``0.0``. Accepted range is ``[0, 1]``.
             sort_by_score: When ``True``, sort accepted results by descending score
                 before applying the final ``k`` limit. Ties preserve original
                 vector-store order for deterministic pagination.
@@ -466,8 +472,9 @@ class VectorStoreMemory:
 
         Raises:
             ValueError: If thresholds/parameters are invalid, including unsupported
-                ``min_confidence``/``min_relevance`` values, invalid ``offset``
-                values, or non-boolean ``include_score_context``/``unique_content``.
+                ``min_confidence``/``min_relevance`` values, invalid
+                ``max_score_gap``/``min_score_margin``/``offset`` values,
+                or non-boolean ``include_score_context``/``unique_content``.
         """
         # Input validation
         if score_threshold is not None and not (0.0 <= score_threshold <= 1.0):
@@ -509,6 +516,20 @@ class VectorStoreMemory:
             if not (0.0 <= max_score_gap <= 1.0):
                 raise ValueError(
                     f"max_score_gap must be in [0, 1], got {max_score_gap}"
+                )
+
+        if min_score_margin is not None:
+            if isinstance(min_score_margin, bool) or not isinstance(
+                min_score_margin, (int, float)
+            ):
+                raise ValueError(
+                    f"min_score_margin must be in [0, 1], got {min_score_margin}"
+                )
+
+            min_score_margin = float(min_score_margin)
+            if not (0.0 <= min_score_margin <= 1.0):
+                raise ValueError(
+                    f"min_score_margin must be in [0, 1], got {min_score_margin}"
                 )
 
         normalized_min_confidence = self._normalize_min_confidence(min_confidence)
@@ -669,6 +690,24 @@ class VectorStoreMemory:
                 f"Applied adaptive threshold: {adaptive_threshold_value:.3f} "
                 f"(mean={mean_score:.3f}, std={std_dev:.3f}, cv={cv:.3f}, "
                 f"multiplier={dynamic_multiplier:.2f}, top={top_score:.3f})"
+            )
+
+        if min_score_margin is not None and results:
+            baseline_threshold = (
+                applied_threshold if applied_threshold is not None else 0.0
+            )
+            minimum_allowed_score = min(1.0, baseline_threshold + min_score_margin)
+            results = [
+                (doc, score)
+                for doc, score in results
+                if score + SCORE_EPSILON >= minimum_allowed_score
+            ]
+            logger.debug(
+                "Applied min_score_margin filtering: margin=%.3f, baseline=%.3f, min=%.3f, kept=%d",
+                min_score_margin,
+                baseline_threshold,
+                minimum_allowed_score,
+                len(results),
             )
 
         if max_score_gap is not None and results:

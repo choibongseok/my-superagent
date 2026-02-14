@@ -834,6 +834,79 @@ class TestScoreGapFiltering:
         assert [result["content"] for result in results] == ["top-1", "top-2"]
 
 
+class TestScoreMarginFiltering:
+    """Test optional score-margin filtering above the active threshold."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_score_margin_validation(self):
+        """min_score_margin values outside [0, 1] should fail fast."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(ValueError, match="min_score_margin must be in"):
+            memory.search_with_scores(query="test", min_score_margin=-0.1)
+
+        with pytest.raises(ValueError, match="min_score_margin must be in"):
+            memory.search_with_scores(query="test", min_score_margin=1.1)
+
+        with pytest.raises(ValueError, match="min_score_margin must be in"):
+            memory.search_with_scores(query="test", min_score_margin=True)
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_score_margin_uses_explicit_threshold_baseline(self):
+        """Explicit score_threshold should be used as margin baseline."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        top_doc = Document(page_content="top", metadata={})
+        near_doc = Document(page_content="near", metadata={})
+        below_margin_doc = Document(page_content="below-margin", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (top_doc, 0.89),
+                (near_doc, 0.72),
+                (below_margin_doc, 0.69),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.6,
+            min_score_margin=0.1,
+        )
+
+        assert [result["content"] for result in results] == ["top", "near"]
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_score_margin_defaults_to_zero_baseline_without_threshold(self):
+        """Without adaptive/explicit thresholds, baseline should default to 0.0."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        high_doc = Document(page_content="high", metadata={})
+        low_doc = Document(page_content="low", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (high_doc, 0.82),
+                (low_doc, 0.74),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            min_score_margin=0.8,
+        )
+
+        assert [result["content"] for result in results] == ["high"]
+
+
 class TestScoreContextExplainability:
     """Test optional score-context metadata for explainable ranking."""
 
