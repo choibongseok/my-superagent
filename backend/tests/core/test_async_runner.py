@@ -15,6 +15,7 @@ from app.core.async_runner import (
     run_async_map_batched,
     run_async_partition,
     run_async_partition_batched,
+    run_async_retry,
     run_async_starmap,
     run_async_starmap_batched,
 )
@@ -125,6 +126,96 @@ def test_run_async_rejects_non_callable_and_non_awaitable_input():
         match="expects an awaitable or a callable returning an awaitable",
     ):
         run_async(123)  # type: ignore[arg-type]
+
+
+def test_run_async_retry_returns_value_without_retries():
+    async def _value() -> str:
+        await asyncio.sleep(0.01)
+        return "ok"
+
+    assert run_async_retry(_value) == "ok"
+
+
+def test_run_async_retry_retries_until_success():
+    attempts = {"count": 0}
+
+    async def _flaky() -> str:
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise RuntimeError("temporary")
+        return "recovered"
+
+    result = run_async_retry(_flaky, max_attempts=3)
+
+    assert result == "recovered"
+    assert attempts["count"] == 3
+
+
+def test_run_async_retry_raises_last_retryable_error_when_exhausted():
+    attempts = {"count": 0}
+
+    async def _always_fail() -> str:
+        attempts["count"] += 1
+        raise RuntimeError("still failing")
+
+    with pytest.raises(RuntimeError, match="still failing"):
+        run_async_retry(_always_fail, max_attempts=2)
+
+    assert attempts["count"] == 2
+
+
+def test_run_async_retry_does_not_retry_non_matching_exceptions():
+    attempts = {"count": 0}
+
+    async def _fails_with_type_error() -> str:
+        attempts["count"] += 1
+        raise TypeError("bad type")
+
+    with pytest.raises(TypeError, match="bad type"):
+        run_async_retry(
+            _fails_with_type_error,
+            max_attempts=5,
+            retry_exceptions=(RuntimeError,),
+        )
+
+    assert attempts["count"] == 1
+
+
+def test_run_async_retry_rejects_invalid_retry_configuration():
+    async def _value() -> int:
+        return 1
+
+    with pytest.raises(ValueError, match="max_attempts must be greater than 0"):
+        run_async_retry(_value, max_attempts=0)
+
+    with pytest.raises(
+        ValueError,
+        match="initial_delay must be greater than or equal to 0",
+    ):
+        run_async_retry(_value, initial_delay=-0.1)
+
+    with pytest.raises(ValueError, match="backoff_factor must be greater than 0"):
+        run_async_retry(_value, backoff_factor=0)
+
+    with pytest.raises(
+        ValueError,
+        match="retry_exceptions must be a non-empty tuple of exception classes",
+    ):
+        run_async_retry(_value, retry_exceptions=())
+
+
+def test_run_async_retry_timeout_applies_to_entire_retry_lifecycle():
+    async def _slow_fail() -> int:
+        await asyncio.sleep(0.05)
+        raise RuntimeError("slow boom")
+
+    with pytest.raises(TimeoutError, match="run_async_retry timed out"):
+        run_async_retry(
+            _slow_fail,
+            timeout=0.06,
+            max_attempts=3,
+            initial_delay=0.05,
+        )
 
 
 def test_run_async_many_without_existing_event_loop_returns_ordered_results():

@@ -56,6 +56,31 @@ def _validate_batch_size(batch_size: int) -> None:
         raise ValueError("batch_size must be greater than 0")
 
 
+def _validate_max_attempts(max_attempts: int) -> None:
+    """Validate retry attempt values used by retry helpers."""
+    if isinstance(max_attempts, bool) or max_attempts <= 0:
+        raise ValueError("max_attempts must be greater than 0")
+
+
+def _normalize_retry_exceptions(
+    retry_exceptions: tuple[type[BaseException], ...],
+) -> tuple[type[BaseException], ...]:
+    """Validate retry exception tuple inputs."""
+    if not isinstance(retry_exceptions, tuple) or not retry_exceptions:
+        raise ValueError(
+            "retry_exceptions must be a non-empty tuple of exception classes"
+        )
+
+    for exception_class in retry_exceptions:
+        if not isinstance(exception_class, type) or not issubclass(
+            exception_class,
+            BaseException,
+        ):
+            raise TypeError("retry_exceptions must contain exception classes")
+
+    return retry_exceptions
+
+
 def _run_with_event_loop_bridge(
     runner: Callable[[], Awaitable[R]],
     *,
@@ -141,6 +166,103 @@ def run_async(
 
     def _timeout_error() -> TimeoutError:
         return TimeoutError(f"run_async timed out after {timeout} seconds")
+
+    return _run_with_event_loop_bridge(
+        _run_with_timeout,
+        timeout_error_factory=_timeout_error,
+    )
+
+
+def run_async_retry(
+    coro_factory: Callable[P, Awaitable[T]],
+    *args: P.args,
+    timeout: float | None = None,
+    max_attempts: int = 3,
+    retry_exceptions: tuple[type[BaseException], ...] = (Exception,),
+    initial_delay: float = 0.0,
+    backoff_factor: float = 1.0,
+    max_delay: float | None = None,
+    **kwargs: P.kwargs,
+) -> T:
+    """Run an async callable with retry/backoff support from sync code.
+
+    Retries are attempted when the raised error matches ``retry_exceptions``.
+    Backoff starts from ``initial_delay`` and is multiplied by
+    ``backoff_factor`` after each retry, optionally capped by ``max_delay``.
+
+    Args:
+        coro_factory: Async callable to execute.
+        timeout: Optional timeout in seconds for the full retry lifecycle.
+        max_attempts: Total number of attempts including the first call.
+        retry_exceptions: Tuple of exception classes that should be retried.
+        initial_delay: Delay in seconds before the first retry.
+        backoff_factor: Multiplier applied to delay after each retry.
+        max_delay: Optional upper bound for retry delay.
+
+    Returns:
+        The successful result from ``coro_factory``.
+
+    Raises:
+        ValueError: If timeout/attempt/delay options are invalid.
+        TypeError: If ``coro_factory`` is not callable, retry exception tuple is
+            invalid, or the callable returns a non-awaitable value.
+        TimeoutError: If execution exceeds ``timeout``.
+        BaseException: Re-raises the final matching retry exception.
+    """
+    if not callable(coro_factory):
+        raise TypeError("run_async_retry expects a callable coro_factory")
+
+    _validate_timeout(timeout)
+    _validate_max_attempts(max_attempts)
+    normalized_retry_exceptions = _normalize_retry_exceptions(retry_exceptions)
+
+    if initial_delay < 0:
+        raise ValueError("initial_delay must be greater than or equal to 0")
+
+    if backoff_factor <= 0:
+        raise ValueError("backoff_factor must be greater than 0")
+
+    if max_delay is not None and max_delay <= 0:
+        raise ValueError("max_delay must be greater than 0")
+
+    async def _run_with_retries() -> T:
+        delay = initial_delay
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                produced = coro_factory(*args, **kwargs)
+            except normalized_retry_exceptions:
+                if attempt >= max_attempts:
+                    raise
+            else:
+                if not inspect.isawaitable(produced):
+                    raise TypeError("coro_factory must return an awaitable")
+
+                try:
+                    return await cast(Awaitable[T], produced)
+                except normalized_retry_exceptions:
+                    if attempt >= max_attempts:
+                        raise
+
+            if delay > 0:
+                await asyncio.sleep(delay)
+
+            next_delay = delay * backoff_factor
+            if max_delay is not None:
+                delay = min(next_delay, max_delay)
+            else:
+                delay = next_delay
+
+        raise RuntimeError("run_async_retry exhausted retries without returning")
+
+    async def _run_with_timeout() -> T:
+        retry_runner = _run_with_retries()
+        if timeout is None:
+            return await retry_runner
+        return await asyncio.wait_for(retry_runner, timeout=timeout)
+
+    def _timeout_error() -> TimeoutError:
+        return TimeoutError(f"run_async_retry timed out after {timeout} seconds")
 
     return _run_with_event_loop_bridge(
         _run_with_timeout,
