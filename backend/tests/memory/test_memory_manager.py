@@ -184,6 +184,12 @@ class TestMemoryManagerContext:
             "min_relevance": "medium",
             "filter_dict": None,
             "sort_by_score": False,
+            "adaptive_threshold": True,
+            "adaptive_std_multiplier": 1.5,
+            "min_adaptive_threshold": 0.5,
+            "max_score_gap": None,
+            "include_score_context": False,
+            "unique_content": False,
         }
 
     def test_search_memory_supports_session_scoping_and_score_sorting(self):
@@ -215,4 +221,47 @@ class TestMemoryManagerContext:
                 "session_id": "session-42",
             },
             "sort_by_score": True,
+            "adaptive_threshold": True,
+            "adaptive_std_multiplier": 1.5,
+            "min_adaptive_threshold": 0.5,
+            "max_score_gap": None,
+            "include_score_context": False,
+            "unique_content": False,
+        }
+
+    def test_search_memory_exposes_advanced_vector_scoring_controls(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="session-99",
+            use_vector_memory=False,
+        )
+        manager.vector_memory = RecordingVectorMemory()
+
+        results = manager.search_memory(
+            query="release readiness",
+            k=6,
+            score_threshold=None,
+            adaptive_threshold=True,
+            adaptive_std_multiplier=2.0,
+            min_adaptive_threshold=0.6,
+            max_score_gap=0.08,
+            include_score_context=True,
+            unique_content=True,
+        )
+
+        assert results == [{"content": "cached"}]
+        assert manager.vector_memory.last_search_with_scores_kwargs == {
+            "query": "release readiness",
+            "k": 6,
+            "score_threshold": None,
+            "min_confidence": None,
+            "min_relevance": None,
+            "filter_dict": None,
+            "sort_by_score": False,
+            "adaptive_threshold": True,
+            "adaptive_std_multiplier": 2.0,
+            "min_adaptive_threshold": 0.6,
+            "max_score_gap": 0.08,
+            "include_score_context": True,
+            "unique_content": True,
         }

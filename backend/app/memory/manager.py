@@ -312,12 +312,18 @@ class MemoryManager:
         self,
         query: str,
         k: int = 5,
-        score_threshold: float = 0.7,
+        score_threshold: Optional[float] = 0.7,
         min_confidence: Optional[str] = None,
         min_relevance: Optional[str] = None,
         filter_dict: Optional[Dict[str, Any]] = None,
         session_only: bool = False,
         sort_by_score: bool = False,
+        adaptive_threshold: bool = True,
+        adaptive_std_multiplier: float = 1.5,
+        min_adaptive_threshold: float = 0.5,
+        max_score_gap: Optional[float] = None,
+        include_score_context: bool = False,
+        unique_content: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Search long-term memory.
@@ -325,12 +331,21 @@ class MemoryManager:
         Args:
             query: Search query
             k: Number of results
-            score_threshold: Minimum similarity score
+            score_threshold: Minimum similarity score. Pass ``None`` to rely on
+                adaptive thresholding.
             min_confidence: Optional confidence floor (weak/moderate/strong)
             min_relevance: Optional relevance floor (very_low/low/medium/high)
             filter_dict: Optional metadata filters forwarded to vector memory.
             session_only: Restrict matches to the manager's active session_id.
             sort_by_score: Sort accepted matches by descending similarity score.
+            adaptive_threshold: Enable distribution-based thresholding when
+                ``score_threshold`` is ``None``.
+            adaptive_std_multiplier: Standard deviation multiplier used by
+                adaptive thresholding.
+            min_adaptive_threshold: Lower bound for adaptive thresholding.
+            max_score_gap: Keep only results within this score gap from top score.
+            include_score_context: Include per-result ranking/threshold context.
+            unique_content: Drop duplicate memories using normalized content.
 
         Returns:
             List of matching memories
@@ -356,6 +371,12 @@ class MemoryManager:
                 min_relevance=min_relevance,
                 filter_dict=resolved_filter,
                 sort_by_score=sort_by_score,
+                adaptive_threshold=adaptive_threshold,
+                adaptive_std_multiplier=adaptive_std_multiplier,
+                min_adaptive_threshold=min_adaptive_threshold,
+                max_score_gap=max_score_gap,
+                include_score_context=include_score_context,
+                unique_content=unique_content,
             )
         except Exception as e:
             logger.error(f"Memory search failed: {e}")
