@@ -864,12 +864,29 @@ class LocalCacheService:
     def stats(self, reset: bool = False) -> dict[str, Any]:
         """Return cache operational counters and runtime metadata.
 
+        In addition to raw counters, this includes derived lookup metrics to
+        simplify dashboards and alerting:
+
+        - ``lookups``: Total cache lookups (hits + misses)
+        - ``hit_rate``: Hit ratio in the ``0.0`` to ``1.0`` range
+        - ``miss_rate``: Miss ratio in the ``0.0`` to ``1.0`` range
+
         Args:
             reset: When ``True``, reset accumulated counters after generating
                 the returned snapshot.
         """
+        hits = self._stats.get("hits", 0)
+        misses = self._stats.get("misses", 0)
+        lookups = hits + misses
+
+        hit_rate = hits / lookups if lookups else 0.0
+        miss_rate = misses / lookups if lookups else 0.0
+
         snapshot: dict[str, Any] = {
             **self._stats,
+            "lookups": lookups,
+            "hit_rate": round(hit_rate, 4),
+            "miss_rate": round(miss_rate, 4),
             "entries": self.size(),
             "max_entries": self._max_entries,
             "inflight": len(self._inflight),

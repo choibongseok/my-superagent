@@ -935,7 +935,21 @@ def test_local_cache_stats_track_hits_misses_and_mutations():
     assert stats["sets"] == 2
     assert stats["hits"] == 3
     assert stats["misses"] == 3
+    assert stats["lookups"] == 6
+    assert stats["hit_rate"] == pytest.approx(0.5)
+    assert stats["miss_rate"] == pytest.approx(0.5)
     assert stats["entries"] == 2
+
+
+def test_local_cache_stats_lookup_rates_default_to_zero_without_lookups():
+    cache = LocalCacheService()
+
+    cache.set("alpha", 1)
+    stats = cache.stats()
+
+    assert stats["lookups"] == 0
+    assert stats["hit_rate"] == 0.0
+    assert stats["miss_rate"] == 0.0
 
 
 def test_local_cache_stats_include_set_if_absent_and_pop_lookups():
