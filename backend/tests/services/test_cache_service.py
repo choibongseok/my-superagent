@@ -1382,6 +1382,17 @@ def test_local_cache_list_namespaces_supports_custom_separator_and_pagination():
     )
 
     assert cache.list_namespaces(separator="/", offset=1, limit=1) == ["team"]
+    assert cache.list_namespaces(separator="/", descending=True) == [
+        "team",
+        "project",
+    ]
+
+    assert cache.list_namespaces(
+        separator="/", descending=True, include_counts=True
+    ) == [
+        {"namespace": "team", "count": 2},
+        {"namespace": "project", "count": 1},
+    ]
 
 
 def test_local_cache_list_namespaces_rejects_invalid_inputs():
@@ -1401,6 +1412,9 @@ def test_local_cache_list_namespaces_rejects_invalid_inputs():
 
     with pytest.raises(ValueError, match="include_counts must be a boolean"):
         cache.list_namespaces(include_counts="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="descending must be a boolean"):
+        cache.list_namespaces(descending="yes")  # type: ignore[arg-type]
 
 
 def test_local_cache_clear_namespace_removes_matching_keys_only():

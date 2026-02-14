@@ -1434,6 +1434,7 @@ class LocalCacheService:
         offset: int | None = None,
         limit: int | None = None,
         include_counts: bool = False,
+        descending: bool = False,
     ) -> list[str] | list[dict[str, Any]]:
         """List active key namespaces with optional filtering and counts.
 
@@ -1446,6 +1447,8 @@ class LocalCacheService:
             offset: Optional number of sorted namespaces to skip.
             limit: Optional maximum number of namespaces to return.
             include_counts: Include entry counts per namespace.
+            descending: Return namespaces in descending lexicographic order
+                when ``True``.
         """
         if prefix is not None and not isinstance(prefix, str):
             raise ValueError("prefix must be a string")
@@ -1459,6 +1462,9 @@ class LocalCacheService:
         if not isinstance(include_counts, bool):
             raise ValueError("include_counts must be a boolean")
 
+        if not isinstance(descending, bool):
+            raise ValueError("descending must be a boolean")
+
         normalized_separator = self._normalize_namespace_separator(separator)
 
         self._purge_expired_entries()
@@ -1471,7 +1477,7 @@ class LocalCacheService:
 
             namespace_counts[namespace] += 1
 
-        namespace_rows = sorted(namespace_counts.items())
+        namespace_rows = sorted(namespace_counts.items(), reverse=descending)
 
         if offset:
             namespace_rows = namespace_rows[offset:]
