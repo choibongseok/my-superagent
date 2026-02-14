@@ -1213,6 +1213,114 @@ def test_local_cache_tag_rejects_non_string_values():
         cache.tag("safe", ["ok", 123])  # type: ignore[list-item]
 
 
+def test_local_cache_list_namespaces_returns_sorted_namespaces_and_optional_counts():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "session:alpha": 1,
+            "session:beta": 2,
+            "user:alpha": 3,
+            "orphan": 4,
+        }
+    )
+
+    assert cache.list_namespaces() == ["orphan", "session", "user"]
+
+    assert cache.list_namespaces(include_counts=True) == [
+        {"namespace": "orphan", "count": 1},
+        {"namespace": "session", "count": 2},
+        {"namespace": "user", "count": 1},
+    ]
+
+    assert cache.list_namespaces(prefix="s") == ["session"]
+
+
+def test_local_cache_list_namespaces_supports_custom_separator_and_pagination():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "team/alpha": 1,
+            "team/beta": 2,
+            "project/alpha": 3,
+        }
+    )
+
+    assert cache.list_namespaces(separator="/", offset=1, limit=1) == ["team"]
+
+
+def test_local_cache_list_namespaces_rejects_invalid_inputs():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="prefix must be a string"):
+        cache.list_namespaces(prefix=123)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="separator cannot be empty"):
+        cache.list_namespaces(separator="   ")
+
+    with pytest.raises(ValueError, match="offset must be greater than or equal to 0"):
+        cache.list_namespaces(offset=-1)
+
+    with pytest.raises(ValueError, match="limit must be greater than 0"):
+        cache.list_namespaces(limit=0)
+
+    with pytest.raises(ValueError, match="include_counts must be a boolean"):
+        cache.list_namespaces(include_counts="yes")  # type: ignore[arg-type]
+
+
+def test_local_cache_clear_namespace_removes_matching_keys_only():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "session": "root",
+            "session:alpha": 1,
+            "session:beta": 2,
+            "user:alpha": 3,
+        }
+    )
+
+    removed = cache.clear_namespace("session")
+
+    assert removed == 3
+    assert cache.get("session") is None
+    assert cache.get("session:alpha") is None
+    assert cache.get("session:beta") is None
+    assert cache.get("user:alpha") == 3
+
+
+@pytest.mark.asyncio
+async def test_local_cache_clear_namespace_cancels_matching_inflight_tasks():
+    cache = LocalCacheService()
+    gate = asyncio.Event()
+
+    async def factory() -> str:
+        await gate.wait()
+        return "ready"
+
+    task = asyncio.create_task(cache.get_or_set_async("session:pending", factory))
+    await asyncio.sleep(0)
+
+    removed = cache.clear_namespace("session")
+    gate.set()
+
+    assert removed == 1
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cache.get("session:pending") is None
+
+
+def test_local_cache_clear_namespace_rejects_invalid_inputs():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="namespace cannot be empty"):
+        cache.clear_namespace("   ")
+
+    with pytest.raises(ValueError, match="namespace cannot contain separator"):
+        cache.clear_namespace("session:alpha")
+
+    with pytest.raises(ValueError, match="separator cannot be empty"):
+        cache.clear_namespace("session", separator="")
+
+
 def test_local_cache_clear_prefix_removes_matching_keys_only():
     cache = LocalCacheService()
     cache.set_many(

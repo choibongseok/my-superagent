@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import time
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from fnmatch import fnmatchcase
 from numbers import Real
@@ -1307,6 +1307,124 @@ class LocalCacheService:
             key
             for key in self._all_known_keys()
             if any(fnmatchcase(key, pattern) for pattern in pattern_list)
+        }
+        return self.delete_many(matching_keys)
+
+    @staticmethod
+    def _normalize_namespace_separator(separator: str) -> str:
+        """Validate namespace separators used by namespace helpers."""
+        if not isinstance(separator, str):
+            raise ValueError("separator must be a string")
+
+        normalized_separator = separator.strip()
+        if not normalized_separator:
+            raise ValueError("separator cannot be empty")
+
+        return normalized_separator
+
+    @staticmethod
+    def _extract_namespace(key: str, *, separator: str) -> str:
+        """Extract namespace from key using the first separator occurrence."""
+        namespace, _, _ = key.partition(separator)
+        return namespace
+
+    @classmethod
+    def _normalize_namespace(cls, namespace: str, *, separator: str) -> str:
+        """Validate namespace values used by namespace-aware operations."""
+        if not isinstance(namespace, str):
+            raise ValueError("namespace must be a string")
+
+        normalized_namespace = namespace.strip()
+        if not normalized_namespace:
+            raise ValueError("namespace cannot be empty")
+        if separator in normalized_namespace:
+            raise ValueError("namespace cannot contain separator")
+
+        return normalized_namespace
+
+    def list_namespaces(
+        self,
+        *,
+        prefix: str | None = None,
+        separator: str = ":",
+        offset: int | None = None,
+        limit: int | None = None,
+        include_counts: bool = False,
+    ) -> list[str] | list[dict[str, Any]]:
+        """List active key namespaces with optional filtering and counts.
+
+        Namespace is defined as the key segment before the first separator.
+        Keys without the separator use the full key as their namespace.
+
+        Args:
+            prefix: Optional namespace prefix filter.
+            separator: Namespace delimiter used to split keys.
+            offset: Optional number of sorted namespaces to skip.
+            limit: Optional maximum number of namespaces to return.
+            include_counts: Include entry counts per namespace.
+        """
+        if prefix is not None and not isinstance(prefix, str):
+            raise ValueError("prefix must be a string")
+
+        if offset is not None and offset < 0:
+            raise ValueError("offset must be greater than or equal to 0")
+
+        if limit is not None and limit <= 0:
+            raise ValueError("limit must be greater than 0")
+
+        if not isinstance(include_counts, bool):
+            raise ValueError("include_counts must be a boolean")
+
+        normalized_separator = self._normalize_namespace_separator(separator)
+
+        self._purge_expired_entries()
+
+        namespace_counts: Counter[str] = Counter()
+        for key in self._store:
+            namespace = self._extract_namespace(key, separator=normalized_separator)
+            if prefix is not None and not namespace.startswith(prefix):
+                continue
+
+            namespace_counts[namespace] += 1
+
+        namespace_rows = sorted(namespace_counts.items())
+
+        if offset:
+            namespace_rows = namespace_rows[offset:]
+
+        if limit is not None:
+            namespace_rows = namespace_rows[:limit]
+
+        if include_counts:
+            return [
+                {"namespace": namespace, "count": count}
+                for namespace, count in namespace_rows
+            ]
+
+        return [namespace for namespace, _ in namespace_rows]
+
+    def clear_namespace(
+        self,
+        namespace: str,
+        *,
+        separator: str = ":",
+    ) -> int:
+        """Delete all keys belonging to ``namespace``.
+
+        A key belongs to a namespace when the segment before the first
+        separator matches ``namespace``.
+        """
+        normalized_separator = self._normalize_namespace_separator(separator)
+        normalized_namespace = self._normalize_namespace(
+            namespace,
+            separator=normalized_separator,
+        )
+
+        matching_keys = {
+            key
+            for key in self._all_known_keys()
+            if self._extract_namespace(key, separator=normalized_separator)
+            == normalized_namespace
         }
         return self.delete_many(matching_keys)
 
