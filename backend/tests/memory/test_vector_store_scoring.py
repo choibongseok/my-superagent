@@ -302,6 +302,51 @@ class TestScoreSanitization:
         assert results[0]["score"] == 0.8
 
 
+class TestConfidenceFiltering:
+    """Test optional confidence-level filtering for scored searches."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_confidence_validation(self):
+        """Unsupported confidence floors should fail fast with a clear error."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(
+            ValueError,
+            match="min_confidence must be one of: weak, moderate, strong",
+        ):
+            memory.search_with_scores(query="test", min_confidence="expert")
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_confidence_filters_out_weaker_results(self):
+        """min_confidence='moderate' should keep only moderate/strong matches."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        high_doc = Document(page_content="high", metadata={"id": "high"})
+        moderate_doc = Document(page_content="moderate", metadata={"id": "moderate"})
+        weak_doc = Document(page_content="weak", metadata={"id": "weak"})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (high_doc, 0.9),
+                (moderate_doc, 0.74),
+                (weak_doc, 0.55),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            min_confidence="moderate",
+        )
+
+        assert [result["content"] for result in results] == ["high", "moderate"]
+        assert [result["confidence"] for result in results] == ["strong", "moderate"]
+
+
 class TestSelectivityFactorEdgeCases:
     """Test edge cases in selectivity factor calculation."""
 

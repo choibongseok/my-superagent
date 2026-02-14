@@ -60,6 +60,9 @@ class VectorStoreMemory:
         - Efficient retrieval using vector embeddings
         - Integration with PGVector
 
+    Confidence levels are represented in ascending order as:
+    ``weak`` < ``moderate`` < ``strong``.
+
     Usage:
         memory = VectorStoreMemory(user_id="user123", session_id="session456")
         memory.add_memory("I love pizza", metadata={"topic": "food"})
@@ -68,6 +71,12 @@ class VectorStoreMemory:
         for result in results:
             print(result["content"])
     """
+
+    CONFIDENCE_LEVEL_ORDER: Dict[str, int] = {
+        "weak": 1,
+        "moderate": 2,
+        "strong": 3,
+    }
 
     def __init__(
         self,
@@ -252,6 +261,24 @@ class VectorStoreMemory:
 
         return relevance, confidence
 
+    @classmethod
+    def _normalize_min_confidence(
+        cls,
+        min_confidence: Optional[str],
+    ) -> Optional[str]:
+        """Normalize and validate optional confidence floor filters."""
+        if min_confidence is None:
+            return None
+
+        if not isinstance(min_confidence, str):
+            raise ValueError("min_confidence must be one of: weak, moderate, strong")
+
+        normalized_confidence = min_confidence.strip().lower()
+        if normalized_confidence not in cls.CONFIDENCE_LEVEL_ORDER:
+            raise ValueError("min_confidence must be one of: weak, moderate, strong")
+
+        return normalized_confidence
+
     def _build_user_scoped_filter(
         self,
         filter_dict: Optional[Dict[str, Any]] = None,
@@ -329,6 +356,7 @@ class VectorStoreMemory:
         adaptive_threshold: bool = True,
         adaptive_std_multiplier: float = 1.5,
         min_adaptive_threshold: float = 0.5,
+        min_confidence: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search memories with similarity scores.
@@ -345,12 +373,16 @@ class VectorStoreMemory:
                 (default 1.5). Higher values are more permissive, lower are stricter.
             min_adaptive_threshold: Minimum floor for adaptive threshold (default 0.5).
                 Prevents accepting very low-quality results even if they're relatively good.
+            min_confidence: Optional confidence floor filter. Accepted values are
+                ``"weak"``, ``"moderate"``, and ``"strong"``. When set,
+                results below that confidence level are excluded.
 
         Returns:
             List of memories with scores and enhanced relevance metadata
 
         Raises:
-            ValueError: If score_threshold is not in [0, 1] range or if parameters are invalid
+            ValueError: If thresholds/parameters are invalid, including unsupported
+                ``min_confidence`` values.
         """
         # Input validation
         if score_threshold is not None and not (0.0 <= score_threshold <= 1.0):
@@ -367,6 +399,13 @@ class VectorStoreMemory:
             raise ValueError(
                 f"adaptive_std_multiplier must be non-negative, got {adaptive_std_multiplier}"
             )
+
+        normalized_min_confidence = self._normalize_min_confidence(min_confidence)
+        min_confidence_rank = (
+            self.CONFIDENCE_LEVEL_ORDER[normalized_min_confidence]
+            if normalized_min_confidence is not None
+            else None
+        )
 
         k = k or self.top_k
         search_filter = self._build_user_scoped_filter(filter_dict)
@@ -511,6 +550,12 @@ class VectorStoreMemory:
         formatted_results = []
         for doc, score in results:
             relevance, confidence = self._classify_relevance(score, applied_threshold)
+
+            if (
+                min_confidence_rank is not None
+                and self.CONFIDENCE_LEVEL_ORDER[confidence] < min_confidence_rank
+            ):
+                continue
 
             formatted_results.append(
                 {
