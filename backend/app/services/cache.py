@@ -267,6 +267,36 @@ class LocalCacheService:
 
         return self.delete_many(matching_keys)
 
+    def _resolve_keys_for_tags(
+        self,
+        tags: Iterable[str],
+        *,
+        match_all_tags: bool,
+    ) -> set[str]:
+        """Resolve active keys matching ``tags`` with any/all semantics."""
+        normalized_tags = self._normalize_tags(tags)
+        if not normalized_tags:
+            return set()
+
+        if match_all_tags:
+            tag_sets = [
+                set(self._keys_by_tag.get(tag, set())) for tag in normalized_tags
+            ]
+            matching_keys = set.intersection(*tag_sets) if tag_sets else set()
+        else:
+            matching_keys: set[str] = set()
+            for tag in normalized_tags:
+                matching_keys.update(self._keys_by_tag.get(tag, set()))
+
+        if not matching_keys:
+            return set()
+
+        return {
+            key
+            for key in matching_keys
+            if self._get_entry(key, mark_access=False) is not None
+        }
+
     def replace(
         self,
         key: str,
@@ -432,9 +462,7 @@ class LocalCacheService:
             return None
 
         value, expires_at = item
-        ttl_seconds = (
-            None if expires_at is None else max(0.0, expires_at - time.time())
-        )
+        ttl_seconds = None if expires_at is None else max(0.0, expires_at - time.time())
 
         return {
             "key": key,
@@ -1115,9 +1143,21 @@ class LocalCacheService:
         *,
         prefix: str | None = None,
         pattern: str | None = None,
+        tags: Iterable[str] | None = None,
+        match_all_tags: bool = False,
         limit: int | None = None,
     ) -> list[str]:
-        """List active keys with optional prefix/glob filtering.
+        """List active keys with optional prefix/glob/tag filtering.
+
+        Args:
+            prefix: Optional key prefix to match.
+            pattern: Optional glob pattern matched with :func:`fnmatchcase`.
+            tags: Optional tag filter. When provided, only keys associated with
+                matching tags are returned.
+            match_all_tags: Tag matching mode when ``tags`` are provided.
+                ``False`` (default) returns keys matching any tag, while
+                ``True`` requires keys to contain every provided tag.
+            limit: Optional maximum number of keys to return.
 
         Keys are returned in deterministic lexicographic order and do not affect
         hit/miss counters or LRU order.
@@ -1125,10 +1165,21 @@ class LocalCacheService:
         if limit is not None and limit <= 0:
             raise ValueError("limit must be greater than 0")
 
+        if not isinstance(match_all_tags, bool):
+            raise ValueError("match_all_tags must be a boolean")
+
         self._purge_expired_entries()
 
+        if tags is None:
+            candidate_keys = set(self._store.keys())
+        else:
+            candidate_keys = self._resolve_keys_for_tags(
+                tags,
+                match_all_tags=match_all_tags,
+            )
+
         matching_keys: list[str] = []
-        for key in self._store:
+        for key in candidate_keys:
             if prefix is not None and not key.startswith(prefix):
                 continue
             if pattern is not None and not fnmatchcase(key, pattern):
@@ -1145,12 +1196,20 @@ class LocalCacheService:
         *,
         prefix: str | None = None,
         pattern: str | None = None,
+        tags: Iterable[str] | None = None,
+        match_all_tags: bool = False,
         limit: int | None = None,
         include_values: bool = False,
     ) -> list[dict[str, Any]]:
-        """List active cache entries with optional value and TTL metadata."""
+        """List active cache entries with optional filters and metadata."""
         entries: list[dict[str, Any]] = []
-        for key in self.list_keys(prefix=prefix, pattern=pattern, limit=limit):
+        for key in self.list_keys(
+            prefix=prefix,
+            pattern=pattern,
+            tags=tags,
+            match_all_tags=match_all_tags,
+            limit=limit,
+        ):
             value, expires_at = self._store[key]
             entry: dict[str, Any] = {
                 "key": key,

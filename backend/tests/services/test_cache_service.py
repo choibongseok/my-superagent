@@ -1121,6 +1121,53 @@ def test_local_cache_list_keys_supports_prefix_pattern_and_limit():
     ]
 
 
+def test_local_cache_list_keys_supports_tag_filters_with_any_or_all_matching():
+    cache = LocalCacheService()
+    cache.set_tagged("alpha", 1, tags=["group:a", "shared"])
+    cache.set_tagged("beta", 2, tags=["group:b"])
+    cache.set_tagged("gamma", 3, tags=["group:b", "shared"])
+
+    assert cache.list_keys(tags=["group:b"]) == ["beta", "gamma"]
+    assert cache.list_keys(tags=["group:b", "shared"]) == ["alpha", "beta", "gamma"]
+    assert cache.list_keys(tags=["group:b", "shared"], match_all_tags=True) == ["gamma"]
+
+
+def test_local_cache_list_keys_supports_tag_filters_with_prefix_pattern_and_limit():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["session", "active"])
+    cache.set_tagged("session:beta", 2, tags=["session"])
+    cache.set_tagged("user:gamma", 3, tags=["active"])
+
+    assert cache.list_keys(tags=["active"], prefix="session:") == ["session:alpha"]
+    assert cache.list_keys(tags=["session"], pattern="*:beta") == ["session:beta"]
+    assert cache.list_keys(tags=["session", "active"], limit=1) == ["session:alpha"]
+
+
+def test_local_cache_list_keys_rejects_invalid_match_all_tags_flag():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
+        cache.list_keys(match_all_tags="yes")  # type: ignore[arg-type]
+
+
+def test_local_cache_list_keys_rejects_non_string_tags():
+    cache = LocalCacheService()
+    cache.set_tagged("safe", "value", tags=["ok"])
+
+    with pytest.raises(TypeError, match="tags must contain only strings"):
+        cache.list_keys(tags=["ok", 123])  # type: ignore[list-item]
+
+
+def test_local_cache_list_keys_ignores_expired_tagged_keys():
+    cache = LocalCacheService()
+    cache.set_tagged("short", "x", tags=["volatile"], ttl_seconds=1)
+    cache.set_tagged("stable", "y", tags=["volatile"])
+
+    time.sleep(1.05)
+
+    assert cache.list_keys(tags=["volatile"]) == ["stable"]
+
+
 def test_local_cache_list_keys_rejects_non_positive_limit():
     cache = LocalCacheService()
 
@@ -1143,6 +1190,31 @@ def test_local_cache_list_entries_includes_ttl_metadata_and_optional_values():
     assert with_values[1]["value"] == "value"
     assert with_values[1]["ttl_seconds"] is not None
     assert 0 < with_values[1]["ttl_seconds"] <= 2
+
+
+def test_local_cache_list_entries_supports_tag_filters():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", {"v": 1}, tags=["session", "active"])
+    cache.set_tagged("session:beta", {"v": 2}, tags=["session"])
+    cache.set_tagged("user:gamma", {"v": 3}, tags=["active"])
+
+    filtered = cache.list_entries(
+        tags=["active"], prefix="session:", include_values=True
+    )
+
+    assert filtered == [
+        {
+            "key": "session:alpha",
+            "ttl_seconds": None,
+            "value": {"v": 1},
+        }
+    ]
+
+    all_tagged = cache.list_entries(
+        tags=["session", "active"],
+        match_all_tags=True,
+    )
+    assert [entry["key"] for entry in all_tagged] == ["session:alpha"]
 
 
 def test_local_cache_list_entries_ignores_expired_keys():
