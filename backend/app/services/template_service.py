@@ -395,6 +395,32 @@ def _length_of(value: object) -> int:
         raise ValueError("length expects a sized or iterable value") from exc
 
 
+def _fallback_value(value: object, argument_spec: str) -> object:
+    """Return fallback when values are missing, blank, or empty collections."""
+    args = _parse_transform_args(argument_spec)
+    if len(args) != 1:
+        raise ValueError("fallback expects exactly one argument: value")
+
+    fallback = args[0]
+
+    if value is None:
+        return fallback
+
+    if isinstance(value, str) and value.strip() == "":
+        return fallback
+
+    if isinstance(value, (bytes, bytearray)) and len(value) == 0:
+        return fallback
+
+    try:
+        if len(value) == 0:  # type: ignore[arg-type]
+            return fallback
+    except TypeError:
+        pass
+
+    return value
+
+
 def _select_boundary_item(value: object, boundary: str) -> object:
     """Select the first/last item from a non-string iterable."""
     if boundary not in {"first", "last"}:
@@ -638,6 +664,7 @@ class TemplateService:
         - ``{search_query->urlencode}``
         - ``{title->slug}``
         - ``{summary->compact}``
+        - ``{nickname->strip->fallback("friend")}``
 
         Returns:
             Tuple of ``(field_path, default_value, transforms)``.
@@ -697,6 +724,7 @@ class TemplateService:
                 "split([separator[,maxsplit]])",
                 "sort([asc|desc])",
                 "slice(<start>[,<end>])",
+                "fallback(<value>)",
             ]
         )
 
@@ -736,6 +764,11 @@ class TemplateService:
                     operation = lambda raw, spec=argument_spec: _sort_values(raw, spec)
                 elif transform_name == "slice":
                     operation = lambda raw, spec=argument_spec: _slice_value(raw, spec)
+                elif transform_name == "fallback":
+                    operation = lambda raw, spec=argument_spec: _fallback_value(
+                        raw,
+                        spec,
+                    )
 
             if operation is None:
                 supported = ", ".join(supported_transforms)
@@ -810,8 +843,8 @@ class TemplateService:
         ``{queue->first}``, ``{queue->last}``, ``{tasks->reverse}``,
         ``{milestones->slice(0,2)}``, ``{notes->dedent->strip}``,
         ``{payload->json}``, ``{payload->json_pretty}``,
-        ``{search_query->urlencode}``, ``{title->slug}``, or
-        ``{summary->compact}``).
+        ``{search_query->urlencode}``, ``{title->slug}``,
+        ``{summary->compact}``, or ``{nickname->strip->fallback("friend")}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)

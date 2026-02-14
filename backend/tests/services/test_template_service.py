@@ -793,6 +793,113 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_fallback_transform_for_blank_text(
+        self, service_with_mock_db
+    ):
+        """fallback(value) should replace blank text after prior transforms."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Greeting: {name->strip->fallback("friend")->title}',
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"name": "   "},
+                user_id,
+            )
+
+        assert result["prompt"] == "Greeting: Friend"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_fallback_transform_preserves_falsey_scalars(
+        self, service_with_mock_db
+    ):
+        """fallback should not replace explicit falsey scalar values like 0."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Retries: {retries->fallback("n/a")}',
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"retries": 0},
+                user_id,
+            )
+
+        assert result["prompt"] == "Retries: 0"
+        assert template.usage_count == 2
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_fallback_transform_for_empty_collections(
+        self, service_with_mock_db
+    ):
+        """fallback(value) should handle empty lists from transform pipelines."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Tags: {tags_csv->split(",")->slice(0,0)->fallback("none")}',
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"tags_csv": "alpha,beta"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Tags: none"
+        assert template.usage_count == 3
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_invalid_fallback_arguments(
+        self, service_with_mock_db
+    ):
+        """fallback requires exactly one argument to avoid ambiguous behavior."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Greeting: {name->fallback()}",
+            category="docs",
+            usage_count=4,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'fallback\(\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"name": "Mina"},
+                    user_id,
+                )
+
+        assert template.usage_count == 4
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_replace_transform(self, service_with_mock_db):
         """replace transform should substitute a target substring in-place."""
         service, db = service_with_mock_db
