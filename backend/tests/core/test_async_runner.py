@@ -7,6 +7,7 @@ import pytest
 from app.core.async_runner import (
     run_async,
     run_async_dict,
+    run_async_first,
     run_async_many,
     run_async_map,
     run_async_starmap,
@@ -217,6 +218,98 @@ def test_run_async_many_honors_max_concurrency_limit():
 
     assert results == [1, 2, 3, 4]
     assert max_active == 2
+
+
+def test_run_async_first_returns_earliest_completed_result():
+    async def _slow() -> str:
+        await asyncio.sleep(0.05)
+        return "slow"
+
+    async def _fast() -> str:
+        await asyncio.sleep(0.01)
+        return "fast"
+
+    result = run_async_first(_slow(), _fast())
+
+    assert result == "fast"
+
+
+@pytest.mark.asyncio
+async def test_run_async_first_with_existing_event_loop_returns_result():
+    async def _value() -> int:
+        await asyncio.sleep(0.01)
+        return 7
+
+    assert run_async_first(_value()) == 7
+
+
+def test_run_async_first_rejects_empty_input():
+    with pytest.raises(ValueError, match="expects at least one awaitable"):
+        run_async_first()
+
+
+def test_run_async_first_rejects_non_awaitable_arguments():
+    coroutine = _compute_value()
+    try:
+        with pytest.raises(TypeError, match="expects awaitable arguments"):
+            run_async_first(coroutine, 123)  # type: ignore[arg-type]
+    finally:
+        coroutine.close()
+
+
+def test_run_async_first_timeout_without_existing_event_loop():
+    async def _sleep() -> None:
+        await asyncio.sleep(0.1)
+
+    with pytest.raises(TimeoutError, match="run_async_first timed out"):
+        run_async_first(_sleep(), timeout=0.01)
+
+
+def test_run_async_first_propagates_first_exception_by_default():
+    async def _fail() -> str:
+        await asyncio.sleep(0.01)
+        raise RuntimeError("boom")
+
+    async def _slow() -> str:
+        await asyncio.sleep(0.05)
+        return "slow"
+
+    with pytest.raises(RuntimeError, match="boom"):
+        run_async_first(_fail(), _slow())
+
+
+def test_run_async_first_can_return_exceptions_when_requested():
+    async def _fail() -> str:
+        await asyncio.sleep(0.01)
+        raise ValueError("bad")
+
+    async def _slow() -> str:
+        await asyncio.sleep(0.05)
+        return "slow"
+
+    result = run_async_first(_fail(), _slow(), return_exceptions=True)
+
+    assert isinstance(result, ValueError)
+    assert str(result) == "bad"
+
+
+def test_run_async_first_cancels_pending_awaitables_after_first_completion():
+    cancellation_flag = {"cancelled": False}
+
+    async def _slow() -> str:
+        try:
+            await asyncio.sleep(1)
+            return "slow"
+        except asyncio.CancelledError:
+            cancellation_flag["cancelled"] = True
+            raise
+
+    async def _fast() -> str:
+        await asyncio.sleep(0.01)
+        return "fast"
+
+    assert run_async_first(_slow(), _fast()) == "fast"
+    assert cancellation_flag["cancelled"] is True
 
 
 def test_run_async_dict_without_existing_event_loop_returns_results():

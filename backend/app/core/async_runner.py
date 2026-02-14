@@ -221,6 +221,88 @@ def run_async_many(
     )
 
 
+async def _wait_for_first_result(
+    awaitables: list[Awaitable[T]],
+    *,
+    return_exceptions: bool,
+) -> T | BaseException:
+    """Await the first completed awaitable and cancel all pending work."""
+    tasks = [asyncio.ensure_future(awaitable) for awaitable in awaitables]
+
+    try:
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        first_completed = next(task for task in tasks if task in done)
+
+        if return_exceptions:
+            try:
+                return first_completed.result()
+            except BaseException as exc:  # pragma: no cover - covered via tests
+                return exc
+
+        return first_completed.result()
+    finally:
+        for task in tasks:
+            if task.done():
+                continue
+            task.cancel()
+
+        pending_tasks = [task for task in tasks if not task.done()]
+        if pending_tasks:
+            await asyncio.gather(*pending_tasks, return_exceptions=True)
+
+
+def run_async_first(
+    *awaitables: Awaitable[T],
+    timeout: float | None = None,
+    return_exceptions: bool = False,
+) -> T | BaseException:
+    """Return the first completed awaitable result from synchronous code.
+
+    Any remaining awaitables are cancelled once the first task settles.
+
+    Args:
+        *awaitables: Awaitables racing to produce the first outcome.
+        timeout: Optional timeout in seconds.
+        return_exceptions: When ``True``, return the first raised exception
+            instead of propagating it.
+
+    Raises:
+        ValueError: If ``timeout`` is not positive or no awaitables are passed.
+        TypeError: If any argument is not awaitable.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    _validate_timeout(timeout)
+
+    if not awaitables:
+        raise ValueError("run_async_first expects at least one awaitable")
+
+    normalized_awaitables = list(awaitables)
+    for index, awaitable in enumerate(normalized_awaitables):
+        if not inspect.isawaitable(awaitable):
+            for candidate in normalized_awaitables[:index]:
+                close = getattr(candidate, "close", None)
+                if callable(close):
+                    close()
+            raise TypeError("run_async_first expects awaitable arguments")
+
+    async def _run_with_timeout() -> T | BaseException:
+        waiter = _wait_for_first_result(
+            normalized_awaitables,
+            return_exceptions=return_exceptions,
+        )
+        if timeout is None:
+            return await waiter
+        return await asyncio.wait_for(waiter, timeout=timeout)
+
+    def _timeout_error() -> TimeoutError:
+        return TimeoutError(f"run_async_first timed out after {timeout} seconds")
+
+    return _run_with_event_loop_bridge(
+        _run_with_timeout,
+        timeout_error_factory=_timeout_error,
+    )
+
+
 def run_async_map(
     coro_factory: Callable[[I], Awaitable[T]],
     items: Iterable[I],
