@@ -695,6 +695,8 @@ class CitationTracker:
         max_authority_score: Optional[float] = None,
         min_relevance_score: Optional[float] = None,
         max_relevance_score: Optional[float] = None,
+        min_recency_score: Optional[float] = None,
+        max_recency_score: Optional[float] = None,
         recency_window_days: int = 730,
         recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
         as_of: Optional[datetime] = None,
@@ -755,6 +757,10 @@ class CitationTracker:
             max_relevance_score: Optional inclusive upper bound for computed
                 relevance score. Useful when isolating weaker/secondary matches
                 for fallback or diversity logic.
+            min_recency_score: Optional inclusive lower bound for computed
+                recency score in the ``0.0`` to ``1.0`` range.
+            max_recency_score: Optional inclusive upper bound for computed
+                recency score in the ``0.0`` to ``1.0`` range.
             recency_window_days: Publication age window used for recency
                 scoring when ``sort_by='recency'``.
             recency_profile: Recency sensitivity profile used when
@@ -829,6 +835,19 @@ class CitationTracker:
             raise ValueError(
                 "min_relevance_score cannot be greater than max_relevance_score"
             )
+
+        if min_recency_score is not None and not 0 <= min_recency_score <= 1:
+            raise ValueError("min_recency_score must be between 0 and 1")
+
+        if max_recency_score is not None and not 0 <= max_recency_score <= 1:
+            raise ValueError("max_recency_score must be between 0 and 1")
+
+        if (
+            min_recency_score is not None
+            and max_recency_score is not None
+            and min_recency_score > max_recency_score
+        ):
+            raise ValueError("min_recency_score cannot be greater than max_recency_score")
 
         if recency_window_days <= 0:
             raise ValueError("recency_window_days must be greater than 0")
@@ -1005,6 +1024,12 @@ class CitationTracker:
                 recency_profile=recency_profile,
             )
 
+            if min_recency_score is not None and recency_score < min_recency_score:
+                continue
+
+            if max_recency_score is not None and recency_score > max_recency_score:
+                continue
+
             ranked_matches.append(
                 (
                     score,
@@ -1157,6 +1182,8 @@ class CitationTracker:
         max_authority_score: Optional[float] = None,
         min_relevance_score: Optional[float] = None,
         max_relevance_score: Optional[float] = None,
+        min_recency_score: Optional[float] = None,
+        max_recency_score: Optional[float] = None,
         recency_window_days: int = 730,
         recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
         as_of: Optional[datetime] = None,
@@ -1193,6 +1220,8 @@ class CitationTracker:
             max_authority_score=max_authority_score,
             min_relevance_score=min_relevance_score,
             max_relevance_score=max_relevance_score,
+            min_recency_score=min_recency_score,
+            max_recency_score=max_recency_score,
             recency_window_days=recency_window_days,
             recency_profile=recency_profile,
             as_of=as_of,

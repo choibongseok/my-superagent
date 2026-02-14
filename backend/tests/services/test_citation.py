@@ -448,6 +448,69 @@ class TestCitationTracker:
                 "ai", sort_by="recency", recency_profile="aggressive"
             )
 
+    def test_search_sources_supports_min_and_max_recency_score_filters(self):
+        """Recency score bounds should filter stale and fresh sources deterministically."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        fresh_id = tracker.add_source(
+            title="Fresh AI Brief",
+            published_date=anchor_time - timedelta(days=7),
+            type=SourceType.ARTICLE,
+        )
+        stale_id = tracker.add_source(
+            title="Stale AI Brief",
+            published_date=anchor_time - timedelta(days=300),
+            type=SourceType.ARTICLE,
+        )
+        undated_id = tracker.add_source(
+            title="Undated AI Brief",
+            type=SourceType.ARTICLE,
+        )
+
+        fresh_only = tracker.search_sources(
+            "ai brief",
+            as_of=anchor_time,
+            recency_window_days=365,
+            min_recency_score=0.5,
+        )
+        assert [source.id for source in fresh_only] == [fresh_id]
+
+        stale_or_undated = tracker.search_sources(
+            "ai brief",
+            as_of=anchor_time,
+            recency_window_days=365,
+            max_recency_score=0.35,
+        )
+        assert {source.id for source in stale_or_undated} == {stale_id, undated_id}
+        assert fresh_id not in {source.id for source in stale_or_undated}
+
+    def test_search_sources_rejects_invalid_recency_score_filters(self):
+        """Recency score filters should enforce valid 0..1 ranges and bounds."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="min_recency_score must be between 0 and 1",
+        ):
+            tracker.search_sources("ai", min_recency_score=-0.1)
+
+        with pytest.raises(
+            ValueError,
+            match="max_recency_score must be between 0 and 1",
+        ):
+            tracker.search_sources("ai", max_recency_score=1.1)
+
+        with pytest.raises(
+            ValueError,
+            match="min_recency_score cannot be greater than max_recency_score",
+        ):
+            tracker.search_sources(
+                "ai",
+                min_recency_score=0.8,
+                max_recency_score=0.4,
+            )
+
     def test_search_sources_supports_sort_by_title(self):
         """sort_by='title' should sort alphabetically regardless of relevance score."""
         tracker = CitationTracker()
@@ -815,6 +878,32 @@ class TestCitationTracker:
         assert [item["source"].id for item in detailed] == [weak_id]
         assert strong_id not in {item["source"].id for item in detailed}
         assert 0.5 <= detailed[0]["relevance_score"] <= 8.0
+
+    def test_search_sources_with_details_supports_recency_score_range_filters(self):
+        """Detailed search should pass through min/max recency score constraints."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        fresh_id = tracker.add_source(
+            title="Fresh Reliability Notes",
+            published_date=anchor_time - timedelta(days=5),
+            type=SourceType.ARTICLE,
+        )
+        tracker.add_source(
+            title="Legacy Reliability Notes",
+            published_date=anchor_time - timedelta(days=320),
+            type=SourceType.ARTICLE,
+        )
+
+        detailed = tracker.search_sources_with_details(
+            "reliability notes",
+            as_of=anchor_time,
+            recency_window_days=365,
+            min_recency_score=0.5,
+        )
+
+        assert [item["source"].id for item in detailed] == [fresh_id]
+        assert detailed[0]["recency_score"] >= 0.5
 
     def test_search_sources_supports_case_insensitive_metadata_filters(self):
         """Metadata filters should match keys/values regardless of casing."""
