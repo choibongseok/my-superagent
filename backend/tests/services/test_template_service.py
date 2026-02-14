@@ -741,6 +741,85 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_clamp_transform(self, service_with_mock_db):
+        """clamp(min,max) should bound numeric inputs into an inclusive range."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Bounds: {score->clamp(0,1)}, Severity: {severity->clamp(1,5)}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"score": 1.37, "severity": -2},
+                user_id,
+            )
+
+        assert result["prompt"] == "Bounds: 1, Severity: 1"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_clamp_transform_with_float_bounds(
+        self, service_with_mock_db
+    ):
+        """clamp should compose with round for floating-point guardrails."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Ratio: {ratio->clamp(0.0,1.0)->round(2)}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"ratio": -0.222},
+                user_id,
+            )
+
+        assert result["prompt"] == "Ratio: 0.0"
+        assert template.usage_count == 3
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_clamp_transform_with_invalid_bounds(
+        self, service_with_mock_db
+    ):
+        """clamp should fail when min is greater than max."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Score: {score->clamp(5,1)}",
+            category="docs",
+            usage_count=4,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'clamp\(5,1\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"score": 0.42},
+                    user_id,
+                )
+
+        assert template.usage_count == 4
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_rejects_round_transform_with_invalid_precision(
         self, service_with_mock_db
     ):

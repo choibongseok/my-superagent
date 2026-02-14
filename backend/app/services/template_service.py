@@ -483,6 +483,37 @@ def _round_numeric(value: object, argument_spec: str) -> int | float:
     return round(numeric_value, ndigits)
 
 
+def _clamp_numeric(value: object, argument_spec: str) -> int | float:
+    """Clamp numeric values into an inclusive ``[min,max]`` range."""
+    args = _parse_transform_args(argument_spec)
+    if len(args) != 2:
+        raise ValueError("clamp expects exactly two arguments: min,max")
+
+    if isinstance(value, bool):
+        raise ValueError("clamp expects a numeric value")
+
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("clamp expects a numeric value") from exc
+
+    try:
+        minimum = float(args[0].strip())
+        maximum = float(args[1].strip())
+    except ValueError as exc:
+        raise ValueError("clamp bounds must be numeric") from exc
+
+    if minimum > maximum:
+        raise ValueError("clamp min cannot be greater than max")
+
+    clamped = min(max(numeric_value, minimum), maximum)
+
+    if minimum.is_integer() and maximum.is_integer() and clamped.is_integer():
+        return int(clamped)
+
+    return clamped
+
+
 def _fallback_value(value: object, argument_spec: str) -> object:
     """Return fallback when values are missing, blank, or empty collections."""
     args = _parse_transform_args(argument_spec)
@@ -756,6 +787,7 @@ class TemplateService:
         - ``{summary->compact}``
         - ``{ticket->prepend("#")}``, ``{title->append(" ✅")}``
         - ``{score->round(2)}``
+        - ``{score->clamp(0,1)->round(2)}``
         - ``{nickname->strip->fallback("friend")}``
 
         Returns:
@@ -806,6 +838,7 @@ class TemplateService:
             "last": lambda raw: _select_boundary_item(raw, "last"),
             "reverse": _reverse_value,
             "round": lambda raw: _round_numeric(raw, ""),
+            "clamp": lambda raw: _clamp_numeric(raw, ""),
         }
         supported_transforms = sorted(
             [
@@ -825,6 +858,7 @@ class TemplateService:
                 "fallback(<value>)",
                 "indent([prefix])",
                 "round([ndigits])",
+                "clamp(<min>,<max>)",
             ]
         )
 
@@ -897,6 +931,10 @@ class TemplateService:
                     operation = lambda raw, spec=argument_spec: _indent_text(raw, spec)
                 elif transform_name == "round":
                     operation = lambda raw, spec=argument_spec: _round_numeric(
+                        raw, spec
+                    )
+                elif transform_name == "clamp":
+                    operation = lambda raw, spec=argument_spec: _clamp_numeric(
                         raw, spec
                     )
 
@@ -978,6 +1016,7 @@ class TemplateService:
         ``{search_query->urlencode}``, ``{title->slug}``,
         ``{summary->compact}``, ``{ticket->prepend("#")}``,
         ``{title->append(" ✅")}``, ``{score->round(2)}``,
+        ``{score->clamp(0,1)->round(2)}``,
         or ``{nickname->strip->fallback("friend")}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
