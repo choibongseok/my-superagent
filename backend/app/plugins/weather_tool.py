@@ -152,6 +152,16 @@ class Plugin(ToolPlugin):
         return normalized
 
     @staticmethod
+    def _normalize_refresh_cache(value: Any) -> bool:
+        """Validate cache bypass flags used by execute inputs."""
+        if value is None:
+            return False
+        if isinstance(value, bool):
+            return value
+
+        raise ValueError("refresh_cache must be a boolean")
+
+    @staticmethod
     def _build_cache_key(
         *,
         location: str,
@@ -424,7 +434,8 @@ class Plugin(ToolPlugin):
                 "latitude": float (optional, requires longitude),
                 "longitude": float (optional, requires latitude),
                 "units": str (optional, metric/celsius, imperial/fahrenheit, or standard/kelvin),
-                "lang": str (optional, ISO 639-1 code with optional locale such as 'ko' or 'pt_br')
+                "lang": str (optional, ISO 639-1 code with optional locale such as 'ko' or 'pt_br'),
+                "refresh_cache": bool (optional, when true bypasses cache lookup and forces a fresh fetch)
             }
 
         Returns:
@@ -441,6 +452,7 @@ class Plugin(ToolPlugin):
         normalized_location, location_params = self._resolve_location_inputs(inputs)
         resolved_units = self._resolve_units(inputs.get("units"))
         resolved_language = self._resolve_language(inputs.get("lang"))
+        refresh_cache = self._normalize_refresh_cache(inputs.get("refresh_cache"))
 
         cache_key: str | None = None
         if self._response_cache is not None:
@@ -449,10 +461,13 @@ class Plugin(ToolPlugin):
                 units=resolved_units,
                 language=resolved_language,
             )
-            cached_result = self._response_cache.get(cache_key)
-            if cached_result is not None:
-                logger.debug("Weather cache hit for %s", cache_key)
-                return self._clone_weather_result(cached_result)
+            if not refresh_cache:
+                cached_result = self._response_cache.get(cache_key)
+                if cached_result is not None:
+                    logger.debug("Weather cache hit for %s", cache_key)
+                    return self._clone_weather_result(cached_result)
+            else:
+                logger.debug("Weather cache refresh requested for %s", cache_key)
 
         # If no API key, return mock data
         if not self.api_key:
@@ -591,6 +606,7 @@ class Plugin(ToolPlugin):
             "Responses include both actual temperature and feels-like temperature. "
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
+            "Set refresh_cache=true to bypass cached responses and force a fresh API fetch. "
             "Returns temperature, weather condition, humidity, and wind speed. "
             "Requires OpenWeatherMap API key in plugin config."
         )
@@ -599,7 +615,7 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.11.0",
+            version="1.12.0",
             description="Get real-time weather information using OpenWeatherMap API with optional response caching",
             author="AgentHQ",
             permissions=["network.http"],
@@ -619,6 +635,7 @@ class Plugin(ToolPlugin):
                 "longitude": "number (optional, must be used with latitude)",
                 "units": "string (optional, metric/celsius, imperial/fahrenheit, or standard/kelvin; overrides plugin default)",
                 "lang": "string (optional, ISO 639-1 code with optional locale, overrides plugin default)",
+                "refresh_cache": "boolean (optional, true bypasses cache lookup and forces a fresh fetch)",
             },
             outputs={
                 "location": "string",

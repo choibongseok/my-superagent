@@ -184,6 +184,55 @@ class TestWeatherTool:
             assert first["temperature"] != third["temperature"]
 
     @pytest.mark.asyncio
+    async def test_refresh_cache_bypasses_cached_response(self):
+        """refresh_cache should skip cache hits and force a fresh API call."""
+        plugin = WeatherPlugin(config={"api_key": "test_key", "cache_ttl_seconds": 30})
+
+        first_response = AsyncMock()
+        first_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 20.0, "humidity": 40},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 2.0},
+        }
+        first_response.raise_for_status = AsyncMock()
+
+        second_response = AsyncMock()
+        second_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 21.5, "humidity": 41},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 2.1},
+        }
+        second_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(side_effect=[first_response, second_response])
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            first = await plugin.execute({"location": "Seoul"})
+            refreshed = await plugin.execute(
+                {"location": "Seoul", "refresh_cache": True}
+            )
+
+            assert mock_get.await_count == 2
+            assert first["temperature"] != refreshed["temperature"]
+
+    @pytest.mark.asyncio
+    async def test_refresh_cache_validation_rejects_non_boolean_values(self, api_plugin):
+        """refresh_cache should require explicit boolean input values."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(ValueError, match="refresh_cache must be a boolean"):
+                await api_plugin.execute(
+                    {
+                        "location": "Seoul",
+                        "refresh_cache": "yes",
+                    }
+                )
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_location_required(self, mock_plugin):
         """Test that location parameter is required."""
         with pytest.raises(ValueError, match="location is required"):
@@ -821,7 +870,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.11.0"
+        assert manifest.version == "1.12.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
@@ -835,6 +884,7 @@ class TestWeatherTool:
         assert "longitude" in manifest.inputs
         assert "units" in manifest.inputs
         assert "lang" in manifest.inputs
+        assert "refresh_cache" in manifest.inputs
         assert "feels_like" in manifest.outputs
         assert (
             "required when city_id, zip_code, and latitude/longitude"
@@ -854,3 +904,4 @@ class TestWeatherTool:
         assert "feels-like temperature" in description
         assert "lang" in description
         assert "cache_ttl_seconds" in description
+        assert "refresh_cache" in description
