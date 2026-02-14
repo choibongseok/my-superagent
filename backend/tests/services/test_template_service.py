@@ -1148,6 +1148,61 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_prepend_and_append_transforms(
+        self, service_with_mock_db
+    ):
+        """prepend/append should add boundary text with CSV-quoted arguments."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Title: {title->prepend("[P1] ")->append(" ✅")}',
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"title": "Stabilize scoring"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Title: [P1] Stabilize scoring ✅"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_append_transform_with_invalid_arguments(
+        self, service_with_mock_db
+    ):
+        """append should require exactly one non-empty argument."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Title: {title->append()}",
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'append\(\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"title": "AgentHQ"},
+                    user_id,
+                )
+
+        assert template.usage_count == 1
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_rejects_strip_prefix_with_invalid_arguments(
         self, service_with_mock_db
     ):

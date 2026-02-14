@@ -198,6 +198,26 @@ def _strip_affix_text(value: object, argument_spec: str, *, mode: str) -> str:
     raise ValueError(f"Unsupported strip mode: {mode}")
 
 
+def _apply_text_affix(value: object, argument_spec: str, *, mode: str) -> str:
+    """Add a single prefix or suffix using CSV-quoted arguments."""
+    args = _parse_transform_args(argument_spec)
+    if len(args) != 1:
+        raise ValueError(f"{mode} expects exactly one argument")
+
+    affix = args[0]
+    if affix == "":
+        raise ValueError(f"{mode} argument must not be empty")
+
+    text = str(value)
+    if mode == "prepend":
+        return f"{affix}{text}"
+
+    if mode == "append":
+        return f"{text}{affix}"
+
+    raise ValueError(f"Unsupported affix mode: {mode}")
+
+
 def _replace_regex_text(value: object, argument_spec: str) -> str:
     """Regex replacement helper for ``replace_regex(pattern,replacement[,flags])``."""
     args = _parse_transform_args(argument_spec)
@@ -706,6 +726,7 @@ class TemplateService:
         - ``{search_query->urlencode}``
         - ``{title->slug}``
         - ``{summary->compact}``
+        - ``{ticket->prepend("#")}``, ``{title->append(" ✅")}``
         - ``{nickname->strip->fallback("friend")}``
 
         Returns:
@@ -765,6 +786,8 @@ class TemplateService:
                 "replace_regex(<pattern>,<replacement>[,<flags>])",
                 "strip_prefix(<prefix>)",
                 "strip_suffix(<suffix>)",
+                "prepend(<prefix>)",
+                "append(<suffix>)",
                 "join([separator])",
                 "split([separator[,maxsplit]])",
                 "sort([asc|desc])",
@@ -813,6 +836,18 @@ class TemplateService:
                         raw,
                         spec,
                         mode="strip_suffix",
+                    )
+                elif transform_name == "prepend":
+                    operation = lambda raw, spec=argument_spec: _apply_text_affix(
+                        raw,
+                        spec,
+                        mode="prepend",
+                    )
+                elif transform_name == "append":
+                    operation = lambda raw, spec=argument_spec: _apply_text_affix(
+                        raw,
+                        spec,
+                        mode="append",
                     )
                 elif transform_name == "join":
                     operation = lambda raw, spec=argument_spec: _join_values(raw, spec)
@@ -906,7 +941,8 @@ class TemplateService:
         ``{notes->dedent->indent("> ")->strip}``,
         ``{payload->json}``, ``{payload->json_pretty}``,
         ``{search_query->urlencode}``, ``{title->slug}``,
-        ``{summary->compact}``, or ``{nickname->strip->fallback("friend")}``).
+        ``{summary->compact}``, ``{ticket->prepend("#")}``,
+        ``{title->append(" ✅")}``, or ``{nickname->strip->fallback("friend")}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)
