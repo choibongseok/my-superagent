@@ -1331,6 +1331,65 @@ def run_async_any_batched(
     )
 
 
+def run_async_none(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> bool:
+    """Return ``True`` when no item matches an async predicate.
+
+    Behaves like ``not any(...)`` while validating that predicate outputs are
+    explicit booleans.
+    """
+    if not callable(coro_predicate):
+        raise TypeError("run_async_none expects a callable coro_predicate")
+
+    predicate_results = run_async_map(
+        coro_predicate,
+        list(items),
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    return not any(
+        _coerce_filter_result(include, function_name="run_async_none")
+        for include in predicate_results
+    )
+
+
+def run_async_none_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> bool:
+    """Batch-oriented variant of :func:`run_async_none`."""
+    if not callable(coro_predicate):
+        raise TypeError("run_async_none_batched expects a callable coro_predicate")
+
+    materialized_items = list(items)
+    if not materialized_items:
+        _validate_batch_size(batch_size)
+        return True
+
+    predicate_results = run_async_map_batched(
+        coro_predicate,
+        materialized_items,
+        batch_size=batch_size,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    return not any(
+        _coerce_filter_result(include, function_name="run_async_none_batched")
+        for include in predicate_results
+    )
+
+
 def run_async_all(
     coro_predicate: Callable[[I], Awaitable[bool]],
     items: Iterable[I],

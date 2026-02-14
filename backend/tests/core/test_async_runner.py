@@ -21,6 +21,8 @@ from app.core.async_runner import (
     run_async_many,
     run_async_map,
     run_async_map_batched,
+    run_async_none,
+    run_async_none_batched,
     run_async_partition,
     run_async_partition_batched,
     run_async_reduce,
@@ -878,6 +880,53 @@ def test_run_async_any_batched_rejects_non_positive_batch_size_for_empty_items()
 
     with pytest.raises(ValueError, match="batch_size must be greater than 0"):
         run_async_any_batched(_always_true, [], batch_size=0)
+
+
+def test_run_async_none_returns_true_when_no_items_match():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_none(_is_even, [1, 3, 5]) is True
+
+
+def test_run_async_none_returns_false_when_any_item_matches():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_none(_is_even, [1, 2, 3]) is False
+
+
+def test_run_async_none_empty_input_returns_true():
+    async def _always_false(_: int) -> bool:
+        return False
+
+    assert run_async_none(_always_false, []) is True
+
+
+def test_run_async_none_rejects_non_bool_predicate_results():
+    async def _invalid(_: int) -> str:
+        return "yes"
+
+    with pytest.raises(TypeError, match="predicate must return bool"):
+        run_async_none(_invalid, [1])
+
+
+def test_run_async_none_batched_returns_true_when_no_items_match():
+    async def _is_positive(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value > 0
+
+    assert run_async_none_batched(_is_positive, [-2, -1, 0], batch_size=2) is True
+
+
+def test_run_async_none_batched_rejects_non_positive_batch_size_for_empty_items():
+    async def _always_false(_: int) -> bool:
+        return False
+
+    with pytest.raises(ValueError, match="batch_size must be greater than 0"):
+        run_async_none_batched(_always_false, [], batch_size=0)
 
 
 def test_run_async_all_returns_true_when_predicate_matches_all_items():
