@@ -680,6 +680,9 @@ class CitationTracker:
         *,
         source_type: Optional[SourceType | str] = None,
         source_types: Optional[SourceType | str | Iterable[SourceType | str]] = None,
+        exclude_source_types: Optional[
+            SourceType | str | Iterable[SourceType | str]
+        ] = None,
         limit: Optional[int] = None,
         match_mode: Literal["all", "any"] = "all",
         published_after: Optional[datetime] = None,
@@ -720,6 +723,10 @@ class CitationTracker:
             source_types: Optional source type allow-list. Accepts a single
                 source type or an iterable of source types. Cannot be used
                 together with ``source_type``.
+            exclude_source_types: Optional source type deny-list. Accepts a
+                single source type or an iterable of source types. Matching
+                source types are excluded even when they also appear in
+                ``source_type``/``source_types`` filters.
             limit: Optional max number of results. Must be > 0 when set.
             match_mode: Token matching strategy. ``"all"`` requires every
                 query token to appear in the searchable source text, while
@@ -885,6 +892,10 @@ class CitationTracker:
             source_types if source_types is not None else source_type,
             argument_name="source_types" if source_types is not None else "source_type",
         )
+        normalized_exclude_source_types = self._normalize_source_types(
+            exclude_source_types,
+            argument_name="exclude_source_types",
+        )
 
         normalized_metadata_filters = self._normalize_metadata_filters(metadata_filters)
         normalized_domains = self._normalize_domains(domains)
@@ -941,6 +952,12 @@ class CitationTracker:
             if (
                 normalized_source_types is not None
                 and source_type_value not in normalized_source_types
+            ):
+                continue
+
+            if (
+                normalized_exclude_source_types is not None
+                and source_type_value in normalized_exclude_source_types
             ):
                 continue
 
@@ -1169,6 +1186,9 @@ class CitationTracker:
         *,
         source_type: Optional[SourceType | str] = None,
         source_types: Optional[SourceType | str | Iterable[SourceType | str]] = None,
+        exclude_source_types: Optional[
+            SourceType | str | Iterable[SourceType | str]
+        ] = None,
         limit: Optional[int] = None,
         match_mode: Literal["all", "any"] = "all",
         published_after: Optional[datetime] = None,
@@ -1207,6 +1227,7 @@ class CitationTracker:
             query,
             source_type=source_type,
             source_types=source_types,
+            exclude_source_types=exclude_source_types,
             limit=limit,
             match_mode=match_mode,
             published_after=published_after,

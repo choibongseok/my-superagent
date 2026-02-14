@@ -210,6 +210,42 @@ class TestCitationTracker:
 
         assert [source.id for source in matches] == [api_id, article_id]
 
+    def test_search_sources_supports_exclude_source_types_filter(self):
+        """exclude_source_types should filter out matching source categories."""
+        tracker = CitationTracker()
+
+        article_id = tracker.add_source(
+            title="Article Insight",
+            type=SourceType.ARTICLE,
+        )
+        tracker.add_source(title="Web Insight", type=SourceType.WEB)
+        tracker.add_source(title="API Insight", type=SourceType.API)
+
+        matches = tracker.search_sources(
+            "insight",
+            exclude_source_types=["web", SourceType.API],
+        )
+
+        assert [source.id for source in matches] == [article_id]
+
+    def test_search_sources_exclude_source_types_override_allow_list(self):
+        """exclude_source_types should win when source type appears in both filters."""
+        tracker = CitationTracker()
+
+        article_id = tracker.add_source(
+            title="Article Insight",
+            type=SourceType.ARTICLE,
+        )
+        tracker.add_source(title="Web Insight", type=SourceType.WEB)
+
+        matches = tracker.search_sources(
+            "insight",
+            source_types=[SourceType.ARTICLE, SourceType.WEB],
+            exclude_source_types=[SourceType.WEB],
+        )
+
+        assert [source.id for source in matches] == [article_id]
+
     def test_search_sources_source_type_filters_validate_input(self):
         """source_type/source_types should reject conflicting or invalid payloads."""
         tracker = CitationTracker()
@@ -235,6 +271,18 @@ class TestCitationTracker:
             match="source_types must contain only SourceType or string values",
         ):
             tracker.search_sources("agent", source_types=[123])
+
+        with pytest.raises(
+            ValueError,
+            match="exclude_source_types must include at least one source type",
+        ):
+            tracker.search_sources("agent", exclude_source_types=[])
+
+        with pytest.raises(
+            ValueError,
+            match="exclude_source_types must contain only SourceType or string values",
+        ):
+            tracker.search_sources("agent", exclude_source_types=[123])
 
     def test_search_sources_blank_query_returns_all_sorted_by_title(self):
         """Blank search query should return all sources in stable title order."""
@@ -653,6 +701,23 @@ class TestCitationTracker:
         detailed = tracker.search_sources_with_details(
             "agent guide",
             source_types=["api"],
+        )
+
+        assert [item["source"].id for item in detailed] == [include_id]
+
+    def test_search_sources_with_details_supports_exclude_source_types(self):
+        """Detailed search should apply exclude_source_types consistently."""
+        tracker = CitationTracker()
+
+        include_id = tracker.add_source(
+            title="Agent API Guide",
+            type=SourceType.API,
+        )
+        tracker.add_source(title="Agent Web Guide", type=SourceType.WEB)
+
+        detailed = tracker.search_sources_with_details(
+            "agent guide",
+            exclude_source_types=["web"],
         )
 
         assert [item["source"].id for item in detailed] == [include_id]
