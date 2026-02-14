@@ -55,12 +55,12 @@ class DocsAgent(BaseAgent):
         super().__init__(
             user_id=user_id,
             session_id=session_id or f"docs_{user_id}",
+            credentials=credentials,
             **kwargs,
         )
-        
+
         # Google Docs API
-        self.credentials = credentials
-        self.docs_api = GoogleDocsAPI(credentials) if credentials else None
+        self.docs_api = GoogleDocsAPI(self.credentials) if self.credentials else None
         
         # Research agent for content gathering
         self.research_agent = ResearchAgent(

@@ -35,21 +35,23 @@ class SheetsAgent(BaseAgent):
     ):
         """
         Initialize SheetsAgent with Google credentials.
-        
+
         Args:
             user_id: User ID for LangFuse tracking
             session_id: Session ID for conversation memory
             credentials: Google OAuth2 credentials
         """
-        self.credentials = credentials
+        # Call parent init first so base fields (including credentials) are consistent.
+        super().__init__(
+            user_id=str(user_id),
+            session_id=str(session_id) if session_id is not None else None,
+            credentials=credentials,
+        )
+
         self.sheets_service = None
-        
-        if credentials:
+        if self.credentials:
             # Build Google Sheets API service
-            self.sheets_service = build("sheets", "v4", credentials=credentials)
-        
-        # Call parent init
-        super().__init__(user_id=user_id, session_id=session_id)
+            self.sheets_service = build("sheets", "v4", credentials=self.credentials)
 
     def _get_metadata(self) -> Dict[str, Any]:
         return {

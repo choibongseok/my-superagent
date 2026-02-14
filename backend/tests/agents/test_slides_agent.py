@@ -59,10 +59,12 @@ def fake_slides_service():
 def test_slides_agent_tools_created_with_credentials(monkeypatch, fake_slides_service):
     monkeypatch.setattr("app.agents.slides_agent.build", lambda *args, **kwargs: fake_slides_service)
 
-    agent = SlidesAgent(user_id="u1", session_id="s1", credentials=object())
+    credentials = object()
+    agent = SlidesAgent(user_id="u1", session_id="s1", credentials=credentials)
     tools = agent._create_tools()
     names = {t.name for t in tools}
 
+    assert agent.credentials is credentials
     assert {"create_presentation", "add_slide", "insert_text", "insert_image", "apply_theme", "add_speaker_notes"}.issubset(names)
 
 

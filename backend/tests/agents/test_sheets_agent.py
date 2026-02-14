@@ -69,10 +69,12 @@ def fake_sheets_service():
 def test_sheets_agent_tools_created_with_credentials(monkeypatch, fake_sheets_service):
     monkeypatch.setattr("app.agents.sheets_agent.build", lambda *args, **kwargs: fake_sheets_service)
 
-    agent = SheetsAgent(user_id="u1", session_id="s1", credentials=object())
+    credentials = object()
+    agent = SheetsAgent(user_id="u1", session_id="s1", credentials=credentials)
     tools = agent._create_tools()
     names = {t.name for t in tools}
 
+    assert agent.credentials is credentials
     assert {"create_spreadsheet", "write_data", "read_data", "format_cells", "create_chart"}.issubset(names)
 
 
