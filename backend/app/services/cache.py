@@ -1197,6 +1197,56 @@ class LocalCacheService:
         }
         return self.delete_many(matching_keys)
 
+    def clear_where(
+        self,
+        *,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        tags: Iterable[str] | None = None,
+        match_all_tags: bool = False,
+    ) -> int:
+        """Delete keys matching combined prefix/glob/tag filters.
+
+        At least one filter must be provided; use :meth:`clear` to remove
+        everything.
+
+        Args:
+            prefix: Optional key prefix to match.
+            pattern: Optional glob pattern matched with :func:`fnmatchcase`.
+            tags: Optional tag filter. When provided, only keys associated with
+                matching tags are considered.
+            match_all_tags: Tag matching mode when ``tags`` are provided.
+                ``False`` (default) matches keys with any provided tag, while
+                ``True`` requires keys to contain every provided tag.
+
+        Returns:
+            Number of removed keys.
+        """
+        if not isinstance(match_all_tags, bool):
+            raise ValueError("match_all_tags must be a boolean")
+
+        if prefix is None and pattern is None and tags is None:
+            raise ValueError("at least one filter must be provided")
+
+        self._purge_expired_entries()
+
+        if tags is None:
+            candidate_keys: set[str] = self._all_known_keys()
+        else:
+            candidate_keys = self._resolve_keys_for_tags(
+                tags,
+                match_all_tags=match_all_tags,
+            )
+
+        matching_keys = {
+            key
+            for key in candidate_keys
+            if (prefix is None or key.startswith(prefix))
+            and (pattern is None or fnmatchcase(key, pattern))
+        }
+
+        return self.delete_many(matching_keys)
+
     def list_keys(
         self,
         *,

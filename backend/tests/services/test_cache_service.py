@@ -1180,6 +1180,41 @@ def test_local_cache_clear_patterns_returns_zero_for_empty_patterns():
     assert cache.get("stable") == "value"
 
 
+def test_local_cache_clear_where_supports_combined_prefix_pattern_and_tags():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["active", "session"])
+    cache.set_tagged("session:beta", 2, tags=["session"])
+    cache.set_tagged("user:alpha", 3, tags=["active"])
+
+    removed = cache.clear_where(prefix="session:", pattern="*:alpha", tags=["active"])
+
+    assert removed == 1
+    assert cache.get("session:alpha") is None
+    assert cache.get("session:beta") == 2
+    assert cache.get("user:alpha") == 3
+
+
+def test_local_cache_clear_where_supports_match_all_tag_filtering():
+    cache = LocalCacheService()
+    cache.set_tagged("alpha", 1, tags=["group:a", "shared"])
+    cache.set_tagged("beta", 2, tags=["group:b", "shared"])
+    cache.set_tagged("gamma", 3, tags=["group:a"])
+
+    removed = cache.clear_where(tags=["group:a", "shared"], match_all_tags=True)
+
+    assert removed == 1
+    assert cache.get("alpha") is None
+    assert cache.get("beta") == 2
+    assert cache.get("gamma") == 3
+
+
+def test_local_cache_clear_where_requires_at_least_one_filter():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="at least one filter must be provided"):
+        cache.clear_where()
+
+
 @pytest.mark.asyncio
 async def test_local_cache_clear_prefix_cancels_matching_inflight_tasks():
     cache = LocalCacheService()
@@ -1262,6 +1297,27 @@ async def test_local_cache_clear_patterns_cancels_matching_inflight_tasks():
     with pytest.raises(asyncio.CancelledError):
         await task
     assert cache.get("task:99:error") is None
+
+
+@pytest.mark.asyncio
+async def test_local_cache_clear_where_cancels_matching_inflight_tasks():
+    cache = LocalCacheService()
+    gate = asyncio.Event()
+
+    async def factory() -> str:
+        await gate.wait()
+        return "ready"
+
+    task = asyncio.create_task(cache.get_or_set_async("session:pending", factory))
+    await asyncio.sleep(0)
+
+    removed = cache.clear_where(prefix="session:")
+    gate.set()
+
+    assert removed == 1
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cache.get("session:pending") is None
 
 
 def test_local_cache_prune_expired_removes_only_expired_entries():
