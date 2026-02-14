@@ -230,6 +230,42 @@ def _reverse_value(value: object) -> object:
     return list(reversed(items))
 
 
+def _slice_value(value: object, argument_spec: str) -> object:
+    """Slice strings/iterables using ``slice(start[,end])`` arguments."""
+    if not argument_spec.strip():
+        raise ValueError("slice expects one or two integer arguments")
+
+    args = _parse_transform_args(argument_spec)
+    if len(args) == 0 or len(args) > 2:
+        raise ValueError("slice expects one or two arguments: start[,end]")
+
+    def _parse_index(raw_value: str, *, field_name: str) -> int | None:
+        normalized = raw_value.strip()
+        if normalized == "":
+            return None
+
+        try:
+            return int(normalized)
+        except ValueError as exc:
+            raise ValueError(f"slice {field_name} must be an integer") from exc
+
+    start = _parse_index(args[0], field_name="start")
+    end = _parse_index(args[1], field_name="end") if len(args) == 2 else None
+
+    if start is None and end is None:
+        raise ValueError("slice requires at least one numeric boundary")
+
+    if isinstance(value, (str, bytes, bytearray)):
+        return value[start:end]
+
+    try:
+        items = list(iter(value))
+    except TypeError as exc:
+        raise ValueError("slice expects a string or iterable value") from exc
+
+    return items[start:end]
+
+
 def _length_of(value: object) -> int:
     """Return collection length for strings, mappings, and iterables."""
     if isinstance(value, (str, bytes, bytearray, list, tuple, dict, set, frozenset)):
@@ -483,6 +519,7 @@ class TemplateService:
         - ``{items->length}``
         - ``{backlog->first}``, ``{backlog->last}``
         - ``{steps->reverse->join(" | ")}``
+        - ``{milestones->slice(0,2)->join(", ")}``
 
         Returns:
             Tuple of ``(field_path, default_value, transforms)``.
@@ -533,6 +570,7 @@ class TemplateService:
                 "replace(<search>,<replacement>)",
                 "join([separator])",
                 "sort([asc|desc])",
+                "slice(<start>[,<end>])",
             ]
         )
 
@@ -558,6 +596,8 @@ class TemplateService:
                     operation = lambda raw, spec=argument_spec: _join_values(raw, spec)
                 elif transform_name == "sort":
                     operation = lambda raw, spec=argument_spec: _sort_values(raw, spec)
+                elif transform_name == "slice":
+                    operation = lambda raw, spec=argument_spec: _slice_value(raw, spec)
 
             if operation is None:
                 supported = ", ".join(supported_transforms)
@@ -628,7 +668,8 @@ class TemplateService:
         ``{summary->truncate(120)}``, ``{title->replace("Agent", "Assistant")}``,
         ``{tags->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
         ``{queue->first}``, ``{queue->last}``, ``{tasks->reverse}``,
-        ``{payload->json}``, or ``{payload->json_pretty}``).
+        ``{milestones->slice(0,2)}``, ``{payload->json}``,
+        or ``{payload->json_pretty}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)

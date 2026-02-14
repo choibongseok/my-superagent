@@ -1133,6 +1133,87 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_slice_transform_for_strings(
+        self, service_with_mock_db
+    ):
+        """slice(start,end) should return the expected substring window."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Snippet: {text->slice(0,5)}",
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"text": "Agentic workflows"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Snippet: Agent"
+        assert template.usage_count == 4
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_slice_transform_for_iterables(
+        self, service_with_mock_db
+    ):
+        """slice should compose with join for list-style prompt fragments."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Focus: {steps->slice(1,3)->join(" | ")}',
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"steps": ["Discover", "Design", "Build", "Launch"]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Focus: Design | Build"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_slice_transform_with_invalid_arguments(
+        self, service_with_mock_db
+    ):
+        """slice should fail fast when boundaries are not valid integers."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Window: {text->slice(two,5)}",
+            category="docs",
+            usage_count=4,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'slice\(two,5\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"text": "agent"},
+                    user_id,
+                )
+
+        assert template.usage_count == 4
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_rejects_reverse_transform_for_non_iterable_values(
         self, service_with_mock_db
     ):
