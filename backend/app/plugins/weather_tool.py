@@ -120,6 +120,8 @@ class Plugin(ToolPlugin):
         """Normalize optional cache TTL configuration."""
         if value is None:
             return 0
+        if isinstance(value, bool):
+            raise ValueError("cache_ttl_seconds must be an integer")
 
         try:
             normalized = int(value)
@@ -136,6 +138,8 @@ class Plugin(ToolPlugin):
         """Normalize cache size limits for response caching."""
         if value is None:
             return 256
+        if isinstance(value, bool):
+            raise ValueError("cache_max_entries must be an integer")
 
         try:
             normalized = int(value)

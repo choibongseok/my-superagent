@@ -71,10 +71,16 @@ class TestWeatherTool:
         with pytest.raises(ValueError, match="cache_ttl_seconds must be an integer"):
             WeatherPlugin(config={"cache_ttl_seconds": "abc"})
 
+        with pytest.raises(ValueError, match="cache_ttl_seconds must be an integer"):
+            WeatherPlugin(config={"cache_ttl_seconds": True})
+
         with pytest.raises(
             ValueError, match="cache_max_entries must be greater than 0"
         ):
             WeatherPlugin(config={"cache_ttl_seconds": 60, "cache_max_entries": 0})
+
+        with pytest.raises(ValueError, match="cache_max_entries must be an integer"):
+            WeatherPlugin(config={"cache_ttl_seconds": 60, "cache_max_entries": False})
 
     @pytest.mark.asyncio
     async def test_response_cache_reuses_api_response(self):

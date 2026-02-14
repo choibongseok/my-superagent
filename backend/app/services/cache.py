@@ -54,10 +54,17 @@ class LocalCacheService:
         """Record cache lookup hit/miss counters."""
         self._increment_stat("hits" if hit else "misses")
 
-    def _delete_key(self, key: str) -> None:
+    def _delete_key(self, key: str, *, cancel_inflight: bool = True) -> None:
         """Delete key bookkeeping across all internal structures."""
         self._store.pop(key, None)
         self._access_order.pop(key, None)
+
+        if not cancel_inflight:
+            return
+
+        in_flight = self._inflight.pop(key, None)
+        if in_flight is not None and not in_flight.done():
+            in_flight.cancel()
 
     def _mark_accessed(self, key: str) -> None:
         """Mark key as recently used for LRU eviction tracking."""
@@ -697,7 +704,7 @@ class LocalCacheService:
 
     def delete(self, key: str) -> None:
         """Delete a cached key if present."""
-        if key in self._store:
+        if key in self._store or key in self._inflight:
             self._delete_key(key)
             self._increment_stat("deletes")
 
@@ -705,7 +712,7 @@ class LocalCacheService:
         """Delete multiple keys and return how many entries were removed."""
         removed = 0
         for key in keys:
-            if key in self._store:
+            if key in self._store or key in self._inflight:
                 self._delete_key(key)
                 removed += 1
 
@@ -838,6 +845,11 @@ class LocalCacheService:
     def clear(self) -> None:
         """Clear all cached entries."""
         removed = len(self._store)
+
+        for in_flight in list(self._inflight.values()):
+            if not in_flight.done():
+                in_flight.cancel()
+
         self._store.clear()
         self._access_order.clear()
         self._inflight.clear()

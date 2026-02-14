@@ -935,3 +935,53 @@ def test_local_cache_stats_can_be_reset_without_touching_entries():
     assert reset_stats["sets"] == 0
     assert reset_stats["misses"] == 0
     assert reset_stats["entries"] == 1
+
+
+@pytest.mark.asyncio
+async def test_local_cache_delete_cancels_inflight_population():
+    cache = LocalCacheService()
+    gate = asyncio.Event()
+
+    async def _factory() -> str:
+        await gate.wait()
+        return "value"
+
+    task = asyncio.create_task(cache.get_or_set_async("session:key", _factory))
+    await asyncio.sleep(0)
+
+    cache.delete("session:key")
+    gate.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert cache.get("session:key") is None
+
+
+@pytest.mark.asyncio
+async def test_local_cache_clear_cancels_all_inflight_population():
+    cache = LocalCacheService()
+    gate = asyncio.Event()
+
+    async def _factory_one() -> str:
+        await gate.wait()
+        return "one"
+
+    async def _factory_two() -> str:
+        await gate.wait()
+        return "two"
+
+    task_one = asyncio.create_task(cache.get_or_set_async("k1", _factory_one))
+    task_two = asyncio.create_task(cache.get_or_set_async("k2", _factory_two))
+    await asyncio.sleep(0)
+
+    cache.clear()
+    gate.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task_one
+    with pytest.raises(asyncio.CancelledError):
+        await task_two
+
+    assert cache.get("k1") is None
+    assert cache.get("k2") is None
