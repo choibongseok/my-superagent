@@ -1167,6 +1167,23 @@ def test_local_cache_list_keys_supports_prefix_pattern_and_limit():
     ]
 
 
+def test_local_cache_list_keys_supports_offset_and_limit_after_sorting():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "alpha": 1,
+            "beta": 2,
+            "gamma": 3,
+            "delta": 4,
+        }
+    )
+
+    assert cache.list_keys(offset=0) == ["alpha", "beta", "delta", "gamma"]
+    assert cache.list_keys(offset=2) == ["delta", "gamma"]
+    assert cache.list_keys(offset=1, limit=2) == ["beta", "delta"]
+    assert cache.list_keys(offset=10) == []
+
+
 def test_local_cache_list_keys_supports_tag_filters_with_any_or_all_matching():
     cache = LocalCacheService()
     cache.set_tagged("alpha", 1, tags=["group:a", "shared"])
@@ -1221,6 +1238,13 @@ def test_local_cache_list_keys_rejects_non_positive_limit():
         cache.list_keys(limit=0)
 
 
+def test_local_cache_list_keys_rejects_negative_offset():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="offset must be greater than or equal to 0"):
+        cache.list_keys(offset=-1)
+
+
 def test_local_cache_list_entries_includes_ttl_metadata_and_optional_values():
     cache = LocalCacheService()
     cache.set("persistent", {"v": 1})
@@ -1236,6 +1260,28 @@ def test_local_cache_list_entries_includes_ttl_metadata_and_optional_values():
     assert with_values[1]["value"] == "value"
     assert with_values[1]["ttl_seconds"] is not None
     assert 0 < with_values[1]["ttl_seconds"] <= 2
+
+
+def test_local_cache_list_entries_supports_offset_and_limit_after_filtering():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "session:alpha": {"v": 1},
+            "session:beta": {"v": 2},
+            "session:delta": {"v": 4},
+            "session:gamma": {"v": 3},
+            "user:zeta": {"v": 26},
+        }
+    )
+
+    entries = cache.list_entries(
+        prefix="session:", offset=1, limit=2, include_values=True
+    )
+
+    assert entries == [
+        {"key": "session:beta", "ttl_seconds": None, "value": {"v": 2}},
+        {"key": "session:delta", "ttl_seconds": None, "value": {"v": 4}},
+    ]
 
 
 def test_local_cache_list_entries_can_include_tags_and_absolute_expiration():
@@ -1279,6 +1325,13 @@ def test_local_cache_list_entries_supports_tag_filters():
         match_all_tags=True,
     )
     assert [entry["key"] for entry in all_tagged] == ["session:alpha"]
+
+
+def test_local_cache_list_entries_rejects_negative_offset():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="offset must be greater than or equal to 0"):
+        cache.list_entries(offset=-1)
 
 
 def test_local_cache_list_entries_ignores_expired_keys():

@@ -1151,6 +1151,7 @@ class LocalCacheService:
         pattern: str | None = None,
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
+        offset: int | None = None,
         limit: int | None = None,
     ) -> list[str]:
         """List active keys with optional prefix/glob/tag filtering.
@@ -1163,11 +1164,15 @@ class LocalCacheService:
             match_all_tags: Tag matching mode when ``tags`` are provided.
                 ``False`` (default) returns keys matching any tag, while
                 ``True`` requires keys to contain every provided tag.
+            offset: Optional number of sorted matching keys to skip.
             limit: Optional maximum number of keys to return.
 
         Keys are returned in deterministic lexicographic order and do not affect
         hit/miss counters or LRU order.
         """
+        if offset is not None and offset < 0:
+            raise ValueError("offset must be greater than or equal to 0")
+
         if limit is not None and limit <= 0:
             raise ValueError("limit must be greater than 0")
 
@@ -1193,6 +1198,10 @@ class LocalCacheService:
             matching_keys.append(key)
 
         matching_keys.sort()
+
+        if offset:
+            matching_keys = matching_keys[offset:]
+
         if limit is not None:
             return matching_keys[:limit]
         return matching_keys
@@ -1204,6 +1213,7 @@ class LocalCacheService:
         pattern: str | None = None,
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
+        offset: int | None = None,
         limit: int | None = None,
         include_values: bool = False,
         include_entry_tags: bool = False,
@@ -1212,6 +1222,7 @@ class LocalCacheService:
         """List active cache entries with optional filters and metadata.
 
         Args:
+            offset: Optional number of sorted matching entries to skip.
             include_values: Include cached values in each entry payload.
             include_entry_tags: Include sorted tags associated with each key.
             include_expires_at: Include absolute unix expiration timestamps.
@@ -1222,6 +1233,7 @@ class LocalCacheService:
             pattern=pattern,
             tags=tags,
             match_all_tags=match_all_tags,
+            offset=offset,
             limit=limit,
         ):
             value, expires_at = self._store[key]
