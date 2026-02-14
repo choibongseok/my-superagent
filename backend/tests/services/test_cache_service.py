@@ -679,6 +679,35 @@ def test_local_cache_clear_prefix_removes_matching_keys_only():
     assert cache.get("user:2:profile") is None
 
 
+def test_local_cache_clear_prefixes_removes_union_of_prefix_matches():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "user:1:profile": {"name": "A"},
+            "user:1:settings": {"theme": "dark"},
+            "workspace:1": {"title": "Project"},
+            "task:1": {"status": "done"},
+        }
+    )
+
+    removed = cache.clear_prefixes(["user:", "workspace:", "user:", ""])
+
+    assert removed == 3
+    assert cache.get("user:1:profile") is None
+    assert cache.get("user:1:settings") is None
+    assert cache.get("workspace:1") is None
+    assert cache.get("task:1") == {"status": "done"}
+
+
+def test_local_cache_clear_prefixes_returns_zero_for_empty_prefixes():
+    cache = LocalCacheService()
+    cache.set("stable", "value")
+
+    assert cache.clear_prefixes([]) == 0
+    assert cache.clear_prefixes([""]) == 0
+    assert cache.get("stable") == "value"
+
+
 def test_local_cache_clear_pattern_removes_glob_matches_only():
     cache = LocalCacheService()
     cache.set_many(

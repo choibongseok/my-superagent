@@ -785,6 +785,23 @@ class LocalCacheService:
         matching_keys = [key for key in self._store if key.startswith(prefix)]
         return self.delete_many(matching_keys)
 
+    def clear_prefixes(self, prefixes: Iterable[str]) -> int:
+        """Delete keys that match any prefix in ``prefixes``.
+
+        Empty prefix values are ignored. Matching keys are deduplicated so
+        overlapping prefixes do not inflate the removal count.
+        """
+        prefix_list = [prefix for prefix in prefixes if prefix]
+        if not prefix_list:
+            return 0
+
+        matching_keys = {
+            key
+            for key in self._store
+            if any(key.startswith(prefix) for prefix in prefix_list)
+        }
+        return self.delete_many(matching_keys)
+
     def clear_pattern(self, pattern: str) -> int:
         """Delete keys that match a glob ``pattern``.
 
