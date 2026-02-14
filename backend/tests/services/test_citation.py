@@ -353,11 +353,28 @@ class TestCitationTracker:
             workflow_only_id,
         }
 
+    def test_search_sources_match_mode_phrase_requires_contiguous_phrase_match(self):
+        """match_mode='phrase' should require the normalized full query phrase."""
+        tracker = CitationTracker()
+
+        phrase_id = tracker.add_source(title="Agentic workflow handbook")
+        tracker.add_source(title="Workflow guide for agentic systems")
+
+        matches_phrase = tracker.search_sources(
+            "agentic workflow",
+            match_mode="phrase",
+        )
+
+        assert [source.id for source in matches_phrase] == [phrase_id]
+
     def test_search_sources_rejects_invalid_match_mode(self):
         """Search should validate supported token matching modes."""
         tracker = CitationTracker()
 
-        with pytest.raises(ValueError, match="match_mode must be 'all' or 'any'"):
+        with pytest.raises(
+            ValueError,
+            match="match_mode must be 'all', 'any', or 'phrase'",
+        ):
             tracker.search_sources("agent", match_mode="partial")
 
     def test_search_sources_supports_min_token_matches_filter(self):
@@ -472,6 +489,20 @@ class TestCitationTracker:
         )
 
         assert [item["source"].id for item in detailed] == [keep_id]
+
+    def test_search_sources_with_details_supports_phrase_match_mode(self):
+        """Detailed search should pass phrase match mode through consistently."""
+        tracker = CitationTracker()
+
+        phrase_id = tracker.add_source(title="Agent workflow playbook")
+        tracker.add_source(title="Workflow guide for agents")
+
+        detailed = tracker.search_sources_with_details(
+            "agent workflow",
+            match_mode="phrase",
+        )
+
+        assert [item["source"].id for item in detailed] == [phrase_id]
 
     def test_search_sources_with_details_supports_max_results_per_domain_cap(self):
         """Detailed search should pass max_results_per_domain through consistently."""

@@ -727,7 +727,7 @@ class CitationTracker:
         ] = None,
         limit: Optional[int] = None,
         offset: Optional[int] = None,
-        match_mode: Literal["all", "any"] = "all",
+        match_mode: Literal["all", "any", "phrase"] = "all",
         published_after: Optional[datetime] = None,
         published_before: Optional[datetime] = None,
         min_age_days: Optional[int] = None,
@@ -779,9 +779,11 @@ class CitationTracker:
             limit: Optional max number of results. Must be > 0 when set.
             offset: Optional zero-based number of ranked results to skip
                 before returning results. Must be >= 0 when set.
-            match_mode: Token matching strategy. ``"all"`` requires every
-                query token to appear in the searchable source text, while
-                ``"any"`` returns sources that match at least one token.
+            match_mode: Matching strategy. ``"all"`` requires every
+                query token to appear in the searchable source text, ``"any"``
+                returns sources that match at least one token, and
+                ``"phrase"`` requires the normalized full query string to
+                appear contiguously in searchable source text.
             published_after: Optional lower-bound date filter (inclusive).
             published_before: Optional upper-bound date filter (inclusive).
             min_age_days: Optional minimum source age in days relative to
@@ -980,8 +982,8 @@ class CitationTracker:
                 raise ValueError("max_results_per_domain must be greater than 0")
 
         normalized_match_mode = self._normalize_text(match_mode)
-        if normalized_match_mode not in {"all", "any"}:
-            raise ValueError("match_mode must be 'all' or 'any'")
+        if normalized_match_mode not in {"all", "any", "phrase"}:
+            raise ValueError("match_mode must be 'all', 'any', or 'phrase'")
 
         normalized_sort_by = (
             self._normalize_text(str(sort_by)).replace(" ", "_").replace("-", "_")
@@ -1160,8 +1162,10 @@ class CitationTracker:
             if query_tokens:
                 if normalized_match_mode == "all":
                     has_match = all(token in searchable_text for token in query_tokens)
-                else:
+                elif normalized_match_mode == "any":
                     has_match = any(token in searchable_text for token in query_tokens)
+                else:
+                    has_match = normalized_query in searchable_text
 
                 if not has_match:
                     continue
@@ -1376,7 +1380,7 @@ class CitationTracker:
         ] = None,
         limit: Optional[int] = None,
         offset: Optional[int] = None,
-        match_mode: Literal["all", "any"] = "all",
+        match_mode: Literal["all", "any", "phrase"] = "all",
         published_after: Optional[datetime] = None,
         published_before: Optional[datetime] = None,
         min_age_days: Optional[int] = None,
