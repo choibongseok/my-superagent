@@ -674,3 +674,79 @@ class TestScoreGapFiltering:
         )
 
         assert [result["content"] for result in results] == ["top-1", "top-2"]
+
+
+class TestScoreContextExplainability:
+    """Test optional score-context metadata for explainable ranking."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_include_score_context_validation(self):
+        """include_score_context must be a boolean."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(ValueError, match="include_score_context must be a boolean"):
+            memory.search_with_scores(query="test", include_score_context="yes")
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_include_score_context_attaches_rank_and_margins(self):
+        """When enabled, each result should include deterministic score context."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        top_doc = Document(page_content="top", metadata={})
+        runner_up_doc = Document(page_content="runner-up", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (top_doc, 0.91),
+                (runner_up_doc, 0.84),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.5,
+            sort_by_score=True,
+            include_score_context=True,
+        )
+
+        first_context = results[0]["score_context"]
+        second_context = results[1]["score_context"]
+
+        assert first_context["rank"] == 1
+        assert first_context["top_score"] == 0.91
+        assert first_context["gap_from_top"] == 0.0
+        assert first_context["margin_above_threshold"] == pytest.approx(0.41)
+        assert first_context["applied_threshold"] == 0.5
+
+        assert second_context["rank"] == 2
+        assert second_context["top_score"] == 0.91
+        assert second_context["gap_from_top"] == pytest.approx(0.07)
+        assert second_context["margin_above_threshold"] == pytest.approx(0.34)
+        assert second_context["applied_threshold"] == 0.5
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_score_context_not_included_by_default(self):
+        """Existing callers should not receive score_context unless requested."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        doc = Document(page_content="test", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[(doc, 0.8)]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+        )
+
+        assert "score_context" not in results[0]
+

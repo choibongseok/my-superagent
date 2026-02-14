@@ -388,6 +388,7 @@ class VectorStoreMemory:
         min_relevance: Optional[str] = None,
         max_score_gap: Optional[float] = None,
         sort_by_score: bool = False,
+        include_score_context: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Search memories with similarity scores.
@@ -417,13 +418,17 @@ class VectorStoreMemory:
             sort_by_score: When ``True``, sort accepted results by descending score
                 before applying the final ``k`` limit. Ties preserve original
                 vector-store order for deterministic pagination.
+            include_score_context: When ``True``, attach a ``score_context`` object
+                to each result with explainability details (rank, top-score gap,
+                and threshold margin).
 
         Returns:
             List of memories with scores and enhanced relevance metadata
 
         Raises:
             ValueError: If thresholds/parameters are invalid, including unsupported
-                ``min_confidence`` or ``min_relevance`` values.
+                ``min_confidence``/``min_relevance`` values or non-boolean
+                ``include_score_context``.
         """
         # Input validation
         if score_threshold is not None and not (0.0 <= score_threshold <= 1.0):
@@ -440,6 +445,9 @@ class VectorStoreMemory:
             raise ValueError(
                 f"adaptive_std_multiplier must be non-negative, got {adaptive_std_multiplier}"
             )
+
+        if not isinstance(include_score_context, bool):
+            raise ValueError("include_score_context must be a boolean")
 
         if max_score_gap is not None:
             if isinstance(max_score_gap, bool) or not isinstance(
@@ -633,8 +641,9 @@ class VectorStoreMemory:
         if len(results) > k:
             results = results[:k]
 
+        top_score = max((score for _, score in results), default=None)
         formatted_results = []
-        for doc, score in results:
+        for rank, (doc, score) in enumerate(results, start=1):
             relevance, confidence = self._classify_relevance(score, applied_threshold)
 
             if (
@@ -649,15 +658,27 @@ class VectorStoreMemory:
             ):
                 continue
 
-            formatted_results.append(
-                {
-                    "content": doc.page_content,
-                    "metadata": doc.metadata,
-                    "score": score,
-                    "relevance": relevance,
-                    "confidence": confidence,
+            result_payload = {
+                "content": doc.page_content,
+                "metadata": doc.metadata,
+                "score": score,
+                "relevance": relevance,
+                "confidence": confidence,
+            }
+
+            if include_score_context and top_score is not None:
+                threshold_for_margin = (
+                    applied_threshold if applied_threshold is not None else 0.0
+                )
+                result_payload["score_context"] = {
+                    "rank": rank,
+                    "top_score": top_score,
+                    "gap_from_top": max(0.0, top_score - score),
+                    "margin_above_threshold": score - threshold_for_margin,
+                    "applied_threshold": applied_threshold,
                 }
-            )
+
+            formatted_results.append(result_payload)
 
         threshold_label = (
             f"{applied_threshold:.3f}" if applied_threshold is not None else "N/A"
