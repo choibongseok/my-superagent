@@ -619,6 +619,41 @@ class TestCitationTracker:
 
         assert [source.id for source in matches] == [fresh_id, mid_id, undated_id]
 
+    def test_search_sources_supports_sort_by_hybrid(self):
+        """sort_by='hybrid' should blend lexical and source-quality signals."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        lexical_first_id = tracker.add_source(
+            title="Agent Reliability Workflow Workflow Handbook",
+            type=SourceType.WEB,
+            published_date=anchor_time - timedelta(days=500),
+        )
+        quality_first_id = tracker.add_source(
+            title="Agent Reliability Workflow Reference",
+            type=SourceType.DATABASE,
+            published_date=anchor_time - timedelta(days=3),
+        )
+
+        tracker.cite(quality_first_id, quoted_text="Primary source")
+        tracker.cite(quality_first_id, quoted_text="Secondary source")
+
+        relevance_matches = tracker.search_sources(
+            "agent reliability workflow",
+            sort_by="relevance",
+            as_of=anchor_time,
+            recency_window_days=365,
+        )
+        hybrid_matches = tracker.search_sources(
+            "agent reliability workflow",
+            sort_by="hybrid",
+            as_of=anchor_time,
+            recency_window_days=365,
+        )
+
+        assert relevance_matches[0].id == lexical_first_id
+        assert hybrid_matches[0].id == quality_first_id
+
     def test_search_sources_rejects_invalid_recency_sort_arguments(self):
         """Recency sorting options should validate window and profile values."""
         tracker = CitationTracker()
@@ -721,7 +756,7 @@ class TestCitationTracker:
 
         with pytest.raises(
             ValueError,
-            match="sort_by must be one of: relevance, title, published_date, citation_count, authority, recency",
+            match="sort_by must be one of: relevance, hybrid, title, published_date, citation_count, authority, recency",
         ):
             tracker.search_sources("agent", sort_by="custom")
 
@@ -796,6 +831,35 @@ class TestCitationTracker:
         assert isinstance(strict_score, float)
         assert isinstance(lenient_score, float)
         assert strict_score < lenient_score
+
+    def test_search_sources_with_details_includes_hybrid_score(self):
+        """Detailed search should expose the computed hybrid ranking score."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        source_id = tracker.add_source(
+            title="Agent Reliability Workflow Reference",
+            type=SourceType.DATABASE,
+            published_date=anchor_time - timedelta(days=2),
+        )
+        tracker.cite(source_id, quoted_text="Operational requirement")
+
+        detailed = tracker.search_sources_with_details(
+            "agent reliability workflow",
+            sort_by="hybrid",
+            as_of=anchor_time,
+            recency_window_days=365,
+        )
+
+        first = detailed[0]
+        assert first["source"].id == source_id
+        assert "hybrid_score" in first
+        assert first["hybrid_score"] == tracker._compute_hybrid_score(
+            relevance_score=first["relevance_score"],
+            citation_count=first["citation_count"],
+            authority_score=first["authority_score"],
+            recency_score=first["recency_score"],
+        )
 
     def test_search_sources_with_details_handles_blank_queries(self):
         """Blank queries should still return stable details without token metadata."""

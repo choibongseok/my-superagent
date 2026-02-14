@@ -693,6 +693,29 @@ class CitationTracker:
         score = score / query_length_factor
         return round(score, 2)
 
+    @staticmethod
+    def _compute_hybrid_score(
+        *,
+        relevance_score: float,
+        citation_count: int,
+        authority_score: float,
+        recency_score: float,
+    ) -> float:
+        """Blend lexical and quality signals into a single ranking score.
+
+        The weighting intentionally favors source quality signals
+        (authority/recency/citation traction) while still preserving lexical
+        relevance as the primary anchor.
+        """
+        citation_signal = math.log1p(max(citation_count, 0))
+        hybrid_score = (
+            relevance_score
+            + (authority_score * 8.0)
+            + (recency_score * 5.0)
+            + (citation_signal * 2.5)
+        )
+        return round(hybrid_score, 2)
+
     def search_sources(
         self,
         query: str,
@@ -727,6 +750,7 @@ class CitationTracker:
         max_results_per_domain: Optional[int] = None,
         sort_by: Literal[
             "relevance",
+            "hybrid",
             "title",
             "published_date",
             "citation_count",
@@ -808,12 +832,14 @@ class CitationTracker:
                 without ``www``). Subdomains are grouped using a lightweight
                 eTLD+1 heuristic. Sources without parseable URLs are not capped.
             sort_by: Result ordering strategy. ``"relevance"`` favors textual
-                score, ``"title"`` sorts alphabetically, ``"published_date"``
-                sorts newest-first with undated sources last,
-                ``"citation_count"`` prioritizes frequently cited sources,
-                and ``"authority"`` ranks by source reliability heuristics
-                based on source type (for example, databases before generic
-                web pages). ``"recency"`` ranks by freshness score using
+                score, ``"hybrid"`` blends relevance with authority,
+                citation traction, and recency quality signals, ``"title"``
+                sorts alphabetically, ``"published_date"`` sorts newest-first
+                with undated sources last, ``"citation_count"`` prioritizes
+                frequently cited sources, and ``"authority"`` ranks by source
+                reliability heuristics based on source type (for example,
+                databases before generic web pages). ``"recency"`` ranks by
+                freshness score using
                 ``recency_window_days``/``recency_profile``.
 
         Returns:
@@ -926,6 +952,7 @@ class CitationTracker:
         )
         if normalized_sort_by not in {
             "relevance",
+            "hybrid",
             "title",
             "published_date",
             "citation_count",
@@ -933,7 +960,7 @@ class CitationTracker:
             "recency",
         }:
             raise ValueError(
-                "sort_by must be one of: relevance, title, published_date, citation_count, authority, recency"
+                "sort_by must be one of: relevance, hybrid, title, published_date, citation_count, authority, recency"
             )
 
         normalized_query = self._normalize_text(query)
@@ -976,7 +1003,7 @@ class CitationTracker:
             citation.source.id for citation in self.citations.values()
         )
 
-        ranked_matches: List[tuple[float, int, float, float, Source]] = []
+        ranked_matches: List[tuple[float, int, float, float, float, Source]] = []
 
         for source in self.sources.values():
             if (
@@ -1129,14 +1156,29 @@ class CitationTracker:
                     citation_count,
                     authority_score,
                     recency_score,
+                    self._compute_hybrid_score(
+                        relevance_score=score,
+                        citation_count=citation_count,
+                        authority_score=authority_score,
+                        recency_score=recency_score,
+                    ),
                     source,
                 )
             )
 
-        if normalized_sort_by == "title":
+        if normalized_sort_by == "hybrid":
             ranked_matches.sort(
                 key=lambda item: (
-                    self._normalize_text(item[4].title),
+                    -item[4],
+                    -item[0],
+                    -item[1],
+                    self._normalize_text(item[5].title),
+                )
+            )
+        elif normalized_sort_by == "title":
+            ranked_matches.sort(
+                key=lambda item: (
+                    self._normalize_text(item[5].title),
                     -item[0],
                     -item[1],
                 )
@@ -1144,13 +1186,13 @@ class CitationTracker:
         elif normalized_sort_by == "published_date":
             ranked_matches.sort(
                 key=lambda item: (
-                    item[4].published_date is None,
+                    item[5].published_date is None,
                     -(
-                        item[4].published_date.toordinal()
-                        if item[4].published_date
+                        item[5].published_date.toordinal()
+                        if item[5].published_date
                         else 0
                     ),
-                    self._normalize_text(item[4].title),
+                    self._normalize_text(item[5].title),
                 )
             )
         elif normalized_sort_by == "citation_count":
@@ -1158,7 +1200,7 @@ class CitationTracker:
                 key=lambda item: (
                     -item[1],
                     -item[0],
-                    self._normalize_text(item[4].title),
+                    self._normalize_text(item[5].title),
                 )
             )
         elif normalized_sort_by == "authority":
@@ -1167,7 +1209,7 @@ class CitationTracker:
                     -item[2],
                     -item[0],
                     -item[1],
-                    self._normalize_text(item[4].title),
+                    self._normalize_text(item[5].title),
                 )
             )
         elif normalized_sort_by == "recency":
@@ -1176,7 +1218,7 @@ class CitationTracker:
                     -item[3],
                     -item[0],
                     -item[1],
-                    self._normalize_text(item[4].title),
+                    self._normalize_text(item[5].title),
                 )
             )
         else:
@@ -1184,7 +1226,7 @@ class CitationTracker:
                 key=lambda item: (
                     -item[0],
                     -item[1],
-                    self._normalize_text(item[4].title),
+                    self._normalize_text(item[5].title),
                 )
             )
 
@@ -1306,6 +1348,7 @@ class CitationTracker:
         max_results_per_domain: Optional[int] = None,
         sort_by: Literal[
             "relevance",
+            "hybrid",
             "title",
             "published_date",
             "citation_count",
@@ -1360,6 +1403,22 @@ class CitationTracker:
 
         detailed_matches: List[Dict[str, Any]] = []
         for index, source in enumerate(matched_sources, start=1):
+            citation_count = citation_counts.get(source.id, 0)
+            authority_score = self.SOURCE_AUTHORITY_WEIGHTS.get(
+                source.type,
+                0.5,
+            )
+            recency_score = self._compute_recency_score(
+                source.published_date,
+                reference_time=reference_time,
+                recency_window_days=recency_window_days,
+                recency_profile=recency_profile,
+            )
+            relevance_score = self._compute_relevance_score(
+                source,
+                query_tokens=query_tokens,
+                normalized_query=normalized_query,
+            )
             match_details = self._build_match_details(
                 source,
                 query_tokens=query_tokens,
@@ -1369,21 +1428,15 @@ class CitationTracker:
                 {
                     "rank": index,
                     "source": source,
-                    "citation_count": citation_counts.get(source.id, 0),
-                    "authority_score": self.SOURCE_AUTHORITY_WEIGHTS.get(
-                        source.type,
-                        0.5,
-                    ),
-                    "recency_score": self._compute_recency_score(
-                        source.published_date,
-                        reference_time=reference_time,
-                        recency_window_days=recency_window_days,
-                        recency_profile=recency_profile,
-                    ),
-                    "relevance_score": self._compute_relevance_score(
-                        source,
-                        query_tokens=query_tokens,
-                        normalized_query=normalized_query,
+                    "citation_count": citation_count,
+                    "authority_score": authority_score,
+                    "recency_score": recency_score,
+                    "relevance_score": relevance_score,
+                    "hybrid_score": self._compute_hybrid_score(
+                        relevance_score=relevance_score,
+                        citation_count=citation_count,
+                        authority_score=authority_score,
+                        recency_score=recency_score,
                     ),
                     **match_details,
                 }
