@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from app.core.async_runner import run_async, run_async_many
+from app.core.async_runner import run_async, run_async_dict, run_async_many
 
 
 async def _compute_value() -> int:
@@ -178,3 +178,81 @@ def test_run_async_many_rejects_non_awaitable_arguments():
 
 def test_run_async_many_empty_input_returns_empty_list():
     assert run_async_many() == []
+
+
+def test_run_async_dict_without_existing_event_loop_returns_results():
+    async def _double(value: int) -> int:
+        await asyncio.sleep(0.01)
+        return value * 2
+
+    result = run_async_dict(
+        {
+            "left": _double(2),
+            "right": _double(3),
+        }
+    )
+
+    assert result == {"left": 4, "right": 6}
+
+
+@pytest.mark.asyncio
+async def test_run_async_dict_with_existing_event_loop_returns_results():
+    async def _label(index: int) -> str:
+        await asyncio.sleep(0.01)
+        return f"item-{index}"
+
+    result = run_async_dict({"a": _label(1), "b": _label(2)})
+
+    assert result == {"a": "item-1", "b": "item-2"}
+
+
+def test_run_async_dict_propagates_exceptions_by_default():
+    async def _ok() -> str:
+        return "ok"
+
+    async def _fail() -> str:
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        run_async_dict({"ok": _ok(), "fail": _fail()})
+
+
+@pytest.mark.asyncio
+async def test_run_async_dict_can_return_exceptions_when_requested():
+    async def _ok() -> int:
+        await asyncio.sleep(0.01)
+        return 1
+
+    async def _fail() -> int:
+        await asyncio.sleep(0.01)
+        raise ValueError("bad")
+
+    result = run_async_dict(
+        {"good": _ok(), "bad": _fail()},
+        return_exceptions=True,
+    )
+
+    assert result["good"] == 1
+    assert isinstance(result["bad"], ValueError)
+    assert str(result["bad"]) == "bad"
+
+
+def test_run_async_dict_timeout_without_existing_event_loop():
+    async def _sleep() -> None:
+        await asyncio.sleep(0.1)
+
+    with pytest.raises(TimeoutError, match="run_async_dict timed out"):
+        run_async_dict({"slow": _sleep()}, timeout=0.01)
+
+
+def test_run_async_dict_rejects_non_awaitable_values():
+    coroutine = _compute_value()
+    try:
+        with pytest.raises(TypeError, match="expects awaitable values"):
+            run_async_dict({"ok": coroutine, "bad": 123})  # type: ignore[arg-type]
+    finally:
+        coroutine.close()
+
+
+def test_run_async_dict_empty_input_returns_empty_dict():
+    assert run_async_dict({}) == {}

@@ -6,12 +6,13 @@ import asyncio
 import inspect
 import queue
 import threading
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Hashable, Mapping
 from typing import Any, ParamSpec, TypeVar, cast, overload
 
 P = ParamSpec("P")
 T = TypeVar("T")
 R = TypeVar("R")
+K = TypeVar("K", bound=Hashable)
 
 
 @overload
@@ -176,6 +177,63 @@ def run_async_many(
 
     def _timeout_error() -> TimeoutError:
         return TimeoutError(f"run_async_many timed out after {timeout} seconds")
+
+    return _run_with_event_loop_bridge(
+        _run_with_timeout,
+        timeout_error_factory=_timeout_error,
+    )
+
+
+def run_async_dict(
+    awaitables: Mapping[K, Awaitable[T]],
+    *,
+    timeout: float | None = None,
+    return_exceptions: bool = False,
+) -> dict[K, T] | dict[K, T | BaseException]:
+    """Run labeled awaitables concurrently from synchronous code.
+
+    Args:
+        awaitables: Mapping of labels to awaitables.
+        timeout: Optional timeout in seconds for the entire batch.
+        return_exceptions: Mirror of ``asyncio.gather(return_exceptions=...)``.
+
+    Returns:
+        Dictionary preserving insertion order with each label's result.
+
+    Raises:
+        ValueError: If ``timeout`` is not positive.
+        TypeError: If any mapping value is not awaitable.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    _validate_timeout(timeout)
+
+    if not awaitables:
+        return {}
+
+    labeled_awaitables = list(awaitables.items())
+
+    for index, (_, awaitable) in enumerate(labeled_awaitables):
+        if not inspect.isawaitable(awaitable):
+            for _, candidate in labeled_awaitables[:index]:
+                close = getattr(candidate, "close", None)
+                if callable(close):
+                    close()
+            raise TypeError("run_async_dict expects awaitable values")
+
+    keys = [key for key, _ in labeled_awaitables]
+    values = [awaitable for _, awaitable in labeled_awaitables]
+
+    async def _run_with_timeout() -> dict[K, T] | dict[K, T | BaseException]:
+        gatherer = asyncio.gather(*values, return_exceptions=return_exceptions)
+        if timeout is None:
+            results = await gatherer
+        else:
+            results = await asyncio.wait_for(gatherer, timeout=timeout)
+
+        return dict(zip(keys, results, strict=True))
+
+    def _timeout_error() -> TimeoutError:
+        return TimeoutError(f"run_async_dict timed out after {timeout} seconds")
 
     return _run_with_event_loop_bridge(
         _run_with_timeout,
