@@ -1970,3 +1970,87 @@ async def test_local_cache_clear_cancels_all_inflight_population():
 
     assert cache.get("k1") is None
     assert cache.get("k2") is None
+
+
+def test_local_cache_export_state_includes_active_entries_with_ttl_and_tags():
+    cache = LocalCacheService()
+    cache.set_tagged("profile", {"name": "Agent"}, tags=["user", "active"])
+    cache.set("session", "token", ttl_seconds=2)
+    cache.set("expired", "gone", ttl_seconds=1)
+
+    time.sleep(1.05)
+
+    snapshot = cache.export_state()
+
+    assert snapshot["max_entries"] is None
+    assert [entry["key"] for entry in snapshot["entries"]] == [
+        "profile",
+        "session",
+    ]
+
+    profile_entry = snapshot["entries"][0]
+    assert profile_entry == {
+        "key": "profile",
+        "value": {"name": "Agent"},
+        "ttl_seconds": None,
+        "tags": ["active", "user"],
+    }
+
+    session_entry = snapshot["entries"][1]
+    assert session_entry["key"] == "session"
+    assert session_entry["value"] == "token"
+    assert session_entry["tags"] == []
+    assert session_entry["ttl_seconds"] is not None
+    assert 0 < session_entry["ttl_seconds"] <= 2
+
+
+def test_local_cache_import_state_restores_entries_and_can_clear_existing_data():
+    source = LocalCacheService(max_entries=10)
+    source.set_tagged("user:1", {"name": "Ada"}, tags=["user", "vip"])
+    source.set("session:1", "token", ttl_seconds=2)
+
+    snapshot = source.export_state(include_stats=True)
+
+    target = LocalCacheService(max_entries=10)
+    target.set("stale", True)
+
+    imported = target.import_state(snapshot, clear_existing=True)
+
+    assert imported == 2
+    assert target.get("stale") is None
+    assert target.get("user:1") == {"name": "Ada"}
+    assert target.list_tags("user:1") == ["user", "vip"]
+    assert target.get("session:1") == "token"
+
+    remaining_ttl = target.ttl_remaining("session:1")
+    assert remaining_ttl is not None
+    assert 0 < remaining_ttl <= 2
+
+
+def test_local_cache_import_state_validates_snapshot_shape():
+    cache = LocalCacheService()
+
+    with pytest.raises(TypeError, match="mapping"):
+        cache.import_state([])  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="entries"):
+        cache.import_state({})
+
+    with pytest.raises(TypeError, match="iterable"):
+        cache.import_state({"entries": "invalid"})
+
+    with pytest.raises(ValueError, match="non-empty string"):
+        cache.import_state({"entries": [{"key": "", "value": 1}]})
+
+    with pytest.raises(TypeError, match="tags"):
+        cache.import_state(
+            {
+                "entries": [
+                    {
+                        "key": "alpha",
+                        "value": 1,
+                        "tags": "not-iterable",
+                    }
+                ]
+            }
+        )

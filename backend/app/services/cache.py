@@ -1530,6 +1530,112 @@ class LocalCacheService:
 
         return entries
 
+    def export_state(self, *, include_stats: bool = False) -> dict[str, Any]:
+        """Export active cache entries into a serializable snapshot.
+
+        The snapshot stores TTL as remaining seconds so that import can rebuild
+        equivalent expiry windows relative to restore time.
+        """
+        self._purge_expired_entries()
+
+        entries: list[dict[str, Any]] = []
+        now = time.time()
+        for key in sorted(self._store):
+            value, expires_at = self._store[key]
+            ttl_seconds = None
+            if expires_at is not None:
+                ttl_seconds = max(0.0, expires_at - now)
+
+            entries.append(
+                {
+                    "key": key,
+                    "value": value,
+                    "ttl_seconds": ttl_seconds,
+                    "tags": sorted(self._tags_by_key.get(key, set())),
+                }
+            )
+
+        snapshot: dict[str, Any] = {
+            "entries": entries,
+            "max_entries": self._max_entries,
+        }
+
+        if include_stats:
+            snapshot["stats"] = self.stats()
+
+        return snapshot
+
+    def import_state(
+        self,
+        snapshot: Mapping[str, Any],
+        *,
+        clear_existing: bool = False,
+    ) -> int:
+        """Import entries from :meth:`export_state` snapshots.
+
+        Args:
+            snapshot: Mapping payload with an ``entries`` collection.
+            clear_existing: Remove existing cache data before import.
+
+        Returns:
+            Number of successfully imported entries.
+        """
+        if not isinstance(snapshot, Mapping):
+            raise TypeError("snapshot must be a mapping")
+
+        if "entries" not in snapshot:
+            raise ValueError("snapshot must include an 'entries' field")
+
+        raw_entries = snapshot["entries"]
+        if isinstance(raw_entries, (str, bytes, bytearray, Mapping)) or not isinstance(
+            raw_entries, Iterable
+        ):
+            raise TypeError("snapshot entries must be an iterable of mappings")
+
+        if clear_existing:
+            self.clear()
+
+        imported = 0
+        for raw_entry in raw_entries:
+            if not isinstance(raw_entry, Mapping):
+                raise TypeError("each snapshot entry must be a mapping")
+
+            key = raw_entry.get("key")
+            if not isinstance(key, str) or not key:
+                raise ValueError("snapshot entry key must be a non-empty string")
+
+            if "value" not in raw_entry:
+                raise ValueError("snapshot entry must include a value")
+
+            ttl_seconds = raw_entry.get("ttl_seconds")
+            if ttl_seconds is not None:
+                if isinstance(ttl_seconds, bool) or not isinstance(ttl_seconds, Real):
+                    raise TypeError("snapshot entry ttl_seconds must be numeric")
+                if ttl_seconds <= 0:
+                    continue
+
+            raw_tags = raw_entry.get("tags", [])
+            if raw_tags is None:
+                raw_tags = []
+            if isinstance(raw_tags, (str, bytes, bytearray)):
+                raise TypeError("snapshot entry tags must be an iterable of strings")
+
+            normalized_tags = self._normalize_tags(raw_tags)
+
+            if normalized_tags:
+                self.set_tagged(
+                    key,
+                    raw_entry["value"],
+                    tags=normalized_tags,
+                    ttl_seconds=ttl_seconds,
+                )
+            else:
+                self.set(key, raw_entry["value"], ttl_seconds=ttl_seconds)
+
+            imported += 1
+
+        return imported
+
     def stats(self, reset: bool = False) -> dict[str, Any]:
         """Return cache operational counters and runtime metadata.
 
