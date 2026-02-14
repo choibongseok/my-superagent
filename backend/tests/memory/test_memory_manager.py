@@ -121,6 +121,33 @@ class TestMemoryManagerContext:
         assert len(matches) == 1
         assert matches[0].content == "python basics"
 
+    def test_search_conversation_supports_exact_match_mode(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="test_session",
+            use_vector_memory=False,
+        )
+
+        manager.add_user_message("Project status")
+        manager.add_ai_message("Project status update")
+        manager.add_system_message("project status")
+
+        default_matches = manager.search_conversation(
+            "project status",
+            match_mode="exact",
+        )
+        strict_matches = manager.search_conversation(
+            "project status",
+            match_mode="exact",
+            case_sensitive=True,
+        )
+
+        assert [message.content for message in default_matches] == [
+            "Project status",
+            "project status",
+        ]
+        assert [message.content for message in strict_matches] == ["project status"]
+
     def test_search_conversation_supports_fuzzy_match_mode(self):
         manager = MemoryManager(
             user_id="test_user",

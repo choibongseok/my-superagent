@@ -167,6 +167,32 @@ class TestConversationMemory:
         assert isinstance(limited_matches[0], HumanMessage)
         assert limited_matches[0].content == "weather today"
 
+    def test_search_messages_supports_exact_matching(self):
+        """exact mode should require full-message equality, not containment."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("project update")
+        memory.add_ai_message("project update ready")
+        memory.add_system_message("PROJECT UPDATE")
+
+        default_matches = memory.search_messages("project update", match_mode="exact")
+        case_sensitive_matches = memory.search_messages(
+            "project update",
+            match_mode="exact",
+            case_sensitive=True,
+        )
+
+        assert [message.content for message in default_matches] == [
+            "project update",
+            "PROJECT UPDATE",
+        ]
+        assert [message.content for message in case_sensitive_matches] == [
+            "project update",
+        ]
+
     def test_search_messages_supports_system_role_filtering(self):
         """System role filter should return only system-authored messages."""
         memory = ConversationMemory(

@@ -221,6 +221,7 @@ class ConversationMemory:
         limit: Optional[int] = None,
         match_mode: Literal[
             "substring",
+            "exact",
             "word",
             "regex",
             "fuzzy",
@@ -241,6 +242,7 @@ class ConversationMemory:
             limit: Maximum number of matched messages to return
             match_mode: Matching strategy:
                 - "substring": query appears anywhere in content (default)
+                - "exact": query must match the full message content
                 - "word": query matches whole-word boundaries
                 - "regex": query is treated as a regular expression
                 - "fuzzy": typo-tolerant matching using similarity ratio
@@ -266,6 +268,7 @@ class ConversationMemory:
         normalized_match_mode = match_mode.lower()
         if normalized_match_mode not in {
             "substring",
+            "exact",
             "word",
             "regex",
             "fuzzy",
@@ -274,7 +277,7 @@ class ConversationMemory:
         }:
             raise ValueError(
                 "match_mode must be one of: "
-                "substring, word, regex, fuzzy, all_terms, any_terms"
+                "substring, exact, word, regex, fuzzy, all_terms, any_terms"
             )
 
         if not (0.0 <= fuzzy_threshold <= 1.0):
@@ -313,6 +316,8 @@ class ConversationMemory:
 
             if normalized_match_mode == "substring":
                 is_match = target_query in searchable_content
+            elif normalized_match_mode == "exact":
+                is_match = searchable_content == target_query
             elif normalized_match_mode in {"word", "regex"}:
                 # regex_pattern is guaranteed for "word" and "regex" modes.
                 is_match = bool(regex_pattern and regex_pattern.search(content))
