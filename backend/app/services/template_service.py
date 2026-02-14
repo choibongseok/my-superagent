@@ -4,6 +4,7 @@ import csv
 import json
 import logging
 import re
+import textwrap
 from string import Formatter
 from typing import List, Optional
 from uuid import UUID
@@ -557,6 +558,7 @@ class TemplateService:
         - ``{backlog->first}``, ``{backlog->last}``
         - ``{steps->reverse->join(" | ")}``
         - ``{milestones->slice(0,2)->join(", ")}``
+        - ``{notes->dedent->strip}``
 
         Returns:
             Tuple of ``(field_path, default_value, transforms)``.
@@ -583,6 +585,7 @@ class TemplateService:
             "lower": lambda raw: str(raw).lower(),
             "title": lambda raw: str(raw).title(),
             "capitalize": lambda raw: str(raw).capitalize(),
+            "dedent": lambda raw: textwrap.dedent(str(raw)),
             "snake_case": lambda raw: "_".join(_tokenize_case_transform(raw)),
             "kebab_case": lambda raw: "-".join(_tokenize_case_transform(raw)),
             "dot_case": lambda raw: ".".join(_tokenize_case_transform(raw)),
@@ -709,8 +712,8 @@ class TemplateService:
         ``{summary->truncate(120)}``, ``{title->replace("Agent", "Assistant")}``,
         ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
         ``{queue->first}``, ``{queue->last}``, ``{tasks->reverse}``,
-        ``{milestones->slice(0,2)}``, ``{payload->json}``,
-        or ``{payload->json_pretty}``).
+        ``{milestones->slice(0,2)}``, ``{notes->dedent->strip}``,
+        ``{payload->json}``, or ``{payload->json_pretty}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)

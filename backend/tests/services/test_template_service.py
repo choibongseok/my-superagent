@@ -328,6 +328,44 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_dedent_transform_for_multiline_text(
+        self, service_with_mock_db
+    ):
+        """dedent should remove shared leading indentation across lines."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Notes:\n{notes->dedent->strip}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "notes": (
+                        "\n"
+                        "            Ship a robust release checklist\n"
+                        "              Include rollback playbook\n"
+                        "            Confirm on-call handoff\n"
+                    )
+                },
+                user_id,
+            )
+
+        assert (
+            result["prompt"] == "Notes:\n"
+            "Ship a robust release checklist\n"
+            "  Include rollback playbook\n"
+            "Confirm on-call handoff"
+        )
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_use_template_applies_default_before_text_transform(
         self, service_with_mock_db
     ):
