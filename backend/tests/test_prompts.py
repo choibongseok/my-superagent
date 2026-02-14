@@ -458,6 +458,88 @@ def test_rollback_rejects_missing_target_version(temp_registry):
         temp_registry.rollback("incident_prompt", target_version="v9")
 
 
+def test_delete_version_removes_target_and_persists_remaining_versions(temp_registry):
+    """delete_version should remove one version without touching others."""
+    temp_registry.register(
+        name="cleanup_prompt",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+    temp_registry.register(
+        name="cleanup_prompt",
+        template="v2",
+        variables=[],
+        version="v2",
+    )
+
+    deleted = temp_registry.delete_version("cleanup_prompt", "v1")
+
+    assert deleted is True
+    versions = temp_registry.list_versions("cleanup_prompt")
+    assert [version.version for version in versions] == ["v2"]
+
+    reloaded = PromptRegistry(storage_path=str(temp_registry.storage_path))
+    persisted_versions = reloaded.list_versions("cleanup_prompt")
+    assert [version.version for version in persisted_versions] == ["v2"]
+
+
+def test_delete_version_returns_false_when_version_is_missing(temp_registry):
+    """delete_version should be a no-op when the target does not exist."""
+    temp_registry.register(
+        name="cleanup_prompt",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+
+    deleted = temp_registry.delete_version("cleanup_prompt", "v9")
+
+    assert deleted is False
+    assert [
+        version.version for version in temp_registry.list_versions("cleanup_prompt")
+    ] == ["v1"]
+
+
+def test_delete_version_removes_storage_when_last_version_is_deleted(temp_registry):
+    """Deleting the final version should clear cache and remove backing file."""
+    temp_registry.register(
+        name="single_prompt",
+        template="only",
+        variables=[],
+        version="v1",
+    )
+
+    deleted = temp_registry.delete_version("single_prompt", "v1")
+
+    assert deleted is True
+    assert temp_registry.list_versions("single_prompt") == []
+    assert "single_prompt" not in temp_registry._cache
+    assert not (temp_registry.storage_path / "single_prompt.json").exists()
+
+
+def test_delete_prompt_clears_all_versions_and_returns_count(temp_registry):
+    """delete_prompt should remove all versions and return how many were deleted."""
+    temp_registry.register(
+        name="archive_prompt",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+    temp_registry.register(
+        name="archive_prompt",
+        template="v2",
+        variables=[],
+        version="v2",
+    )
+
+    removed_count = temp_registry.delete_prompt("archive_prompt")
+
+    assert removed_count == 2
+    assert temp_registry.list_versions("archive_prompt") == []
+    assert not (temp_registry.storage_path / "archive_prompt.json").exists()
+
+
 def test_builtin_templates_are_bootstrapped():
     """Test global prompt registry auto-loads built-in templates."""
     prompt = prompt_registry.get("research_agent", version="v1")

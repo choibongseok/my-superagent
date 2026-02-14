@@ -308,6 +308,72 @@ class PromptRegistry:
             persist=persist,
         )
 
+    def delete_version(
+        self,
+        name: str,
+        version: str,
+        *,
+        persist: bool = True,
+    ) -> bool:
+        """Delete one version from a prompt history.
+
+        Args:
+            name: Prompt name.
+            version: Version label to delete.
+            persist: When False, update in-memory cache only.
+
+        Returns:
+            True when a version was deleted, False when no matching version
+            existed.
+        """
+        versions = self.list_versions(name)
+
+        remaining_versions = [
+            prompt_version
+            for prompt_version in versions
+            if prompt_version.version != version
+        ]
+
+        if len(remaining_versions) == len(versions):
+            return False
+
+        if persist:
+            self._persist_versions_or_remove_file(name, remaining_versions)
+
+        if remaining_versions:
+            self._cache[name] = remaining_versions
+        else:
+            self._cache.pop(name, None)
+
+        return True
+
+    def delete_prompt(
+        self,
+        name: str,
+        *,
+        persist: bool = True,
+    ) -> int:
+        """Delete all versions for a prompt name.
+
+        Args:
+            name: Prompt name.
+            persist: When False, clear in-memory cache only.
+
+        Returns:
+            Number of versions removed.
+        """
+        versions = self.list_versions(name)
+        removed_count = len(versions)
+
+        if removed_count == 0:
+            return 0
+
+        if persist:
+            self._persist_versions_or_remove_file(name, [])
+
+        self._cache.pop(name, None)
+        return removed_count
+
     def list_versions(self, name: str) -> List[PromptVersion]:
         """List all versions of a prompt."""
         if name in self._cache:
@@ -622,6 +688,21 @@ class PromptRegistry:
             highest_version_number = max(highest_version_number, int(match.group(1)))
 
         return f"v{highest_version_number + 1}"
+
+    def _persist_versions_or_remove_file(
+        self,
+        name: str,
+        versions: List[PromptVersion],
+    ) -> None:
+        """Persist versions or remove prompt storage when no versions remain."""
+        file_path = self.storage_path / f"{name}.json"
+
+        if versions:
+            self._save_versions(name, versions)
+            return
+
+        if file_path.exists():
+            file_path.unlink()
 
     def _save_versions(self, name: str, versions: List[PromptVersion]) -> None:
         """Persist all versions for a prompt name."""
