@@ -37,6 +37,41 @@ def test_register_prompt(temp_registry):
     assert prompt.metadata["author"] == "test"
 
 
+def test_register_prompt_rejects_undeclared_template_variables(temp_registry):
+    """Register should fail fast when placeholders are not declared."""
+    with pytest.raises(ValueError, match="undeclared variables: missing"):
+        temp_registry.register(
+            name="invalid_prompt",
+            template="Hello {name} from {missing}",
+            variables=["name"],
+            version="v1",
+        )
+
+
+def test_register_prompt_allows_nested_placeholders_with_declared_base(temp_registry):
+    """Nested lookups should only require declaring the top-level variable."""
+    prompt = temp_registry.register(
+        name="nested_prompt",
+        template="Owner: {user.name}",
+        variables=["user"],
+        version="v1",
+    )
+
+    assert prompt is not None
+    assert prompt.variables == ["user"]
+
+
+def test_register_prompt_rejects_positional_placeholders(temp_registry):
+    """Prompt templates must use named placeholders for dict-style rendering."""
+    with pytest.raises(ValueError, match="positional"):
+        temp_registry.register(
+            name="positional_prompt",
+            template="Value: {}",
+            variables=[],
+            version="v1",
+        )
+
+
 def test_get_prompt(temp_registry):
     """Test retrieving a prompt."""
     # Register prompt

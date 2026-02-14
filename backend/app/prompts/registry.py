@@ -7,6 +7,7 @@ import pkgutil
 import re
 from datetime import datetime
 from pathlib import Path
+from string import Formatter
 from typing import Any, Dict, List, Mapping, Optional
 
 from pydantic import BaseModel
@@ -78,6 +79,8 @@ class PromptRegistry:
         # Auto-generate version if not provided.
         if version is None:
             version = self._next_version(versions)
+
+        self._validate_template_variables(name=name, template=template, variables=variables)
 
         prompt_version = PromptVersion(
             version=version,
@@ -489,6 +492,52 @@ class PromptRegistry:
                 logger.exception("Failed to import prompt template module: %s", full_module_name)
 
         self._builtin_templates_loaded = True
+
+    @staticmethod
+    def _extract_template_variables(template: str) -> set[str]:
+        """Extract top-level variable names referenced by a template string."""
+        variables: set[str] = set()
+
+        for _, field_name, _, _ in Formatter().parse(template):
+            if field_name is None:
+                continue
+
+            normalized_field = field_name.strip()
+            if not normalized_field:
+                raise ValueError(
+                    "Prompt templates must use named placeholders; positional "
+                    "fields like '{}' are not supported"
+                )
+
+            base_variable = normalized_field.split(".", 1)[0].split("[", 1)[0]
+            if base_variable.isdigit():
+                raise ValueError(
+                    "Prompt templates must use named placeholders; positional "
+                    "indexes like '{0}' are not supported"
+                )
+
+            variables.add(base_variable)
+
+        return variables
+
+    def _validate_template_variables(
+        self,
+        *,
+        name: str,
+        template: str,
+        variables: list[str],
+    ) -> None:
+        """Validate template placeholders are declared in the variables list."""
+        declared_variables = set(variables)
+        referenced_variables = self._extract_template_variables(template)
+
+        undeclared_variables = sorted(referenced_variables - declared_variables)
+        if undeclared_variables:
+            undeclared_display = ", ".join(undeclared_variables)
+            raise ValueError(
+                f"Prompt '{name}' template references undeclared variables: "
+                f"{undeclared_display}"
+            )
 
     def _next_version(self, versions: List[PromptVersion]) -> str:
         """Generate next numeric version label (vN)."""
