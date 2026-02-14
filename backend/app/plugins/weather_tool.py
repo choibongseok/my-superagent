@@ -277,6 +277,23 @@ class Plugin(ToolPlugin):
         # OpenWeatherMap already returns mph for imperial and m/s for standard.
         return round(api_wind_speed, 1)
 
+    @classmethod
+    def _normalize_wind_gust_for_units(
+        cls,
+        api_wind_gust: Any,
+        units: str,
+    ) -> float | None:
+        """Normalize optional OpenWeather wind-gust values to output units."""
+        if api_wind_gust is None or isinstance(api_wind_gust, bool):
+            return None
+
+        try:
+            parsed_wind_gust = float(api_wind_gust)
+        except (TypeError, ValueError):
+            return None
+
+        return cls._normalize_wind_speed_for_units(parsed_wind_gust, units)
+
     @staticmethod
     def _normalize_wind_direction_degrees(direction_degrees: Any) -> float | None:
         """Normalize raw wind-direction degrees into a [0, 360) range."""
@@ -586,6 +603,7 @@ class Plugin(ToolPlugin):
         temperature_celsius = 22.5
         feels_like_celsius = 21.3
         wind_kmh = 12.3
+        wind_gust_kmh = 18.6
         pressure_hpa = 1013.0
         visibility_meters = 10_000
 
@@ -597,6 +615,7 @@ class Plugin(ToolPlugin):
                 feels_like_celsius
             )
             wind_speed = self._convert_kmh_to_mph(wind_kmh)
+            wind_gust = self._convert_kmh_to_mph(wind_gust_kmh)
         elif units == "standard":
             temperature = self._convert_metric_to_standard_temperature(
                 temperature_celsius
@@ -605,10 +624,12 @@ class Plugin(ToolPlugin):
                 feels_like_celsius
             )
             wind_speed = self._convert_kmh_to_ms(wind_kmh)
+            wind_gust = self._convert_kmh_to_ms(wind_gust_kmh)
         else:
             temperature = temperature_celsius
             feels_like = feels_like_celsius
             wind_speed = wind_kmh
+            wind_gust = wind_gust_kmh
 
         visibility, visibility_unit = self._normalize_visibility_for_units(
             visibility_meters,
@@ -643,6 +664,8 @@ class Plugin(ToolPlugin):
             "pressure_unit": pressure_unit,
             "wind_speed": wind_speed,
             "wind_speed_unit": wind_speed_unit,
+            "wind_gust": wind_gust,
+            "wind_gust_unit": wind_speed_unit,
             "wind_direction_degrees": 225.0,
             "wind_direction_cardinal": "SW",
             "visibility": visibility,
@@ -898,6 +921,8 @@ class Plugin(ToolPlugin):
                 "pressure_unit": str | None,
                 "wind_speed": float,
                 "wind_speed_unit": str,
+                "wind_gust": float | None,
+                "wind_gust_unit": str | None,
                 "wind_direction_degrees": float | None,
                 "wind_direction_cardinal": str | None,
                 "visibility": float | None,
@@ -1033,6 +1058,14 @@ class Plugin(ToolPlugin):
                     else None,
                 )
                 wind_payload = data.get("wind") if isinstance(data.get("wind"), dict) else {}
+                wind_speed = self._normalize_wind_speed_for_units(
+                    wind_payload["speed"],
+                    resolved_units,
+                )
+                wind_gust = self._normalize_wind_gust_for_units(
+                    wind_payload.get("gust"),
+                    resolved_units,
+                )
                 wind_direction_degrees = self._normalize_wind_direction_degrees(
                     wind_payload.get("deg")
                 )
@@ -1063,11 +1096,10 @@ class Plugin(ToolPlugin):
                     "pressure_unit": resolved_pressure_unit
                     if pressure is not None
                     else None,
-                    "wind_speed": self._normalize_wind_speed_for_units(
-                        data["wind"]["speed"],
-                        resolved_units,
-                    ),
+                    "wind_speed": wind_speed,
                     "wind_speed_unit": wind_speed_unit,
+                    "wind_gust": wind_gust,
+                    "wind_gust_unit": wind_speed_unit if wind_gust is not None else None,
                     "wind_direction_degrees": wind_direction_degrees,
                     "wind_direction_cardinal": wind_direction_cardinal,
                     "visibility": visibility,
@@ -1148,6 +1180,8 @@ class Plugin(ToolPlugin):
             result.get("temperature_unit") or default_temperature_unit
         )
         wind_unit = str(result.get("wind_speed_unit") or default_wind_unit)
+        wind_gust = result.get("wind_gust")
+        wind_gust_unit = str(result.get("wind_gust_unit") or wind_unit)
 
         dew_point = result.get("dew_point")
         dew_point_unit = str(result.get("dew_point_unit") or temperature_unit)
@@ -1179,6 +1213,8 @@ class Plugin(ToolPlugin):
             f"Wind Speed: {result['wind_speed']} {wind_unit}",
         ]
 
+        if wind_gust is not None:
+            lines.append(f"Wind Gust: {wind_gust} {wind_gust_unit}")
         if dew_point is not None:
             lines.append(f"Dew Point: {dew_point}{dew_point_unit}")
         if heat_index is not None:
@@ -1226,7 +1262,7 @@ class Plugin(ToolPlugin):
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
             "Set refresh_cache=true to bypass cached responses and force a fresh API fetch. "
-            "Returns temperature, dew-point temperature, heat-index temperature, feels-like temperature, weather condition, humidity, cloud coverage, daylight status, pressure, wind speed, wind direction, visibility, and precipitation summaries when available. "
+            "Returns temperature, dew-point temperature, heat-index temperature, feels-like temperature, weather condition, humidity, cloud coverage, daylight status, pressure, wind speed, optional wind gust, wind direction, visibility, and precipitation summaries when available. "
             "Requires OpenWeatherMap API key in plugin config."
         )
 
@@ -1234,8 +1270,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.22.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point and heat-index insights, wind direction details, visibility details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
+            version="1.23.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point and heat-index insights, wind speed and gust details, wind direction details, visibility details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -1276,6 +1312,8 @@ class Plugin(ToolPlugin):
                 "pressure_unit": "string | null (hpa, kpa, inhg, or mmhg)",
                 "wind_speed": "float",
                 "wind_speed_unit": "string (km/h, mph, or m/s)",
+                "wind_gust": "float | null",
+                "wind_gust_unit": "string | null (km/h, mph, or m/s)",
                 "wind_direction_degrees": "float | null (0-360 degrees)",
                 "wind_direction_cardinal": "string | null (16-point compass direction)",
                 "visibility": "float | null",

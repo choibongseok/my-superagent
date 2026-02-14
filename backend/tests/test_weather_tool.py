@@ -39,6 +39,8 @@ class TestWeatherTool:
         assert result["pressure"] == 1013
         assert result["wind_speed"] == 12.3
         assert result["wind_speed_unit"] == "km/h"
+        assert result["wind_gust"] == 18.6
+        assert result["wind_gust_unit"] == "km/h"
         assert result["wind_direction_degrees"] == 225.0
         assert result["wind_direction_cardinal"] == "SW"
         assert result["visibility"] == 10.0
@@ -328,6 +330,7 @@ class TestWeatherTool:
         assert "Condition:" in result
         assert "Humidity:" in result
         assert "Wind Speed:" in result
+        assert "Wind Gust:" in result
         assert "Wind Direction:" in result
         assert "Cloudiness:" in result
         assert "Daylight:" in result
@@ -471,6 +474,33 @@ class TestWeatherTool:
         assert "Pressure: 29.91 inHg" in result
 
     @pytest.mark.asyncio
+    async def test_run_tool_formats_wind_gust_when_available(self):
+        """run_tool should render wind gust details when execute returns them."""
+        plugin = WeatherPlugin(config={"units": "metric"})
+
+        with patch.object(
+            plugin,
+            "execute",
+            AsyncMock(
+                return_value={
+                    "location": "Dublin",
+                    "temperature": 12.0,
+                    "feels_like": 10.8,
+                    "condition": "Windy",
+                    "humidity": 73,
+                    "wind_speed": 18.3,
+                    "wind_speed_unit": "km/h",
+                    "wind_gust": 30.6,
+                    "wind_gust_unit": "km/h",
+                    "units": "metric",
+                }
+            ),
+        ):
+            result = await plugin.run_tool("Dublin")
+
+        assert "Wind Gust: 30.6 km/h" in result
+
+    @pytest.mark.asyncio
     async def test_run_tool_formats_wind_direction_when_available(self):
         """run_tool should render wind direction degrees with cardinal direction."""
         plugin = WeatherPlugin(config={"units": "metric"})
@@ -510,7 +540,7 @@ class TestWeatherTool:
                 "pressure": 1008,
             },
             "weather": [{"description": "light rain"}],
-            "wind": {"speed": 5.2, "deg": 219},  # m/s
+            "wind": {"speed": 5.2, "gust": 8.4, "deg": 219},  # m/s
             "clouds": {"all": 88},
             "sys": {"sunrise": 1700000000, "sunset": 1700036000},
             "dt": 1700018000,
@@ -540,6 +570,8 @@ class TestWeatherTool:
             assert result["pressure"] == 1008
             assert result["wind_speed"] == 18.7  # 5.2 m/s * 3.6 = 18.72 km/h
             assert result["wind_speed_unit"] == "km/h"
+            assert result["wind_gust"] == 30.2  # 8.4 m/s * 3.6 = 30.24 km/h
+            assert result["wind_gust_unit"] == "km/h"
             assert result["wind_direction_degrees"] == 219.0
             assert result["wind_direction_cardinal"] == "SW"
             assert result["visibility"] == 7.5
@@ -644,6 +676,8 @@ class TestWeatherTool:
             assert result["daylight_status"] is None
             assert result["visibility"] is None
             assert result["visibility_unit"] is None
+            assert result["wind_gust"] is None
+            assert result["wind_gust_unit"] is None
 
     @pytest.mark.asyncio
     async def test_api_response_includes_precipitation_details_when_available(
@@ -779,6 +813,8 @@ class TestWeatherTool:
             assert result["pressure"] == 1002
             assert result["wind_speed"] == 10.5  # No conversion for imperial
             assert result["wind_speed_unit"] == "mph"
+            assert result["wind_gust"] is None
+            assert result["wind_gust_unit"] is None
             assert result["visibility"] == 1.0
             assert result["visibility_unit"] == "mi"
 
@@ -819,6 +855,8 @@ class TestWeatherTool:
         assert result["feels_like"] == 70.3
         assert result["wind_speed"] == 7.6
         assert result["wind_speed_unit"] == "mph"
+        assert result["wind_gust"] == 11.6
+        assert result["wind_gust_unit"] == "mph"
         assert result["visibility"] == 6.2
         assert result["visibility_unit"] == "mi"
 
@@ -838,6 +876,8 @@ class TestWeatherTool:
         assert result["feels_like"] == 294.4
         assert result["wind_speed"] == 3.4
         assert result["wind_speed_unit"] == "m/s"
+        assert result["wind_gust"] == 5.2
+        assert result["wind_gust_unit"] == "m/s"
         assert result["visibility"] == 10000.0
         assert result["visibility_unit"] == "m"
 
@@ -1401,7 +1441,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.22.0"
+        assert manifest.version == "1.23.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
@@ -1426,6 +1466,8 @@ class TestWeatherTool:
         assert "pressure" in manifest.outputs
         assert "pressure_unit" in manifest.outputs
         assert "wind_speed_unit" in manifest.outputs
+        assert "wind_gust" in manifest.outputs
+        assert "wind_gust_unit" in manifest.outputs
         assert "wind_direction_degrees" in manifest.outputs
         assert "wind_direction_cardinal" in manifest.outputs
         assert "cloudiness" in manifest.outputs
