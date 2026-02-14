@@ -3,6 +3,7 @@
 import inspect
 import json
 import logging
+import math
 import re
 from typing import Any, Dict
 
@@ -341,6 +342,64 @@ class Plugin(ToolPlugin):
         return "°C", "km/h"
 
     @staticmethod
+    def _convert_temperature_to_celsius(temperature: float, units: str) -> float:
+        """Convert a unit-normalized temperature into Celsius."""
+        if units == "imperial":
+            return (temperature - 32) * 5 / 9
+        if units == "standard":
+            return temperature - 273.15
+
+        return temperature
+
+    @staticmethod
+    def _convert_celsius_to_units(temperature_celsius: float, units: str) -> float:
+        """Convert Celsius into temperature value for ``units``."""
+        if units == "imperial":
+            return (temperature_celsius * 9 / 5) + 32
+        if units == "standard":
+            return temperature_celsius + 273.15
+
+        return temperature_celsius
+
+    @classmethod
+    def _calculate_dew_point(
+        cls,
+        *,
+        temperature: Any,
+        humidity: Any,
+        units: str,
+    ) -> float | None:
+        """Estimate dew-point temperature from ambient temperature and humidity."""
+        if isinstance(temperature, bool) or isinstance(humidity, bool):
+            return None
+
+        try:
+            temperature_value = float(temperature)
+            humidity_value = float(humidity)
+        except (TypeError, ValueError):
+            return None
+
+        if not 0 < humidity_value <= 100:
+            return None
+
+        temperature_celsius = cls._convert_temperature_to_celsius(
+            temperature_value,
+            units,
+        )
+
+        # Magnus approximation constants for water vapor over liquid water.
+        alpha = 17.625
+        beta = 243.04
+
+        gamma = (alpha * temperature_celsius / (beta + temperature_celsius)) + math.log(
+            humidity_value / 100
+        )
+        dew_point_celsius = (beta * gamma) / (alpha - gamma)
+
+        dew_point = cls._convert_celsius_to_units(dew_point_celsius, units)
+        return round(dew_point, 1)
+
+    @staticmethod
     def _extract_precipitation_amount(
         data: Dict[str, Any], period: str
     ) -> float | None:
@@ -504,11 +563,18 @@ class Plugin(ToolPlugin):
             units,
         )
         temperature_unit, wind_speed_unit = self._resolve_unit_labels(units)
+        dew_point = self._calculate_dew_point(
+            temperature=temperature,
+            humidity=65,
+            units=units,
+        )
 
         return {
             "location": location,
             "temperature": temperature,
             "temperature_unit": temperature_unit,
+            "dew_point": dew_point,
+            "dew_point_unit": temperature_unit if dew_point is not None else None,
             "feels_like": feels_like,
             "condition": "Partly Cloudy",
             "humidity": 65,
@@ -760,6 +826,8 @@ class Plugin(ToolPlugin):
                 "location": str,
                 "temperature": float,
                 "temperature_unit": str,
+                "dew_point": float | None,
+                "dew_point_unit": str | None,
                 "feels_like": float,
                 "condition": str,
                 "humidity": int,
@@ -857,6 +925,12 @@ class Plugin(ToolPlugin):
                 main = data["main"]
                 temperature = round(main["temp"], 1)
                 feels_like = round(main.get("feels_like", main["temp"]), 1)
+                humidity = main["humidity"]
+                dew_point = self._calculate_dew_point(
+                    temperature=temperature,
+                    humidity=humidity,
+                    units=resolved_units,
+                )
 
                 visibility_value = data.get("visibility")
                 visibility = None
@@ -908,9 +982,11 @@ class Plugin(ToolPlugin):
                     "location": data.get("name") or normalized_location,
                     "temperature": temperature,
                     "temperature_unit": temperature_unit,
+                    "dew_point": dew_point,
+                    "dew_point_unit": temperature_unit if dew_point is not None else None,
                     "feels_like": feels_like,
                     "condition": data["weather"][0]["description"].title(),
-                    "humidity": main["humidity"],
+                    "humidity": humidity,
                     "cloudiness": cloudiness,
                     "daylight_status": daylight_status,
                     "pressure": pressure,
@@ -1003,6 +1079,8 @@ class Plugin(ToolPlugin):
         )
         wind_unit = str(result.get("wind_speed_unit") or default_wind_unit)
 
+        dew_point = result.get("dew_point")
+        dew_point_unit = str(result.get("dew_point_unit") or temperature_unit)
         feels_like = result.get("feels_like", result["temperature"])
         pressure = result.get("pressure")
         pressure_unit = result.get("pressure_unit")
@@ -1029,6 +1107,8 @@ class Plugin(ToolPlugin):
             f"Wind Speed: {result['wind_speed']} {wind_unit}",
         ]
 
+        if dew_point is not None:
+            lines.append(f"Dew Point: {dew_point}{dew_point_unit}")
         if cloudiness is not None:
             lines.append(f"Cloudiness: {cloudiness}%")
         if isinstance(daylight_status, str) and daylight_status.strip():
@@ -1072,7 +1152,7 @@ class Plugin(ToolPlugin):
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
             "Set refresh_cache=true to bypass cached responses and force a fresh API fetch. "
-            "Returns temperature, feels-like temperature, weather condition, humidity, cloud coverage, daylight status, pressure, wind speed, wind direction, visibility, and precipitation summaries when available. "
+            "Returns temperature, dew-point temperature, feels-like temperature, weather condition, humidity, cloud coverage, daylight status, pressure, wind speed, wind direction, visibility, and precipitation summaries when available. "
             "Requires OpenWeatherMap API key in plugin config."
         )
 
@@ -1080,8 +1160,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.20.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, wind direction details, visibility details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
+            version="1.21.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point insights, wind direction details, visibility details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -1109,6 +1189,8 @@ class Plugin(ToolPlugin):
                 "location": "string",
                 "temperature": "float",
                 "temperature_unit": "string (°C, °F, or K)",
+                "dew_point": "float | null",
+                "dew_point_unit": "string | null (°C, °F, or K)",
                 "feels_like": "float",
                 "condition": "string",
                 "humidity": "integer",

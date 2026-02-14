@@ -27,6 +27,8 @@ class TestWeatherTool:
         assert result["location"] == "Seoul"
         assert result["temperature"] == 22.5
         assert result["temperature_unit"] == "°C"
+        assert result["dew_point"] == 15.6
+        assert result["dew_point_unit"] == "°C"
         assert result["feels_like"] == 21.3
         assert result["condition"] == "Partly Cloudy"
         assert result["humidity"] == 65
@@ -320,6 +322,7 @@ class TestWeatherTool:
         assert "Temperature:" in result
         assert "22.5°C" in result
         assert "Feels Like:" in result
+        assert "Dew Point: 15.6°C" in result
         assert "Condition:" in result
         assert "Humidity:" in result
         assert "Wind Speed:" in result
@@ -495,6 +498,8 @@ class TestWeatherTool:
             assert result["location"] == "London"
             assert result["temperature"] == 15.3
             assert result["temperature_unit"] == "°C"
+            assert result["dew_point"] == 10.3
+            assert result["dew_point_unit"] == "°C"
             assert result["feels_like"] == 14.7
             assert result["condition"] == "Light Rain"
             assert result["humidity"] == 72
@@ -708,6 +713,8 @@ class TestWeatherTool:
 
             assert result["temperature"] == 68.5
             assert result["temperature_unit"] == "°F"
+            assert result["dew_point"] == 51.7
+            assert result["dew_point_unit"] == "°F"
             assert result["pressure"] == 1002
             assert result["wind_speed"] == 10.5  # No conversion for imperial
             assert result["wind_speed_unit"] == "mph"
@@ -765,6 +772,8 @@ class TestWeatherTool:
         assert result["units"] == "standard"
         assert result["temperature"] == 295.6
         assert result["temperature_unit"] == "K"
+        assert result["dew_point"] == 288.7
+        assert result["dew_point_unit"] == "K"
         assert result["feels_like"] == 294.4
         assert result["wind_speed"] == 3.4
         assert result["wind_speed_unit"] == "m/s"
@@ -1331,7 +1340,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.20.0"
+        assert manifest.version == "1.21.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
