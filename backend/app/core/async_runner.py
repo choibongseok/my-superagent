@@ -1270,3 +1270,121 @@ def run_async_find_batched(
         raise LookupError("run_async_find_batched did not match any items")
 
     return cast(D, default)
+
+
+def run_async_any(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> bool:
+    """Return ``True`` when any item matches an async predicate.
+
+    Behaves like Python's built-in :func:`any` while validating that predicate
+    outputs are explicit booleans.
+    """
+    if not callable(coro_predicate):
+        raise TypeError("run_async_any expects a callable coro_predicate")
+
+    predicate_results = run_async_map(
+        coro_predicate,
+        list(items),
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    return any(
+        _coerce_filter_result(include, function_name="run_async_any")
+        for include in predicate_results
+    )
+
+
+def run_async_any_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> bool:
+    """Batch-oriented variant of :func:`run_async_any`."""
+    if not callable(coro_predicate):
+        raise TypeError("run_async_any_batched expects a callable coro_predicate")
+
+    materialized_items = list(items)
+    if not materialized_items:
+        _validate_batch_size(batch_size)
+        return False
+
+    predicate_results = run_async_map_batched(
+        coro_predicate,
+        materialized_items,
+        batch_size=batch_size,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    return any(
+        _coerce_filter_result(include, function_name="run_async_any_batched")
+        for include in predicate_results
+    )
+
+
+def run_async_all(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> bool:
+    """Return ``True`` when all items match an async predicate.
+
+    Behaves like Python's built-in :func:`all` while validating that predicate
+    outputs are explicit booleans.
+    """
+    if not callable(coro_predicate):
+        raise TypeError("run_async_all expects a callable coro_predicate")
+
+    predicate_results = run_async_map(
+        coro_predicate,
+        list(items),
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    return all(
+        _coerce_filter_result(include, function_name="run_async_all")
+        for include in predicate_results
+    )
+
+
+def run_async_all_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> bool:
+    """Batch-oriented variant of :func:`run_async_all`."""
+    if not callable(coro_predicate):
+        raise TypeError("run_async_all_batched expects a callable coro_predicate")
+
+    materialized_items = list(items)
+    if not materialized_items:
+        _validate_batch_size(batch_size)
+        return True
+
+    predicate_results = run_async_map_batched(
+        coro_predicate,
+        materialized_items,
+        batch_size=batch_size,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    return all(
+        _coerce_filter_result(include, function_name="run_async_all_batched")
+        for include in predicate_results
+    )
