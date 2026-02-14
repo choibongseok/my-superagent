@@ -1005,6 +1005,87 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_strip_prefix_and_suffix_transforms(
+        self, service_with_mock_db
+    ):
+        """strip_prefix/strip_suffix should remove one matching boundary affix."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Path: {path->strip_prefix("/tmp/")->strip_suffix(".txt")}',
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"path": "/tmp/agenthq-notes.txt"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Path: agenthq-notes"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_strip_prefix_and_suffix_keep_non_matching_values(
+        self, service_with_mock_db
+    ):
+        """strip_prefix/strip_suffix should no-op when affixes do not match."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Path: {path->strip_prefix("/tmp/")->strip_suffix(".txt")}',
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"path": "/var/log/agenthq.md"},
+                user_id,
+            )
+
+        assert result["prompt"] == "Path: /var/log/agenthq.md"
+        assert template.usage_count == 4
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_strip_prefix_with_invalid_arguments(
+        self, service_with_mock_db
+    ):
+        """strip_prefix should require exactly one non-empty argument."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Path: {path->strip_prefix()}",
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'strip_prefix\(\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"path": "/tmp/agenthq.txt"},
+                    user_id,
+                )
+
+        assert template.usage_count == 1
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_join_transform_with_default_separator(
         self, service_with_mock_db
     ):

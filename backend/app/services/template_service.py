@@ -162,6 +162,26 @@ def _replace_text(value: object, argument_spec: str) -> str:
     return str(value).replace(search, replacement)
 
 
+def _strip_affix_text(value: object, argument_spec: str, *, mode: str) -> str:
+    """Strip a single prefix/suffix from text using CSV-quoted arguments."""
+    args = _parse_transform_args(argument_spec)
+    if len(args) != 1:
+        raise ValueError(f"{mode} expects exactly one argument")
+
+    affix = args[0]
+    if affix == "":
+        raise ValueError(f"{mode} argument must not be empty")
+
+    text = str(value)
+    if mode == "strip_prefix":
+        return text[len(affix) :] if text.startswith(affix) else text
+
+    if mode == "strip_suffix":
+        return text[: -len(affix)] if text.endswith(affix) else text
+
+    raise ValueError(f"Unsupported strip mode: {mode}")
+
+
 def _replace_regex_text(value: object, argument_spec: str) -> str:
     """Regex replacement helper for ``replace_regex(pattern,replacement[,flags])``."""
     args = _parse_transform_args(argument_spec)
@@ -655,6 +675,7 @@ class TemplateService:
         - ``{summary->truncate(120)}``
         - ``{name->replace("Agent", "Assistant")}``
         - ``{title->replace_regex("agent","assistant","i")}``
+        - ``{path->strip_prefix("/tmp/")->strip_suffix(".txt")}``
         - ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``
         - ``{items->length}``
         - ``{backlog->first}``, ``{backlog->last}``
@@ -720,6 +741,8 @@ class TemplateService:
                 "truncate_words(<max_words>)",
                 "replace(<search>,<replacement>)",
                 "replace_regex(<pattern>,<replacement>[,<flags>])",
+                "strip_prefix(<prefix>)",
+                "strip_suffix(<suffix>)",
                 "join([separator])",
                 "split([separator[,maxsplit]])",
                 "sort([asc|desc])",
@@ -755,6 +778,18 @@ class TemplateService:
                     operation = lambda raw, spec=argument_spec: _replace_regex_text(
                         raw,
                         spec,
+                    )
+                elif transform_name == "strip_prefix":
+                    operation = lambda raw, spec=argument_spec: _strip_affix_text(
+                        raw,
+                        spec,
+                        mode="strip_prefix",
+                    )
+                elif transform_name == "strip_suffix":
+                    operation = lambda raw, spec=argument_spec: _strip_affix_text(
+                        raw,
+                        spec,
+                        mode="strip_suffix",
                     )
                 elif transform_name == "join":
                     operation = lambda raw, spec=argument_spec: _join_values(raw, spec)
@@ -839,6 +874,7 @@ class TemplateService:
         ``{summary->truncate(120)}``, ``{summary->truncate_words(40)}``,
         ``{title->replace("Agent", "Assistant")}``,
         ``{title->replace_regex("agent","assistant","i")}``,
+        ``{path->strip_prefix("/tmp/")->strip_suffix(".txt")}``,
         ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
         ``{queue->first}``, ``{queue->last}``, ``{tasks->reverse}``,
         ``{milestones->slice(0,2)}``, ``{notes->dedent->strip}``,
