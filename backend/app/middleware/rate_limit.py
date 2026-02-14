@@ -4,6 +4,7 @@ import math
 import re
 import time
 from collections.abc import Iterable
+from fnmatch import fnmatchcase
 from typing import Callable, Mapping, Optional
 
 from fastapi import Request, Response, status
@@ -143,14 +144,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             burst_size: Maximum burst requests (defaults to 2x rate)
             request_costs: Optional per-method token costs (e.g. {"POST": 2})
             path_request_costs: Optional per-path token costs where keys are
-                exact paths (e.g. ``"/api/v1/tasks"``) or prefix patterns
-                ending in ``*`` (e.g. ``"/api/v1/tasks/*"``). Rules may
-                optionally be scoped to an HTTP method using
-                ``"METHOD /path"`` or ``"METHOD /prefix/*"`` syntax.
+                exact paths (e.g. ``"/api/v1/tasks"``), prefix patterns
+                (e.g. ``"/api/v1/tasks/*"``), or glob patterns
+                (e.g. ``"/api/*/tasks/*/events"``). Rules may optionally be
+                scoped to an HTTP method using ``"METHOD /path"`` syntax.
             exclude_paths: Optional custom path exclusion rules. Supports
-                exact paths (``"/internal/health"``), prefix rules
-                (``"/internal/*"``), and method-scoped rules
-                (``"POST /admin/*"``).
+                exact paths, prefix rules, glob patterns, and method-scoped
+                rules such as ``"POST /admin/*"``.
             client_id_header: Optional HTTP header name used to identify
                 clients for bucket isolation (e.g. ``"X-API-Key"``). When
                 provided and present on a request, it takes precedence over
@@ -246,7 +246,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self,
         path_request_costs: Optional[Mapping[str, int]],
     ) -> dict[tuple[Optional[str], str], int]:
-        """Normalize and validate optional path/prefix token costs."""
+        """Normalize and validate optional exact/prefix/glob token costs."""
         if path_request_costs is None:
             return {}
 
@@ -265,7 +265,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
             if not normalized_pattern.startswith("/"):
                 raise ValueError(
-                    "path_request_costs keys must start with '/' and may end with '*'"
+                    "path_request_costs keys must start with '/' and use optional wildcard patterns"
                 )
 
             if isinstance(cost, bool) or not isinstance(cost, int) or cost <= 0:
@@ -285,8 +285,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     ) -> list[tuple[Optional[str], str]]:
         """Normalize optional custom path exclusions.
 
-        Supports exact paths (``"/path"``), prefix rules (``"/path/*"``), and
-        optional method scoping (``"GET /path"``, ``"POST /path/*"``).
+        Supports exact paths (``"/path"``), prefix rules (``"/path/*"``),
+        glob rules (``"/path/*/events"``), and optional method scoping
+        (``"GET /path"``, ``"POST /path/*"``).
         """
         if exclude_paths is None:
             return []
@@ -305,7 +306,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
             if not normalized_pattern.startswith("/"):
                 raise ValueError(
-                    "exclude_paths entries must start with '/' and may end with '*'"
+                    "exclude_paths entries must start with '/' and use optional wildcard patterns"
                 )
 
             normalized_rules.append((method, path_pattern))
@@ -313,12 +314,38 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return normalized_rules
 
     @staticmethod
-    def _path_matches_rule(path: str, pattern: str) -> bool:
-        """Return ``True`` when ``path`` matches exact or prefix rule ``pattern``."""
-        if pattern.endswith("*"):
+    def _contains_glob_wildcards(pattern: str) -> bool:
+        """Return whether ``pattern`` includes glob wildcard syntax."""
+        return any(token in pattern for token in ("*", "?", "["))
+
+    @classmethod
+    def _is_simple_prefix_pattern(cls, pattern: str) -> bool:
+        """Return whether ``pattern`` is a prefix rule like ``/path/*``."""
+        return pattern.endswith("*") and not cls._contains_glob_wildcards(pattern[:-1])
+
+    @classmethod
+    def _path_matches_rule(cls, path: str, pattern: str) -> bool:
+        """Return ``True`` when ``path`` matches exact, prefix, or glob rule."""
+        if not cls._contains_glob_wildcards(pattern):
+            return path == pattern
+
+        if cls._is_simple_prefix_pattern(pattern):
             return path.startswith(pattern[:-1])
 
-        return path == pattern
+        return fnmatchcase(path, pattern)
+
+    @classmethod
+    def _path_rule_specificity(cls, pattern: str) -> tuple[int, int, int]:
+        """Return sortable specificity tuple for path matching precedence."""
+        if not cls._contains_glob_wildcards(pattern):
+            return (3, len(pattern), 0)
+
+        if cls._is_simple_prefix_pattern(pattern):
+            return (2, len(pattern) - 1, 0)
+
+        wildcard_count = sum(pattern.count(token) for token in ("*", "?", "["))
+        literal_chars = len(pattern) - wildcard_count
+        return (1, literal_chars, -wildcard_count)
 
     def _is_excluded_path(self, request: Request) -> bool:
         """Return whether current request should bypass rate limiting."""
@@ -374,23 +401,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         method: Optional[str],
     ) -> Optional[int]:
         """Resolve path request cost for one method scope (or generic scope)."""
-        exact_cost = self.path_request_costs.get((method, path))
-        if exact_cost is not None:
-            return exact_cost
+        best_cost: int | None = None
+        best_specificity: tuple[int, int, int] | None = None
 
-        # Prefix pattern costs use trailing ``*``. Longest prefix wins.
-        best_prefix_cost: int | None = None
-        best_prefix_length = -1
         for (rule_method, pattern), cost in self.path_request_costs.items():
-            if rule_method != method or not pattern.endswith("*"):
+            if rule_method != method:
+                continue
+            if not self._path_matches_rule(path, pattern):
                 continue
 
-            prefix = pattern[:-1]
-            if path.startswith(prefix) and len(prefix) > best_prefix_length:
-                best_prefix_length = len(prefix)
-                best_prefix_cost = cost
+            specificity = self._path_rule_specificity(pattern)
+            if best_specificity is None or specificity > best_specificity:
+                best_specificity = specificity
+                best_cost = cost
 
-        return best_prefix_cost
+        return best_cost
 
     def _get_request_cost(self, request: Request) -> int:
         """Resolve token cost for path-specific rules and HTTP method."""

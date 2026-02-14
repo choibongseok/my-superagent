@@ -186,6 +186,62 @@ def test_rate_limit_middleware_applies_longest_prefix_path_request_cost(
         assert response.headers["X-RateLimit-Remaining"] == "1"
 
 
+def test_rate_limit_middleware_supports_glob_path_request_costs(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/api/v1/teams/{team_id}/reports/{report_id}")
+    async def read_team_report(team_id: str, report_id: str) -> dict[str, str]:
+        return {"team_id": team_id, "report_id": report_id}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=6,
+        path_request_costs={"/api/*/teams/*/reports/*": 4},
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/teams/alpha/reports/daily")
+        assert response.status_code == 200
+        assert response.headers["X-RateLimit-Request-Cost"] == "4"
+        assert response.headers["X-RateLimit-Remaining"] == "2"
+
+
+def test_rate_limit_middleware_prioritizes_exact_over_prefix_and_glob_costs(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/api/v1/reports/snapshot")
+    async def report_snapshot() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=8,
+        path_request_costs={
+            "/api/*/reports/*": 2,
+            "/api/v1/*": 4,
+            "/api/v1/reports/snapshot": 7,
+        },
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/reports/snapshot")
+        assert response.status_code == 200
+        assert response.headers["X-RateLimit-Request-Cost"] == "7"
+        assert response.headers["X-RateLimit-Remaining"] == "1"
+
+
 def test_rate_limit_middleware_supports_method_scoped_path_request_costs(
     fake_cache: InMemoryAsyncCache,
     frozen_time: dict[str, float],
@@ -349,6 +405,40 @@ def test_rate_limit_middleware_supports_method_scoped_exclude_path_prefixes(
 
         post_first = client.post("/admin/tasks/1")
         post_second = client.post("/admin/tasks/1")
+
+        assert post_first.status_code == 200
+        assert post_second.status_code == 429
+
+
+def test_rate_limit_middleware_supports_method_scoped_glob_exclude_paths(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/admin/v1/team/health")
+    async def admin_health_get() -> dict[str, bool]:
+        return {"ok": True}
+
+    @app.post("/admin/v1/team/health")
+    async def admin_health_post() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+        exclude_paths=["GET /admin/*/team/health"],
+    )
+
+    with TestClient(app) as client:
+        assert client.get("/admin/v1/team/health").status_code == 200
+        assert client.get("/admin/v1/team/health").status_code == 200
+
+        post_first = client.post("/admin/v1/team/health")
+        post_second = client.post("/admin/v1/team/health")
 
         assert post_first.status_code == 200
         assert post_second.status_code == 429
