@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+from urllib.parse import quote_plus
 from uuid import uuid4
 
 import pytest
@@ -615,6 +616,55 @@ class TestTemplateServiceUseTemplate:
         assert '"items": [' in result["prompt"]
         assert '\n  "items":' in result["prompt"]
         assert template.usage_count == 5
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_urlencode_transform(
+        self, service_with_mock_db
+    ):
+        """urlencode transform should produce query-safe string values."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Query: {query->urlencode}",
+            category="docs",
+            usage_count=0,
+        )
+
+        raw_query = "Agent HQ roadmap + launch/2026"
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"query": raw_query},
+                user_id,
+            )
+
+        assert result["prompt"] == f"Query: {quote_plus(raw_query, safe='')}"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_urlencode_transform_with_defaults(
+        self, service_with_mock_db
+    ):
+        """urlencode should compose with default fallback values."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="URL: https://example.com/search?q={query|agent hq launch->urlencode}",
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(template_id, {}, user_id)
+
+        assert result["prompt"].endswith("q=agent+hq+launch")
+        assert template.usage_count == 4
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio

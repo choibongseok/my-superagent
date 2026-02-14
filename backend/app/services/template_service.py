@@ -7,6 +7,7 @@ import re
 import textwrap
 from string import Formatter
 from typing import List, Optional
+from urllib.parse import quote_plus
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -559,6 +560,7 @@ class TemplateService:
         - ``{steps->reverse->join(" | ")}``
         - ``{milestones->slice(0,2)->join(", ")}``
         - ``{notes->dedent->strip}``
+        - ``{search_query->urlencode}``
 
         Returns:
             Tuple of ``(field_path, default_value, transforms)``.
@@ -596,6 +598,7 @@ class TemplateService:
             "pascal_case": _to_pascal_case,
             "json": lambda raw: _to_json(raw, pretty=False),
             "json_pretty": lambda raw: _to_json(raw, pretty=True),
+            "urlencode": lambda raw: quote_plus(str(raw), safe=""),
             "split": lambda raw: _split_text(raw, ""),
             "unique": _unique_values,
             "sort": lambda raw: _sort_values(raw, ""),
@@ -713,7 +716,8 @@ class TemplateService:
         ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
         ``{queue->first}``, ``{queue->last}``, ``{tasks->reverse}``,
         ``{milestones->slice(0,2)}``, ``{notes->dedent->strip}``,
-        ``{payload->json}``, or ``{payload->json_pretty}``).
+        ``{payload->json}``, ``{payload->json_pretty}``, or
+        ``{search_query->urlencode}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)
