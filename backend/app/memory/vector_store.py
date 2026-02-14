@@ -25,6 +25,33 @@ logger = logging.getLogger(__name__)
 SCORE_EPSILON = 1e-6
 
 
+class _UnavailableVectorStore:
+    """Fallback vector-store shim used when PGVector initialization fails."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+
+    def _raise(self) -> None:
+        raise RuntimeError(
+            "Vector store is unavailable. "
+            f"Original initialization error: {self.reason}"
+        )
+
+    def add_documents(self, *_args: Any, **_kwargs: Any) -> List[str]:
+        self._raise()
+
+    def similarity_search(self, *_args: Any, **_kwargs: Any) -> List[Document]:
+        self._raise()
+
+    def similarity_search_with_relevance_scores(
+        self, *_args: Any, **_kwargs: Any
+    ) -> List[tuple[Document, float]]:
+        self._raise()
+
+    def as_retriever(self, *_args: Any, **_kwargs: Any) -> Any:
+        self._raise()
+
+
 class VectorStoreMemory:
     """
     Vector-based memory storage with semantic search capabilities.
@@ -73,30 +100,45 @@ class VectorStoreMemory:
             openai_api_key=settings.OPENAI_API_KEY,
         )
 
-        # Initialize PGVector store
-        self.vector_store = PGVector(
-            collection_name=self.collection_name,
-            connection_string=settings.DATABASE_URL.replace(
-                "postgresql+asyncpg://", "postgresql://"
-            ),
-            embedding_function=self.embeddings,
-        )
+        self.available = True
 
-        # Create retriever
-        self.retriever = self.vector_store.as_retriever(
-            search_kwargs={"k": top_k}
-        )
+        try:
+            # Initialize PGVector store
+            self.vector_store = PGVector(
+                collection_name=self.collection_name,
+                connection_string=settings.DATABASE_URL.replace(
+                    "postgresql+asyncpg://", "postgresql://"
+                ),
+                embedding_function=self.embeddings,
+            )
 
-        # LangChain memory wrapper
-        self.memory = VectorStoreRetrieverMemory(
-            retriever=self.retriever,
-            memory_key="relevant_memories",
-        )
+            # Create retriever
+            self.retriever = self.vector_store.as_retriever(
+                search_kwargs={"k": top_k}
+            )
 
-        logger.info(
-            f"VectorStoreMemory initialized for user={user_id}, "
-            f"session={session_id}, collection={self.collection_name}"
-        )
+            # LangChain memory wrapper
+            self.memory = VectorStoreRetrieverMemory(
+                retriever=self.retriever,
+                memory_key="relevant_memories",
+            )
+
+            logger.info(
+                f"VectorStoreMemory initialized for user={user_id}, "
+                f"session={session_id}, collection={self.collection_name}"
+            )
+        except Exception as error:
+            self.available = False
+            self.vector_store = _UnavailableVectorStore(str(error))
+            self.retriever = None
+            self.memory = None
+            logger.warning(
+                "VectorStoreMemory initialized in degraded mode for "
+                "user=%s, session=%s. Vector backend unavailable: %s",
+                user_id,
+                session_id,
+                error,
+            )
 
     def add_memory(
         self,
@@ -453,10 +495,14 @@ class VectorStoreMemory:
                 }
             )
 
+        threshold_label = (
+            f"{applied_threshold:.3f}"
+            if applied_threshold is not None
+            else "N/A"
+        )
         logger.debug(
             f"Found {len(formatted_results)} memories above threshold "
-            f"{applied_threshold:.3f if applied_threshold else 'N/A'} "
-            f"for query: '{query[:50]}...'"
+            f"{threshold_label} for query: '{query[:50]}...'"
         )
 
         return formatted_results

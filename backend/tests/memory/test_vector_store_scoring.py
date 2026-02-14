@@ -12,6 +12,35 @@ from langchain_core.documents import Document
 from app.memory.vector_store import VectorStoreMemory, SCORE_EPSILON
 
 
+class TestVectorStoreInitializationFallback:
+    """Test degraded-mode initialization behavior when PGVector is unavailable."""
+
+    @patch("app.memory.vector_store.OpenAIEmbeddings")
+    @patch("app.memory.vector_store.PGVector", side_effect=RuntimeError("db down"))
+    def test_initialization_falls_back_to_degraded_mode(
+        self,
+        _mock_pgvector,
+        _mock_embeddings,
+    ):
+        """VectorStoreMemory should initialize without crashing when PGVector fails."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        assert memory.available is False
+
+    @patch("app.memory.vector_store.OpenAIEmbeddings")
+    @patch("app.memory.vector_store.PGVector", side_effect=RuntimeError("db down"))
+    def test_degraded_mode_provides_clear_runtime_error(
+        self,
+        _mock_pgvector,
+        _mock_embeddings,
+    ):
+        """Degraded mode should raise an actionable error on vector operations."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(RuntimeError, match="Vector store is unavailable"):
+            memory.search(query="test")
+
+
 class TestVectorStoreScoringValidation:
     """Test input validation for scoring parameters."""
 
