@@ -262,6 +262,80 @@ class TaskPlanner:
 
         return batches
 
+    def _build_dependency_timeline(
+        self, plan: ExecutionPlan
+    ) -> tuple[Dict[str, int], Dict[str, Optional[str]]]:
+        """Compute step finish times and predecessors for dependency-aware scheduling."""
+        batches = self.get_execution_batches(plan)
+        order_index = {step.step_id: index for index, step in enumerate(plan.steps)}
+
+        finish_times: Dict[str, int] = {}
+        predecessor: Dict[str, Optional[str]] = {}
+
+        for batch in batches:
+            for step in batch:
+                if not step.dependencies:
+                    start_time = 0
+                    predecessor[step.step_id] = None
+                else:
+                    critical_dependency = max(
+                        step.dependencies,
+                        key=lambda dependency_id: (
+                            finish_times[dependency_id],
+                            -order_index[dependency_id],
+                            dependency_id,
+                        ),
+                    )
+                    start_time = finish_times[critical_dependency]
+                    predecessor[step.step_id] = critical_dependency
+
+                finish_times[step.step_id] = start_time + step.estimated_time
+
+        return finish_times, predecessor
+
+    def estimate_makespan(self, plan: ExecutionPlan) -> int:
+        """Estimate wall-clock duration when steps run with maximum safe parallelism."""
+        finish_times, _ = self._build_dependency_timeline(plan)
+        return max(finish_times.values(), default=0)
+
+    def get_critical_path(self, plan: ExecutionPlan) -> List[str]:
+        """Return the critical path (longest dependency chain) for a plan."""
+        if not plan.steps:
+            return []
+
+        finish_times, predecessor = self._build_dependency_timeline(plan)
+        order_index = {step.step_id: index for index, step in enumerate(plan.steps)}
+
+        end_step_id = max(
+            [step.step_id for step in plan.steps],
+            key=lambda step_id: (finish_times[step_id], -order_index[step_id], step_id),
+        )
+
+        critical_path: List[str] = []
+        current_step_id: Optional[str] = end_step_id
+        while current_step_id:
+            critical_path.append(current_step_id)
+            current_step_id = predecessor.get(current_step_id)
+
+        critical_path.reverse()
+        return critical_path
+
+    def get_execution_summary(self, plan: ExecutionPlan) -> Dict[str, Any]:
+        """Return dependency-aware schedule metrics for execution planning."""
+        batches = self.get_execution_batches(plan)
+        makespan = self.estimate_makespan(plan)
+        total_work = sum(step.estimated_time for step in plan.steps)
+
+        return {
+            "total_steps": len(plan.steps),
+            "batch_count": len(batches),
+            "batch_sizes": [len(batch) for batch in batches],
+            "total_work_seconds": total_work,
+            "makespan_seconds": makespan,
+            "parallelism_gain": round(total_work / makespan, 2) if makespan else 0.0,
+            "critical_path_step_ids": self.get_critical_path(plan),
+        }
+
     async def plan(
         self,
         goal: str,

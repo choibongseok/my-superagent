@@ -103,6 +103,60 @@ def test_get_execution_batches_rejects_cycles(planner_stub):
         planner_stub.get_execution_batches(_build_plan(steps))
 
 
+def test_estimate_makespan_accounts_for_parallelism(planner_stub):
+    """Makespan should track critical-chain duration instead of total work."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Collect metrics", "research", 30, 0.02, 2000),
+        PlanStep("step_3", "Draft summary", "docs", 20, 0.03, 3000, ["step_1"]),
+        PlanStep("step_4", "Build table", "sheets", 15, 0.02, 1500, ["step_2"]),
+        PlanStep("step_5", "Finalize report", "docs", 20, 0.03, 3000, ["step_3", "step_4"]),
+    ]
+
+    plan = _build_plan(steps)
+
+    assert planner_stub.estimate_makespan(plan) == 70
+
+
+def test_get_critical_path_prefers_longest_dependency_chain(planner_stub):
+    """Critical path should follow dependencies that determine makespan."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Collect metrics", "research", 30, 0.02, 2000),
+        PlanStep("step_3", "Draft summary", "docs", 20, 0.03, 3000, ["step_1"]),
+        PlanStep("step_4", "Build table", "sheets", 15, 0.02, 1500, ["step_2"]),
+        PlanStep("step_5", "Finalize report", "docs", 20, 0.03, 3000, ["step_3", "step_4"]),
+    ]
+
+    plan = _build_plan(steps)
+
+    assert planner_stub.get_critical_path(plan) == ["step_1", "step_3", "step_5"]
+
+
+def test_get_execution_summary_reports_schedule_metrics(planner_stub):
+    """Execution summary should include batching, makespan, and critical-path data."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Collect metrics", "research", 30, 0.02, 2000),
+        PlanStep("step_3", "Draft summary", "docs", 20, 0.03, 3000, ["step_1"]),
+        PlanStep("step_4", "Build table", "sheets", 15, 0.02, 1500, ["step_2"]),
+        PlanStep("step_5", "Finalize report", "docs", 20, 0.03, 3000, ["step_3", "step_4"]),
+    ]
+
+    plan = _build_plan(steps)
+    summary = planner_stub.get_execution_summary(plan)
+
+    assert summary == {
+        "total_steps": 5,
+        "batch_count": 3,
+        "batch_sizes": [2, 2, 1],
+        "total_work_seconds": 115,
+        "makespan_seconds": 70,
+        "parallelism_gain": 1.64,
+        "critical_path_step_ids": ["step_1", "step_3", "step_5"],
+    }
+
+
 @pytest.mark.asyncio
 async def test_plan_parses_structured_content_blocks(planner_stub):
     """Structured provider responses with fenced JSON should parse correctly."""
