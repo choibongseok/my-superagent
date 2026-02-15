@@ -177,6 +177,76 @@ def test_render_prompt_allows_extra_variables_when_not_strict(temp_registry):
     assert rendered == "Value: 42"
 
 
+def test_render_prompt_uses_default_variables_for_missing_values(temp_registry):
+    """default_variables should provide fallback values for omitted inputs."""
+    temp_registry.register(
+        name="fallback_prompt",
+        template="Hello {name} from {team}",
+        variables=["name", "team"],
+        version="v1",
+    )
+
+    rendered = temp_registry.render(
+        "fallback_prompt",
+        variables={"name": "Codex"},
+        default_variables={"team": "AgentHQ"},
+    )
+
+    assert rendered == "Hello Codex from AgentHQ"
+
+
+def test_render_prompt_prefers_runtime_variables_over_defaults(temp_registry):
+    """Explicit render inputs should override fallback default_variables."""
+    temp_registry.register(
+        name="fallback_override_prompt",
+        template="{name} @ {team}",
+        variables=["name", "team"],
+        version="v1",
+    )
+
+    rendered = temp_registry.render(
+        "fallback_override_prompt",
+        variables={"name": "Codex", "team": "Runtime Team"},
+        default_variables={"team": "Default Team"},
+    )
+
+    assert rendered == "Codex @ Runtime Team"
+
+
+def test_render_prompt_rejects_unexpected_default_variables(temp_registry):
+    """default_variables should only include declared prompt placeholders."""
+    temp_registry.register(
+        name="invalid_defaults_prompt",
+        template="Task: {task}",
+        variables=["task"],
+        version="v1",
+    )
+
+    with pytest.raises(ValueError, match="Unexpected default prompt variables"):
+        temp_registry.render(
+            "invalid_defaults_prompt",
+            variables={"task": "Plan"},
+            default_variables={"extra": "nope"},
+        )
+
+
+def test_render_prompt_rejects_non_mapping_default_variables(temp_registry):
+    """default_variables should fail fast when callers pass invalid types."""
+    temp_registry.register(
+        name="non_mapping_defaults_prompt",
+        template="{value}",
+        variables=["value"],
+        version="v1",
+    )
+
+    with pytest.raises(TypeError, match="default_variables must be a mapping"):
+        temp_registry.render(
+            "non_mapping_defaults_prompt",
+            variables={"value": "ok"},
+            default_variables=[("value", "fallback")],  # type: ignore[arg-type]
+        )
+
+
 def test_render_prompt_raises_for_unknown_prompt_name(temp_registry):
     """Rendering should fail when prompt name/version does not exist."""
     with pytest.raises(ValueError, match="was not found"):
@@ -225,6 +295,27 @@ def test_render_many_allows_extra_variables_when_not_strict(temp_registry):
     )
 
     assert rendered == ["Value=1", "Value=2"]
+
+
+def test_render_many_uses_shared_default_variables(temp_registry):
+    """render_many should apply default_variables to every variable set."""
+    temp_registry.register(
+        name="bulk_defaults",
+        template="{greeting}, {name}!",
+        variables=["greeting", "name"],
+        version="v1",
+    )
+
+    rendered = temp_registry.render_many(
+        "bulk_defaults",
+        [
+            {"name": "Codex"},
+            {"name": "Planner", "greeting": "Welcome"},
+        ],
+        default_variables={"greeting": "Hello"},
+    )
+
+    assert rendered == ["Hello, Codex!", "Welcome, Planner!"]
 
 
 def test_render_many_reports_item_index_for_missing_variables(temp_registry):

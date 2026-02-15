@@ -155,15 +155,36 @@ class PromptRegistry:
         prompt_version: PromptVersion,
         provided_variables: Mapping[str, Any],
         strict: bool,
+        default_variables: Mapping[str, Any] | None = None,
         error_context: str = "",
     ) -> str:
         """Render one prompt version after variable validation."""
         required_variables = prompt_version.variables
+        required_variable_set = set(required_variables)
+
+        if default_variables is None:
+            normalized_defaults: dict[str, Any] = {}
+        else:
+            if not isinstance(default_variables, Mapping):
+                raise TypeError("default_variables must be a mapping")
+
+            normalized_defaults = dict(default_variables)
+            unexpected_default_variables = sorted(
+                set(normalized_defaults) - required_variable_set
+            )
+            if unexpected_default_variables:
+                unexpected_display = ", ".join(unexpected_default_variables)
+                raise ValueError(
+                    f"Unexpected default prompt variables for '{name}'{error_context}: "
+                    f"{unexpected_display}"
+                )
+
+        merged_variables = {**normalized_defaults, **provided_variables}
 
         missing_variables = [
             required
             for required in required_variables
-            if required not in provided_variables
+            if required not in merged_variables
         ]
         if missing_variables:
             missing_display = ", ".join(missing_variables)
@@ -172,9 +193,7 @@ class PromptRegistry:
             )
 
         if strict:
-            unexpected_variables = sorted(
-                set(provided_variables) - set(required_variables)
-            )
+            unexpected_variables = sorted(set(provided_variables) - required_variable_set)
             if unexpected_variables:
                 unexpected_display = ", ".join(unexpected_variables)
                 raise ValueError(
@@ -183,7 +202,7 @@ class PromptRegistry:
                 )
 
         format_values = {
-            variable_name: provided_variables[variable_name]
+            variable_name: merged_variables[variable_name]
             for variable_name in required_variables
         }
 
@@ -203,6 +222,7 @@ class PromptRegistry:
         *,
         version: str | None = None,
         strict: bool = True,
+        default_variables: Mapping[str, Any] | None = None,
     ) -> str:
         """Render a prompt template with runtime variables.
 
@@ -212,6 +232,8 @@ class PromptRegistry:
             version: Optional version label; defaults to latest.
             strict: When ``True``, reject unexpected variables that are not
                 declared by the prompt version.
+            default_variables: Optional fallback values used when ``variables``
+                omits one or more required placeholders.
 
         Returns:
             Rendered prompt text.
@@ -226,6 +248,7 @@ class PromptRegistry:
             prompt_version=prompt_version,
             provided_variables=dict(variables or {}),
             strict=strict,
+            default_variables=default_variables,
         )
 
     def render_many(
@@ -235,6 +258,7 @@ class PromptRegistry:
         *,
         version: str | None = None,
         strict: bool = True,
+        default_variables: Mapping[str, Any] | None = None,
     ) -> List[str]:
         """Render one prompt against multiple variable mappings.
 
@@ -243,6 +267,7 @@ class PromptRegistry:
             variable_sets: Sequence of variable mappings to render.
             version: Optional version label; defaults to latest.
             strict: When ``True``, reject unexpected variables in each mapping.
+            default_variables: Optional fallback values shared by each mapping.
 
         Returns:
             List of rendered prompt strings preserving input order.
@@ -267,6 +292,7 @@ class PromptRegistry:
                     prompt_version=prompt_version,
                     provided_variables=dict(values),
                     strict=strict,
+                    default_variables=default_variables,
                     error_context=f" at index {index}",
                 )
             )
