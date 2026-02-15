@@ -1865,6 +1865,77 @@ class LocalCacheService:
 
         return self.touch_many(sorted(matching_keys), ttl_seconds=ttl_seconds)
 
+    def update_where(
+        self,
+        updater: Callable[[Any], Any],
+        *,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        tags: Iterable[str] | None = None,
+        match_all_tags: bool = False,
+        ttl_seconds: int | None = None,
+        keep_ttl: bool = True,
+    ) -> dict[str, Any]:
+        """Update values for keys matching combined prefix/glob/tag filters.
+
+        At least one filter must be provided to avoid accidental bulk updates.
+
+        Args:
+            updater: Callable receiving each current value and returning a new
+                value to store.
+            prefix: Optional key prefix to match.
+            pattern: Optional glob pattern matched with :func:`fnmatchcase`.
+            tags: Optional tag filter. When provided, only keys associated with
+                matching tags are considered.
+            match_all_tags: Tag matching mode when ``tags`` are provided.
+                ``False`` (default) matches keys with any provided tag, while
+                ``True`` requires keys to contain every provided tag.
+            ttl_seconds: TTL override used when ``keep_ttl`` is ``False``.
+            keep_ttl: Preserve each key's existing absolute expiration by
+                default.
+
+        Returns:
+            Mapping of ``key -> updated value`` for keys that matched filters.
+
+        Raises:
+            TypeError: If ``updater`` is not callable.
+            ValueError: If no filters are provided, or when
+                ``match_all_tags`` / ``keep_ttl`` are not booleans.
+        """
+        if not callable(updater):
+            raise TypeError("updater must be callable")
+
+        if not isinstance(match_all_tags, bool):
+            raise ValueError("match_all_tags must be a boolean")
+
+        if not isinstance(keep_ttl, bool):
+            raise ValueError("keep_ttl must be a boolean")
+
+        if prefix is None and pattern is None and tags is None:
+            raise ValueError("at least one filter must be provided")
+
+        self._purge_expired_entries()
+
+        matching_keys = sorted(
+            self._find_matching_keys(
+                prefix=prefix,
+                pattern=pattern,
+                tags=tags,
+                match_all_tags=match_all_tags,
+            )
+        )
+
+        updated_values: dict[str, Any] = {}
+        for key in matching_keys:
+            updated_values[key] = self.update(
+                key,
+                updater,
+                ttl_seconds=ttl_seconds,
+                keep_ttl=keep_ttl,
+            )
+
+        return updated_values
+
     def count_where(
         self,
         *,

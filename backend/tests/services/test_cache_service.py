@@ -2070,6 +2070,90 @@ def test_local_cache_touch_where_rejects_invalid_match_all_tags_flag():
         cache.touch_where(ttl_seconds=30, prefix="session:", match_all_tags="yes")  # type: ignore[arg-type]
 
 
+def test_local_cache_update_where_updates_matching_keys_only_and_preserves_ttl():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["active", "session"], ttl_seconds=1)
+    cache.set_tagged("session:beta", 2, tags=["session"], ttl_seconds=1)
+    cache.set_tagged("user:alpha", 3, tags=["active"], ttl_seconds=1)
+
+    time.sleep(0.25)
+
+    updated = cache.update_where(
+        lambda value: value + 10,
+        prefix="session:",
+        pattern="*:alpha",
+        tags=["active"],
+    )
+
+    assert updated == {"session:alpha": 11}
+    assert cache.get("session:alpha") == 11
+    assert cache.get("session:beta") == 2
+    assert cache.get("user:alpha") == 3
+
+    refreshed_ttl = cache.ttl_remaining("session:alpha")
+    other_session_ttl = cache.ttl_remaining("session:beta")
+    user_ttl = cache.ttl_remaining("user:alpha")
+
+    assert refreshed_ttl is not None and 0 < refreshed_ttl < 1.0
+    assert other_session_ttl is not None and 0 < other_session_ttl < 1.0
+    assert user_ttl is not None and 0 < user_ttl < 1.0
+
+
+def test_local_cache_update_where_supports_match_all_tag_filtering_and_ttl_override():
+    cache = LocalCacheService()
+    cache.set_tagged("alpha", 1, tags=["group:a", "shared"], ttl_seconds=1)
+    cache.set_tagged("beta", 2, tags=["group:b", "shared"], ttl_seconds=1)
+    cache.set_tagged("gamma", 3, tags=["group:a"], ttl_seconds=1)
+
+    time.sleep(0.25)
+
+    updated = cache.update_where(
+        lambda value: value * 2,
+        tags=["group:a", "shared"],
+        match_all_tags=True,
+        ttl_seconds=2,
+        keep_ttl=False,
+    )
+
+    assert updated == {"alpha": 2}
+
+    alpha_ttl = cache.ttl_remaining("alpha")
+    beta_ttl = cache.ttl_remaining("beta")
+    gamma_ttl = cache.ttl_remaining("gamma")
+
+    assert alpha_ttl is not None and 1.5 <= alpha_ttl <= 2.0
+    assert beta_ttl is not None and 0 < beta_ttl < 1.0
+    assert gamma_ttl is not None and 0 < gamma_ttl < 1.0
+
+
+def test_local_cache_update_where_requires_at_least_one_filter():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="at least one filter must be provided"):
+        cache.update_where(lambda value: value)
+
+
+def test_local_cache_update_where_validates_updater_and_boolean_flags():
+    cache = LocalCacheService()
+
+    with pytest.raises(TypeError, match="updater must be callable"):
+        cache.update_where(123, prefix="session:")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
+        cache.update_where(
+            lambda value: value,
+            prefix="session:",
+            match_all_tags="yes",  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(ValueError, match="keep_ttl must be a boolean"):
+        cache.update_where(
+            lambda value: value,
+            prefix="session:",
+            keep_ttl="yes",  # type: ignore[arg-type]
+        )
+
+
 def test_local_cache_prune_expired_removes_only_expired_entries():
     cache = LocalCacheService()
     cache.set("short", "x", ttl_seconds=1)
