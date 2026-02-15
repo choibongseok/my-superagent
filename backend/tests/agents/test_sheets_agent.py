@@ -25,7 +25,9 @@ class _DummyMemory:
 @pytest.fixture(autouse=True)
 def _patch_base_agent(monkeypatch):
     monkeypatch.setattr(BaseAgent, "_create_llm", lambda *args, **kwargs: object())
-    monkeypatch.setattr(BaseAgent, "_init_memory", lambda *args, **kwargs: _DummyMemory())
+    monkeypatch.setattr(
+        BaseAgent, "_init_memory", lambda *args, **kwargs: _DummyMemory()
+    )
 
 
 @pytest.fixture
@@ -163,6 +165,102 @@ def test_sheets_append_data_uses_google_values_append(monkeypatch, fake_sheets_s
         "insertDataOption": "OVERWRITE",
         "body": {"values": [["Task", "Owner"], ["Deploy", "AgentHQ"]]},
     }
+
+
+def test_sheets_format_cells_uses_precise_a1_grid_range(
+    monkeypatch, fake_sheets_service
+):
+    monkeypatch.setattr(
+        "app.agents.sheets_agent.build", lambda *args, **kwargs: fake_sheets_service
+    )
+
+    agent = SheetsAgent(user_id="u1", session_id="s1", credentials=object())
+    tools = {t.name: t for t in agent._create_tools()}
+
+    result = tools["format_cells"].run(
+        json.dumps(
+            {
+                "spreadsheet_id": "sheet-123",
+                "range_name": "Sheet1!B2:C4",
+                "format_type": "bold",
+            }
+        )
+    )
+
+    assert "Successfully applied bold formatting to Sheet1!B2:C4" in result
+
+    request = fake_sheets_service.captured["batch_update_kwargs"]["body"]["requests"][0]
+    repeat_range = request["repeatCell"]["range"]
+
+    assert repeat_range == {
+        "sheetId": 1,
+        "startRowIndex": 1,
+        "endRowIndex": 4,
+        "startColumnIndex": 1,
+        "endColumnIndex": 3,
+    }
+
+
+def test_sheets_create_chart_uses_requested_range_and_multiple_series(
+    monkeypatch, fake_sheets_service
+):
+    monkeypatch.setattr(
+        "app.agents.sheets_agent.build", lambda *args, **kwargs: fake_sheets_service
+    )
+
+    agent = SheetsAgent(user_id="u1", session_id="s1", credentials=object())
+    tools = {t.name: t for t in agent._create_tools()}
+
+    result = tools["create_chart"].run(
+        json.dumps(
+            {
+                "spreadsheet_id": "sheet-123",
+                "data_range": "Sheet1!A2:D8",
+                "chart_type": "line",
+            }
+        )
+    )
+
+    assert "Successfully created LINE chart from Sheet1!A2:D8" in result
+
+    request = fake_sheets_service.captured["batch_update_kwargs"]["body"]["requests"][0]
+    basic_chart = request["addChart"]["chart"]["spec"]["basicChart"]
+
+    domain = basic_chart["domains"][0]["domain"]["sourceRange"]["sources"][0]
+    assert domain == {
+        "sheetId": 1,
+        "startRowIndex": 1,
+        "endRowIndex": 8,
+        "startColumnIndex": 0,
+        "endColumnIndex": 1,
+    }
+
+    series_sources = [
+        item["series"]["sourceRange"]["sources"][0] for item in basic_chart["series"]
+    ]
+    assert series_sources == [
+        {
+            "sheetId": 1,
+            "startRowIndex": 1,
+            "endRowIndex": 8,
+            "startColumnIndex": 1,
+            "endColumnIndex": 2,
+        },
+        {
+            "sheetId": 1,
+            "startRowIndex": 1,
+            "endRowIndex": 8,
+            "startColumnIndex": 2,
+            "endColumnIndex": 3,
+        },
+        {
+            "sheetId": 1,
+            "startRowIndex": 1,
+            "endRowIndex": 8,
+            "startColumnIndex": 3,
+            "endColumnIndex": 4,
+        },
+    ]
 
 
 def test_sheets_tool_returns_error_without_credentials():
