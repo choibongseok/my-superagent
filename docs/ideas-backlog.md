@@ -6,6 +6,167 @@
 
 ---
 
+## 2026-02-15 (PM 11:20) | 기획자 에이전트 - 사용자 채택률 극대화: 배우기 쉽고 막히지 않는 제품 🎮🧠🏢
+
+### 💡 Idea #93: "Interactive Agent Playground" - 체험하며 배우는 Agent 🎮
+
+**문제점**:
+- **학습 곡선**: 신규 사용자가 Agent를 어떻게 사용하는지 모름 😓
+- **두려움**: "잘못하면 어떡하지?" → 시작조차 안 함 ❌
+- **문서 의존**: 긴 문서 읽어야 함 (10% 이탈) 📚
+- **피드백 부재**: 내가 잘하고 있는지 모름 ❓
+- **경쟁사 현황**:
+  - Zapier: Step-by-step builder ⚪ (복잡함)
+  - Notion: Template gallery ⚪ (수동)
+  - ChatGPT: 즉시 사용 ✅
+  - **AgentHQ: 튜토리얼 없음** ❌
+
+**제안 솔루션**:
+```
+"Interactive Agent Playground" - 실제 API 연동 없이 Agent를 체험하고 학습하는 샌드박스
+```
+
+**핵심 기능**:
+1. **Guided Tour (5분 완성)**: Step-by-step 실습, 샘플 데이터 자동 생성, 실시간 시각화
+2. **Challenge Mode (게임화)**: 미션 완료로 배지 획득 (Beginner → Expert)
+3. **Sandbox Mode**: 실제 API 없이 안전하게 테스트, 무제한 undo/redo
+4. **Live Preview**: Agent 작업 과정 실시간 시각화 ("지금 웹 검색 중...")
+5. **AI Tutor**: 막히면 힌트 제공 ("median transform을 써보는 건 어때요?")
+
+**기술 구현**:
+- Mock Backend: Service layer에서 `is_playground=True` flag 분기
+- DB: `user_progress` table (mission_id, completed, badges)
+- Step Engine: JSON-based configuration + validation
+- UI: React + Framer Motion
+
+**기존 인프라 활용**:
+- ✅ Template 시스템: 샘플 데이터 생성
+- ✅ Agent orchestration: 실제 로직 재사용 (Mock만 주입)
+- ✅ WebSocket: 실시간 진행 상황
+
+**예상 임팩트**:
+- 🚀 활성화율: 30% → 75% (+150%)
+- ⏱️ 첫 성공: 60분 → 5분 (-92%)
+- 😊 만족도: +40%
+- 📈 Retention (D7): 20% → 50%
+- 🏆 경쟁 우위: vs Zapier (Interactive Gamified ✅ vs Step-by-step ⚪)
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Medium-High)
+
+**개발 기간**: 6주
+
+**우선순위**: 🔥 CRITICAL (사용자 채택률 핵심)
+
+**ROI**: ⭐⭐⭐⭐⭐ (신규 사용자 활성화 → 전환율 +150%)
+
+---
+
+### 💡 Idea #94: "Smart Contextual Assistant" - 막힐 때마다 AI가 도와줌 🧠
+
+**문제점**:
+- **에러 난독성**: "ValueError: Expected 2D array" → 무슨 뜻? 😓
+- **도움말 부재**: 막혔을 때 어디서 도움받아야 할지 모름 ❌
+- **지원팀 의존**: 모든 문의가 Support 티켓으로 → 비용 증가 💸
+- **컨텍스트 손실**: 문서 찾아보고 돌아오면 뭐 하고 있었는지 잊음 😰
+- **경쟁사 현황**:
+  - Notion: Inline help ⚪ (기본 수준)
+  - Figma: Contextual tooltips ✅
+  - VS Code: IntelliSense ✅✅
+  - **AgentHQ: 도움말 없음** ❌
+
+**제안 솔루션**:
+```
+"Smart Contextual Assistant" - AI가 사용자 행동을 분석해서 딱 필요한 순간에 도움 제공
+```
+
+**핵심 기능**:
+1. **Smart Error Translator**: 기술 에러 → 사용자 친화적 설명 + 자동 수정 버튼
+2. **Contextual Tooltips**: 마우스 올리면 실시간 설명 + 예제 링크
+3. **Proactive Suggestions**: 3초 idle → "도움 필요하신가요?", 에러 2번 반복 → 튜토리얼 제안
+4. **Embedded Tutorials**: 현재 화면에서 15초 짧은 비디오
+5. **AI Chat Support (L1)**: GPT-4 기반 챗봇으로 간단한 질문 즉시 답변
+
+**기술 구현**:
+- Error Parsing: regex + GPT-4
+- Context Detection: 마우스 움직임, idle time tracking
+- AI Model: GPT-4 API
+- UI: Floating assistant (우측 하단)
+
+**기존 인프라 활용**:
+- ✅ Template 시스템: 에러 발생 시 샘플 템플릿 제안
+- ✅ Memory: 과거 문제 기억
+- ✅ Citation: 도움말 출처 추적
+
+**예상 임팩트**:
+- 🚀 Support 티켓: -60% (AI가 80% 해결)
+- ⏱️ 문제 해결: 30분 → 2분 (-93%)
+- 😊 NPS: +35점
+- 📈 이탈률: 40% → 15%
+- 🏆 경쟁 우위: vs Zapier (AI help ✅ vs Manual docs ❌)
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Medium-High)
+
+**개발 기간**: 5주
+
+**우선순위**: 🔥 CRITICAL (사용자 경험 핵심)
+
+**ROI**: ⭐⭐⭐⭐⭐ (Support 비용 -60%, 이탈률 -60%)
+
+---
+
+### 💡 Idea #95: "Multi-Workspace Hub" - 개인 + 회사 계정 동시 관리 🏢
+
+**문제점**:
+- **단일 계정**: 개인 Gmail + 회사 Workspace 동시 사용 불가 ❌
+- **계정 전환 번거로움**: 로그아웃 → 로그인 → 다시 로그아웃 (시간 낭비) ⏱️
+- **작업 분리 안 됨**: 개인 프로젝트와 회사 업무 섞임 😰
+- **보안 위험**: 회사 데이터가 개인 계정에 노출 🔒
+- **경쟁사 현황**:
+  - Notion: 여러 workspace 전환 ✅✅
+  - Google Drive: 계정 전환 쉬움 ✅
+  - Slack: 여러 workspace 동시 ✅
+  - **AgentHQ: 단일 계정만** ❌
+
+**제안 솔루션**:
+```
+"Multi-Workspace Hub" - 여러 Google Workspace 계정을 한 곳에서 관리, 원클릭 전환
+```
+
+**핵심 기능**:
+1. **Account Switcher**: 좌측 상단 계정 목록, 원클릭 전환, 단축키 (Ctrl+1, Ctrl+2)
+2. **Workspace Isolation**: 각 workspace 데이터 완전 분리
+3. **Cross-Workspace Actions** (옵션): "개인 Drive → 회사 Docs 삽입" (명시적 권한)
+4. **Unified Search**: 모든 workspace 동시 검색
+5. **Session Persistence**: 전환해도 진행 중인 작업 유지
+
+**기술 구현**:
+- Multi-auth: `user_accounts` table (workspace_id, oauth_token)
+- Context Switching: FastAPI dependency로 `current_workspace` 관리
+- Storage: workspace별 namespace 분리
+- UI: Dropdown + 단축키
+
+**기존 인프라 활용**:
+- ✅ Auth 시스템: GoogleAuthService 확장
+- ✅ Cache: namespace metadata로 workspace별 캐시
+- ✅ Memory: session-based diversification
+
+**예상 임팩트**:
+- 🚀 프리랜서 사용자: +15,000명
+- ⏱️ 계정 전환: 60초 → 1초 (-98%)
+- 😊 만족도: +45%
+- 📈 프리미엄 전환: +30% (Multi-account = Pro 기능)
+- 🏆 경쟁 우위: vs ChatGPT (Multi-account ✅ vs ❌)
+
+**개발 난이도**: ⭐⭐⭐☆☆ (Medium)
+
+**개발 기간**: 4주
+
+**우선순위**: 🔥 HIGH (프리랜서/멀티 회사 시장)
+
+**ROI**: ⭐⭐⭐⭐☆ (신규 사용자 segment +15K)
+
+---
+
 ## 2026-02-15 (AM 9:20) | 기획자 에이전트 - 인프라 ROI 극대화: 관찰·단순·협업 📊🤖🤝
 
 ### 💡 Idea #90: "Developer Insights Dashboard" - Cache/Memory/Citation 성능 실시간 모니터링
