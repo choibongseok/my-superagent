@@ -869,6 +869,7 @@ class CitationTracker:
             "relevance",
             "hybrid",
             "title",
+            "author",
             "published_date",
             "citation_count",
             "authority",
@@ -992,13 +993,14 @@ class CitationTracker:
             sort_by: Result ordering strategy. ``"relevance"`` favors textual
                 score, ``"hybrid"`` blends relevance with authority,
                 citation traction, and recency quality signals, ``"title"``
-                sorts alphabetically, ``"published_date"`` sorts newest-first
-                with undated sources last, ``"citation_count"`` prioritizes
-                frequently cited sources, and ``"authority"`` ranks by source
-                reliability heuristics based on source type (for example,
-                databases before generic web pages). ``"recency"`` ranks by
-                freshness score using
-                ``recency_window_days``/``recency_profile``.
+                sorts alphabetically by title, ``"author"`` sorts by
+                normalized author (placing unknown authors last),
+                ``"published_date"`` sorts newest-first with undated sources
+                last, ``"citation_count"`` prioritizes frequently cited
+                sources, and ``"authority"`` ranks by source reliability
+                heuristics based on source type (for example, databases before
+                generic web pages). ``"recency"`` ranks by freshness score
+                using ``recency_window_days``/``recency_profile``.
 
         Returns:
             Ranked list of matching sources.
@@ -1059,9 +1061,7 @@ class CitationTracker:
 
         normalized_citation_status = self._normalize_text(citation_status)
         if normalized_citation_status not in {"any", "cited", "uncited"}:
-            raise ValueError(
-                "citation_status must be one of: any, cited, uncited"
-            )
+            raise ValueError("citation_status must be one of: any, cited, uncited")
 
         if min_authority_score is not None and not 0 <= min_authority_score <= 1:
             raise ValueError("min_authority_score must be between 0 and 1")
@@ -1164,9 +1164,7 @@ class CitationTracker:
             ):
                 raise ValueError("max_results_per_source_type must be an integer")
             if max_results_per_source_type <= 0:
-                raise ValueError(
-                    "max_results_per_source_type must be greater than 0"
-                )
+                raise ValueError("max_results_per_source_type must be greater than 0")
 
         normalized_match_mode = self._normalize_text(match_mode)
         if normalized_match_mode not in {"all", "any", "phrase"}:
@@ -1179,13 +1177,14 @@ class CitationTracker:
             "relevance",
             "hybrid",
             "title",
+            "author",
             "published_date",
             "citation_count",
             "authority",
             "recency",
         }:
             raise ValueError(
-                "sort_by must be one of: relevance, hybrid, title, published_date, citation_count, authority, recency"
+                "sort_by must be one of: relevance, hybrid, title, author, published_date, citation_count, authority, recency"
             )
 
         normalized_query = self._normalize_text(query)
@@ -1447,6 +1446,16 @@ class CitationTracker:
                     self._normalize_text(item[5].title),
                 )
             )
+        elif normalized_sort_by == "author":
+            ranked_matches.sort(
+                key=lambda item: (
+                    self._normalize_text(item[5].author) == "",
+                    self._normalize_text(item[5].author),
+                    self._normalize_text(item[5].title),
+                    -item[0],
+                    -item[1],
+                )
+            )
         elif normalized_sort_by == "title":
             ranked_matches.sort(
                 key=lambda item: (
@@ -1671,6 +1680,7 @@ class CitationTracker:
             "relevance",
             "hybrid",
             "title",
+            "author",
             "published_date",
             "citation_count",
             "authority",

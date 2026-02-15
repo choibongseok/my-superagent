@@ -1036,13 +1036,49 @@ class TestCitationTracker:
             "Zeta Guide",
         ]
 
+    def test_search_sources_supports_sort_by_author(self):
+        """sort_by='author' should sort by normalized author and keep unknown last."""
+        tracker = CitationTracker()
+
+        tracker.add_source(title="Untitled Guide")
+        tracker.add_source(title="Beta Guide", author="Morgan Lee")
+        tracker.add_source(title="Zulu Guide", author="Alex Kim")
+        tracker.add_source(title="Alpha Guide", author=" alex kim ")
+
+        matches = tracker.search_sources("guide", sort_by="author")
+
+        assert [source.title for source in matches] == [
+            "Alpha Guide",
+            "Zulu Guide",
+            "Beta Guide",
+            "Untitled Guide",
+        ]
+
+    def test_search_sources_with_details_supports_sort_by_author(self):
+        """Detailed search should pass sort_by='author' through consistently."""
+        tracker = CitationTracker()
+
+        tracker.add_source(title="Untitled Guide")
+        tracker.add_source(title="Beta Guide", author="Morgan Lee")
+        tracker.add_source(title="Zulu Guide", author="Alex Kim")
+        tracker.add_source(title="Alpha Guide", author=" alex kim ")
+
+        detailed = tracker.search_sources_with_details("guide", sort_by="author")
+
+        assert [item["source"].title for item in detailed] == [
+            "Alpha Guide",
+            "Zulu Guide",
+            "Beta Guide",
+            "Untitled Guide",
+        ]
+
     def test_search_sources_rejects_invalid_sort_by(self):
         """Search should validate supported sort_by values."""
         tracker = CitationTracker()
 
         with pytest.raises(
             ValueError,
-            match="sort_by must be one of: relevance, hybrid, title, published_date, citation_count, authority, recency",
+            match="sort_by must be one of: relevance, hybrid, title, author, published_date, citation_count, authority, recency",
         ):
             tracker.search_sources("agent", sort_by="custom")
 
