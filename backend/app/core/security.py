@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -83,11 +83,46 @@ def _normalize_required_claims(
     return tuple(dict.fromkeys(normalized_claims))
 
 
+def _normalize_required_claim_values(
+    required_claim_values: Mapping[str, Any] | None,
+) -> dict[str, tuple[Any, ...]]:
+    """Normalize exact/allowlist claim-value requirements for ``decode_token``."""
+    if required_claim_values is None:
+        return {}
+
+    if not isinstance(required_claim_values, Mapping):
+        raise TypeError("required_claim_values must be a mapping")
+
+    normalized_claim_values: dict[str, tuple[Any, ...]] = {}
+    for claim_name, expected_value in required_claim_values.items():
+        if not isinstance(claim_name, str):
+            raise TypeError("required_claim_values keys must be strings")
+
+        normalized_claim_name = claim_name.strip()
+        if not normalized_claim_name:
+            raise ValueError("required_claim_values cannot contain blank claim names")
+
+        if isinstance(expected_value, (list, tuple, set, frozenset)):
+            normalized_expected_values = tuple(expected_value)
+            if not normalized_expected_values:
+                raise ValueError(
+                    "required_claim_values for claim "
+                    f"'{normalized_claim_name}' cannot be an empty collection"
+                )
+        else:
+            normalized_expected_values = (expected_value,)
+
+        normalized_claim_values[normalized_claim_name] = normalized_expected_values
+
+    return normalized_claim_values
+
+
 def decode_token(
     token: str,
     *,
     expected_type: str | None = None,
     required_claims: Iterable[str] | None = None,
+    required_claim_values: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Decode a JWT token with optional type/claim validation.
 
@@ -95,11 +130,16 @@ def decode_token(
         token: JWT token string.
         expected_type: Optional token ``type`` claim value to enforce.
         required_claims: Optional claims that must be present and non-empty.
+        required_claim_values: Optional claim value requirements. Values may
+            be exact scalars or non-empty collections of allowed values.
 
     Returns:
         Decoded payload when valid, otherwise ``None``.
     """
     normalized_required_claims = _normalize_required_claims(required_claims)
+    normalized_required_claim_values = _normalize_required_claim_values(
+        required_claim_values
+    )
 
     try:
         payload = jwt.decode(
@@ -119,6 +159,11 @@ def decode_token(
             return None
 
         if isinstance(claim_value, str) and not claim_value.strip():
+            return None
+
+    for claim, expected_values in normalized_required_claim_values.items():
+        claim_value = payload.get(claim)
+        if claim_value is None or claim_value not in expected_values:
             return None
 
     return payload
