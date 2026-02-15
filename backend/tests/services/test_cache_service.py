@@ -2004,6 +2004,72 @@ async def test_local_cache_pop_where_cancels_matching_inflight_tasks():
     assert cache.get("session:pending") is None
 
 
+def test_local_cache_touch_where_refreshes_ttl_for_matching_keys_only():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["active", "session"], ttl_seconds=1)
+    cache.set_tagged("session:beta", 2, tags=["session"], ttl_seconds=1)
+    cache.set_tagged("user:alpha", 3, tags=["active"], ttl_seconds=1)
+
+    time.sleep(0.25)
+
+    touched = cache.touch_where(
+        ttl_seconds=2,
+        prefix="session:",
+        pattern="*:alpha",
+        tags=["active"],
+    )
+
+    assert touched == 1
+    assert cache.get("session:alpha") == 1
+
+    refreshed_ttl = cache.ttl_remaining("session:alpha")
+    other_session_ttl = cache.ttl_remaining("session:beta")
+    user_ttl = cache.ttl_remaining("user:alpha")
+
+    assert refreshed_ttl is not None and 1.5 <= refreshed_ttl <= 2.0
+    assert other_session_ttl is not None and 0 < other_session_ttl < 1.0
+    assert user_ttl is not None and 0 < user_ttl < 1.0
+
+
+def test_local_cache_touch_where_supports_match_all_tag_filtering():
+    cache = LocalCacheService()
+    cache.set_tagged("alpha", 1, tags=["group:a", "shared"], ttl_seconds=1)
+    cache.set_tagged("beta", 2, tags=["group:b", "shared"], ttl_seconds=1)
+    cache.set_tagged("gamma", 3, tags=["group:a"], ttl_seconds=1)
+
+    time.sleep(0.25)
+
+    touched = cache.touch_where(
+        ttl_seconds=2,
+        tags=["group:a", "shared"],
+        match_all_tags=True,
+    )
+
+    assert touched == 1
+
+    alpha_ttl = cache.ttl_remaining("alpha")
+    beta_ttl = cache.ttl_remaining("beta")
+    gamma_ttl = cache.ttl_remaining("gamma")
+
+    assert alpha_ttl is not None and 1.5 <= alpha_ttl <= 2.0
+    assert beta_ttl is not None and 0 < beta_ttl < 1.0
+    assert gamma_ttl is not None and 0 < gamma_ttl < 1.0
+
+
+def test_local_cache_touch_where_requires_at_least_one_filter():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="at least one filter must be provided"):
+        cache.touch_where(ttl_seconds=30)
+
+
+def test_local_cache_touch_where_rejects_invalid_match_all_tags_flag():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
+        cache.touch_where(ttl_seconds=30, prefix="session:", match_all_tags="yes")  # type: ignore[arg-type]
+
+
 def test_local_cache_prune_expired_removes_only_expired_entries():
     cache = LocalCacheService()
     cache.set("short", "x", ttl_seconds=1)

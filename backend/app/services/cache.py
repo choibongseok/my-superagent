@@ -511,7 +511,9 @@ class LocalCacheService:
 
         if item is None:
             if default is _MISSING:
-                raise LookupError("update cannot mutate a missing key without a default")
+                raise LookupError(
+                    "update cannot mutate a missing key without a default"
+                )
 
             new_value = updater(default)
             if inspect.isawaitable(new_value):
@@ -1814,6 +1816,54 @@ class LocalCacheService:
             self.delete_many(remaining_keys)
 
         return popped_values
+
+    def touch_where(
+        self,
+        *,
+        ttl_seconds: int | None,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        tags: Iterable[str] | None = None,
+        match_all_tags: bool = False,
+    ) -> int:
+        """Refresh TTL for keys matching combined prefix/glob/tag filters.
+
+        At least one filter must be provided to avoid accidental bulk updates.
+
+        Args:
+            ttl_seconds: New TTL applied to matching keys. ``None`` or
+                non-positive values make keys non-expiring.
+            prefix: Optional key prefix to match.
+            pattern: Optional glob pattern matched with :func:`fnmatchcase`.
+            tags: Optional tag filter. When provided, only keys associated with
+                matching tags are considered.
+            match_all_tags: Tag matching mode when ``tags`` are provided.
+                ``False`` (default) matches keys with any provided tag, while
+                ``True`` requires keys to contain every provided tag.
+
+        Returns:
+            Number of matching active keys whose TTL was refreshed.
+
+        Raises:
+            ValueError: If no filters are provided or ``match_all_tags`` is not
+                a boolean.
+        """
+        if not isinstance(match_all_tags, bool):
+            raise ValueError("match_all_tags must be a boolean")
+
+        if prefix is None and pattern is None and tags is None:
+            raise ValueError("at least one filter must be provided")
+
+        self._purge_expired_entries()
+
+        matching_keys = self._find_matching_keys(
+            prefix=prefix,
+            pattern=pattern,
+            tags=tags,
+            match_all_tags=match_all_tags,
+        )
+
+        return self.touch_many(sorted(matching_keys), ttl_seconds=ttl_seconds)
 
     def count_where(
         self,
