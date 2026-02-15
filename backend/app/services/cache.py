@@ -258,6 +258,8 @@ class LocalCacheService:
         offset: int | None = None,
         limit: int | None = None,
         include_keys: bool = False,
+        sort_by: str = "tag",
+        descending: bool = False,
     ) -> list[dict[str, Any]]:
         """List active tags with per-tag entry counts.
 
@@ -269,6 +271,8 @@ class LocalCacheService:
             offset: Optional number of sorted tag rows to skip.
             limit: Optional maximum number of tag rows to return.
             include_keys: Include sorted matching keys for each tag row.
+            sort_by: Sort criterion, either ``"tag"`` or ``"count"``.
+            descending: Return rows in descending order when ``True``.
 
         Returns:
             A sorted list of dictionaries in ``{"tag": str, "count": int}``
@@ -293,6 +297,12 @@ class LocalCacheService:
 
         if not isinstance(include_keys, bool):
             raise ValueError("include_keys must be a boolean")
+
+        if sort_by not in {"tag", "count"}:
+            raise ValueError('sort_by must be either "tag" or "count"')
+
+        if not isinstance(descending, bool):
+            raise ValueError("descending must be a boolean")
 
         self._purge_expired_entries()
 
@@ -323,6 +333,14 @@ class LocalCacheService:
             if include_keys:
                 row["keys"] = matching_keys
             rows.append(row)
+
+        if sort_by == "count":
+            if descending:
+                rows.sort(key=lambda row: (-row["count"], row["tag"]))
+            else:
+                rows.sort(key=lambda row: (row["count"], row["tag"]))
+        else:
+            rows.sort(key=lambda row: row["tag"], reverse=descending)
 
         if offset:
             rows = rows[offset:]

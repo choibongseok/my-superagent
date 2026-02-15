@@ -1293,6 +1293,31 @@ def test_local_cache_list_tag_stats_supports_tag_name_filters():
     ]
 
 
+def test_local_cache_list_tag_stats_supports_sorting_by_count_or_tag_direction():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["session", "active"])
+    cache.set_tagged("session:beta", 2, tags=["session"])
+    cache.set_tagged("user:alpha", 3, tags=["active", "user"])
+
+    assert cache.list_tag_stats(sort_by="count") == [
+        {"tag": "user", "count": 1},
+        {"tag": "active", "count": 2},
+        {"tag": "session", "count": 2},
+    ]
+
+    assert cache.list_tag_stats(sort_by="count", descending=True) == [
+        {"tag": "active", "count": 2},
+        {"tag": "session", "count": 2},
+        {"tag": "user", "count": 1},
+    ]
+
+    assert cache.list_tag_stats(descending=True) == [
+        {"tag": "user", "count": 1},
+        {"tag": "session", "count": 2},
+        {"tag": "active", "count": 2},
+    ]
+
+
 def test_local_cache_list_tag_stats_rejects_invalid_pagination_and_flags():
     cache = LocalCacheService()
 
@@ -1310,6 +1335,12 @@ def test_local_cache_list_tag_stats_rejects_invalid_pagination_and_flags():
 
     with pytest.raises(ValueError, match="include_keys must be a boolean"):
         cache.list_tag_stats(include_keys="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match='sort_by must be either "tag" or "count"'):
+        cache.list_tag_stats(sort_by="recency")
+
+    with pytest.raises(ValueError, match="descending must be a boolean"):
+        cache.list_tag_stats(descending="yes")  # type: ignore[arg-type]
 
 
 def test_local_cache_list_tag_stats_ignores_expired_entries():
