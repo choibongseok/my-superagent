@@ -51,6 +51,7 @@ class TestWeatherTool:
         assert result["wind_direction_cardinal"] == "SW"
         assert result["visibility"] == 10.0
         assert result["visibility_unit"] == "km"
+        assert result["visibility_level"] == "good"
         assert result["precipitation_1h"] is None
         assert result["precipitation_3h"] is None
         assert result["precipitation_type"] is None
@@ -157,6 +158,22 @@ class TestWeatherTool:
             plugin._classify_thermal_comfort(feels_like="unknown", units="metric")
             is None
         )
+
+    def test_visibility_level_classification_ranges(self):
+        """Visibility-level labels should map to practical range boundaries."""
+        plugin = WeatherPlugin(config={})
+
+        assert plugin._classify_visibility_level(0.5, "metric") == "very poor"
+        assert plugin._classify_visibility_level(2.2, "metric") == "poor"
+        assert plugin._classify_visibility_level(8.9, "metric") == "moderate"
+        assert plugin._classify_visibility_level(10.0, "metric") == "good"
+        assert plugin._classify_visibility_level(25.0, "metric") == "excellent"
+        assert plugin._classify_visibility_level(2.0, "imperial") == "poor"
+        assert plugin._classify_visibility_level(9000, "standard") == "moderate"
+        assert plugin._classify_visibility_level(None, "metric") is None
+        assert plugin._classify_visibility_level(True, "metric") is None
+        assert plugin._classify_visibility_level(-1, "metric") is None
+        assert plugin._classify_visibility_level("not-a-number", "metric") is None
 
     def test_cache_config_validation(self):
         """Cache settings should validate numeric and range constraints."""
@@ -401,6 +418,7 @@ class TestWeatherTool:
         assert "Daylight:" in result
         assert "Pressure:" in result
         assert "Visibility:" in result
+        assert "Visibility: 10.0 km (Good)" in result
 
     @pytest.mark.asyncio
     async def test_run_tool_supports_json_payload_input(self):
@@ -483,6 +501,33 @@ class TestWeatherTool:
             result = await plugin.run_tool("Seattle")
 
         assert "Precipitation: Rain (1h 0.8 mm, 3h 2.1 mm)" in result
+
+    @pytest.mark.asyncio
+    async def test_run_tool_formats_visibility_level_when_available(self):
+        """run_tool should include visibility-level context when provided."""
+        plugin = WeatherPlugin(config={"units": "metric"})
+
+        with patch.object(
+            plugin,
+            "execute",
+            AsyncMock(
+                return_value={
+                    "location": "Seattle",
+                    "temperature": 11.2,
+                    "feels_like": 9.7,
+                    "condition": "Fog",
+                    "humidity": 93,
+                    "wind_speed": 4.8,
+                    "visibility": 2.5,
+                    "visibility_unit": "km",
+                    "visibility_level": "poor",
+                    "units": "metric",
+                }
+            ),
+        ):
+            result = await plugin.run_tool("Seattle")
+
+        assert "Visibility: 2.5 km (Poor)" in result
 
     @pytest.mark.asyncio
     async def test_run_tool_includes_heat_index_when_available(self):
@@ -702,6 +747,7 @@ class TestWeatherTool:
             assert result["wind_direction_cardinal"] == "SW"
             assert result["visibility"] == 7.5
             assert result["visibility_unit"] == "km"
+            assert result["visibility_level"] == "moderate"
 
     @pytest.mark.asyncio
     async def test_real_api_call_includes_heat_index_for_hot_humid_conditions(
@@ -833,6 +879,7 @@ class TestWeatherTool:
             assert result["daylight_status"] is None
             assert result["visibility"] is None
             assert result["visibility_unit"] is None
+            assert result["visibility_level"] is None
             assert result["wind_gust"] is None
             assert result["wind_gust_unit"] is None
 
@@ -976,6 +1023,7 @@ class TestWeatherTool:
             assert result["wind_beaufort_label"] == "Gentle Breeze"
             assert result["visibility"] == 1.0
             assert result["visibility_unit"] == "mi"
+            assert result["visibility_level"] == "poor"
 
     @pytest.mark.asyncio
     async def test_run_tool_formats_imperial_units(self):
@@ -1018,6 +1066,7 @@ class TestWeatherTool:
         assert result["wind_gust_unit"] == "mph"
         assert result["visibility"] == 6.2
         assert result["visibility_unit"] == "mi"
+        assert result["visibility_level"] == "moderate"
 
     @pytest.mark.asyncio
     async def test_standard_units_override_changes_mock_response_units(self):
@@ -1039,6 +1088,7 @@ class TestWeatherTool:
         assert result["wind_gust_unit"] == "m/s"
         assert result["visibility"] == 10000.0
         assert result["visibility_unit"] == "m"
+        assert result["visibility_level"] == "good"
 
     @pytest.mark.asyncio
     async def test_pressure_unit_override_changes_pressure_output_in_mock_mode(self):
@@ -1602,7 +1652,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.27.0"
+        assert manifest.version == "1.28.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
@@ -1639,6 +1689,7 @@ class TestWeatherTool:
         assert "daylight_status" in manifest.outputs
         assert "visibility" in manifest.outputs
         assert "visibility_unit" in manifest.outputs
+        assert "visibility_level" in manifest.outputs
         assert "precipitation_1h" in manifest.outputs
         assert "precipitation_3h" in manifest.outputs
         assert "precipitation_type" in manifest.outputs
@@ -1669,6 +1720,7 @@ class TestWeatherTool:
         assert "cloud coverage" in description
         assert "daylight status" in description
         assert "visibility" in description
+        assert "visibility-level" in description
         assert "precipitation" in description
         assert "lang" in description
         assert "cache_ttl_seconds" in description

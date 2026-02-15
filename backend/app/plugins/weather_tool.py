@@ -349,6 +349,42 @@ class Plugin(ToolPlugin):
         return round(api_visibility_meters, 1), "m"
 
     @staticmethod
+    def _visibility_to_km(visibility: float, units: str) -> float:
+        """Convert unit-normalized visibility values into kilometers."""
+        if units == "imperial":
+            return visibility * 1.60934
+        if units == "standard":
+            return visibility / 1000
+
+        return visibility
+
+    @classmethod
+    def _classify_visibility_level(cls, visibility: Any, units: str) -> str | None:
+        """Classify visibility distance into practical aviation-style categories."""
+        if visibility is None or isinstance(visibility, bool):
+            return None
+
+        try:
+            parsed_visibility = float(visibility)
+        except (TypeError, ValueError):
+            return None
+
+        if parsed_visibility < 0:
+            return None
+
+        visibility_km = cls._visibility_to_km(parsed_visibility, units)
+        if visibility_km < 1:
+            return "very poor"
+        if visibility_km < 4:
+            return "poor"
+        if visibility_km < 10:
+            return "moderate"
+        if visibility_km < 20:
+            return "good"
+
+        return "excellent"
+
+    @staticmethod
     def _resolve_unit_labels(units: str) -> tuple[str, str]:
         """Resolve display labels for temperature and wind-speed units."""
         if units == "imperial":
@@ -810,6 +846,7 @@ class Plugin(ToolPlugin):
             visibility_meters,
             units,
         )
+        visibility_level = self._classify_visibility_level(visibility, units)
         temperature_unit, wind_speed_unit = self._resolve_unit_labels(units)
         dew_point = self._calculate_dew_point(
             temperature=temperature,
@@ -864,6 +901,7 @@ class Plugin(ToolPlugin):
             "wind_direction_cardinal": "SW",
             "visibility": visibility,
             "visibility_unit": visibility_unit,
+            "visibility_level": visibility_level,
             "precipitation_1h": None,
             "precipitation_3h": None,
             "precipitation_type": None,
@@ -1127,6 +1165,7 @@ class Plugin(ToolPlugin):
                 "wind_direction_cardinal": str | None,
                 "visibility": float | None,
                 "visibility_unit": str | None,
+                "visibility_level": str | None,
                 "precipitation_1h": float | None,
                 "precipitation_3h": float | None,
                 "precipitation_type": str | None,
@@ -1231,9 +1270,14 @@ class Plugin(ToolPlugin):
                 visibility_value = data.get("visibility")
                 visibility = None
                 visibility_unit = None
+                visibility_level = None
                 if visibility_value is not None:
                     visibility, visibility_unit = self._normalize_visibility_for_units(
                         float(visibility_value),
+                        resolved_units,
+                    )
+                    visibility_level = self._classify_visibility_level(
+                        visibility,
                         resolved_units,
                     )
 
@@ -1326,6 +1370,7 @@ class Plugin(ToolPlugin):
                     "wind_direction_cardinal": wind_direction_cardinal,
                     "visibility": visibility,
                     "visibility_unit": visibility_unit,
+                    "visibility_level": visibility_level,
                     "precipitation_1h": precipitation_1h,
                     "precipitation_3h": precipitation_3h,
                     "precipitation_type": precipitation_type,
@@ -1426,6 +1471,12 @@ class Plugin(ToolPlugin):
         pressure_unit = result.get("pressure_unit")
         visibility = result.get("visibility")
         visibility_unit = result.get("visibility_unit")
+        visibility_level = result.get("visibility_level")
+        if not isinstance(visibility_level, str) or not visibility_level.strip():
+            visibility_level = self._classify_visibility_level(
+                visibility,
+                resolved_units,
+            )
         cloudiness = self._normalize_cloudiness(result.get("cloudiness"))
         daylight_status = result.get("daylight_status")
         wind_direction_degrees = self._normalize_wind_direction_degrees(
@@ -1493,7 +1544,11 @@ class Plugin(ToolPlugin):
             )
         if visibility is not None:
             visibility_suffix = f" {visibility_unit}" if visibility_unit else ""
-            lines.append(f"Visibility: {visibility}{visibility_suffix}")
+            visibility_line = f"Visibility: {visibility}{visibility_suffix}"
+            if isinstance(visibility_level, str) and visibility_level.strip():
+                visibility_line += f" ({visibility_level.strip().title()})"
+
+            lines.append(visibility_line)
         if precipitation_summary is not None:
             lines.append(f"Precipitation: {precipitation_summary}")
 
@@ -1517,7 +1572,7 @@ class Plugin(ToolPlugin):
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
             "Set refresh_cache=true to bypass cached responses and force a fresh API fetch. "
-            "Returns temperature, dew-point temperature, heat-index temperature, wind-chill temperature, feels-like temperature, perceived thermal-comfort classification, weather condition, humidity with comfort-level classification, cloud coverage, daylight status, pressure, wind speed, optional wind gust, Beaufort wind-force details, wind direction, visibility, and precipitation summaries when available. "
+            "Returns temperature, dew-point temperature, heat-index temperature, wind-chill temperature, feels-like temperature, perceived thermal-comfort classification, weather condition, humidity with comfort-level classification, cloud coverage, daylight status, pressure, wind speed, optional wind gust, Beaufort wind-force details, wind direction, visibility with a qualitative visibility-level classification, and precipitation summaries when available. "
             "Requires OpenWeatherMap API key in plugin config."
         )
 
@@ -1525,8 +1580,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.27.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point/heat-index/wind-chill insights, thermal-comfort insights, humidity comfort-level insights, wind speed and gust details, Beaufort wind-force details, wind direction details, visibility details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
+            version="1.28.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point/heat-index/wind-chill insights, thermal-comfort insights, humidity comfort-level insights, wind speed and gust details, Beaufort wind-force details, wind direction details, visibility and visibility-level details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -1579,6 +1634,7 @@ class Plugin(ToolPlugin):
                 "wind_direction_cardinal": "string | null (16-point compass direction)",
                 "visibility": "float | null",
                 "visibility_unit": "string | null (km, mi, or m)",
+                "visibility_level": "string | null (very poor, poor, moderate, good, or excellent)",
                 "precipitation_1h": "float | null (mm of rain/snow in the last 1 hour)",
                 "precipitation_3h": "float | null (mm of rain/snow in the last 3 hours)",
                 "precipitation_type": "string | null (rain, snow, mixed)",
