@@ -907,6 +907,21 @@ class LocalCacheService:
         self._record_lookup(hit=exists)
         return exists
 
+    def has_many(self, keys: Iterable[str]) -> dict[str, bool]:
+        """Return existence flags for requested keys.
+
+        Duplicate keys are resolved once, preserving first-seen order.
+        Missing or expired keys are included with ``False`` values.
+        """
+        results: dict[str, bool] = {}
+
+        for key in dict.fromkeys(keys):
+            exists = self._get_entry(key) is not None
+            self._record_lookup(hit=exists)
+            results[key] = exists
+
+        return results
+
     def ttl_remaining(self, key: str) -> float | None:
         """Return remaining TTL seconds for ``key``.
 

@@ -595,6 +595,36 @@ def test_local_cache_has_respects_expiration():
     assert cache.has("session") is False
 
 
+def test_local_cache_has_many_reports_existence_for_unique_requested_keys():
+    cache = LocalCacheService()
+    cache.set("active", "value")
+    cache.set("short", "token", ttl_seconds=1)
+
+    time.sleep(1.05)
+
+    assert cache.has_many(["active", "missing", "active", "short"]) == {
+        "active": True,
+        "missing": False,
+        "short": False,
+    }
+
+
+def test_local_cache_has_many_tracks_lookup_stats_once_per_unique_key():
+    cache = LocalCacheService()
+    cache.set("present", 1)
+
+    flags = cache.has_many(["present", "missing", "present"])
+
+    assert flags == {
+        "present": True,
+        "missing": False,
+    }
+
+    stats = cache.stats()
+    assert stats["hits"] == 1
+    assert stats["misses"] == 1
+
+
 def test_local_cache_get_or_set_populates_once():
     cache = LocalCacheService()
     calls = {"count": 0}
