@@ -283,6 +283,39 @@ class CitationTracker:
         return normalized_source_ids
 
     @classmethod
+    def _normalize_authors(
+        cls,
+        authors: Optional[str | Iterable[str]],
+        *,
+        argument_name: str,
+    ) -> Optional[set[str]]:
+        """Normalize optional author filters into a stable set."""
+        if authors is None:
+            return None
+
+        raw_authors: list[Any]
+        if isinstance(authors, str):
+            raw_authors = [authors]
+        else:
+            raw_authors = list(authors)
+
+        if not raw_authors:
+            raise ValueError(f"{argument_name} must include at least one author")
+
+        normalized_authors: set[str] = set()
+        for author in raw_authors:
+            if not isinstance(author, str):
+                raise ValueError(f"{argument_name} must contain only string authors")
+
+            normalized_author = cls._normalize_text(author)
+            if not normalized_author:
+                raise ValueError(f"{argument_name} must contain non-empty authors")
+
+            normalized_authors.add(normalized_author)
+
+        return normalized_authors
+
+    @classmethod
     def _normalize_source_types(
         cls,
         source_types: Optional[SourceType | str | Iterable[SourceType | str]],
@@ -738,6 +771,8 @@ class CitationTracker:
         has_url: Optional[bool] = None,
         include_source_ids: Optional[str | Iterable[str]] = None,
         exclude_source_ids: Optional[str | Iterable[str]] = None,
+        include_authors: Optional[str | Iterable[str]] = None,
+        exclude_authors: Optional[str | Iterable[str]] = None,
         min_citations: Optional[int] = None,
         max_citations: Optional[int] = None,
         min_authority_score: Optional[float] = None,
@@ -811,6 +846,11 @@ class CitationTracker:
             exclude_source_ids: Optional source-id deny-list. Matching source
                 IDs are excluded even when also included via
                 ``include_source_ids``.
+            include_authors: Optional author allow-list. Accepts a single
+                author name or an iterable of author names. Matching is
+                case-insensitive and whitespace-normalized.
+            exclude_authors: Optional author deny-list. Matching authors are
+                excluded even when also included via ``include_authors``.
             min_citations: Optional inclusive lower bound for citation count per
                 source.
             max_citations: Optional inclusive upper bound for citation count per
@@ -1055,6 +1095,14 @@ class CitationTracker:
             exclude_source_ids,
             argument_name="exclude_source_ids",
         )
+        normalized_include_authors = self._normalize_authors(
+            include_authors,
+            argument_name="include_authors",
+        )
+        normalized_exclude_authors = self._normalize_authors(
+            exclude_authors,
+            argument_name="exclude_authors",
+        )
         reference_time = self._normalize_datetime(
             as_of if as_of is not None else datetime.now(timezone.utc)
         )
@@ -1074,6 +1122,19 @@ class CitationTracker:
             if (
                 normalized_exclude_source_ids is not None
                 and source.id in normalized_exclude_source_ids
+            ):
+                continue
+
+            normalized_author = self._normalize_text(source.author)
+            if (
+                normalized_include_authors is not None
+                and normalized_author not in normalized_include_authors
+            ):
+                continue
+
+            if (
+                normalized_exclude_authors is not None
+                and normalized_author in normalized_exclude_authors
             ):
                 continue
 
@@ -1419,6 +1480,8 @@ class CitationTracker:
         has_url: Optional[bool] = None,
         include_source_ids: Optional[str | Iterable[str]] = None,
         exclude_source_ids: Optional[str | Iterable[str]] = None,
+        include_authors: Optional[str | Iterable[str]] = None,
+        exclude_authors: Optional[str | Iterable[str]] = None,
         min_citations: Optional[int] = None,
         max_citations: Optional[int] = None,
         min_authority_score: Optional[float] = None,
@@ -1467,6 +1530,8 @@ class CitationTracker:
             has_url=has_url,
             include_source_ids=include_source_ids,
             exclude_source_ids=exclude_source_ids,
+            include_authors=include_authors,
+            exclude_authors=exclude_authors,
             min_citations=min_citations,
             max_citations=max_citations,
             min_authority_score=min_authority_score,
@@ -2305,14 +2370,10 @@ class CitationTracker:
                     "cited_source_count": cited_count,
                     "uncited_source_count": source_count - cited_count,
                     "citation_count": citation_count,
-                    "source_share": round(
-                        source_count / total_domain_sources, 3
-                    )
+                    "source_share": round(source_count / total_domain_sources, 3)
                     if total_domain_sources
                     else 0.0,
-                    "citation_share": round(
-                        citation_count / total_domain_citations, 3
-                    )
+                    "citation_share": round(citation_count / total_domain_citations, 3)
                     if total_domain_citations
                     else 0.0,
                 }

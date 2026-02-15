@@ -586,6 +586,57 @@ class TestCitationTracker:
         ):
             tracker.search_sources("agent", exclude_source_ids=["   "])
 
+    def test_search_sources_supports_include_authors_filter(self):
+        """include_authors should keep only case-insensitive author matches."""
+        tracker = CitationTracker()
+
+        included_id = tracker.add_source(title="Agent Handbook", author="Alex Kim")
+        tracker.add_source(title="Agent Playbook", author="Morgan Lee")
+        tracker.add_source(title="Anonymous Notes")
+
+        matches = tracker.search_sources(
+            "agent",
+            include_authors=["  aLeX KIM  "],
+        )
+
+        assert [source.id for source in matches] == [included_id]
+
+    def test_search_sources_supports_exclude_authors_filter(self):
+        """exclude_authors should remove matching authors after normalization."""
+        tracker = CitationTracker()
+
+        kept_id = tracker.add_source(title="Prompt Safety", author="Alex Kim")
+        tracker.add_source(title="Prompt Risks", author="Morgan Lee")
+
+        matches = tracker.search_sources(
+            "prompt",
+            exclude_authors=["morgan lee"],
+        )
+
+        assert [source.id for source in matches] == [kept_id]
+
+    def test_search_sources_author_filters_validate_input(self):
+        """Author filters should reject empty and non-string values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="include_authors must include at least one author",
+        ):
+            tracker.search_sources("agent", include_authors=[])
+
+        with pytest.raises(
+            ValueError,
+            match="exclude_authors must contain only string authors",
+        ):
+            tracker.search_sources("agent", exclude_authors=[123])
+
+        with pytest.raises(
+            ValueError,
+            match="exclude_authors must contain non-empty authors",
+        ):
+            tracker.search_sources("agent", exclude_authors=["   "])
+
     def test_search_sources_supports_sort_by_citation_count(self):
         """sort_by='citation_count' should prioritize most-cited sources first."""
         tracker = CitationTracker()
@@ -973,6 +1024,21 @@ class TestCitationTracker:
 
         assert [item["source"].id for item in detailed] == [include_id]
 
+    def test_search_sources_with_details_supports_author_filters(self):
+        """Detailed search should pass include/exclude author filters through."""
+        tracker = CitationTracker()
+
+        include_id = tracker.add_source(title="Async Reliability", author="Alex Kim")
+        excluded_id = tracker.add_source(title="Async Operations", author="Morgan Lee")
+
+        detailed = tracker.search_sources_with_details(
+            "async",
+            include_authors=["alex kim", "morgan lee"],
+            exclude_authors=["morgan lee"],
+        )
+
+        assert [item["source"].id for item in detailed] == [include_id]
+
     def test_search_sources_with_details_supports_source_types_allow_list(self):
         """Detailed search should pass source_types filters through."""
         tracker = CitationTracker()
@@ -1343,13 +1409,8 @@ class TestCitationTracker:
             as_of=anchor_time,
             recency_window_days=365,
         )
-        score_by_id = {
-            item["source"].id: item["hybrid_score"]
-            for item in detailed
-        }
-        midpoint = (
-            score_by_id[lower_hybrid_id] + score_by_id[higher_hybrid_id]
-        ) / 2
+        score_by_id = {item["source"].id: item["hybrid_score"] for item in detailed}
+        midpoint = (score_by_id[lower_hybrid_id] + score_by_id[higher_hybrid_id]) / 2
 
         minimum_bounded = tracker.search_sources(
             "agent reliability workflow",
