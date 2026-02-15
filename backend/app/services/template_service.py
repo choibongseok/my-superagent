@@ -615,6 +615,32 @@ def _average_numeric_values(value: object, argument_spec: str) -> int | float:
     return int(average) if float(average).is_integer() else average
 
 
+def _min_numeric_value(value: object, argument_spec: str) -> int | float:
+    """Return the minimum numeric value from a non-empty iterable."""
+    if argument_spec.strip():
+        raise ValueError("min expects no arguments")
+
+    numeric_values = _iter_numeric_values(value, transform_name="min")
+    if not numeric_values:
+        raise ValueError("min expects a non-empty iterable value")
+
+    minimum = min(numeric_values)
+    return int(minimum) if float(minimum).is_integer() else minimum
+
+
+def _max_numeric_value(value: object, argument_spec: str) -> int | float:
+    """Return the maximum numeric value from a non-empty iterable."""
+    if argument_spec.strip():
+        raise ValueError("max expects no arguments")
+
+    numeric_values = _iter_numeric_values(value, transform_name="max")
+    if not numeric_values:
+        raise ValueError("max expects a non-empty iterable value")
+
+    maximum = max(numeric_values)
+    return int(maximum) if float(maximum).is_integer() else maximum
+
+
 def _fallback_value(value: object, argument_spec: str) -> object:
     """Return fallback when values are missing, blank, or empty collections."""
     args = _parse_transform_args(argument_spec)
@@ -895,6 +921,7 @@ class TemplateService:
         - ``{score->clamp(0,1)->round(2)}``
         - ``{durations->sum}``, ``{durations->sum(10)}``
         - ``{durations->avg}``
+        - ``{latencies->min}``, ``{latencies->max}``
         - ``{nickname->strip->fallback("friend")}``
 
         Returns:
@@ -954,6 +981,8 @@ class TemplateService:
             "sum": lambda raw: _sum_numeric_values(raw, ""),
             "avg": lambda raw: _average_numeric_values(raw, ""),
             "mean": lambda raw: _average_numeric_values(raw, ""),
+            "min": lambda raw: _min_numeric_value(raw, ""),
+            "max": lambda raw: _max_numeric_value(raw, ""),
         }
         supported_transforms = sorted(
             [
@@ -978,6 +1007,8 @@ class TemplateService:
                 "sum([start])",
                 "avg",
                 "mean",
+                "min",
+                "max",
             ]
         )
 
@@ -1065,6 +1096,16 @@ class TemplateService:
                         raw,
                         spec,
                     )
+                elif transform_name == "min":
+                    operation = lambda raw, spec=argument_spec: _min_numeric_value(
+                        raw,
+                        spec,
+                    )
+                elif transform_name == "max":
+                    operation = lambda raw, spec=argument_spec: _max_numeric_value(
+                        raw,
+                        spec,
+                    )
 
             if operation is None:
                 supported = ", ".join(supported_transforms)
@@ -1149,6 +1190,7 @@ class TemplateService:
         ``{delta->abs}``, ``{estimate->floor}``, ``{estimate->ceil}``,
         ``{score->clamp(0,1)->round(2)}``,
         ``{durations->sum}``, ``{durations->sum(10)}``, ``{durations->avg}``,
+        ``{latencies->min}``, ``{latencies->max}``,
         or ``{nickname->strip->fallback("friend")}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)

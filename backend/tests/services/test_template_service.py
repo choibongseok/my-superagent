@@ -934,6 +934,90 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_min_and_max_numeric_transforms(
+        self, service_with_mock_db
+    ):
+        """min/max should return numeric bounds for iterable metrics."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Min latency: {latencies->min}, Max latency: {latencies->max}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"latencies": [12, 3.5, 7]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Min latency: 3.5, Max latency: 12"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_min_transform_for_empty_collections(
+        self, service_with_mock_db
+    ):
+        """min should fail for empty iterables to avoid ambiguous defaults."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Min latency: {latencies->min}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'min'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": []},
+                    user_id,
+                )
+
+        assert template.usage_count == 2
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_max_transform_for_non_numeric_values(
+        self, service_with_mock_db
+    ):
+        """max should fail fast when iterable members are not numeric."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Max latency: {latencies->max}",
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'max'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": [5, "n/a", 3]},
+                    user_id,
+                )
+
+        assert template.usage_count == 3
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_rejects_avg_transform_for_empty_collections(
         self, service_with_mock_db
     ):
