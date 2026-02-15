@@ -641,6 +641,54 @@ def _average_numeric_values(value: object, argument_spec: str) -> int | float:
     return int(average) if float(average).is_integer() else average
 
 
+def _weighted_average_numeric_values(
+    value: object,
+    argument_spec: str,
+    *,
+    transform_name: str = "weighted_avg",
+) -> int | float:
+    """Return weighted average for numeric iterables.
+
+    Arguments are interpreted as numeric weights in the same order as the input
+    values: ``weighted_avg(0.2,0.3,0.5)``.
+    """
+    args = _parse_transform_args(argument_spec)
+    if not args:
+        raise ValueError(
+            f"{transform_name} expects one or more numeric weight arguments"
+        )
+
+    numeric_values = _iter_numeric_values(value, transform_name=transform_name)
+    if not numeric_values:
+        raise ValueError(f"{transform_name} expects a non-empty iterable value")
+
+    try:
+        weights = [float(raw_weight.strip()) for raw_weight in args]
+    except ValueError as exc:
+        raise ValueError(f"{transform_name} weights must be numeric") from exc
+
+    if len(weights) != len(numeric_values):
+        raise ValueError(
+            f"{transform_name} expects {len(numeric_values)} weights, "
+            f"received {len(weights)}"
+        )
+
+    total_weight = sum(weights)
+    if math.isclose(total_weight, 0.0, rel_tol=0.0, abs_tol=1e-12):
+        raise ValueError(f"{transform_name} total weight must not be zero")
+
+    weighted_average = (
+        sum(item * weight for item, weight in zip(numeric_values, weights))
+        / total_weight
+    )
+
+    rounded_integer = round(weighted_average)
+    if math.isclose(weighted_average, rounded_integer, rel_tol=0.0, abs_tol=1e-12):
+        return int(rounded_integer)
+
+    return weighted_average
+
+
 def _geometric_mean_numeric_values(
     value: object,
     argument_spec: str,
@@ -1237,6 +1285,7 @@ class TemplateService:
         - ``{durations->sum}``, ``{durations->sum(10)}``
         - ``{durations->product}``, ``{durations->product(0.5)}``
         - ``{durations->avg}``
+        - ``{durations->weighted_avg(0.2,0.3,0.5)}``, ``{durations->wavg(0.2,0.3,0.5)}``
         - ``{durations->geomean}``, ``{durations->gmean}``
         - ``{durations->harmmean}``, ``{durations->hmean}``, ``{durations->harmonic_mean}``
         - ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``
@@ -1386,6 +1435,8 @@ class TemplateService:
                 "prod([start])",
                 "avg",
                 "mean",
+                "weighted_avg(<w1>[,<w2>...])",
+                "wavg(<w1>[,<w2>...])",
                 "geomean",
                 "gmean",
                 "harmmean",
@@ -1500,6 +1551,12 @@ class TemplateService:
                     operation = lambda raw, spec=argument_spec: _average_numeric_values(
                         raw,
                         spec,
+                    )
+                elif transform_name in {"weighted_avg", "wavg"}:
+                    operation = lambda raw, spec=argument_spec, name=transform_name: _weighted_average_numeric_values(
+                        raw,
+                        spec,
+                        transform_name=name,
                     )
                 elif transform_name in {"geomean", "gmean"}:
                     operation = lambda raw, spec=argument_spec, name=transform_name: _geometric_mean_numeric_values(
@@ -1655,7 +1712,9 @@ class TemplateService:
         ``{score->clamp(0,1)->round(2)}``,
         ``{durations->sum}``, ``{durations->sum(10)}``,
         ``{durations->product}``, ``{durations->product(0.5)}``,
-        ``{durations->avg}``, ``{durations->geomean}``, ``{durations->gmean}``,
+        ``{durations->avg}``,
+        ``{durations->weighted_avg(0.2,0.3,0.5)}``, ``{durations->wavg(0.2,0.3,0.5)}``,
+        ``{durations->geomean}``, ``{durations->gmean}``,
         ``{latencies->min}``, ``{latencies->max}``,
         ``{latencies->median}``, ``{latencies->percentile(95)}``,
         ``{latencies->pctl(90)}``,

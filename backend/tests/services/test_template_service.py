@@ -934,6 +934,93 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_weighted_average_numeric_transforms(
+        self, service_with_mock_db
+    ):
+        """weighted_avg/wavg should calculate weighted means from inline weights."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "Weighted: {scores->weighted_avg(0.2,0.3,0.5)->round(2)}, "
+                "Alias: {scores->wavg(1,2,1)}"
+            ),
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"scores": [10, 20, 30]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Weighted: 23.0, Alias: 20"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_weighted_average_when_weight_count_mismatches(
+        self, service_with_mock_db
+    ):
+        """weighted_avg should require one weight value per numeric input."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Weighted: {scores->weighted_avg(0.5,0.5)}",
+            category="docs",
+            usage_count=4,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'weighted_avg\(0.5,0.5\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"scores": [10, 20, 30]},
+                    user_id,
+                )
+
+        assert template.usage_count == 4
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_weighted_average_with_zero_total_weight(
+        self, service_with_mock_db
+    ):
+        """weighted_avg should reject weight sets that sum to zero."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Weighted: {scores->wavg(1,-1)}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'wavg\(1,-1\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"scores": [10, 20]},
+                    user_id,
+                )
+
+        assert template.usage_count == 2
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_geometric_mean_numeric_transforms(
         self, service_with_mock_db
     ):
