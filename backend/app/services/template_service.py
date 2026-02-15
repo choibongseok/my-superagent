@@ -751,9 +751,7 @@ def _percentile_numeric_value(
     """Return an interpolated percentile for non-empty numeric iterables."""
     args = _parse_transform_args(argument_spec)
     if len(args) != 1:
-        raise ValueError(
-            f"{transform_name} expects exactly one argument: percentile"
-        )
+        raise ValueError(f"{transform_name} expects exactly one argument: percentile")
 
     try:
         percentile = float(args[0].strip())
@@ -810,6 +808,52 @@ def _standard_deviation_numeric_value(value: object, argument_spec: str) -> int 
         raise ValueError("stddev expects no arguments")
 
     variance = _variance_numeric_value(value, "", transform_name="stddev")
+    standard_deviation = math.sqrt(float(variance))
+
+    return (
+        int(standard_deviation)
+        if float(standard_deviation).is_integer()
+        else standard_deviation
+    )
+
+
+def _sample_variance_numeric_value(
+    value: object,
+    argument_spec: str,
+    *,
+    transform_name: str = "sample_variance",
+) -> int | float:
+    """Return sample variance (Bessel-corrected) for numeric iterables."""
+    if argument_spec.strip():
+        raise ValueError(f"{transform_name} expects no arguments")
+
+    numeric_values = _iter_numeric_values(value, transform_name=transform_name)
+    if len(numeric_values) < 2:
+        raise ValueError(f"{transform_name} expects at least two numeric values")
+
+    average = sum(numeric_values) / len(numeric_values)
+    variance = sum((item - average) ** 2 for item in numeric_values) / (
+        len(numeric_values) - 1
+    )
+
+    return int(variance) if float(variance).is_integer() else variance
+
+
+def _sample_standard_deviation_numeric_value(
+    value: object,
+    argument_spec: str,
+    *,
+    transform_name: str = "sample_stddev",
+) -> int | float:
+    """Return sample standard deviation for numeric iterables."""
+    if argument_spec.strip():
+        raise ValueError(f"{transform_name} expects no arguments")
+
+    variance = _sample_variance_numeric_value(
+        value,
+        "",
+        transform_name=transform_name,
+    )
     standard_deviation = math.sqrt(float(variance))
 
     return (
@@ -1170,6 +1214,8 @@ class TemplateService:
         - ``{latencies->percentile(95)}``, ``{latencies->pctl(90)}``
         - ``{latencies->variance}``, ``{latencies->var}``
         - ``{latencies->stddev}``, ``{latencies->stdev}``
+        - ``{latencies->sample_variance}``, ``{latencies->svar}``
+        - ``{latencies->sample_stddev}``, ``{latencies->sstddev}``
         - ``{latencies->range}``
         - ``{labels->mode}``
         - ``{nickname->strip->fallback("friend")}``
@@ -1261,6 +1307,21 @@ class TemplateService:
             "var": lambda raw: _variance_numeric_value(raw, "", transform_name="var"),
             "stddev": lambda raw: _standard_deviation_numeric_value(raw, ""),
             "stdev": lambda raw: _standard_deviation_numeric_value(raw, ""),
+            "sample_variance": lambda raw: _sample_variance_numeric_value(raw, ""),
+            "svar": lambda raw: _sample_variance_numeric_value(
+                raw,
+                "",
+                transform_name="svar",
+            ),
+            "sample_stddev": lambda raw: _sample_standard_deviation_numeric_value(
+                raw,
+                "",
+            ),
+            "sstddev": lambda raw: _sample_standard_deviation_numeric_value(
+                raw,
+                "",
+                transform_name="sstddev",
+            ),
             "range": lambda raw: _range_numeric_value(raw, ""),
             "mode": lambda raw: _mode_value(raw, ""),
         }
@@ -1303,6 +1364,10 @@ class TemplateService:
                 "var",
                 "stddev",
                 "stdev",
+                "sample_variance",
+                "svar",
+                "sample_stddev",
+                "sstddev",
                 "range",
                 "mode",
             ]
@@ -1442,6 +1507,18 @@ class TemplateService:
                         raw,
                         spec,
                     )
+                elif transform_name in {"sample_variance", "svar"}:
+                    operation = lambda raw, spec=argument_spec, name=transform_name: _sample_variance_numeric_value(
+                        raw,
+                        spec,
+                        transform_name=name,
+                    )
+                elif transform_name in {"sample_stddev", "sstddev"}:
+                    operation = lambda raw, spec=argument_spec, name=transform_name: _sample_standard_deviation_numeric_value(
+                        raw,
+                        spec,
+                        transform_name=name,
+                    )
                 elif transform_name == "range":
                     operation = lambda raw, spec=argument_spec: _range_numeric_value(
                         raw,
@@ -1540,6 +1617,8 @@ class TemplateService:
         ``{latencies->pctl(90)}``,
         ``{latencies->variance}``, ``{latencies->var}``,
         ``{latencies->stddev}``, ``{latencies->stdev}``,
+        ``{latencies->sample_variance}``, ``{latencies->svar}``,
+        ``{latencies->sample_stddev}``, ``{latencies->sstddev}``,
         ``{labels->mode}``, or ``{nickname->strip->fallback("friend")}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)

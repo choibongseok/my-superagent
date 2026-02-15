@@ -944,8 +944,7 @@ class TestTemplateServiceUseTemplate:
         template = SimpleNamespace(
             id=template_id,
             prompt_template=(
-                "Geo mean: {durations->geomean}, "
-                "Alias: {durations->gmean()}"
+                "Geo mean: {durations->geomean}, " "Alias: {durations->gmean()}"
             ),
             category="docs",
             usage_count=2,
@@ -1389,6 +1388,98 @@ class TestTemplateServiceUseTemplate:
         assert result["prompt"] == "Variance: 8.25"
         assert template.usage_count == 4
         db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_sample_statistics_transforms(
+        self, service_with_mock_db
+    ):
+        """sample_variance/sample_stddev aliases should use Bessel correction."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "Sample variance: {latencies->sample_variance->round(3)}, "
+                "Alias: {latencies->svar()->round(3)}, "
+                "Sample stddev: {latencies->sample_stddev->round(3)}, "
+                "Std alias: {latencies->sstddev()->round(3)}"
+            ),
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"latencies": [1, 2, 3, 4]},
+                user_id,
+            )
+
+        assert (
+            result["prompt"] == "Sample variance: 1.667, Alias: 1.667, "
+            "Sample stddev: 1.291, Std alias: 1.291"
+        )
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_sample_variance_for_single_value(
+        self, service_with_mock_db
+    ):
+        """sample_variance needs at least two values for sample statistics."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Sample variance: {latencies->sample_variance}",
+            category="docs",
+            usage_count=6,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'sample_variance'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": [42]},
+                    user_id,
+                )
+
+        assert template.usage_count == 6
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_sample_stddev_transform_with_arguments(
+        self, service_with_mock_db
+    ):
+        """sample_stddev should reject arguments to keep transform deterministic."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Sample stddev: {latencies->sample_stddev(population)}",
+            category="docs",
+            usage_count=4,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'sample_stddev\(population\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": [2, 4, 7]},
+                    user_id,
+                )
+
+        assert template.usage_count == 4
+        db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_use_template_supports_range_numeric_transform(
