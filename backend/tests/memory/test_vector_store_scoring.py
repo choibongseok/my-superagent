@@ -798,6 +798,78 @@ class TestTimestampWindowFiltering:
         assert [result["content"] for result in results] == ["naive"]
 
 
+class TestContentLengthFiltering:
+    """Test optional content-length guards for scored search results."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_content_length_validation(self):
+        """Content-length boundaries should reject invalid values and ranges."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(
+            ValueError,
+            match="min_content_length must be a positive integer",
+        ):
+            memory.search_with_scores(query="test", min_content_length="10")
+
+        with pytest.raises(
+            ValueError,
+            match="max_content_length must be a positive integer",
+        ):
+            memory.search_with_scores(query="test", max_content_length=True)
+
+        with pytest.raises(
+            ValueError,
+            match="min_content_length must be greater than 0",
+        ):
+            memory.search_with_scores(query="test", min_content_length=0)
+
+        with pytest.raises(
+            ValueError,
+            match="min_content_length must be less than or equal to max_content_length",
+        ):
+            memory.search_with_scores(
+                query="test",
+                min_content_length=30,
+                max_content_length=10,
+            )
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_content_length_window_filters_results(self):
+        """Only memories with trimmed lengths inside the window should remain."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        short_doc = Document(page_content=" tiny ", metadata={})
+        medium_doc = Document(page_content="  release checklist v2  ", metadata={})
+        long_doc = Document(
+            page_content="Q1 roadmap draft with migration appendix",
+            metadata={},
+        )
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (short_doc, 0.91),
+                (medium_doc, 0.88),
+                (long_doc, 0.85),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            min_content_length=10,
+            max_content_length=25,
+        )
+
+        assert [result["content"] for result in results] == [
+            "  release checklist v2  "
+        ]
+
+
 class TestOffsetPagination:
     """Test optional offset pagination for scored search results."""
 

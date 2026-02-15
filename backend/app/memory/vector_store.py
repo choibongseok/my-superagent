@@ -392,6 +392,32 @@ class VectorStoreMemory:
 
         return normalized_max_age
 
+    @staticmethod
+    def _normalize_content_length_bound(
+        value: Optional[int],
+        *,
+        field_name: str,
+    ) -> Optional[int]:
+        """Normalize optional content-length filters used in scored search."""
+        if value is None:
+            return None
+
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"{field_name} must be a positive integer")
+
+        if value <= 0:
+            raise ValueError(f"{field_name} must be greater than 0")
+
+        return value
+
+    @staticmethod
+    def _get_content_length(content: Any) -> int:
+        """Return normalized content length for optional length filtering."""
+        if not isinstance(content, str):
+            content = str(content)
+
+        return len(content.strip())
+
     def _build_user_scoped_filter(
         self,
         filter_dict: Optional[Dict[str, Any]] = None,
@@ -642,6 +668,8 @@ class VectorStoreMemory:
         created_after: Optional[datetime | str] = None,
         created_before: Optional[datetime | str] = None,
         max_age_hours: Optional[float] = None,
+        min_content_length: Optional[int] = None,
+        max_content_length: Optional[int] = None,
         offset: Optional[int] = None,
         max_results_per_session: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
@@ -723,6 +751,12 @@ class VectorStoreMemory:
             max_age_hours: Optional recency window (in hours) used to keep
                 only memories newer than ``now - max_age_hours``. This can be
                 combined with ``created_after``; the stricter lower bound wins.
+            min_content_length: Optional minimum normalized content length
+                (after trimming leading/trailing whitespace). When set, shorter
+                memories are excluded before score-thresholding.
+            max_content_length: Optional maximum normalized content length
+                (after trimming leading/trailing whitespace). When set, longer
+                memories are excluded before score-thresholding.
             offset: Optional zero-based pagination offset applied after filtering
                 and ordering but before the final ``k`` limit. Must be >= 0 when
                 provided.
@@ -740,7 +774,8 @@ class VectorStoreMemory:
                 ``max_score_gap``/``min_score_margin``/
                 ``min_relative_score``/``min_top_score``/
                 ``offset``/``max_results_per_session`` values, invalid
-                ``created_after``/``created_before``/``max_age_hours`` boundaries,
+                ``created_after``/``created_before``/``max_age_hours``/
+                ``min_content_length``/``max_content_length`` boundaries,
                 invalid ``required_terms``/``required_terms_mode``/
                 ``excluded_terms``/``excluded_terms_mode``/
                 ``session_ids``/``excluded_session_ids`` values,
@@ -895,6 +930,23 @@ class VectorStoreMemory:
                 or max_age_boundary > normalized_created_after
             ):
                 normalized_created_after = max_age_boundary
+
+        normalized_min_content_length = self._normalize_content_length_bound(
+            min_content_length,
+            field_name="min_content_length",
+        )
+        normalized_max_content_length = self._normalize_content_length_bound(
+            max_content_length,
+            field_name="max_content_length",
+        )
+        if (
+            normalized_min_content_length is not None
+            and normalized_max_content_length is not None
+            and normalized_min_content_length > normalized_max_content_length
+        ):
+            raise ValueError(
+                "min_content_length must be less than or equal to max_content_length"
+            )
 
         if (
             normalized_created_after is not None
@@ -1052,6 +1104,39 @@ class VectorStoreMemory:
                 "Applied excluded_session_ids filtering: sessions=%s, before=%d, after=%d",
                 normalized_excluded_session_ids,
                 pre_session_exclusion_count,
+                len(results),
+            )
+
+        if (
+            normalized_min_content_length is not None
+            or normalized_max_content_length is not None
+        ):
+            pre_content_length_count = len(results)
+            content_filtered_results: List[Tuple[Document, float]] = []
+
+            for doc, score in results:
+                content_length = self._get_content_length(doc.page_content)
+
+                if (
+                    normalized_min_content_length is not None
+                    and content_length < normalized_min_content_length
+                ):
+                    continue
+
+                if (
+                    normalized_max_content_length is not None
+                    and content_length > normalized_max_content_length
+                ):
+                    continue
+
+                content_filtered_results.append((doc, score))
+
+            results = content_filtered_results
+            logger.debug(
+                "Applied content-length filtering: min=%s, max=%s, before=%d, after=%d",
+                normalized_min_content_length,
+                normalized_max_content_length,
+                pre_content_length_count,
                 len(results),
             )
 
