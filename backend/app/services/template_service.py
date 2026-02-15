@@ -641,6 +641,36 @@ def _average_numeric_values(value: object, argument_spec: str) -> int | float:
     return int(average) if float(average).is_integer() else average
 
 
+def _geometric_mean_numeric_values(
+    value: object,
+    argument_spec: str,
+    *,
+    transform_name: str = "geomean",
+) -> int | float:
+    """Return geometric mean for non-empty numeric iterables."""
+    if argument_spec.strip():
+        raise ValueError(f"{transform_name} expects no arguments")
+
+    numeric_values = _iter_numeric_values(value, transform_name=transform_name)
+    if not numeric_values:
+        raise ValueError(f"{transform_name} expects a non-empty iterable value")
+
+    if any(item < 0 for item in numeric_values):
+        raise ValueError(f"{transform_name} expects non-negative numeric values")
+
+    if any(item == 0 for item in numeric_values):
+        return 0
+
+    log_sum = sum(math.log(item) for item in numeric_values)
+    geometric_mean = math.exp(log_sum / len(numeric_values))
+
+    rounded_integer = round(geometric_mean)
+    if math.isclose(geometric_mean, rounded_integer, rel_tol=0.0, abs_tol=1e-12):
+        return int(rounded_integer)
+
+    return geometric_mean
+
+
 def _min_numeric_value(value: object, argument_spec: str) -> int | float:
     """Return the minimum numeric value from a non-empty iterable."""
     if argument_spec.strip():
@@ -1107,6 +1137,7 @@ class TemplateService:
         - ``{durations->sum}``, ``{durations->sum(10)}``
         - ``{durations->product}``, ``{durations->product(0.5)}``
         - ``{durations->avg}``
+        - ``{durations->geomean}``, ``{durations->gmean}``
         - ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``
         - ``{latencies->percentile(95)}``, ``{latencies->pctl(90)}``
         - ``{latencies->variance}``, ``{latencies->var}``
@@ -1178,6 +1209,12 @@ class TemplateService:
             ),
             "avg": lambda raw: _average_numeric_values(raw, ""),
             "mean": lambda raw: _average_numeric_values(raw, ""),
+            "geomean": lambda raw: _geometric_mean_numeric_values(raw, ""),
+            "gmean": lambda raw: _geometric_mean_numeric_values(
+                raw,
+                "",
+                transform_name="gmean",
+            ),
             "min": lambda raw: _min_numeric_value(raw, ""),
             "max": lambda raw: _max_numeric_value(raw, ""),
             "median": lambda raw: _median_numeric_value(raw, ""),
@@ -1213,6 +1250,8 @@ class TemplateService:
                 "prod([start])",
                 "avg",
                 "mean",
+                "geomean",
+                "gmean",
                 "min",
                 "max",
                 "median",
@@ -1316,6 +1355,12 @@ class TemplateService:
                     operation = lambda raw, spec=argument_spec: _average_numeric_values(
                         raw,
                         spec,
+                    )
+                elif transform_name in {"geomean", "gmean"}:
+                    operation = lambda raw, spec=argument_spec, name=transform_name: _geometric_mean_numeric_values(
+                        raw,
+                        spec,
+                        transform_name=name,
                     )
                 elif transform_name == "min":
                     operation = lambda raw, spec=argument_spec: _min_numeric_value(
@@ -1441,7 +1486,8 @@ class TemplateService:
         ``{score->clamp(0,1)->round(2)}``,
         ``{durations->sum}``, ``{durations->sum(10)}``,
         ``{durations->product}``, ``{durations->product(0.5)}``,
-        ``{durations->avg}``, ``{latencies->min}``, ``{latencies->max}``,
+        ``{durations->avg}``, ``{durations->geomean}``, ``{durations->gmean}``,
+        ``{latencies->min}``, ``{latencies->max}``,
         ``{latencies->median}``, ``{latencies->percentile(95)}``,
         ``{latencies->pctl(90)}``,
         ``{latencies->variance}``, ``{latencies->var}``,
