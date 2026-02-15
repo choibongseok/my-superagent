@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
 from app.core.security import (
@@ -372,3 +374,44 @@ def test_decode_token_validates_scope_requirement_inputs() -> None:
 
     with pytest.raises(TypeError, match="match_any_scopes must be a boolean"):
         decode_token(token, required_scopes="chat:read", match_any_scopes="yes")
+
+
+def test_decode_token_rejects_expired_tokens_without_leeway() -> None:
+    token = create_access_token(
+        {"sub": "user-123"},
+        expires_delta=timedelta(seconds=-1),
+    )
+
+    assert decode_token(token, expected_subject="user-123") is None
+
+
+def test_decode_token_accepts_expired_tokens_with_leeway() -> None:
+    token = create_access_token(
+        {"sub": "user-123"},
+        expires_delta=timedelta(seconds=-1),
+    )
+
+    payload = decode_token(
+        token,
+        expected_subject="user-123",
+        leeway_seconds=5,
+    )
+
+    assert payload is not None
+    assert payload["sub"] == "user-123"
+
+
+def test_decode_token_validates_leeway_seconds_input() -> None:
+    token = create_access_token({"sub": "user-123"})
+
+    with pytest.raises(TypeError, match="leeway_seconds must be a numeric value"):
+        decode_token(token, leeway_seconds="5")  # type: ignore[arg-type]
+
+    with pytest.raises(TypeError, match="leeway_seconds must be a numeric value"):
+        decode_token(token, leeway_seconds=True)  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="leeway_seconds must be greater than or equal to 0",
+    ):
+        decode_token(token, leeway_seconds=-1)

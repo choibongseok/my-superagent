@@ -307,6 +307,21 @@ def _extract_token_audiences(payload: Mapping[str, Any]) -> tuple[str, ...] | No
     return None
 
 
+def _normalize_leeway_seconds(leeway_seconds: int | float | None) -> float:
+    """Normalize optional JWT leeway seconds for clock-skew tolerance."""
+    if leeway_seconds is None:
+        return 0.0
+
+    if isinstance(leeway_seconds, bool) or not isinstance(leeway_seconds, (int, float)):
+        raise TypeError("leeway_seconds must be a numeric value")
+
+    normalized_leeway = float(leeway_seconds)
+    if normalized_leeway < 0:
+        raise ValueError("leeway_seconds must be greater than or equal to 0")
+
+    return normalized_leeway
+
+
 def decode_token(
     token: str,
     *,
@@ -319,6 +334,7 @@ def decode_token(
     required_scopes: str | Iterable[str] | None = None,
     scope_claim: str = "scope",
     match_any_scopes: bool = False,
+    leeway_seconds: int | float | None = None,
 ) -> dict[str, Any] | None:
     """Decode a JWT token with optional type/claim validation.
 
@@ -342,6 +358,8 @@ def decode_token(
         match_any_scopes: Scope matching mode. ``False`` (default) requires
             every ``required_scopes`` entry to be present. ``True`` requires
             at least one matching scope.
+        leeway_seconds: Optional expiration/not-before clock-skew tolerance
+            applied during JWT decode.
 
     Returns:
         Decoded payload when valid, otherwise ``None``.
@@ -365,13 +383,18 @@ def decode_token(
     )
     normalized_required_scopes = _normalize_required_scopes(required_scopes)
     normalized_scope_claim = _normalize_scope_claim_name(scope_claim)
+    normalized_leeway_seconds = _normalize_leeway_seconds(leeway_seconds)
+
+    decode_options: dict[str, Any] = {"verify_aud": False}
+    if normalized_leeway_seconds > 0:
+        decode_options["leeway"] = normalized_leeway_seconds
 
     try:
         payload = jwt.decode(
             token,
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM],
-            options={"verify_aud": False},
+            options=decode_options,
         )
     except JWTError:
         return None
