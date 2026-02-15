@@ -1116,6 +1116,81 @@ class TestScoreGapFiltering:
         assert [result["content"] for result in results] == ["top-1", "top-2"]
 
 
+class TestRelativeScoreFiltering:
+    """Test optional relative score filtering anchored to top candidate."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_relative_score_validation(self):
+        """min_relative_score values outside [0, 1] should fail fast."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(ValueError, match="min_relative_score must be in"):
+            memory.search_with_scores(query="test", min_relative_score=-0.1)
+
+        with pytest.raises(ValueError, match="min_relative_score must be in"):
+            memory.search_with_scores(query="test", min_relative_score=1.1)
+
+        with pytest.raises(ValueError, match="min_relative_score must be in"):
+            memory.search_with_scores(query="test", min_relative_score=True)
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_relative_score_filters_using_top_score_ratio(self):
+        """Only candidates within the relative ratio from top score should remain."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        top_doc = Document(page_content="top", metadata={})
+        close_doc = Document(page_content="close", metadata={})
+        far_doc = Document(page_content="far", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (top_doc, 0.91),
+                (close_doc, 0.83),
+                (far_doc, 0.62),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            min_relative_score=0.9,
+        )
+
+        assert [result["content"] for result in results] == ["top", "close"]
+        assert [result["score"] for result in results] == [0.91, 0.83]
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_relative_score_zero_keeps_all_thresholded_results(self):
+        """A zero relative score floor should not remove any thresholded results."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        first_doc = Document(page_content="first", metadata={})
+        second_doc = Document(page_content="second", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (first_doc, 0.78),
+                (second_doc, 0.51),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            min_relative_score=0.0,
+        )
+
+        assert [result["content"] for result in results] == ["first", "second"]
+
+
 class TestScoreMarginFiltering:
     """Test optional score-margin filtering above the active threshold."""
 

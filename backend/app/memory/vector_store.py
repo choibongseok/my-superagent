@@ -542,6 +542,7 @@ class VectorStoreMemory:
         min_relevance: Optional[str] = None,
         max_score_gap: Optional[float] = None,
         min_score_margin: Optional[float] = None,
+        min_relative_score: Optional[float] = None,
         sort_by_score: bool = False,
         include_score_context: bool = False,
         unique_content: bool = False,
@@ -582,6 +583,10 @@ class VectorStoreMemory:
                 ``score >= baseline_threshold + min_score_margin`` are kept.
                 Baseline threshold is the adaptive/explicit threshold when
                 available, otherwise ``0.0``. Accepted range is ``[0, 1]``.
+            min_relative_score: Optional relative score floor anchored to the
+                strongest candidate after thresholding. When set, only
+                results where ``score >= top_score * min_relative_score`` are
+                retained. Accepted range is ``[0, 1]``.
             sort_by_score: When ``True``, sort accepted results by descending score
                 before applying the final ``k`` limit. Ties preserve original
                 vector-store order for deterministic pagination.
@@ -619,7 +624,8 @@ class VectorStoreMemory:
         Raises:
             ValueError: If thresholds/parameters are invalid, including unsupported
                 ``min_confidence``/``min_relevance`` values, invalid
-                ``max_score_gap``/``min_score_margin``/``offset``/
+                ``max_score_gap``/``min_score_margin``/
+                ``min_relative_score``/``offset``/
                 ``max_results_per_session`` values, invalid
                 ``created_after``/``created_before`` boundaries,
                 invalid ``required_terms``/``required_terms_mode`` values,
@@ -692,6 +698,20 @@ class VectorStoreMemory:
             if not (0.0 <= min_score_margin <= 1.0):
                 raise ValueError(
                     f"min_score_margin must be in [0, 1], got {min_score_margin}"
+                )
+
+        if min_relative_score is not None:
+            if isinstance(min_relative_score, bool) or not isinstance(
+                min_relative_score, (int, float)
+            ):
+                raise ValueError(
+                    f"min_relative_score must be in [0, 1], got {min_relative_score}"
+                )
+
+            min_relative_score = float(min_relative_score)
+            if not (0.0 <= min_relative_score <= 1.0):
+                raise ValueError(
+                    f"min_relative_score must be in [0, 1], got {min_relative_score}"
                 )
 
         normalized_min_confidence = self._normalize_min_confidence(min_confidence)
@@ -959,6 +979,22 @@ class VectorStoreMemory:
             logger.debug(
                 "Applied max_score_gap filtering: gap=%.3f, top=%.3f, min=%.3f, kept=%d",
                 max_score_gap,
+                top_score_after_threshold,
+                minimum_allowed_score,
+                len(results),
+            )
+
+        if min_relative_score is not None and results:
+            top_score_after_threshold = max(score for _, score in results)
+            minimum_allowed_score = top_score_after_threshold * min_relative_score
+            results = [
+                (doc, score)
+                for doc, score in results
+                if score + SCORE_EPSILON >= minimum_allowed_score
+            ]
+            logger.debug(
+                "Applied min_relative_score filtering: relative=%.3f, top=%.3f, min=%.3f, kept=%d",
+                min_relative_score,
                 top_score_after_threshold,
                 minimum_allowed_score,
                 len(results),
