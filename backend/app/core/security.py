@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
 import re
+import time
 from typing import Any
 
 from jose import JWTError, jwt
@@ -33,13 +34,14 @@ def create_access_token(
     """Create a JWT access token."""
     to_encode = data.copy()
 
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(
-            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
-        )
+    issued_at = datetime.utcnow()
 
+    if expires_delta:
+        expire = issued_at + expires_delta
+    else:
+        expire = issued_at + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+
+    to_encode.setdefault("iat", issued_at)
     to_encode.update({"exp": expire, "type": "access"})
 
     return jwt.encode(
@@ -52,8 +54,10 @@ def create_access_token(
 def create_refresh_token(data: dict) -> str:
     """Create a JWT refresh token."""
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    issued_at = datetime.utcnow()
+    expire = issued_at + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
 
+    to_encode.setdefault("iat", issued_at)
     to_encode.update({"exp": expire, "type": "refresh"})
 
     return jwt.encode(
@@ -322,6 +326,44 @@ def _normalize_leeway_seconds(leeway_seconds: int | float | None) -> float:
     return normalized_leeway
 
 
+def _normalize_max_age_seconds(max_age_seconds: int | float | None) -> float | None:
+    """Normalize optional token max-age constraints for ``decode_token``."""
+    if max_age_seconds is None:
+        return None
+
+    if isinstance(max_age_seconds, bool) or not isinstance(
+        max_age_seconds,
+        (int, float),
+    ):
+        raise TypeError("max_age_seconds must be a numeric value")
+
+    normalized_max_age = float(max_age_seconds)
+    if normalized_max_age < 0:
+        raise ValueError("max_age_seconds must be greater than or equal to 0")
+
+    return normalized_max_age
+
+
+def _extract_issued_at_timestamp(payload: Mapping[str, Any]) -> float | None:
+    """Extract normalized ``iat`` timestamps from decoded token payloads."""
+    issued_at_claim = payload.get("iat")
+    if issued_at_claim is None or isinstance(issued_at_claim, bool):
+        return None
+
+    if isinstance(issued_at_claim, datetime):
+        issued_at = issued_at_claim.timestamp()
+    else:
+        try:
+            issued_at = float(issued_at_claim)
+        except (TypeError, ValueError):
+            return None
+
+    if issued_at < 0:
+        return None
+
+    return issued_at
+
+
 def decode_token(
     token: str,
     *,
@@ -335,6 +377,7 @@ def decode_token(
     scope_claim: str = "scope",
     match_any_scopes: bool = False,
     leeway_seconds: int | float | None = None,
+    max_age_seconds: int | float | None = None,
 ) -> dict[str, Any] | None:
     """Decode a JWT token with optional type/claim validation.
 
@@ -360,6 +403,8 @@ def decode_token(
             at least one matching scope.
         leeway_seconds: Optional expiration/not-before clock-skew tolerance
             applied during JWT decode.
+        max_age_seconds: Optional freshness constraint based on ``iat`` claim.
+            When provided, tokens older than this many seconds are rejected.
 
     Returns:
         Decoded payload when valid, otherwise ``None``.
@@ -384,6 +429,7 @@ def decode_token(
     normalized_required_scopes = _normalize_required_scopes(required_scopes)
     normalized_scope_claim = _normalize_scope_claim_name(scope_claim)
     normalized_leeway_seconds = _normalize_leeway_seconds(leeway_seconds)
+    normalized_max_age_seconds = _normalize_max_age_seconds(max_age_seconds)
 
     decode_options: dict[str, Any] = {"verify_aud": False}
     if normalized_leeway_seconds > 0:
@@ -450,6 +496,19 @@ def decode_token(
             if token_scope_set.isdisjoint(required_scope_set):
                 return None
         elif not required_scope_set.issubset(token_scope_set):
+            return None
+
+    if normalized_max_age_seconds is not None:
+        issued_at = _extract_issued_at_timestamp(payload)
+        if issued_at is None:
+            return None
+
+        now_timestamp = time.time()
+        if issued_at > (now_timestamp + normalized_leeway_seconds):
+            return None
+
+        token_age = now_timestamp - issued_at
+        if token_age > (normalized_max_age_seconds + normalized_leeway_seconds):
             return None
 
     return payload

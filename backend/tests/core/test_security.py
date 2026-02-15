@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -399,6 +399,63 @@ def test_decode_token_accepts_expired_tokens_with_leeway() -> None:
 
     assert payload is not None
     assert payload["sub"] == "user-123"
+
+
+def test_create_access_token_adds_iat_claim_by_default() -> None:
+    token = create_access_token({"sub": "user-123"})
+
+    payload = decode_token(token, expected_subject="user-123")
+
+    assert payload is not None
+    assert isinstance(payload.get("iat"), (int, float))
+
+
+def test_decode_token_accepts_tokens_within_max_age_window() -> None:
+    token = create_access_token({"sub": "user-123"})
+
+    payload = decode_token(
+        token,
+        expected_subject="user-123",
+        max_age_seconds=60,
+    )
+
+    assert payload is not None
+    assert payload["sub"] == "user-123"
+
+
+def test_decode_token_rejects_tokens_older_than_max_age() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "iat": datetime.utcnow() - timedelta(minutes=10),
+        },
+        expires_delta=timedelta(minutes=30),
+    )
+
+    assert (
+        decode_token(
+            token,
+            expected_subject="user-123",
+            max_age_seconds=60,
+        )
+        is None
+    )
+
+
+def test_decode_token_validates_max_age_seconds_input() -> None:
+    token = create_access_token({"sub": "user-123"})
+
+    with pytest.raises(TypeError, match="max_age_seconds must be a numeric value"):
+        decode_token(token, max_age_seconds="60")  # type: ignore[arg-type]
+
+    with pytest.raises(TypeError, match="max_age_seconds must be a numeric value"):
+        decode_token(token, max_age_seconds=True)  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="max_age_seconds must be greater than or equal to 0",
+    ):
+        decode_token(token, max_age_seconds=-1)
 
 
 def test_decode_token_validates_leeway_seconds_input() -> None:
