@@ -904,6 +904,65 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_sum_and_avg_numeric_transforms(
+        self, service_with_mock_db
+    ):
+        """sum/avg should aggregate numeric iterables and compose with round."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "Total: {durations->sum}, "
+                "Seeded: {durations->sum(10)}, "
+                "Average: {durations->avg->round(2)}"
+            ),
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"durations": [1, 2.5, 3]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Total: 6.5, Seeded: 16.5, Average: 2.17"
+        assert template.usage_count == 2
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_avg_transform_for_empty_collections(
+        self, service_with_mock_db
+    ):
+        """avg should fail for empty iterables to avoid silent divide-by-zero semantics."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Average: {durations->avg}",
+            category="docs",
+            usage_count=7,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'avg'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"durations": []},
+                    user_id,
+                )
+
+        assert template.usage_count == 7
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_rejects_round_transform_with_invalid_precision(
         self, service_with_mock_db
     ):

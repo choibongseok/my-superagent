@@ -559,6 +559,57 @@ def _clamp_numeric(value: object, argument_spec: str) -> int | float:
     return clamped
 
 
+def _iter_numeric_values(value: object, *, transform_name: str) -> list[float]:
+    """Normalize iterable numeric values used by aggregate transforms."""
+    if isinstance(value, (str, bytes, bytearray)):
+        raise ValueError(f"{transform_name} expects an iterable value, not a string")
+
+    try:
+        iterator = iter(value)
+    except TypeError as exc:
+        raise ValueError(f"{transform_name} expects an iterable value") from exc
+
+    numeric_values: list[float] = []
+    for item in iterator:
+        numeric_values.append(
+            _normalize_numeric_transform_value(item, transform_name=transform_name)
+        )
+
+    return numeric_values
+
+
+def _sum_numeric_values(value: object, argument_spec: str) -> int | float:
+    """Sum iterable numeric values with an optional ``start`` argument."""
+    args: list[str] = []
+    if argument_spec.strip():
+        args = _parse_transform_args(argument_spec)
+
+    if len(args) > 1:
+        raise ValueError("sum expects zero or one argument: start")
+
+    start = 0.0
+    if args:
+        start = _normalize_numeric_transform_value(
+            args[0].strip(), transform_name="sum"
+        )
+
+    total = start + sum(_iter_numeric_values(value, transform_name="sum"))
+    return int(total) if float(total).is_integer() else total
+
+
+def _average_numeric_values(value: object, argument_spec: str) -> int | float:
+    """Return mean value for non-empty iterable numeric inputs."""
+    if argument_spec.strip():
+        raise ValueError("avg expects no arguments")
+
+    numeric_values = _iter_numeric_values(value, transform_name="avg")
+    if not numeric_values:
+        raise ValueError("avg expects a non-empty iterable value")
+
+    average = sum(numeric_values) / len(numeric_values)
+    return int(average) if float(average).is_integer() else average
+
+
 def _fallback_value(value: object, argument_spec: str) -> object:
     """Return fallback when values are missing, blank, or empty collections."""
     args = _parse_transform_args(argument_spec)
@@ -836,6 +887,8 @@ class TemplateService:
         - ``{delta->abs}``
         - ``{estimate->floor}``, ``{estimate->ceil}``
         - ``{score->clamp(0,1)->round(2)}``
+        - ``{durations->sum}``, ``{durations->sum(10)}``
+        - ``{durations->avg}``
         - ``{nickname->strip->fallback("friend")}``
 
         Returns:
@@ -891,6 +944,9 @@ class TemplateService:
             "floor": _floor_numeric,
             "ceil": _ceil_numeric,
             "clamp": lambda raw: _clamp_numeric(raw, ""),
+            "sum": lambda raw: _sum_numeric_values(raw, ""),
+            "avg": lambda raw: _average_numeric_values(raw, ""),
+            "mean": lambda raw: _average_numeric_values(raw, ""),
         }
         supported_transforms = sorted(
             [
@@ -911,6 +967,9 @@ class TemplateService:
                 "indent([prefix])",
                 "round([ndigits])",
                 "clamp(<min>,<max>)",
+                "sum([start])",
+                "avg",
+                "mean",
             ]
         )
 
@@ -988,6 +1047,15 @@ class TemplateService:
                 elif transform_name == "clamp":
                     operation = lambda raw, spec=argument_spec: _clamp_numeric(
                         raw, spec
+                    )
+                elif transform_name == "sum":
+                    operation = lambda raw, spec=argument_spec: _sum_numeric_values(
+                        raw, spec
+                    )
+                elif transform_name in {"avg", "mean"}:
+                    operation = lambda raw, spec=argument_spec: _average_numeric_values(
+                        raw,
+                        spec,
                     )
 
             if operation is None:
@@ -1071,6 +1139,7 @@ class TemplateService:
         ``{title->append(" ✅")}``, ``{score->round(2)}``,
         ``{delta->abs}``, ``{estimate->floor}``, ``{estimate->ceil}``,
         ``{score->clamp(0,1)->round(2)}``,
+        ``{durations->sum}``, ``{durations->sum(10)}``, ``{durations->avg}``,
         or ``{nickname->strip->fallback("friend")}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
