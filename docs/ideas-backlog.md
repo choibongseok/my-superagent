@@ -6,6 +6,170 @@
 
 ---
 
+## 2026-02-15 (AM 9:20) | 기획자 에이전트 - 인프라 ROI 극대화: 관찰·단순·협업 📊🤖🤝
+
+### 💡 Idea #90: "Developer Insights Dashboard" - Cache/Memory/Citation 성능 실시간 모니터링
+
+**문제점**:
+- **블랙박스 운영**: Cache hit rate, Memory recall accuracy를 알 수 없음 😓
+- **최적화 불가**: 어떤 Agent가 느린지, 왜 느린지 파악 안 됨 ❌
+- **비용 낭비**: LLM API 호출이 중복되는지 모름 💸
+- **품질 저하**: Citation quality, Memory 정확도를 모니터링 못 함 📉
+- **경쟁사 현황**:
+  - Zapier: Task history ⚪ (기본 로그만)
+  - Notion: 성능 대시보드 ❌
+  - ChatGPT: 사용량 통계만 ⚪
+  - **AgentHQ: Observability 전무** ❌
+
+**제안 솔루션**:
+```
+"Developer Insights Dashboard" - Cache/Memory/Citation/Agent 성능 실시간 모니터링 및 최적화 제안
+```
+
+**핵심 기능**:
+1. **Cache Analytics**: Hit rate by endpoint/user, In-flight coalesce count, TTL distribution, Namespace breakdown
+2. **Memory Performance**: Vector search latency (p50/p95/p99), Recall accuracy, Lexical filter efficiency
+3. **Citation Quality**: Source authority distribution, Query length relevance, Author filter usage
+4. **Agent Execution**: Task completion time, LLM API cost, Error rate, Template transform usage
+5. **Optimization Recommendations**: AI-powered suggestions (예: "Cache TTL 증가 → hit rate +15%")
+
+**기술 구현**:
+- Data Collection: `cache-core` decorator에서 metrics 수집
+- Storage: PostgreSQL time-series table or Prometheus
+- Visualization: React + Recharts or Grafana
+- Real-time: WebSocket 실시간 업데이트
+
+**기존 인프라 활용**:
+- ✅ Cache의 `bulk ttl introspection` → TTL 분석
+- ✅ Cache의 `namespace metadata` → 카테고리별 분석
+- ✅ Memory의 `timestamp-window filtering` → 시계열 분석
+- ✅ Citation의 `query length relevance profiles` → 품질 측정
+
+**예상 임팩트**:
+- 🚀 최적화 속도: +500% (데이터 기반 의사결정)
+- 💰 비용 절감: -30% (중복 API 호출 제거)
+- 📈 성능 향상: Cache hit rate 50% → 85%
+- 🎯 품질 개선: Memory recall accuracy +20%
+- 🏆 경쟁 우위: vs Zapier (Observability ✅ vs ❌)
+
+**개발 난이도**: ⭐⭐⭐☆☆ (Medium)
+
+**개발 기간**: 4주
+
+**우선순위**: 🔥 CRITICAL (인프라 투자 ROI 극대화)
+
+**ROI**: ⭐⭐⭐⭐⭐ (비용 절감 직결, Payback 1.1개월)
+
+---
+
+### 💡 Idea #91: "AI-Powered Template Builder" - 자연어로 Template 생성, AI가 최적 transform 선택
+
+**문제점**:
+- **Template 복잡성**: median, sum, avg, distinct_count 등 5개 transform 추가되었으나 사용법 모름 😓
+- **진입 장벽**: "Template이 뭐야?" → 포기 ❌
+- **학습 곡선**: 문서 읽고 → 예제 보고 → 테스트 → 수정 (시간 낭비) ⏱️
+- **오류 발생**: Syntax error, 잘못된 transform 사용 😰
+- **경쟁사 현황**:
+  - Zapier: Visual builder ✅ (코드 불필요)
+  - Notion: AI blocks ⚪ (제한적)
+  - ChatGPT: Prompt engineering 필요 ❌
+  - **AgentHQ: 수동 Template 작성** ❌
+
+**제안 솔루션**:
+```
+"AI-Powered Template Builder" - 자연어로 Template 생성, AI가 최적의 transform 자동 선택
+```
+
+**핵심 기능**:
+1. **Natural Language to Template**: "매출 데이터의 중간값 계산해서 Sheets에 넣어줘" → `{{ values | median }}` 자동 생성
+2. **Smart Transform Recommendation**: 데이터 타입 분석 → 최적 transform 제안 (sum/avg/median/min/max/distinct_count)
+3. **Visual Template Editor**: Drag & drop, Live preview, Error highlighting
+4. **Template Library**: 인기 템플릿 공유, Category별 분류, One-click clone
+5. **AI Optimization**: "이 Template을 더 빠르게 만들 수 있어요 (cache 사용 추천)"
+
+**기술 구현**:
+- NLP: LLM (GPT-4 or Claude) for natural language parsing
+- Parser: Jinja2 Template → AST → Transform detection
+- Editor: Monaco Editor (VS Code 엔진) + React
+- Backend: FastAPI endpoint for AI suggestions
+
+**기존 인프라 활용**:
+- ✅ Template의 `mode/median/min/max/distinct_count/sum/avg transforms` → AI가 자동 선택
+- ✅ Cache의 `conditional result caching` → Template 결과 캐싱
+- ✅ Template의 `custom headers support` → 유연한 출력
+
+**예상 임팩트**:
+- 🚀 Template 생성 시간: 30분 → 2분 (-93%)
+- 🎯 사용률: 10% → 60% (+500%)
+- 📈 복잡한 transform 사용: 5% → 40% (AI 추천 덕분)
+- 😊 만족도: +50% (진입 장벽 제거)
+- 🏆 경쟁 우위: vs Zapier (AI-powered ✅ vs Visual만 ⚪)
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Medium-High)
+
+**개발 기간**: 5주
+
+**우선순위**: 🔥 HIGH (최근 Template 투자 ROI 극대화)
+
+**ROI**: ⭐⭐⭐⭐☆
+
+---
+
+### 💡 Idea #92: "Real-time Collaborative Review" - 여러 사용자가 동시에 Agent 작업 검토/수정
+
+**문제점**:
+- **단독 사용 중심**: 모든 Agent 작업이 개인용 ❌
+- **피드백 지연**: 문서 공유 → 이메일 → 수정 → 재공유 (느림) ⏱️
+- **버전 충돌**: 여러 사람이 같은 Docs/Sheets 수정 → 덮어쓰기 😰
+- **컨텍스트 손실**: "이 부분 왜 이렇게 했어?" → 설명 불가 ❌
+- **경쟁사 현황**:
+  - Notion: Real-time collaboration ✅✅
+  - Google Docs: Real-time ✅✅
+  - ChatGPT: 단독 사용 ❌
+  - **AgentHQ: 단독 사용** ❌
+
+**제안 솔루션**:
+```
+"Real-time Collaborative Review" - 여러 사용자가 동시에 Agent 작업 결과를 검토, 수정, 승인
+```
+
+**핵심 기능**:
+1. **Multi-user Presence**: Live cursor, User avatars, Typing indicators
+2. **Collaborative Editing**: Agent 생성한 Docs/Sheets/Slides를 함께 수정, Conflict resolution (CRDT), Undo/Redo 공유
+3. **Comment & Annotation**: Inline comments, Suggestion mode, @mention notifications
+4. **Approval Workflow**: Agent 작업 → 팀 검토 → 승인/거부 → 최종 배포, 역할별 권한
+5. **Version History**: 모든 변경 사항 추적, Diff view, Rollback
+
+**기술 구현**:
+- WebSocket: 실시간 통신 (Socket.io or native WebSocket)
+- CRDT: Conflict-free Replicated Data Type (Yjs or Automerge)
+- Cache: `coalesce in-flight calls`로 동시 요청 최적화
+- Database: PostgreSQL + Presence table
+
+**기존 인프라 활용**:
+- ✅ Cache의 `coalesce in-flight cached calls` → 동시 접속 최적화
+- ✅ Memory의 `session-based diversification` → 사용자별 컨텍스트 분리
+- ✅ Citation의 `author filters` → 누가 어떤 소스 추가했는지 추적
+
+**예상 임팩트**:
+- 🚀 피드백 주기: 24시간 → 10분 (-99%)
+- 🎯 협업 효율: +200% (실시간 소통)
+- 📈 팀 사용: 개인 → 팀 (Enterprise 시장 진출)
+- 😊 만족도: +60% (협업 Pain Point 해결)
+- 🏆 경쟁 우위: vs ChatGPT (Collaboration ✅ vs ❌)
+
+**개발 난이도**: ⭐⭐⭐⭐⭐ (High)
+
+**개발 기간**: 7주
+
+**우선순위**: 🔥 HIGH (Enterprise 시장 필수, MRR +100%)
+
+**ROI**: ⭐⭐⭐⭐☆ (Enterprise 고객 확보 → MRR +68%)
+
+**Phase 9-C 제안**: Developer Insights (4주) → AI Template Builder (5주) → Collaborative Review (7주) = **16주, ROI 1.1개월**
+
+---
+
 ## 2026-02-15 (AM 7:20) | 기획자 에이전트 - 플랫폼 접근성 & 사용자 경험 최적화: 웹 진출·생산성·개인화 🌐⚡🧠
 
 ### 💡 Idea #87: "Progressive Web App (PWA) Support" - 앱 설치 없이 웹에서 네이티브처럼

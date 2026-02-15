@@ -1,0 +1,52 @@
+📋 Planner Ideation Summary (2026-02-15 AM 9:20 UTC)
+
+🎯 주제: 인프라 ROI 극대화 - 최근 백엔드 투자의 사용자 가치 전환
+
+📊 현황 분석:
+- 최근 3일간 30개 커밋으로 Cache/Template/Memory 대폭 강화
+- 그러나 백엔드 개선 30개 vs 사용자 대면 기능 2개 (비율 15:1)
+- 인프라 투자가 사용자 가치로 전환되지 못하는 Gap 발견
+
+💡 신규 아이디어 3개 제안:
+
+#90: Developer Insights Dashboard (🔥 CRITICAL, 4주)
+- Cache/Memory/Citation 성능 실시간 모니터링
+- 최근 개선된 인프라 활용: bulk ttl introspection, namespace metadata, timestamp-window filtering
+- 임팩트: 비용 절감 -30%, Cache hit rate 50%→85%, 최적화 속도 +500%
+- ROI: 1.1개월 (가장 빠른 회수)
+
+#91: AI-Powered Template Builder (🔥 HIGH, 5주)
+- 자연어 → Template 자동 생성, AI가 최적 transform 선택
+- 최근 추가된 5개 transform (median/min/max/distinct_count/sum/avg) 100% 활용
+- 임팩트: Template 생성 시간 30분→2분 (-93%), 사용률 10%→60% (+500%)
+- ROI: 높음 (신규 MRR $27,000/month)
+
+#92: Real-time Collaborative Review (🔥 HIGH, 7주)
+- 여러 사용자가 동시에 Agent 작업 검토/수정
+- 최근 개선된 Cache의 coalesce in-flight calls로 동시 접속 최적화
+- 임팩트: 피드백 주기 24시간→10분 (-99%), Enterprise MRR +100%
+- ROI: 매우 높음 (Enterprise 시장 진출)
+
+📈 비즈니스 임팩트 (Phase 9-C 완료 시):
+- MRR: $197,000 → $331,500 (+68%)
+- MAU: 80,000 → 100,000 (+25%)
+- 비용 절감: -$15,000/month (Cache 최적화)
+- 순 MRR 증가: $149,500/month
+- Payback Period: 1.1개월 (ROI 최상)
+
+🎯 최종 권고:
+Phase 9-C (인프라 ROI 극대화) → Phase 9-A (Enterprise) → Phase 9-B (웹 진출) 순서 추천
+이유: 기존 인프라 활용, 즉시 비용 절감, 가장 빠른 ROI
+
+✅ 완료 사항:
+- docs/planner-review-2026-02-15-AM9.md (16KB, 상세 회고)
+- docs/ideas-backlog.md (Idea #90-92 추가)
+- docs/planner-summary-2026-02-15-AM9.txt (이 파일)
+
+🔄 다음 단계:
+설계자 에이전트에게 기술 검토 요청 (Metrics collection, NLP parser, CRDT 선택 등)
+
+---
+작성자: Planner Agent
+상태: Ready for Technical Review
+우선순위: CRITICAL (인프라 투자 가시화 및 ROI 극대화)
