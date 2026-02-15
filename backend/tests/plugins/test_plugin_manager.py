@@ -1500,6 +1500,60 @@ async def test_list_plugins_query_supports_exclusion_tokens(
     assert [item["name"] for item in exclude_only] == ["weather-plugin"]
 
 
+@pytest.mark.asyncio
+async def test_list_plugins_query_supports_quoted_phrase_tokens(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+    (tmp_path / "platform_tool.py").write_text("# platform", encoding="utf-8")
+
+    modules = {
+        "app.plugins.weather_tool": _plugin_module(
+            "app.plugins.weather_tool",
+            _build_plugin_class(
+                "weather-plugin",
+                ["network.http"],
+                author="Weather Team",
+            ),
+        ),
+        "app.plugins.platform_tool": _plugin_module(
+            "app.plugins.platform_tool",
+            _build_plugin_class(
+                "platform-plugin",
+                ["network.http"],
+                author="Platform Team",
+            ),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    quoted_phrase_match = manager.list_plugins(
+        query='"Weather Team"',
+        query_fields=["author"],
+        query_match_mode="all",
+        query_case_sensitive=True,
+    )
+    assert [item["name"] for item in quoted_phrase_match] == ["weather-plugin"]
+
+    quoted_phrase_exclusion = manager.list_plugins(
+        query='plugin -"Platform Team"',
+        query_fields=["name", "author"],
+        query_match_mode="all",
+        query_case_sensitive=True,
+    )
+    assert [item["name"] for item in quoted_phrase_exclusion] == ["weather-plugin"]
+
+
 def test_list_plugins_validates_query_options(tmp_path):
     manager = PluginManager(plugin_dir=str(tmp_path))
 
@@ -1523,3 +1577,9 @@ def test_list_plugins_validates_query_options(tmp_path):
 
     with pytest.raises(ValueError, match="query cannot contain bare '-' tokens"):
         manager.list_plugins(query="weather -", query_match_mode="all")
+
+    with pytest.raises(ValueError, match="query contains invalid quoted syntax"):
+        manager.list_plugins(query='"weather', query_match_mode="all")
+
+    with pytest.raises(ValueError, match="query cannot contain empty quoted tokens"):
+        manager.list_plugins(query='weather ""', query_match_mode="all")

@@ -3,6 +3,7 @@
 import importlib
 import json
 import logging
+import shlex
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
@@ -443,6 +444,27 @@ class PluginManager:
         return normalized_query_fields
 
     @staticmethod
+    def _tokenize_query(query: str) -> list[str]:
+        """Tokenize a query string while supporting quoted phrases.
+
+        Uses shell-style parsing so phrases wrapped in double/single quotes
+        are preserved as single tokens.
+        """
+        try:
+            query_tokens = shlex.split(query)
+        except ValueError as exc:
+            raise ValueError("query contains invalid quoted syntax") from exc
+
+        normalized_query_tokens: list[str] = []
+        for token in query_tokens:
+            normalized_token = " ".join(token.split())
+            if not normalized_token:
+                raise ValueError("query cannot contain empty quoted tokens")
+            normalized_query_tokens.append(normalized_token)
+
+        return normalized_query_tokens
+
+    @staticmethod
     def _split_query_tokens(
         query_tokens: Sequence[str],
     ) -> tuple[list[str], list[str]]:
@@ -586,8 +608,10 @@ class PluginManager:
                 requires all query tokens to appear, ``"any"`` requires at
                 least one token, and ``"phrase"`` requires the normalized
                 query phrase to appear contiguously. In ``"all"`` and
-                ``"any"`` modes, prefix tokens with ``-`` (for example,
-                ``"weather -slack"``) to exclude matches containing that token.
+                ``"any"`` modes, wrap terms in quotes to keep phrase tokens
+                together (for example, ``'"weather team" plugin'``). Prefix
+                tokens with ``-`` (for example, ``"weather -slack"``) to
+                exclude matches containing that token.
             query_case_sensitive: When ``True``, preserve case when matching
                 query text. Defaults to ``False`` for case-insensitive
                 matching.
@@ -633,6 +657,13 @@ class PluginManager:
         if not isinstance(query_case_sensitive, bool):
             raise ValueError("query_case_sensitive must be a boolean")
 
+        if not isinstance(query_match_mode, str) or not query_match_mode.strip():
+            raise ValueError("query_match_mode must be one of: all, any, phrase")
+
+        normalized_query_match_mode = query_match_mode.strip().lower()
+        if normalized_query_match_mode not in {"all", "any", "phrase"}:
+            raise ValueError("query_match_mode must be one of: all, any, phrase")
+
         normalized_query = None
         query_tokens: list[str] = []
         exclude_query_tokens: list[str] = []
@@ -641,20 +672,17 @@ class PluginManager:
             if not normalized_query:
                 raise ValueError("query cannot be blank when provided")
 
+            if normalized_query_match_mode != "phrase":
+                tokenized_query = self._tokenize_query(normalized_query)
+                if not query_case_sensitive:
+                    tokenized_query = [token.casefold() for token in tokenized_query]
+
+                query_tokens, exclude_query_tokens = self._split_query_tokens(
+                    tokenized_query
+                )
+
             if not query_case_sensitive:
                 normalized_query = normalized_query.casefold()
-
-            query_tokens = normalized_query.split(" ")
-
-        if not isinstance(query_match_mode, str) or not query_match_mode.strip():
-            raise ValueError("query_match_mode must be one of: all, any, phrase")
-
-        normalized_query_match_mode = query_match_mode.strip().lower()
-        if normalized_query_match_mode not in {"all", "any", "phrase"}:
-            raise ValueError("query_match_mode must be one of: all, any, phrase")
-
-        if normalized_query is not None and normalized_query_match_mode != "phrase":
-            query_tokens, exclude_query_tokens = self._split_query_tokens(query_tokens)
 
         normalized_query_fields = self._normalize_query_fields(query_fields)
 
