@@ -129,6 +129,139 @@ class TaskPlanner:
 
         logger.info(f"TaskPlanner initialized with {llm_provider}/{model}")
 
+    @staticmethod
+    def _normalize_llm_content(content: Any) -> str:
+        """Normalize provider-specific LLM response content into plain text."""
+        if isinstance(content, str):
+            return content
+
+        if isinstance(content, list):
+            parts: List[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                    continue
+
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if text:
+                        parts.append(str(text))
+                    continue
+
+                text = getattr(item, "text", None)
+                if text:
+                    parts.append(str(text))
+
+            return "\n".join(parts).strip()
+
+        return str(content)
+
+    @staticmethod
+    def _normalize_dependencies(raw_dependencies: Any, *, step_id: str) -> List[str]:
+        """Normalize a step dependency field into a de-duplicated list."""
+        if raw_dependencies is None:
+            return []
+
+        if isinstance(raw_dependencies, str):
+            raw_dependencies = [raw_dependencies]
+
+        if not isinstance(raw_dependencies, list):
+            raise ValueError(f"Step '{step_id}' dependencies must be a list or string")
+
+        normalized: List[str] = []
+        for dependency in raw_dependencies:
+            dependency_id = str(dependency).strip()
+            if dependency_id:
+                normalized.append(dependency_id)
+
+        # Preserve order while removing duplicates
+        return list(dict.fromkeys(normalized))
+
+    @classmethod
+    def _validate_step_dependencies(cls, steps: List[PlanStep]) -> None:
+        """Validate step IDs and dependencies before execution."""
+        step_ids: List[str] = []
+        duplicates: set[str] = set()
+        seen: set[str] = set()
+
+        for step in steps:
+            step_id = step.step_id
+            step_ids.append(step_id)
+            if step_id in seen:
+                duplicates.add(step_id)
+            seen.add(step_id)
+
+        if duplicates:
+            duplicate_list = ", ".join(sorted(duplicates))
+            raise ValueError(f"Duplicate step_id values found: {duplicate_list}")
+
+        known_ids = set(step_ids)
+        missing_dependencies = sorted(
+            {
+                dependency
+                for step in steps
+                for dependency in step.dependencies
+                if dependency not in known_ids
+            }
+        )
+        if missing_dependencies:
+            missing = ", ".join(missing_dependencies)
+            raise ValueError(f"Unknown step dependencies found: {missing}")
+
+        for step in steps:
+            if step.step_id in step.dependencies:
+                raise ValueError(f"Step '{step.step_id}' cannot depend on itself")
+
+        graph = {step.step_id: step.dependencies for step in steps}
+        visited: set[str] = set()
+        visiting: set[str] = set()
+
+        def dfs(step_id: str) -> None:
+            if step_id in visited:
+                return
+            if step_id in visiting:
+                raise ValueError(f"Circular step dependency detected at '{step_id}'")
+
+            visiting.add(step_id)
+            for dependency_id in graph[step_id]:
+                dfs(dependency_id)
+            visiting.remove(step_id)
+            visited.add(step_id)
+
+        for current_step_id in step_ids:
+            dfs(current_step_id)
+
+    def get_execution_batches(self, plan: ExecutionPlan) -> List[List[PlanStep]]:
+        """Return step batches that can run in parallel based on dependencies."""
+        self._validate_step_dependencies(plan.steps)
+
+        step_by_id = {step.step_id: step for step in plan.steps}
+        order_index = {step.step_id: index for index, step in enumerate(plan.steps)}
+        unresolved_dependencies = {
+            step.step_id: set(step.dependencies) for step in plan.steps
+        }
+
+        remaining = set(step_by_id)
+        batches: List[List[PlanStep]] = []
+
+        while remaining:
+            ready_ids = sorted(
+                [step_id for step_id in remaining if not unresolved_dependencies[step_id]],
+                key=lambda step_id: order_index[step_id],
+            )
+
+            if not ready_ids:
+                raise ValueError("Circular step dependency detected during batching")
+
+            ready_set = set(ready_ids)
+            batches.append([step_by_id[step_id] for step_id in ready_ids])
+            remaining -= ready_set
+
+            for step_id in remaining:
+                unresolved_dependencies[step_id] -= ready_set
+
+        return batches
+
     async def plan(
         self,
         goal: str,
@@ -210,26 +343,45 @@ Create a detailed execution plan. Output JSON only."""
             ]
 
             response = await self.llm.ainvoke(messages)
-            plan_text = response.content
+            plan_text = self._normalize_llm_content(response.content)
 
             # Extract JSON
             if "```json" in plan_text:
-                plan_text = plan_text.split("```json")[1].split("```")[0].strip()
+                plan_text = plan_text.split("```json", 1)[1].split("```", 1)[0].strip()
             elif "```" in plan_text:
-                plan_text = plan_text.split("```")[1].split("```")[0].strip()
+                plan_text = plan_text.split("```", 1)[1].split("```", 1)[0].strip()
 
             plan_data = json.loads(plan_text)
+            raw_steps = plan_data.get("steps") if isinstance(plan_data, dict) else None
+            if not isinstance(raw_steps, list) or not raw_steps:
+                raise ValueError("Planner response must include a non-empty 'steps' list")
 
             # Create PlanStep objects with resource estimates
-            steps = []
-            for step_data in plan_data["steps"]:
+            steps: List[PlanStep] = []
+            for index, step_data in enumerate(raw_steps, start=1):
+                if not isinstance(step_data, dict):
+                    raise ValueError(
+                        f"Invalid step entry at index {index - 1}: expected object"
+                    )
+
+                step_id = str(step_data.get("step_id", "")).strip()
+                if not step_id:
+                    raise ValueError(f"Step at index {index - 1} is missing step_id")
+
+                description = str(step_data.get("description", "")).strip()
+                if not description:
+                    raise ValueError(f"Step '{step_id}' is missing description")
+
+                agent_type = str(step_data.get("agent_type", "")).strip()
+                if not agent_type:
+                    raise ValueError(f"Step '{step_id}' is missing agent_type")
+
                 complexity_multiplier = {
                     "low": 0.7,
                     "medium": 1.0,
                     "high": 1.5,
-                }.get(step_data.get("complexity", "medium"), 1.0)
+                }.get(str(step_data.get("complexity", "medium")).lower(), 1.0)
 
-                agent_type = step_data["agent_type"]
                 estimated_time = int(
                     self.time_coefficients.get(agent_type, 30) * complexity_multiplier
                 )
@@ -241,18 +393,25 @@ Create a detailed execution plan. Output JSON only."""
                     * complexity_multiplier
                 )
 
+                dependencies = self._normalize_dependencies(
+                    step_data.get("dependencies", []),
+                    step_id=step_id,
+                )
+
                 step = PlanStep(
-                    step_id=step_data["step_id"],
-                    description=step_data["description"],
+                    step_id=step_id,
+                    description=description,
                     agent_type=agent_type,
                     estimated_time=estimated_time,
                     estimated_cost=estimated_cost,
                     estimated_tokens=estimated_tokens,
-                    dependencies=step_data.get("dependencies", []),
+                    dependencies=dependencies,
                     success_criteria=step_data.get("success_criteria", []),
                     risks=step_data.get("risks", []),
                 )
                 steps.append(step)
+
+            self._validate_step_dependencies(steps)
 
             # Calculate totals
             total_time = sum(s.estimated_time for s in steps)

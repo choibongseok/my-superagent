@@ -1,0 +1,134 @@
+"""Tests for TaskPlanner dependency validation and execution batching."""
+
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.agents.task_planner import ExecutionPlan, PlanStep, TaskPlanner
+
+
+@pytest.fixture
+def planner_stub() -> TaskPlanner:
+    """Create a TaskPlanner instance without constructing real LLM clients."""
+    planner = object.__new__(TaskPlanner)
+    planner.llm = AsyncMock()
+    planner.time_coefficients = {
+        "research": 30,
+        "docs": 20,
+        "sheets": 15,
+        "slides": 25,
+    }
+    planner.cost_coefficients = {
+        "research": 0.02,
+        "docs": 0.03,
+        "sheets": 0.02,
+        "slides": 0.03,
+    }
+    planner.token_coefficients = {
+        "research": 2000,
+        "docs": 3000,
+        "sheets": 1500,
+        "slides": 2500,
+    }
+    return planner
+
+
+def _build_plan(steps: list[PlanStep]) -> ExecutionPlan:
+    return ExecutionPlan(
+        goal="Test goal",
+        steps=steps,
+        total_estimated_time=sum(step.estimated_time for step in steps),
+        total_estimated_cost=sum(step.estimated_cost for step in steps),
+        total_estimated_tokens=sum(step.estimated_tokens for step in steps),
+        constraints={},
+        created_at="2026-01-01T00:00:00",
+    )
+
+
+def test_get_execution_batches_groups_parallel_steps(planner_stub):
+    """Planner should return deterministic parallel execution batches."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Gather requirements", "research", 30, 0.02, 2000),
+        PlanStep("step_3", "Draft report", "docs", 20, 0.03, 3000, ["step_1"]),
+        PlanStep("step_4", "Create table", "sheets", 15, 0.02, 1500, ["step_2"]),
+        PlanStep(
+            "step_5",
+            "Final summary",
+            "docs",
+            20,
+            0.03,
+            3000,
+            ["step_3", "step_4"],
+        ),
+    ]
+
+    plan = _build_plan(steps)
+    batches = planner_stub.get_execution_batches(plan)
+
+    assert [[step.step_id for step in batch] for batch in batches] == [
+        ["step_1", "step_2"],
+        ["step_3", "step_4"],
+        ["step_5"],
+    ]
+
+
+def test_get_execution_batches_rejects_unknown_dependencies(planner_stub):
+    """Unknown dependencies should fail before batching starts."""
+    steps = [
+        PlanStep(
+            "step_1",
+            "Write summary",
+            "docs",
+            20,
+            0.03,
+            3000,
+            ["step_missing"],
+        )
+    ]
+
+    with pytest.raises(ValueError, match="Unknown step dependencies"):
+        planner_stub.get_execution_batches(_build_plan(steps))
+
+
+def test_get_execution_batches_rejects_cycles(planner_stub):
+    """Circular dependencies should be detected and rejected."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000, ["step_2"]),
+        PlanStep("step_2", "Draft", "docs", 20, 0.03, 3000, ["step_1"]),
+    ]
+
+    with pytest.raises(ValueError, match="Circular step dependency"):
+        planner_stub.get_execution_batches(_build_plan(steps))
+
+
+@pytest.mark.asyncio
+async def test_plan_parses_structured_content_blocks(planner_stub):
+    """Structured provider responses with fenced JSON should parse correctly."""
+    planner_stub.llm.ainvoke.return_value = SimpleNamespace(
+        content=[
+            {
+                "type": "text",
+                "text": "```json\n{\"steps\": [{\"step_id\": \"step_1\", \"description\": \"Collect facts\", \"agent_type\": \"research\", \"complexity\": \"low\", \"dependencies\": []}]}\n```",
+            }
+        ]
+    )
+
+    plan = await planner_stub.plan(goal="Collect facts")
+
+    assert len(plan.steps) == 1
+    assert plan.steps[0].step_id == "step_1"
+    assert plan.steps[0].estimated_time == 21  # 30 * 0.7
+    assert plan.total_estimated_tokens == 1400
+
+
+@pytest.mark.asyncio
+async def test_plan_rejects_unknown_dependencies(planner_stub):
+    """Plan creation should fail fast when a step references unknown dependencies."""
+    planner_stub.llm.ainvoke.return_value = SimpleNamespace(
+        content='{"steps": [{"step_id": "step_1", "description": "Draft", "agent_type": "docs", "dependencies": ["step_2"]}]}'
+    )
+
+    with pytest.raises(ValueError, match="Unknown step dependencies"):
+        await planner_stub.plan(goal="Create draft")
