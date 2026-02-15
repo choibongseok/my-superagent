@@ -222,6 +222,7 @@ class ConversationMemory:
         match_mode: Literal[
             "substring",
             "exact",
+            "phrase",
             "starts_with",
             "ends_with",
             "word",
@@ -245,6 +246,8 @@ class ConversationMemory:
             match_mode: Matching strategy:
                 - "substring": query appears anywhere in content (default)
                 - "exact": query must match the full message content
+                - "phrase": query terms appear contiguously in-order,
+                  ignoring punctuation boundaries
                 - "starts_with": content begins with query text
                 - "ends_with": content ends with query text
                 - "word": query matches whole-word boundaries
@@ -273,6 +276,7 @@ class ConversationMemory:
         if normalized_match_mode not in {
             "substring",
             "exact",
+            "phrase",
             "starts_with",
             "ends_with",
             "word",
@@ -283,8 +287,8 @@ class ConversationMemory:
         }:
             raise ValueError(
                 "match_mode must be one of: "
-                "substring, exact, starts_with, ends_with, word, regex, "
-                "fuzzy, all_terms, any_terms"
+                "substring, exact, phrase, starts_with, ends_with, "
+                "word, regex, fuzzy, all_terms, any_terms"
             )
 
         if not (0.0 <= fuzzy_threshold <= 1.0):
@@ -303,12 +307,12 @@ class ConversationMemory:
                 regex_pattern = re.compile(normalized_query, flags)
             except re.error as error:
                 raise ValueError(f"invalid regular expression: {error}") from error
-        elif normalized_match_mode in {"all_terms", "any_terms"}:
+        elif normalized_match_mode in {"phrase", "all_terms", "any_terms"}:
             query_terms = self._tokenize_for_term_match(target_query)
             if not query_terms:
                 raise ValueError(
                     "query must include at least one searchable term for "
-                    "all_terms/any_terms match mode"
+                    "phrase/all_terms/any_terms match mode"
                 )
 
         matches: List[BaseMessage] = []
@@ -343,6 +347,11 @@ class ConversationMemory:
                     is_match = any(
                         term in searchable_content for term in candidate_terms
                     )
+            elif normalized_match_mode == "phrase":
+                is_match = self._contains_term_phrase(
+                    query_terms=query_terms or [],
+                    content_terms=self._tokenize_for_term_match(searchable_content),
+                )
             else:
                 is_match = self._fuzzy_match(
                     query=normalized_query,
@@ -366,8 +375,26 @@ class ConversationMemory:
 
     @staticmethod
     def _tokenize_for_term_match(text: str) -> List[str]:
-        """Return normalized terms for all_terms/any_terms search modes."""
+        """Return normalized terms for phrase/all_terms/any_terms modes."""
         return re.findall(r"\w+", text)
+
+    @staticmethod
+    def _contains_term_phrase(
+        *, query_terms: List[str], content_terms: List[str]
+    ) -> bool:
+        """Return whether query terms appear contiguously and in-order."""
+        if not query_terms or not content_terms:
+            return False
+
+        phrase_length = len(query_terms)
+        if phrase_length > len(content_terms):
+            return False
+
+        for index in range(len(content_terms) - phrase_length + 1):
+            if content_terms[index : index + phrase_length] == query_terms:
+                return True
+
+        return False
 
     @classmethod
     def _fuzzy_match(

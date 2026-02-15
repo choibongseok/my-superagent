@@ -399,6 +399,52 @@ class TestConversationMemory:
             "alpha compliance checklist",
         ]
 
+    def test_search_messages_supports_phrase_matching(self):
+        """phrase mode should match contiguous terms while ignoring punctuation."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("project kickoff checklist")
+        memory.add_ai_message("project-kickoff timeline")
+        memory.add_system_message("project final kickoff")
+
+        matches = memory.search_messages("project kickoff", match_mode="phrase")
+
+        assert [message.content for message in matches] == [
+            "project kickoff checklist",
+            "project-kickoff timeline",
+        ]
+
+    def test_search_messages_phrase_mode_respects_case_sensitive_option(self):
+        """phrase mode should honor case sensitivity for term comparison."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("Project Kickoff checklist")
+        memory.add_ai_message("project kickoff checklist")
+
+        case_insensitive_matches = memory.search_messages(
+            "Project Kickoff",
+            match_mode="phrase",
+        )
+        case_sensitive_matches = memory.search_messages(
+            "Project Kickoff",
+            match_mode="phrase",
+            case_sensitive=True,
+        )
+
+        assert [message.content for message in case_insensitive_matches] == [
+            "Project Kickoff checklist",
+            "project kickoff checklist",
+        ]
+        assert [message.content for message in case_sensitive_matches] == [
+            "Project Kickoff checklist",
+        ]
+
     def test_search_messages_rejects_invalid_inputs(self):
         """Test validation errors for invalid search parameters."""
         memory = ConversationMemory(
@@ -433,6 +479,9 @@ class TestConversationMemory:
 
         with pytest.raises(ValueError, match="invalid regular expression"):
             memory.search_messages("(", match_mode="regex")
+
+        with pytest.raises(ValueError, match="query must include at least one"):
+            memory.search_messages("!!!", match_mode="phrase")
 
         with pytest.raises(ValueError, match="query must include at least one"):
             memory.search_messages("!!!", match_mode="all_terms")
