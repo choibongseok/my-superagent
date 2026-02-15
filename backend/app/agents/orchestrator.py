@@ -235,14 +235,20 @@ class MultiAgentOrchestrator:
                 if dependency_id:
                     normalized_dependencies.append(dependency_id)
 
-            normalized_tasks.append(
-                {
-                    "task_id": task_id,
-                    "agent_type": agent_type,
-                    "description": description,
-                    "dependencies": list(dict.fromkeys(normalized_dependencies)),
-                }
-            )
+            metadata = raw_task.get("metadata")
+            if metadata is not None and not isinstance(metadata, dict):
+                raise ValueError(f"Task '{task_id}' metadata must be an object")
+
+            normalized_task: Dict[str, Any] = {
+                "task_id": task_id,
+                "agent_type": agent_type,
+                "description": description,
+                "dependencies": list(dict.fromkeys(normalized_dependencies)),
+            }
+            if metadata is not None:
+                normalized_task["metadata"] = dict(metadata)
+
+            normalized_tasks.append(normalized_task)
 
         return normalized_tasks
 
@@ -454,6 +460,7 @@ Break this down into subtasks for the available agents. Output JSON only."""
                     agent_type=task["agent_type"],
                     description=task["description"],
                     dependencies=task["dependencies"],
+                    metadata=task.get("metadata"),
                 )
                 for task in parsed_tasks
             ]

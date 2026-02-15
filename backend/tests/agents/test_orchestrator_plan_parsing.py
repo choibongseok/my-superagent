@@ -84,6 +84,20 @@ async def test_decompose_task_accepts_tasks_mapping_payload(orchestrator_stub):
     assert tasks[1].dependencies == ["research_step"]
 
 
+@pytest.mark.asyncio
+async def test_decompose_task_propagates_task_metadata(orchestrator_stub):
+    """Planner-provided task metadata should be preserved for downstream agents."""
+    orchestrator_stub.llm.ainvoke.return_value = SimpleNamespace(
+        content='{"tasks": [{"task_id": "task_1", "agent_type": "research", "description": "Collect references", "dependencies": [], "metadata": {"focus": "pricing", "limit": 5}}, {"task_id": "task_2", "agent_type": "docs", "description": "Draft summary", "dependencies": ["task_1"], "metadata": {"template": "brief"}}]}'
+    )
+
+    tasks = await orchestrator_stub.decompose_task("Prepare pricing brief")
+
+    assert len(tasks) == 2
+    assert tasks[0].metadata == {"focus": "pricing", "limit": 5}
+    assert tasks[1].metadata == {"template": "brief"}
+
+
 def test_parse_task_plan_accepts_nested_plan_tasks_mapping():
     """Parser should support task mappings nested under plan.tasks envelopes."""
     raw_plan = {
@@ -135,6 +149,24 @@ def test_parse_task_plan_rejects_unknown_dependencies():
     }
 
     with pytest.raises(ValueError, match="Unknown task dependencies"):
+        MultiAgentOrchestrator._parse_task_plan(raw_plan)
+
+
+def test_parse_task_plan_rejects_non_object_metadata():
+    """Metadata must be a JSON object to avoid malformed task context."""
+    raw_plan = {
+        "tasks": [
+            {
+                "task_id": "task_1",
+                "agent_type": "research",
+                "description": "Collect metrics",
+                "dependencies": [],
+                "metadata": ["invalid"],
+            }
+        ]
+    }
+
+    with pytest.raises(ValueError, match="metadata must be an object"):
         MultiAgentOrchestrator._parse_task_plan(raw_plan)
 
 
