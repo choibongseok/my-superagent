@@ -76,14 +76,20 @@ def test_decode_token_accepts_required_claim_values_allowlist_match() -> None:
 def test_decode_token_rejects_missing_or_mismatched_required_claim_values() -> None:
     token = create_access_token({"sub": "user-123", "scope": "chat:read"})
 
-    assert decode_token(
-        token,
-        required_claim_values={"scope": "chat:write"},
-    ) is None
-    assert decode_token(
-        token,
-        required_claim_values={"aud": "api://agenthq"},
-    ) is None
+    assert (
+        decode_token(
+            token,
+            required_claim_values={"scope": "chat:write"},
+        )
+        is None
+    )
+    assert (
+        decode_token(
+            token,
+            required_claim_values={"aud": "api://agenthq"},
+        )
+        is None
+    )
 
 
 def test_decode_token_validates_required_claim_values_input() -> None:
@@ -115,3 +121,107 @@ def test_decode_token_validates_required_claim_values_input() -> None:
         match="cannot be an empty collection",
     ):
         decode_token(token, required_claim_values={"scope": []})
+
+
+def test_decode_token_accepts_expected_issuer() -> None:
+    token = create_access_token({"sub": "user-123", "iss": "agenthq-auth"})
+
+    payload = decode_token(token, expected_issuer="agenthq-auth")
+
+    assert payload is not None
+    assert payload["iss"] == "agenthq-auth"
+
+
+def test_decode_token_rejects_missing_or_mismatched_expected_issuer() -> None:
+    token = create_access_token({"sub": "user-123", "iss": "agenthq-auth"})
+
+    assert decode_token(token, expected_issuer="other-issuer") is None
+    assert (
+        decode_token(
+            create_access_token({"sub": "user-123"}), expected_issuer="agenthq-auth"
+        )
+        is None
+    )
+
+
+def test_decode_token_validates_expected_issuer_input() -> None:
+    token = create_access_token({"sub": "user-123", "iss": "agenthq-auth"})
+
+    with pytest.raises(TypeError, match="expected_issuer must be a string"):
+        decode_token(token, expected_issuer=123)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="expected_issuer cannot be blank"):
+        decode_token(token, expected_issuer="   ")
+
+
+def test_decode_token_accepts_expected_audience_string_match() -> None:
+    token = create_access_token({"sub": "user-123", "aud": "api://agenthq"})
+
+    payload = decode_token(token, expected_audience="api://agenthq")
+
+    assert payload is not None
+    assert payload["aud"] == "api://agenthq"
+
+
+def test_decode_token_accepts_expected_audience_allowlist_match() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "aud": ["api://agenthq", "api://analytics"],
+        }
+    )
+
+    payload = decode_token(
+        token,
+        expected_audience=("api://other", "api://analytics"),
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_rejects_missing_or_mismatched_expected_audience() -> None:
+    token = create_access_token({"sub": "user-123", "aud": "api://agenthq"})
+
+    assert decode_token(token, expected_audience="api://other") is None
+    assert (
+        decode_token(
+            create_access_token({"sub": "user-123"}),
+            expected_audience="api://agenthq",
+        )
+        is None
+    )
+
+
+def test_decode_token_rejects_invalid_token_audience_payload_shape() -> None:
+    token_with_invalid_audience = create_access_token(
+        {"sub": "user-123", "aud": ["api://agenthq", 42]}
+    )
+
+    assert (
+        decode_token(token_with_invalid_audience, expected_audience="api://agenthq")
+        is None
+    )
+
+
+def test_decode_token_validates_expected_audience_input() -> None:
+    token = create_access_token({"sub": "user-123", "aud": "api://agenthq"})
+
+    with pytest.raises(ValueError, match="expected_audience cannot be blank"):
+        decode_token(token, expected_audience="   ")
+
+    with pytest.raises(
+        ValueError, match="expected_audience cannot be an empty iterable"
+    ):
+        decode_token(token, expected_audience=[])
+
+    with pytest.raises(
+        TypeError,
+        match="expected_audience must contain only strings",
+    ):
+        decode_token(token, expected_audience=["api://agenthq", 123])
+
+    with pytest.raises(
+        ValueError,
+        match="expected_audience cannot contain blank values",
+    ):
+        decode_token(token, expected_audience=["api://agenthq", "   "])
