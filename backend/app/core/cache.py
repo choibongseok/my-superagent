@@ -218,6 +218,8 @@ def cached(
     ttl: Optional[int] = None,
     key_builder: Optional[Callable] = None,
     skip_first_arg: Optional[bool] = None,
+    refresh_flag: Optional[str] = "refresh_cache",
+    disable_flag: Optional[str] = "disable_cache",
 ):
     """
     Decorator for caching function results.
@@ -229,6 +231,10 @@ def cached(
         skip_first_arg: Whether to omit the first positional argument when
             building cache keys. ``None`` auto-detects bound methods when
             ``key_builder`` is not provided.
+        refresh_flag: Optional kwarg name that forces a fresh function call
+            while still writing the new result to cache.
+        disable_flag: Optional kwarg name that bypasses cache reads and writes
+            for a single call.
 
     Example:
         @cached(prefix="user", ttl=300)
@@ -238,6 +244,26 @@ def cached(
 
     if skip_first_arg is not None and not isinstance(skip_first_arg, bool):
         raise ValueError("skip_first_arg must be a boolean when provided")
+
+    for flag_name, option_name in (
+        (refresh_flag, "refresh_flag"),
+        (disable_flag, "disable_flag"),
+    ):
+        if flag_name is None:
+            continue
+
+        if not isinstance(flag_name, str):
+            raise ValueError(f"{option_name} must be a string when provided")
+
+        if not flag_name.strip():
+            raise ValueError(f"{option_name} cannot be empty")
+
+    if (
+        refresh_flag is not None
+        and disable_flag is not None
+        and refresh_flag == disable_flag
+    ):
+        raise ValueError("refresh_flag and disable_flag must be different values")
 
     def decorator(func: Callable):
         def _resolve_key_args(call_args: tuple[Any, ...]) -> tuple[Any, ...]:
@@ -259,23 +285,44 @@ def cached(
 
             return call_args
 
+        def _consume_control_flag(
+            payload_kwargs: dict[str, Any],
+            flag_name: Optional[str],
+        ) -> bool:
+            if flag_name is None or flag_name not in payload_kwargs:
+                return False
+
+            flag_value = payload_kwargs.pop(flag_name)
+            if not isinstance(flag_value, bool):
+                raise ValueError(f"{flag_name} must be a boolean when provided")
+
+            return flag_value
+
         @wraps(func)
         async def wrapper(*args, **kwargs):
+            runtime_kwargs = dict(kwargs)
+            refresh_cache = _consume_control_flag(runtime_kwargs, refresh_flag)
+            disable_cache = _consume_control_flag(runtime_kwargs, disable_flag)
+
+            if disable_cache:
+                return await func(*args, **runtime_kwargs)
+
             key_args = _resolve_key_args(args)
 
             # Build cache key
             if key_builder:
-                key = f"{prefix}:{key_builder(*key_args, **kwargs)}"
+                key = f"{prefix}:{key_builder(*key_args, **runtime_kwargs)}"
             else:
-                key = f"{prefix}:{cache_key(*key_args, **kwargs)}"
+                key = f"{prefix}:{cache_key(*key_args, **runtime_kwargs)}"
 
             # Try to get from cache
-            cached_value = await cache.get(key)
-            if cached_value is not None:
-                return cached_value
+            if not refresh_cache:
+                cached_value = await cache.get(key)
+                if cached_value is not None:
+                    return cached_value
 
             # Execute function
-            result = await func(*args, **kwargs)
+            result = await func(*args, **runtime_kwargs)
 
             # Cache result
             await cache.set(key, result, ttl)
