@@ -5,8 +5,10 @@ This module tests the complex scoring algorithms in vector_store.py,
 including input validation, edge cases, and adaptive threshold calculations.
 """
 
+from datetime import datetime, timezone
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
 from langchain_core.documents import Document
 
 from app.memory.vector_store import VectorStoreMemory, SCORE_EPSILON
@@ -597,6 +599,104 @@ class TestScoreSorting:
         )
 
         assert [result["content"] for result in results] == ["first", "second"]
+
+
+class TestTimestampWindowFiltering:
+    """Test optional timestamp boundaries for scored search results."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_timestamp_boundary_validation(self):
+        """Timestamp boundaries should reject invalid values and ranges."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(
+            ValueError,
+            match="created_after must be a datetime object or ISO-8601 string",
+        ):
+            memory.search_with_scores(query="test", created_after=123)
+
+        with pytest.raises(
+            ValueError,
+            match="created_before must be a valid ISO-8601 datetime",
+        ):
+            memory.search_with_scores(query="test", created_before="not-a-date")
+
+        with pytest.raises(
+            ValueError,
+            match="created_after must be earlier than or equal to created_before",
+        ):
+            memory.search_with_scores(
+                query="test",
+                created_after="2026-02-15T10:00:00Z",
+                created_before="2026-02-15T09:00:00Z",
+            )
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_created_after_filters_out_older_memories(self):
+        """created_after should keep only memories newer than the lower bound."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        old_doc = Document(
+            page_content="old",
+            metadata={"timestamp": "2026-02-14T10:00:00Z"},
+        )
+        new_doc = Document(
+            page_content="new",
+            metadata={"timestamp": "2026-02-15T10:00:00Z"},
+        )
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (old_doc, 0.91),
+                (new_doc, 0.88),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            created_after="2026-02-15T00:00:00Z",
+        )
+
+        assert [result["content"] for result in results] == ["new"]
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_timestamp_boundaries_support_datetime_inputs(self):
+        """created_before/created_after should accept datetime objects."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        naive_timestamp_doc = Document(
+            page_content="naive",
+            metadata={"timestamp": "2026-02-15T09:30:00"},
+        )
+        utc_timestamp_doc = Document(
+            page_content="utc",
+            metadata={"timestamp": "2026-02-15T11:00:00+00:00"},
+        )
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (naive_timestamp_doc, 0.85),
+                (utc_timestamp_doc, 0.84),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            created_after=datetime(2026, 2, 15, 9, 0, tzinfo=timezone.utc),
+            created_before=datetime(2026, 2, 15, 10, 0),
+        )
+
+        assert [result["content"] for result in results] == ["naive"]
 
 
 class TestOffsetPagination:

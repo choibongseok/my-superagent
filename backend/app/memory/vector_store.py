@@ -6,7 +6,7 @@ semantic similarity search across conversation history.
 
 import logging
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from langchain.embeddings import OpenAIEmbeddings
@@ -307,6 +307,70 @@ class VectorStoreMemory:
 
         return normalized_relevance
 
+    @staticmethod
+    def _normalize_datetime_boundary(
+        value: Optional[datetime | str],
+        *,
+        field_name: str,
+    ) -> Optional[datetime]:
+        """Normalize optional datetime boundaries to timezone-aware UTC values."""
+        if value is None:
+            return None
+
+        parsed_value: datetime
+        if isinstance(value, datetime):
+            parsed_value = value
+        elif isinstance(value, str):
+            normalized_value = value.strip()
+            if not normalized_value:
+                raise ValueError(f"{field_name} cannot be an empty string")
+
+            if normalized_value.endswith("Z"):
+                normalized_value = f"{normalized_value[:-1]}+00:00"
+
+            try:
+                parsed_value = datetime.fromisoformat(normalized_value)
+            except ValueError as error:
+                raise ValueError(
+                    f"{field_name} must be a valid ISO-8601 datetime"
+                ) from error
+        else:
+            raise ValueError(
+                f"{field_name} must be a datetime object or ISO-8601 string"
+            )
+
+        if parsed_value.tzinfo is None:
+            return parsed_value.replace(tzinfo=timezone.utc)
+
+        return parsed_value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _parse_result_timestamp(metadata: Any) -> Optional[datetime]:
+        """Parse memory metadata timestamps into timezone-aware UTC datetimes."""
+        if not isinstance(metadata, dict):
+            return None
+
+        raw_timestamp = metadata.get("timestamp")
+        if not isinstance(raw_timestamp, str):
+            return None
+
+        normalized_timestamp = raw_timestamp.strip()
+        if not normalized_timestamp:
+            return None
+
+        if normalized_timestamp.endswith("Z"):
+            normalized_timestamp = f"{normalized_timestamp[:-1]}+00:00"
+
+        try:
+            parsed_timestamp = datetime.fromisoformat(normalized_timestamp)
+        except ValueError:
+            return None
+
+        if parsed_timestamp.tzinfo is None:
+            return parsed_timestamp.replace(tzinfo=timezone.utc)
+
+        return parsed_timestamp.astimezone(timezone.utc)
+
     def _build_user_scoped_filter(
         self,
         filter_dict: Optional[Dict[str, Any]] = None,
@@ -422,6 +486,8 @@ class VectorStoreMemory:
         sort_by_score: bool = False,
         include_score_context: bool = False,
         unique_content: bool = False,
+        created_after: Optional[datetime | str] = None,
+        created_before: Optional[datetime | str] = None,
         offset: Optional[int] = None,
         max_results_per_session: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
@@ -464,6 +530,14 @@ class VectorStoreMemory:
             unique_content: When ``True``, collapse duplicate memories by
                 normalized content (case/whitespace insensitive) before applying
                 pagination.
+            created_after: Optional lower timestamp bound (inclusive) used to
+                keep only memories with ``metadata.timestamp`` on/after this
+                value. Accepts timezone-aware/naive ``datetime`` objects or
+                ISO-8601 strings.
+            created_before: Optional upper timestamp bound (inclusive) used to
+                keep only memories with ``metadata.timestamp`` on/before this
+                value. Accepts timezone-aware/naive ``datetime`` objects or
+                ISO-8601 strings.
             offset: Optional zero-based pagination offset applied after filtering
                 and ordering but before the final ``k`` limit. Must be >= 0 when
                 provided.
@@ -479,7 +553,8 @@ class VectorStoreMemory:
             ValueError: If thresholds/parameters are invalid, including unsupported
                 ``min_confidence``/``min_relevance`` values, invalid
                 ``max_score_gap``/``min_score_margin``/``offset``/
-                ``max_results_per_session`` values,
+                ``max_results_per_session`` values, invalid
+                ``created_after``/``created_before`` boundaries,
                 or non-boolean ``include_score_context``/``unique_content``.
         """
         # Input validation
@@ -560,6 +635,24 @@ class VectorStoreMemory:
             else None
         )
 
+        normalized_created_after = self._normalize_datetime_boundary(
+            created_after,
+            field_name="created_after",
+        )
+        normalized_created_before = self._normalize_datetime_boundary(
+            created_before,
+            field_name="created_before",
+        )
+
+        if (
+            normalized_created_after is not None
+            and normalized_created_before is not None
+            and normalized_created_after > normalized_created_before
+        ):
+            raise ValueError(
+                "created_after must be earlier than or equal to created_before"
+            )
+
         k = k or self.top_k
         normalized_offset = offset or 0
         search_filter = self._build_user_scoped_filter(filter_dict)
@@ -595,6 +688,45 @@ class VectorStoreMemory:
             sanitized_results.append((doc, clamped_score))
 
         results = sanitized_results
+
+        if (
+            normalized_created_after is not None
+            or normalized_created_before is not None
+        ):
+            pre_temporal_count = len(results)
+            temporally_filtered_results: List[Tuple[Document, float]] = []
+
+            for doc, score in results:
+                parsed_timestamp = self._parse_result_timestamp(doc.metadata)
+                if parsed_timestamp is None:
+                    continue
+
+                if (
+                    normalized_created_after is not None
+                    and parsed_timestamp < normalized_created_after
+                ):
+                    continue
+
+                if (
+                    normalized_created_before is not None
+                    and parsed_timestamp > normalized_created_before
+                ):
+                    continue
+
+                temporally_filtered_results.append((doc, score))
+
+            results = temporally_filtered_results
+            logger.debug(
+                "Applied timestamp filtering: after=%s, before=%s, before_count=%d, after_count=%d",
+                normalized_created_after.isoformat()
+                if normalized_created_after is not None
+                else None,
+                normalized_created_before.isoformat()
+                if normalized_created_before is not None
+                else None,
+                pre_temporal_count,
+                len(results),
+            )
 
         # Apply adaptive threshold if requested and no explicit threshold provided
         applied_threshold = score_threshold
