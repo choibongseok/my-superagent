@@ -1157,6 +1157,76 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_trim_lines_transform(
+        self, service_with_mock_db
+    ):
+        """trim_lines should normalize multiline text for prompt-ready blocks."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Notes:\n{notes->trim_lines}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "notes": (
+                        "\r\n"
+                        "   Confirm launch owner   \r\n"
+                        "\tPrepare rollback checklist\t\r\n"
+                        "\r\n"
+                        "   Announce deployment window   \n"
+                    )
+                },
+                user_id,
+            )
+
+        assert (
+            result["prompt"] == "Notes:\n"
+            "Confirm launch owner\n"
+            "Prepare rollback checklist\n"
+            "\n"
+            "Announce deployment window"
+        )
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_trim_lines_before_indent(
+        self, service_with_mock_db
+    ):
+        """trim_lines should compose cleanly with downstream formatting transforms."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Checklist:\n{steps->trim_lines->indent("- ")}',
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "steps": "\n  verify migrations\n\tship release notes\n",
+                },
+                user_id,
+            )
+
+        assert (
+            result["prompt"] == "Checklist:\n- verify migrations\n- ship release notes"
+        )
+        assert template.usage_count == 2
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_fallback_transform_for_blank_text(
         self, service_with_mock_db
     ):

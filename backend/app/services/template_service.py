@@ -140,6 +140,20 @@ def _compact_whitespace(value: object) -> str:
     return " ".join(str(value).split())
 
 
+def _trim_lines(value: object) -> str:
+    """Trim each line, normalize newlines, and strip outer blank lines."""
+    normalized_text = str(value).replace("\r\n", "\n").replace("\r", "\n")
+    normalized_lines = [line.strip() for line in normalized_text.split("\n")]
+
+    while normalized_lines and normalized_lines[0] == "":
+        normalized_lines.pop(0)
+
+    while normalized_lines and normalized_lines[-1] == "":
+        normalized_lines.pop()
+
+    return "\n".join(normalized_lines)
+
+
 def _indent_text(value: object, argument_spec: str) -> str:
     """Indent multiline text values with an optional custom prefix."""
     args: list[str] = []
@@ -816,6 +830,7 @@ class TemplateService:
         - ``{search_query->urlencode}``
         - ``{title->slug}``
         - ``{summary->compact}``
+        - ``{notes->trim_lines}``
         - ``{ticket->prepend("#")}``, ``{title->append(" ✅")}``
         - ``{score->round(2)}``
         - ``{delta->abs}``
@@ -850,6 +865,7 @@ class TemplateService:
             "capitalize": lambda raw: str(raw).capitalize(),
             "dedent": lambda raw: textwrap.dedent(str(raw)),
             "compact": _compact_whitespace,
+            "trim_lines": _trim_lines,
             "indent": lambda raw: _indent_text(raw, ""),
             "snake_case": lambda raw: "_".join(_tokenize_case_transform(raw)),
             "kebab_case": lambda raw: "-".join(_tokenize_case_transform(raw)),
@@ -1050,7 +1066,8 @@ class TemplateService:
         ``{notes->dedent->indent("> ")->strip}``,
         ``{payload->json}``, ``{payload->json_pretty}``,
         ``{search_query->urlencode}``, ``{title->slug}``,
-        ``{summary->compact}``, ``{ticket->prepend("#")}``,
+        ``{summary->compact}``, ``{notes->trim_lines}``,
+        ``{ticket->prepend("#")}``,
         ``{title->append(" ✅")}``, ``{score->round(2)}``,
         ``{delta->abs}``, ``{estimate->floor}``, ``{estimate->ceil}``,
         ``{score->clamp(0,1)->round(2)}``,
