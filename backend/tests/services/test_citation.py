@@ -1,7 +1,9 @@
 """Tests for Citation Tracker."""
 
-import pytest
+import math
 from datetime import datetime, timedelta, timezone
+
+import pytest
 
 from app.services.citation.tracker import CitationTracker
 from app.services.citation.models import Citation, Source, SourceType
@@ -1182,6 +1184,72 @@ class TestCitationTracker:
             authority_score=first["authority_score"],
             recency_score=first["recency_score"],
         )
+
+    def test_search_sources_with_details_optionally_includes_score_breakdown(self):
+        """Detailed search can include weighted hybrid score components on demand."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        source_id = tracker.add_source(
+            title="Agent Reliability Workflow Reference",
+            type=SourceType.DATABASE,
+            published_date=anchor_time - timedelta(days=2),
+        )
+        tracker.cite(source_id, quoted_text="Operational requirement")
+
+        detailed = tracker.search_sources_with_details(
+            "agent reliability workflow",
+            sort_by="hybrid",
+            as_of=anchor_time,
+            recency_window_days=365,
+            include_score_breakdown=True,
+        )
+
+        first = detailed[0]
+        breakdown = first["score_breakdown"]
+        weighted = breakdown["weighted_components"]
+
+        assert breakdown["hybrid_score"] == first["hybrid_score"]
+        assert breakdown["citation_signal"] == pytest.approx(
+            round(math.log1p(first["citation_count"]), 3)
+        )
+        assert weighted["relevance"] == pytest.approx(
+            round(first["relevance_score"], 3)
+        )
+        assert weighted["authority"] == pytest.approx(
+            round(first["authority_score"] * 8.0, 3)
+        )
+        assert weighted["recency"] == pytest.approx(
+            round(first["recency_score"] * 5.0, 3)
+        )
+        assert weighted["citation_signal"] == pytest.approx(
+            round(math.log1p(first["citation_count"]) * 2.5, 3)
+        )
+
+    def test_search_sources_with_details_omits_score_breakdown_by_default(self):
+        """Score breakdown payload should be opt-in to keep default responses compact."""
+        tracker = CitationTracker()
+
+        tracker.add_source(title="Agent Reliability Workflow Reference")
+
+        detailed = tracker.search_sources_with_details("agent reliability workflow")
+
+        assert "score_breakdown" not in detailed[0]
+
+    def test_search_sources_with_details_rejects_invalid_include_score_breakdown(
+        self,
+    ):
+        """include_score_breakdown should enforce boolean values only."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="include_score_breakdown must be a boolean",
+        ):
+            tracker.search_sources_with_details(
+                "agent",
+                include_score_breakdown="yes",  # type: ignore[arg-type]
+            )
 
     def test_search_sources_with_details_handles_blank_queries(self):
         """Blank queries should still return stable details without token metadata."""

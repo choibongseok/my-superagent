@@ -843,6 +843,35 @@ class CitationTracker:
         )
         return round(hybrid_score, 2)
 
+    @classmethod
+    def _build_score_breakdown(
+        cls,
+        *,
+        relevance_score: float,
+        citation_count: int,
+        authority_score: float,
+        recency_score: float,
+    ) -> Dict[str, Any]:
+        """Build explainable hybrid-score component metadata."""
+        citation_signal = math.log1p(max(citation_count, 0))
+        weighted_components = {
+            "relevance": round(relevance_score, 3),
+            "authority": round(authority_score * 8.0, 3),
+            "recency": round(recency_score * 5.0, 3),
+            "citation_signal": round(citation_signal * 2.5, 3),
+        }
+
+        return {
+            "citation_signal": round(citation_signal, 3),
+            "weighted_components": weighted_components,
+            "hybrid_score": cls._compute_hybrid_score(
+                relevance_score=relevance_score,
+                citation_count=citation_count,
+                authority_score=authority_score,
+                recency_score=recency_score,
+            ),
+        }
+
     def search_sources(
         self,
         query: str,
@@ -1720,12 +1749,19 @@ class CitationTracker:
             "authority",
             "recency",
         ] = "relevance",
+        include_score_breakdown: bool = False,
     ) -> List[Dict[str, Any]]:
         """Search sources and return explainable ranking metadata.
 
         This complements :meth:`search_sources` by exposing per-result details
         useful for UI debugging, audit logs, and ranking transparency.
+
+        Set ``include_score_breakdown=True`` to include weighted hybrid-score
+        component details for each ranked source.
         """
+        if not isinstance(include_score_breakdown, bool):
+            raise ValueError("include_score_breakdown must be a boolean")
+
         matched_sources = self.search_sources(
             query,
             source_type=source_type,
@@ -1804,31 +1840,39 @@ class CitationTracker:
                 query_length_profile=query_length_profile,
                 token_decay_profile=token_decay_profile,
             )
+            hybrid_score = self._compute_hybrid_score(
+                relevance_score=relevance_score,
+                citation_count=citation_count,
+                authority_score=authority_score,
+                recency_score=recency_score,
+            )
             match_details = self._build_match_details(
                 source,
                 query_tokens=query_tokens,
                 normalized_query=normalized_query,
             )
-            detailed_matches.append(
-                {
-                    "rank": index,
-                    "source": source,
-                    "citation_count": citation_count,
-                    "authority_score": authority_score,
-                    "recency_score": recency_score,
-                    "age_days": round(source_age_days, 3)
-                    if source_age_days is not None
-                    else None,
-                    "relevance_score": relevance_score,
-                    "hybrid_score": self._compute_hybrid_score(
-                        relevance_score=relevance_score,
-                        citation_count=citation_count,
-                        authority_score=authority_score,
-                        recency_score=recency_score,
-                    ),
-                    **match_details,
-                }
-            )
+            detailed_match = {
+                "rank": index,
+                "source": source,
+                "citation_count": citation_count,
+                "authority_score": authority_score,
+                "recency_score": recency_score,
+                "age_days": round(source_age_days, 3)
+                if source_age_days is not None
+                else None,
+                "relevance_score": relevance_score,
+                "hybrid_score": hybrid_score,
+                **match_details,
+            }
+            if include_score_breakdown:
+                detailed_match["score_breakdown"] = self._build_score_breakdown(
+                    relevance_score=relevance_score,
+                    citation_count=citation_count,
+                    authority_score=authority_score,
+                    recency_score=recency_score,
+                )
+
+            detailed_matches.append(detailed_match)
 
         return detailed_matches
 
