@@ -43,6 +43,8 @@ class TestWeatherTool:
         assert result["wind_speed_unit"] == "km/h"
         assert result["wind_gust"] == 18.6
         assert result["wind_gust_unit"] == "km/h"
+        assert result["wind_beaufort"] == 3
+        assert result["wind_beaufort_label"] == "Gentle Breeze"
         assert result["wind_direction_degrees"] == 225.0
         assert result["wind_direction_cardinal"] == "SW"
         assert result["visibility"] == 10.0
@@ -531,6 +533,33 @@ class TestWeatherTool:
         assert "Wind Gust: 30.6 km/h" in result
 
     @pytest.mark.asyncio
+    async def test_run_tool_formats_wind_beaufort_when_available(self):
+        """run_tool should render Beaufort wind-force details when available."""
+        plugin = WeatherPlugin(config={"units": "metric"})
+
+        with patch.object(
+            plugin,
+            "execute",
+            AsyncMock(
+                return_value={
+                    "location": "Dublin",
+                    "temperature": 12.0,
+                    "feels_like": 10.8,
+                    "condition": "Windy",
+                    "humidity": 73,
+                    "wind_speed": 18.3,
+                    "wind_speed_unit": "km/h",
+                    "wind_beaufort": 5,
+                    "wind_beaufort_label": "Fresh Breeze",
+                    "units": "metric",
+                }
+            ),
+        ):
+            result = await plugin.run_tool("Dublin")
+
+        assert "Wind Force: Beaufort 5 (Fresh Breeze)" in result
+
+    @pytest.mark.asyncio
     async def test_run_tool_formats_wind_direction_when_available(self):
         """run_tool should render wind direction degrees with cardinal direction."""
         plugin = WeatherPlugin(config={"units": "metric"})
@@ -604,6 +633,8 @@ class TestWeatherTool:
             assert result["wind_speed_unit"] == "km/h"
             assert result["wind_gust"] == 30.2  # 8.4 m/s * 3.6 = 30.24 km/h
             assert result["wind_gust_unit"] == "km/h"
+            assert result["wind_beaufort"] == 3
+            assert result["wind_beaufort_label"] == "Gentle Breeze"
             assert result["wind_direction_degrees"] == 219.0
             assert result["wind_direction_cardinal"] == "SW"
             assert result["visibility"] == 7.5
@@ -876,6 +907,8 @@ class TestWeatherTool:
             assert result["wind_speed_unit"] == "mph"
             assert result["wind_gust"] is None
             assert result["wind_gust_unit"] is None
+            assert result["wind_beaufort"] == 3
+            assert result["wind_beaufort_label"] == "Gentle Breeze"
             assert result["visibility"] == 1.0
             assert result["visibility_unit"] == "mi"
 
@@ -978,6 +1011,8 @@ class TestWeatherTool:
             assert result["temperature_unit"] == "K"
             assert result["wind_speed"] == 4.6
             assert result["wind_speed_unit"] == "m/s"
+            assert result["wind_beaufort"] == 3
+            assert result["wind_beaufort_label"] == "Gentle Breeze"
 
     @pytest.mark.asyncio
     async def test_run_tool_formats_standard_units(self):
@@ -1502,7 +1537,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.24.0"
+        assert manifest.version == "1.25.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
@@ -1529,6 +1564,8 @@ class TestWeatherTool:
         assert "wind_speed_unit" in manifest.outputs
         assert "wind_gust" in manifest.outputs
         assert "wind_gust_unit" in manifest.outputs
+        assert "wind_beaufort" in manifest.outputs
+        assert "wind_beaufort_label" in manifest.outputs
         assert "wind_direction_degrees" in manifest.outputs
         assert "wind_direction_cardinal" in manifest.outputs
         assert "cloudiness" in manifest.outputs
@@ -1558,6 +1595,7 @@ class TestWeatherTool:
         assert "feels-like temperature" in description
         assert "heat-index temperature" in description
         assert "pressure" in description
+        assert "Beaufort" in description
         assert "wind direction" in description
         assert "cloud coverage" in description
         assert "daylight status" in description
