@@ -864,6 +864,7 @@ class CitationTracker:
         min_token_matches: Optional[int] = None,
         max_results_per_domain: Optional[int] = None,
         max_results_per_author: Optional[int] = None,
+        max_results_per_source_type: Optional[int] = None,
         sort_by: Literal[
             "relevance",
             "hybrid",
@@ -984,6 +985,10 @@ class CitationTracker:
                 returned per normalized author name (case-insensitive and
                 whitespace-normalized). Sources without an author are not
                 capped.
+            max_results_per_source_type: Optional cap for how many results can
+                be returned per normalized source type bucket (for example,
+                ``article`` or ``web``). Helpful when enforcing type-level
+                diversity in broad searches.
             sort_by: Result ordering strategy. ``"relevance"`` favors textual
                 score, ``"hybrid"`` blends relevance with authority,
                 citation traction, and recency quality signals, ``"title"``
@@ -1152,6 +1157,16 @@ class CitationTracker:
                 raise ValueError("max_results_per_author must be an integer")
             if max_results_per_author <= 0:
                 raise ValueError("max_results_per_author must be greater than 0")
+
+        if max_results_per_source_type is not None:
+            if isinstance(max_results_per_source_type, bool) or not isinstance(
+                max_results_per_source_type, int
+            ):
+                raise ValueError("max_results_per_source_type must be an integer")
+            if max_results_per_source_type <= 0:
+                raise ValueError(
+                    "max_results_per_source_type must be greater than 0"
+                )
 
         normalized_match_mode = self._normalize_text(match_mode)
         if normalized_match_mode not in {"all", "any", "phrase"}:
@@ -1523,6 +1538,23 @@ class CitationTracker:
 
             sources = author_capped_sources
 
+        if max_results_per_source_type is not None:
+            source_type_counts: Counter[str] = Counter()
+            source_type_capped_sources: List[Source] = []
+            for source in sources:
+                normalized_source_type = self._normalize_source_type_value(source.type)
+
+                if (
+                    source_type_counts[normalized_source_type]
+                    >= max_results_per_source_type
+                ):
+                    continue
+
+                source_type_counts[normalized_source_type] += 1
+                source_type_capped_sources.append(source)
+
+            sources = source_type_capped_sources
+
         if offset is not None:
             sources = sources[offset:]
 
@@ -1634,6 +1666,7 @@ class CitationTracker:
         min_token_matches: Optional[int] = None,
         max_results_per_domain: Optional[int] = None,
         max_results_per_author: Optional[int] = None,
+        max_results_per_source_type: Optional[int] = None,
         sort_by: Literal[
             "relevance",
             "hybrid",
@@ -1688,6 +1721,7 @@ class CitationTracker:
             min_token_matches=min_token_matches,
             max_results_per_domain=max_results_per_domain,
             max_results_per_author=max_results_per_author,
+            max_results_per_source_type=max_results_per_source_type,
             sort_by=sort_by,
         )
 

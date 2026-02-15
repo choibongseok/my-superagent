@@ -548,6 +548,52 @@ class TestCitationTracker:
         ):
             tracker.search_sources("agent", max_results_per_author=0)
 
+    def test_search_sources_supports_max_results_per_source_type_cap(self):
+        """Source-type diversity cap should limit duplicate types in ranked output."""
+        tracker = CitationTracker()
+
+        first_article_id = tracker.add_source(
+            title="Agentic Workflow Alpha",
+            type=SourceType.ARTICLE,
+        )
+        tracker.add_source(
+            title="Agentic Workflow Beta",
+            type=SourceType.ARTICLE,
+        )
+        web_id = tracker.add_source(
+            title="Agentic Workflow Gamma",
+            type=SourceType.WEB,
+        )
+
+        matches = tracker.search_sources(
+            "agentic workflow",
+            max_results_per_source_type=1,
+        )
+
+        assert [source.id for source in matches] == [first_article_id, web_id]
+
+    def test_search_sources_rejects_invalid_max_results_per_source_type(self):
+        """max_results_per_source_type should validate integer and positive values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="max_results_per_source_type must be an integer",
+        ):
+            tracker.search_sources("agent", max_results_per_source_type=1.5)
+
+        with pytest.raises(
+            ValueError,
+            match="max_results_per_source_type must be an integer",
+        ):
+            tracker.search_sources("agent", max_results_per_source_type=True)
+
+        with pytest.raises(
+            ValueError,
+            match="max_results_per_source_type must be greater than 0",
+        ):
+            tracker.search_sources("agent", max_results_per_source_type=0)
+
     def test_search_sources_with_details_supports_max_results_per_author_cap(self):
         """Detailed search should pass max_results_per_author through consistently."""
         tracker = CitationTracker()
@@ -573,6 +619,35 @@ class TestCitationTracker:
         assert [item["source"].id for item in detailed] == [
             first_author_id,
             other_author_id,
+        ]
+
+    def test_search_sources_with_details_supports_max_results_per_source_type_cap(
+        self,
+    ):
+        """Detailed search should pass max_results_per_source_type through."""
+        tracker = CitationTracker()
+
+        first_article_id = tracker.add_source(
+            title="Agent Reliability Alpha",
+            type=SourceType.ARTICLE,
+        )
+        tracker.add_source(
+            title="Agent Reliability Beta",
+            type=SourceType.ARTICLE,
+        )
+        web_id = tracker.add_source(
+            title="Agent Reliability Gamma",
+            type=SourceType.WEB,
+        )
+
+        detailed = tracker.search_sources_with_details(
+            "agent reliability",
+            max_results_per_source_type=1,
+        )
+
+        assert [item["source"].id for item in detailed] == [
+            first_article_id,
+            web_id,
         ]
 
     def test_search_sources_with_details_supports_min_token_matches_filter(self):
