@@ -297,6 +297,9 @@ def cached(
     """
     Decorator for caching function results.
 
+    Supports both async and sync callables; sync callables are executed
+    directly and their return values are cached the same way.
+
     Args:
         prefix: Cache key prefix
         ttl: Time to live in seconds
@@ -491,12 +494,22 @@ def cached(
 
         inflight_tasks: dict[str, asyncio.Task[Any]] = {}
 
+        async def _call_wrapped_function(
+            *call_args: Any,
+            **call_kwargs: Any,
+        ) -> Any:
+            result = func(*call_args, **call_kwargs)
+            if inspect.isawaitable(result):
+                return await result
+
+            return result
+
         async def _execute_and_maybe_cache(
             key: str,
             call_args: tuple[Any, ...],
             runtime_kwargs: dict[str, Any],
         ) -> Any:
-            result = await func(*call_args, **runtime_kwargs)
+            result = await _call_wrapped_function(*call_args, **runtime_kwargs)
 
             if await _should_cache_result(result):
                 await cache.set(key, _encode_cached_payload(result), ttl)
@@ -510,7 +523,7 @@ def cached(
             disable_cache = _consume_control_flag(runtime_kwargs, disable_flag)
 
             if disable_cache:
-                return await func(*args, **runtime_kwargs)
+                return await _call_wrapped_function(*args, **runtime_kwargs)
 
             key_kwargs = dict(runtime_kwargs)
             for ignored_name in normalized_ignored_kwargs:

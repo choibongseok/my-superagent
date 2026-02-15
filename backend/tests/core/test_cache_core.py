@@ -78,6 +78,34 @@ def test_cache_key_uses_model_dump_payloads_when_available():
 
 
 @pytest.mark.asyncio
+async def test_cached_supports_sync_callables(monkeypatch):
+    cached_values: dict[str, int] = {}
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    calls = {"count": 0}
+
+    @cached(prefix="example")
+    def compute(value: int) -> int:
+        calls["count"] += 1
+        return value * 2
+
+    assert await compute(21) == 42
+    assert await compute(21) == 42
+
+    assert calls["count"] == 1
+    assert cached_values == {"example:21": 42}
+
+
+@pytest.mark.asyncio
 async def test_cached_auto_skips_bound_instance_for_default_key_builder(monkeypatch):
     cached_values: dict[str, int] = {}
     key_events: list[tuple[str, str]] = []
