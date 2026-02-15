@@ -1072,3 +1072,120 @@ def test_list_plugins_validates_pagination_options(tmp_path):
 
     with pytest.raises(ValueError, match="limit must be an integer greater than 0"):
         manager.list_plugins(limit=0)
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_supports_query_filter_across_default_fields(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class(
+                "alpha-plugin",
+                ["network.http"],
+                author="Weather Team",
+            ),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class(
+                "beta-plugin",
+                ["filesystem.read"],
+                author="Platform Team",
+            ),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    filtered = manager.list_plugins(query="weather team")
+
+    assert [item["name"] for item in filtered] == ["alpha-plugin"]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_query_supports_custom_fields_and_match_modes(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+    (tmp_path / "slack_notifier.py").write_text("# slack", encoding="utf-8")
+
+    modules = {
+        "app.plugins.weather_tool": _plugin_module(
+            "app.plugins.weather_tool",
+            _build_plugin_class(
+                "weather-plugin",
+                ["network.http"],
+            ),
+        ),
+        "app.plugins.slack_notifier": _plugin_module(
+            "app.plugins.slack_notifier",
+            _build_plugin_class(
+                "slack-plugin",
+                ["messaging.send"],
+            ),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    permission_match = manager.list_plugins(
+        query="network.http",
+        query_fields=["permissions"],
+    )
+    assert [item["name"] for item in permission_match] == ["weather-plugin"]
+
+    module_path_match = manager.list_plugins(
+        query="app.plugins.slack_notifier",
+        query_fields=["module_path"],
+        query_match_mode="phrase",
+    )
+    assert [item["name"] for item in module_path_match] == ["slack-plugin"]
+
+    any_match = manager.list_plugins(
+        query="unknown messaging.send",
+        query_fields=["permissions"],
+        query_match_mode="any",
+    )
+    assert [item["name"] for item in any_match] == ["slack-plugin"]
+
+
+def test_list_plugins_validates_query_options(tmp_path):
+    manager = PluginManager(plugin_dir=str(tmp_path))
+
+    with pytest.raises(ValueError, match="query cannot be blank"):
+        manager.list_plugins(query="   ")
+
+    with pytest.raises(ValueError, match="query_match_mode must be one of"):
+        manager.list_plugins(query="weather", query_match_mode="contains")
+
+    with pytest.raises(
+        ValueError,
+        match="query_fields must be an iterable of field names",
+    ):
+        manager.list_plugins(query="weather", query_fields="name")
+
+    with pytest.raises(ValueError, match="query_fields must be subset of"):
+        manager.list_plugins(query="weather", query_fields=["name", "labels"])

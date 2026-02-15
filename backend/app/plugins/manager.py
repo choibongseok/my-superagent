@@ -395,6 +395,86 @@ class PluginManager:
             for candidate in candidates
         )
 
+    @staticmethod
+    def _normalize_query_fields(
+        query_fields: Optional[Sequence[str]],
+    ) -> set[str]:
+        """Normalize list query field selectors.
+
+        Supported values: ``name``, ``description``, ``author``,
+        ``version``, ``permissions``, ``module_path``.
+        """
+        default_query_fields = {"name", "description", "author"}
+        if query_fields is None:
+            return default_query_fields
+
+        if isinstance(query_fields, str):
+            raise ValueError("query_fields must be an iterable of field names")
+
+        allowed_query_fields = {
+            "name",
+            "description",
+            "author",
+            "version",
+            "permissions",
+            "module_path",
+        }
+        normalized_query_fields: set[str] = set()
+        for field in query_fields:
+            if not isinstance(field, str) or not field.strip():
+                raise ValueError("query_fields must contain non-empty strings")
+
+            normalized_field = field.strip().lower()
+            if normalized_field not in allowed_query_fields:
+                allowed = ", ".join(sorted(allowed_query_fields))
+                raise ValueError(f"query_fields must be subset of: {allowed}")
+
+            normalized_query_fields.add(normalized_field)
+
+        if not normalized_query_fields:
+            raise ValueError("query_fields must include at least one field")
+
+        return normalized_query_fields
+
+    @staticmethod
+    def _manifest_matches_query(
+        manifest: PluginManifest,
+        plugin: Optional[BasePlugin],
+        *,
+        query: str,
+        query_tokens: list[str],
+        query_fields: set[str],
+        query_match_mode: str,
+    ) -> bool:
+        """Return whether a manifest matches free-text list query filters."""
+        field_values: list[str] = []
+
+        if "name" in query_fields:
+            field_values.append(manifest.name)
+        if "description" in query_fields:
+            field_values.append(manifest.description)
+        if "author" in query_fields:
+            field_values.append(manifest.author)
+        if "version" in query_fields:
+            field_values.append(manifest.version)
+        if "permissions" in query_fields:
+            field_values.extend(manifest.permissions)
+        if "module_path" in query_fields and plugin is not None:
+            field_values.append(plugin.__class__.__module__)
+
+        searchable_text = " ".join(
+            str(value).casefold() for value in field_values if value is not None
+        )
+        if not searchable_text:
+            return False
+
+        if query_match_mode == "phrase":
+            return query in searchable_text
+        if query_match_mode == "any":
+            return any(token in searchable_text for token in query_tokens)
+
+        return all(token in searchable_text for token in query_tokens)
+
     def list_plugins(
         self,
         required_permissions: Optional[Sequence[str]] = None,
@@ -404,6 +484,9 @@ class PluginManager:
         match_any_permissions: bool = False,
         include_runtime: bool = False,
         initialized: Optional[bool] = None,
+        query: Optional[str] = None,
+        query_fields: Optional[Sequence[str]] = None,
+        query_match_mode: str = "all",
         sort_by: Optional[str] = None,
         sort_order: str = "asc",
         offset: int = 0,
@@ -432,6 +515,16 @@ class PluginManager:
             initialized: Optional runtime initialization filter. ``True``
                 returns only initialized plugins, ``False`` returns only
                 non-initialized plugins, and ``None`` disables filtering.
+            query: Optional case-insensitive free-text search filter applied
+                across ``query_fields``. Blank strings are rejected.
+            query_fields: Optional fields used for free-text filtering.
+                Defaults to ``name``, ``description``, and ``author``.
+                Additional supported fields: ``version``, ``permissions``,
+                and ``module_path``.
+            query_match_mode: Query matching strategy. ``"all"`` (default)
+                requires all query tokens to appear, ``"any"`` requires at
+                least one token, and ``"phrase"`` requires the normalized
+                query phrase to appear contiguously.
             sort_by: Optional manifest field used for sorting output. Supports
                 ``"name"``, ``"version"``, and ``"author"``.
             sort_order: Sorting direction used when ``sort_by`` is provided.
@@ -465,6 +558,27 @@ class PluginManager:
 
         if initialized is not None and not isinstance(initialized, bool):
             raise ValueError("initialized must be a boolean when provided")
+
+        if query is not None and not isinstance(query, str):
+            raise ValueError("query must be a string when provided")
+
+        normalized_query = None
+        query_tokens: list[str] = []
+        if query is not None:
+            normalized_query = " ".join(query.casefold().split())
+            if not normalized_query:
+                raise ValueError("query cannot be blank when provided")
+
+            query_tokens = normalized_query.split(" ")
+
+        if not isinstance(query_match_mode, str) or not query_match_mode.strip():
+            raise ValueError("query_match_mode must be one of: all, any, phrase")
+
+        normalized_query_match_mode = query_match_mode.strip().lower()
+        if normalized_query_match_mode not in {"all", "any", "phrase"}:
+            raise ValueError("query_match_mode must be one of: all, any, phrase")
+
+        normalized_query_fields = self._normalize_query_fields(query_fields)
 
         allowed_sort_fields = {"name", "version", "author"}
         if sort_by is not None:
@@ -545,6 +659,20 @@ class PluginManager:
                 if (
                     (plugin := self.plugins.get(manifest.name)) is not None
                     and plugin.is_initialized() is initialized
+                )
+            ]
+
+        if normalized_query is not None:
+            manifests = [
+                manifest
+                for manifest in manifests
+                if self._manifest_matches_query(
+                    manifest,
+                    self.plugins.get(manifest.name),
+                    query=normalized_query,
+                    query_tokens=query_tokens,
+                    query_fields=normalized_query_fields,
+                    query_match_mode=normalized_query_match_mode,
                 )
             ]
 
