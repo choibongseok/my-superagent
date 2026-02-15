@@ -51,10 +51,39 @@ TASK_TITLE_DEFAULTS = {
     "slides": "Template Presentation",
 }
 
+TASK_TITLE_INPUT_KEYS = {
+    "docs": ("title", "document_title"),
+    "sheets": ("title", "spreadsheet_title"),
+    "slides": ("title", "presentation_title"),
+}
+
 
 def _resolve_task_type(output_type: str | None) -> str:
     """Resolve template output type to internal task type."""
-    return CATEGORY_TO_TASK_TYPE.get((output_type or "research").lower(), "research")
+    if not isinstance(output_type, str):
+        return "research"
+
+    normalized_output_type = output_type.strip().lower()
+    if not normalized_output_type:
+        return "research"
+
+    return CATEGORY_TO_TASK_TYPE.get(normalized_output_type, "research")
+
+
+def _resolve_task_title(task_type: str, inputs: dict) -> str:
+    """Resolve task title from inputs with sensible per-type fallbacks."""
+    fallback_title = TASK_TITLE_DEFAULTS.get(task_type)
+    if fallback_title is None:
+        raise ValueError(f"No default title configured for task type: {task_type}")
+
+    for key in TASK_TITLE_INPUT_KEYS.get(task_type, ("title",)):
+        value = inputs.get(key)
+        if isinstance(value, str):
+            normalized_value = value.strip()
+            if normalized_value:
+                return normalized_value
+
+    return fallback_title
 
 
 def _build_task_kwargs(
@@ -101,7 +130,7 @@ def _queue_task(
                 task_id,
                 prompt,
                 user_id,
-                inputs.get("title", TASK_TITLE_DEFAULTS["docs"]),
+                _resolve_task_title("docs", inputs),
             ]
         )
 
@@ -111,7 +140,7 @@ def _queue_task(
                 task_id,
                 prompt,
                 user_id,
-                inputs.get("title", TASK_TITLE_DEFAULTS["sheets"]),
+                _resolve_task_title("sheets", inputs),
             ]
         )
 
@@ -121,7 +150,7 @@ def _queue_task(
                 task_id,
                 prompt,
                 user_id,
-                inputs.get("title", TASK_TITLE_DEFAULTS["slides"]),
+                _resolve_task_title("slides", inputs),
             ]
         )
 
