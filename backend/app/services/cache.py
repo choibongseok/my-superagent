@@ -2494,17 +2494,24 @@ class LocalCacheService:
     ) -> Literal["overwrite", "skip", "error"]:
         """Validate import conflict behavior options."""
         if not isinstance(conflict_policy, str):
-            raise ValueError(
-                "conflict_policy must be one of: overwrite, skip, error"
-            )
+            raise ValueError("conflict_policy must be one of: overwrite, skip, error")
 
         normalized_policy = conflict_policy.strip().lower()
         if normalized_policy not in {"overwrite", "skip", "error"}:
-            raise ValueError(
-                "conflict_policy must be one of: overwrite, skip, error"
-            )
+            raise ValueError("conflict_policy must be one of: overwrite, skip, error")
 
         return cast(Literal["overwrite", "skip", "error"], normalized_policy)
+
+    @staticmethod
+    def _normalize_import_key_prefix(key_prefix: str | None) -> str:
+        """Validate and normalize optional key prefix used during import."""
+        if key_prefix is None:
+            return ""
+
+        if not isinstance(key_prefix, str):
+            raise ValueError("key_prefix must be a string")
+
+        return key_prefix.strip()
 
     def import_state(
         self,
@@ -2513,6 +2520,7 @@ class LocalCacheService:
         clear_existing: bool = False,
         restore_stats: bool = False,
         conflict_policy: str = "overwrite",
+        key_prefix: str | None = None,
     ) -> int:
         """Import entries from :meth:`export_state` snapshots.
 
@@ -2525,6 +2533,8 @@ class LocalCacheService:
                 ``"overwrite"`` (default) replaces existing values,
                 ``"skip"`` keeps existing values and skips conflicting entries,
                 and ``"error"`` raises ``ValueError``.
+            key_prefix: Optional prefix prepended to every imported entry key.
+                Useful when restoring a snapshot into a namespaced keyspace.
 
         Returns:
             Number of successfully imported entries.
@@ -2538,6 +2548,7 @@ class LocalCacheService:
         normalized_conflict_policy = self._normalize_import_conflict_policy(
             conflict_policy
         )
+        normalized_key_prefix = self._normalize_import_key_prefix(key_prefix)
 
         if "entries" not in snapshot:
             raise ValueError("snapshot must include an 'entries' field")
@@ -2560,6 +2571,8 @@ class LocalCacheService:
             if not isinstance(key, str) or not key:
                 raise ValueError("snapshot entry key must be a non-empty string")
 
+            imported_key = f"{normalized_key_prefix}{key}"
+
             if "value" not in raw_entry:
                 raise ValueError("snapshot entry must include a value")
 
@@ -2570,12 +2583,14 @@ class LocalCacheService:
                 if ttl_seconds <= 0:
                     continue
 
-            existing_entry = self._get_entry(key, mark_access=False)
+            existing_entry = self._get_entry(imported_key, mark_access=False)
             if existing_entry is not None:
                 if normalized_conflict_policy == "skip":
                     continue
                 if normalized_conflict_policy == "error":
-                    raise ValueError(f"snapshot entry key '{key}' already exists")
+                    raise ValueError(
+                        f"snapshot entry key '{imported_key}' already exists"
+                    )
 
             raw_tags = raw_entry.get("tags", [])
             if raw_tags is None:
@@ -2587,13 +2602,13 @@ class LocalCacheService:
 
             if normalized_tags:
                 self.set_tagged(
-                    key,
+                    imported_key,
                     raw_entry["value"],
                     tags=normalized_tags,
                     ttl_seconds=ttl_seconds,
                 )
             else:
-                self.set(key, raw_entry["value"], ttl_seconds=ttl_seconds)
+                self.set(imported_key, raw_entry["value"], ttl_seconds=ttl_seconds)
 
             imported += 1
 

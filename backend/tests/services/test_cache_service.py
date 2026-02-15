@@ -3210,6 +3210,23 @@ def test_local_cache_import_state_conflict_policy_skip_preserves_existing_entrie
     assert cache.get("beta") == "new"
 
 
+def test_local_cache_import_state_can_apply_key_prefix_to_imported_entries():
+    source = LocalCacheService(max_entries=10)
+    source.set_tagged("user:1", {"name": "Ada"}, tags=["user", "vip"])
+    source.set("session:1", "token")
+
+    snapshot = source.export_state()
+
+    target = LocalCacheService(max_entries=10)
+    imported = target.import_state(snapshot, key_prefix=" archive: ")
+
+    assert imported == 2
+    assert target.get("user:1") is None
+    assert target.get("archive:user:1") == {"name": "Ada"}
+    assert target.list_tags("archive:user:1") == ["user", "vip"]
+    assert target.get("archive:session:1") == "token"
+
+
 def test_local_cache_import_state_conflict_policy_error_raises_on_existing_keys():
     cache = LocalCacheService()
     cache.set("alpha", "existing")
@@ -3246,6 +3263,13 @@ def test_local_cache_import_state_validates_conflict_policy():
         match="conflict_policy must be one of: overwrite, skip, error",
     ):
         cache.import_state({"entries": []}, conflict_policy=123)  # type: ignore[arg-type]
+
+
+def test_local_cache_import_state_validates_key_prefix():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="key_prefix must be a string"):
+        cache.import_state({"entries": []}, key_prefix=123)  # type: ignore[arg-type]
 
 
 def test_local_cache_import_state_validates_snapshot_shape():
