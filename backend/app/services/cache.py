@@ -2233,12 +2233,14 @@ class LocalCacheService:
         include_expires_at: bool = False,
         include_namespace: bool = False,
         namespace_separator: str = ":",
+        expiration: str = "all",
+        sort_by: str = "key",
     ) -> list[dict[str, Any]]:
         """List active cache entries with optional filters and metadata.
 
         Args:
             offset: Optional number of sorted matching entries to skip.
-            descending: Return entries in descending key order when ``True``.
+            descending: Return entries in descending sort order when ``True``.
             include_values: Include cached values in each entry payload.
             include_entry_tags: Include sorted tags associated with each key.
             include_expires_at: Include absolute unix expiration timestamps.
@@ -2246,9 +2248,37 @@ class LocalCacheService:
                 ``namespace_separator``.
             namespace_separator: Namespace delimiter used when
                 ``include_namespace`` is ``True``.
+            expiration: Expiration filter. ``"all"`` (default) returns every
+                active key, ``"expiring"`` returns only TTL-bound keys, and
+                ``"persistent"`` returns only non-expiring keys.
+            sort_by: Entry sort strategy. ``"key"`` (default) sorts by key,
+                ``"ttl_seconds"`` sorts by remaining TTL, and
+                ``"expires_at"`` sorts by absolute expiration time.
         """
+        if offset is not None and offset < 0:
+            raise ValueError("offset must be greater than or equal to 0")
+
+        if limit is not None and limit <= 0:
+            raise ValueError("limit must be greater than 0")
+
+        if not isinstance(match_all_tags, bool):
+            raise ValueError("match_all_tags must be a boolean")
+
+        if not isinstance(descending, bool):
+            raise ValueError("descending must be a boolean")
+
         if not isinstance(include_namespace, bool):
             raise ValueError("include_namespace must be a boolean")
+
+        if expiration not in {"all", "expiring", "persistent"}:
+            raise ValueError(
+                'expiration must be one of: "all", "expiring", "persistent"'
+            )
+
+        if sort_by not in {"key", "ttl_seconds", "expires_at"}:
+            raise ValueError(
+                'sort_by must be one of: "key", "ttl_seconds", "expires_at"'
+            )
 
         normalized_namespace_separator: str | None = None
         if include_namespace:
@@ -2262,16 +2292,21 @@ class LocalCacheService:
             pattern=pattern,
             tags=tags,
             match_all_tags=match_all_tags,
-            offset=offset,
-            limit=limit,
-            descending=descending,
         ):
             value, expires_at = self._store[key]
+            ttl_seconds = (
+                None if expires_at is None else max(0.0, expires_at - time.time())
+            )
+
+            if expiration == "expiring" and expires_at is None:
+                continue
+            if expiration == "persistent" and expires_at is not None:
+                continue
+
             entry: dict[str, Any] = {
                 "key": key,
-                "ttl_seconds": (
-                    None if expires_at is None else max(0.0, expires_at - time.time())
-                ),
+                "ttl_seconds": ttl_seconds,
+                "_expires_at": expires_at,
             }
             if include_values:
                 entry["value"] = value
@@ -2285,6 +2320,38 @@ class LocalCacheService:
                     separator=normalized_namespace_separator,
                 )
             entries.append(entry)
+
+        if sort_by == "key":
+            entries.sort(key=lambda entry: entry["key"], reverse=descending)
+        elif sort_by == "ttl_seconds":
+            entries.sort(
+                key=lambda entry: (
+                    entry["ttl_seconds"] is None,
+                    -(entry["ttl_seconds"] or 0.0)
+                    if descending
+                    else (entry["ttl_seconds"] or 0.0),
+                    entry["key"],
+                )
+            )
+        else:
+            entries.sort(
+                key=lambda entry: (
+                    entry["_expires_at"] is None,
+                    -(entry["_expires_at"] or 0.0)
+                    if descending
+                    else (entry["_expires_at"] or 0.0),
+                    entry["key"],
+                )
+            )
+
+        if offset:
+            entries = entries[offset:]
+
+        if limit is not None:
+            entries = entries[:limit]
+
+        for entry in entries:
+            entry.pop("_expires_at", None)
 
         return entries
 

@@ -2636,6 +2636,46 @@ def test_local_cache_list_entries_supports_descending_sort_order():
     ]
 
 
+def test_local_cache_list_entries_supports_expiration_filtering():
+    cache = LocalCacheService()
+    cache.set("persistent", "stable")
+    cache.set("temporary", "value", ttl_seconds=2)
+
+    expiring_entries = cache.list_entries(expiration="expiring")
+    persistent_entries = cache.list_entries(expiration="persistent")
+
+    assert [entry["key"] for entry in expiring_entries] == ["temporary"]
+    assert [entry["key"] for entry in persistent_entries] == ["persistent"]
+
+
+def test_local_cache_list_entries_supports_ttl_and_expiration_sorting():
+    cache = LocalCacheService()
+    cache.set("ttl:fast", "x", ttl_seconds=1)
+    cache.set("ttl:slow", "y", ttl_seconds=3)
+    cache.set("ttl:persistent", "z")
+
+    by_ttl = cache.list_entries(sort_by="ttl_seconds")
+    assert [entry["key"] for entry in by_ttl] == [
+        "ttl:fast",
+        "ttl:slow",
+        "ttl:persistent",
+    ]
+
+    by_ttl_desc = cache.list_entries(sort_by="ttl_seconds", descending=True)
+    assert [entry["key"] for entry in by_ttl_desc] == [
+        "ttl:slow",
+        "ttl:fast",
+        "ttl:persistent",
+    ]
+
+    by_expires = cache.list_entries(sort_by="expires_at")
+    assert [entry["key"] for entry in by_expires] == [
+        "ttl:fast",
+        "ttl:slow",
+        "ttl:persistent",
+    ]
+
+
 def test_local_cache_list_entries_can_include_tags_and_absolute_expiration():
     cache = LocalCacheService()
     cache.set_tagged("persistent", {"v": 1}, tags=["stable", "alpha"])
@@ -2723,6 +2763,22 @@ def test_local_cache_list_entries_rejects_invalid_namespace_flags():
 
     with pytest.raises(ValueError, match="separator cannot be empty"):
         cache.list_entries(include_namespace=True, namespace_separator="  ")
+
+
+def test_local_cache_list_entries_rejects_invalid_expiration_and_sort_options():
+    cache = LocalCacheService()
+
+    with pytest.raises(
+        ValueError,
+        match='expiration must be one of: "all", "expiring", "persistent"',
+    ):
+        cache.list_entries(expiration="soon")
+
+    with pytest.raises(
+        ValueError,
+        match='sort_by must be one of: "key", "ttl_seconds", "expires_at"',
+    ):
+        cache.list_entries(sort_by="recency")
 
 
 def test_local_cache_list_entries_rejects_negative_offset():
