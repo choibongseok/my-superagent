@@ -325,6 +325,42 @@ async def test_load_plugins_from_directory_filters_by_required_permissions(
 
 
 @pytest.mark.asyncio
+async def test_load_plugins_from_directory_filters_by_required_permission_glob(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "http_plugin.py").write_text("# http", encoding="utf-8")
+    (tmp_path / "local_plugin.py").write_text("# local", encoding="utf-8")
+
+    modules = {
+        "app.plugins.http_plugin": _plugin_module(
+            "app.plugins.http_plugin",
+            _build_plugin_class("http-plugin", ["network.http", "filesystem.read"]),
+        ),
+        "app.plugins.local_plugin": _plugin_module(
+            "app.plugins.local_plugin",
+            _build_plugin_class("local-plugin", ["filesystem.read"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    loaded = await manager.load_plugins_from_directory(
+        required_permissions=["network.*"]
+    )
+
+    assert loaded == ["http-plugin"]
+    assert manager.get_plugin("http-plugin") is not None
+    assert manager.get_plugin("local-plugin") is None
+
+
+@pytest.mark.asyncio
 async def test_load_plugins_from_directory_required_permissions_validates_payload(
     tmp_path,
 ):
@@ -372,6 +408,37 @@ async def test_list_plugins_filters_by_required_permissions(tmp_path, monkeypatc
     await manager.load_plugins_from_directory()
 
     filtered = manager.list_plugins(required_permissions=["network.http"])
+
+    assert [item["name"] for item in filtered] == ["http-plugin"]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_filters_by_required_permission_glob(tmp_path, monkeypatch):
+    (tmp_path / "http_plugin.py").write_text("# http", encoding="utf-8")
+    (tmp_path / "local_plugin.py").write_text("# local", encoding="utf-8")
+
+    modules = {
+        "app.plugins.http_plugin": _plugin_module(
+            "app.plugins.http_plugin",
+            _build_plugin_class("http-plugin", ["network.http", "filesystem.read"]),
+        ),
+        "app.plugins.local_plugin": _plugin_module(
+            "app.plugins.local_plugin",
+            _build_plugin_class("local-plugin", ["filesystem.read"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    filtered = manager.list_plugins(required_permissions=["network.*"])
 
     assert [item["name"] for item in filtered] == ["http-plugin"]
 
@@ -525,3 +592,30 @@ async def test_reload_plugin_raises_for_missing_plugin():
 
     with pytest.raises(ValueError, match="Plugin not found"):
         await manager.reload_plugin("missing")
+
+
+@pytest.mark.asyncio
+async def test_validate_permissions_supports_glob_patterns(tmp_path, monkeypatch):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+
+    module = _plugin_module(
+        "app.plugins.weather_tool",
+        _build_plugin_class("weather-plugin", ["network.http", "filesystem.read"]),
+    )
+
+    def _import_module(name: str):
+        if name == "app.plugins.weather_tool":
+            return module
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    assert manager.validate_permissions("weather-plugin", ["network.*"])
+    assert manager.validate_permissions(
+        "weather-plugin",
+        ["network.http", "filesystem.*"],
+    )
+    assert not manager.validate_permissions("weather-plugin", ["network.ws"])

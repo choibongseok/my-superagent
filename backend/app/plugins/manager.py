@@ -149,6 +149,45 @@ class PluginManager:
 
         return normalized_permissions
 
+    @staticmethod
+    def _permission_requirement_matches(
+        plugin_permissions: set[str],
+        required_permission: str,
+    ) -> bool:
+        """Return whether a plugin permission set satisfies one requirement.
+
+        ``required_permission`` supports glob patterns (for example,
+        ``"network.*"``).
+        """
+        if any(token in required_permission for token in "*?["):
+            return any(
+                fnmatchcase(plugin_permission, required_permission)
+                for plugin_permission in plugin_permissions
+            )
+
+        return required_permission in plugin_permissions
+
+    @classmethod
+    def _has_required_permissions(
+        cls,
+        plugin_permissions: Sequence[str],
+        required_permissions: Optional[set[str]],
+    ) -> bool:
+        """Return whether a plugin permission set satisfies all requirements."""
+        if required_permissions is None:
+            return True
+
+        normalized_plugin_permissions = {
+            str(permission) for permission in plugin_permissions
+        }
+        return all(
+            cls._permission_requirement_matches(
+                normalized_plugin_permissions,
+                required_permission,
+            )
+            for required_permission in required_permissions
+        )
+
     async def load_plugins_from_directory(
         self,
         directory: Optional[Path] = None,
@@ -176,8 +215,9 @@ class PluginManager:
             exclude_plugins: Optional denylist of plugin selectors in the same
                 format as ``include_plugins``.
             required_permissions: Optional permission filter. When provided,
-                only plugins that declare all listed permissions in their
-                manifest are kept loaded.
+                only plugins that satisfy all listed permissions in their
+                manifest are kept loaded. Exact permission names and glob
+                patterns (for example, ``"network.*"``) are supported.
             stop_on_error: If True, fail fast when a plugin cannot be loaded.
 
         Returns:
@@ -243,9 +283,10 @@ class PluginManager:
                 plugin = await self.load_plugin(module_path, config=dict(config or {}))
                 manifest = plugin.get_manifest()
 
-                if normalized_required_permissions and not set(
-                    manifest.permissions
-                ).issuperset(normalized_required_permissions):
+                if not self._has_required_permissions(
+                    manifest.permissions,
+                    normalized_required_permissions,
+                ):
                     logger.debug(
                         "Skipping plugin %s (missing required permissions)",
                         module_name,
@@ -343,7 +384,8 @@ class PluginManager:
 
         Args:
             required_permissions: If provided, only plugins with all listed
-                permissions are returned.
+                permissions are returned. Exact permission names and glob
+                patterns (for example, ``"network.*"``) are supported.
             include_plugins: Optional allowlist of plugin selectors. Selectors
                 may reference manifest names (for example ``"weather-plugin"``),
                 module stems (``"weather_tool"``), module paths
@@ -409,7 +451,10 @@ class PluginManager:
             manifests = [
                 manifest
                 for manifest in manifests
-                if set(manifest.permissions).issuperset(normalized_required_permissions)
+                if self._has_required_permissions(
+                    manifest.permissions,
+                    normalized_required_permissions,
+                )
             ]
 
         return [manifest.to_dict() for manifest in manifests]
@@ -523,9 +568,12 @@ class PluginManager:
         """
         Validate plugin has required permissions.
 
+        ``required_permissions`` supports glob patterns (for example,
+        ``["network.*"]``).
+
         Args:
             plugin_name: Plugin name
-            required_permissions: Required permissions
+            required_permissions: Required permissions or patterns
 
         Returns:
             True if plugin has all required permissions
@@ -535,10 +583,14 @@ class PluginManager:
         if not manifest:
             return False
 
-        plugin_permissions = set(manifest.permissions)
-        required = set(required_permissions)
+        normalized_required_permissions = self._normalize_required_permissions(
+            required_permissions
+        )
 
-        return required.issubset(plugin_permissions)
+        return self._has_required_permissions(
+            manifest.permissions,
+            normalized_required_permissions,
+        )
 
 
 # Global plugin manager instance
