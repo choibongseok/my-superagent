@@ -3191,6 +3191,63 @@ def test_local_cache_import_state_restores_entries_and_can_clear_existing_data()
     assert 0 < remaining_ttl <= 2
 
 
+def test_local_cache_import_state_conflict_policy_skip_preserves_existing_entries():
+    cache = LocalCacheService()
+    cache.set("alpha", "existing")
+
+    imported = cache.import_state(
+        {
+            "entries": [
+                {"key": "alpha", "value": "incoming"},
+                {"key": "beta", "value": "new"},
+            ]
+        },
+        conflict_policy=" SKIP ",
+    )
+
+    assert imported == 1
+    assert cache.get("alpha") == "existing"
+    assert cache.get("beta") == "new"
+
+
+def test_local_cache_import_state_conflict_policy_error_raises_on_existing_keys():
+    cache = LocalCacheService()
+    cache.set("alpha", "existing")
+
+    with pytest.raises(
+        ValueError,
+        match="snapshot entry key 'alpha' already exists",
+    ):
+        cache.import_state(
+            {
+                "entries": [
+                    {"key": "alpha", "value": "incoming"},
+                    {"key": "beta", "value": "new"},
+                ]
+            },
+            conflict_policy="error",
+        )
+
+    assert cache.get("alpha") == "existing"
+    assert cache.get("beta") is None
+
+
+def test_local_cache_import_state_validates_conflict_policy():
+    cache = LocalCacheService()
+
+    with pytest.raises(
+        ValueError,
+        match="conflict_policy must be one of: overwrite, skip, error",
+    ):
+        cache.import_state({"entries": []}, conflict_policy="merge")
+
+    with pytest.raises(
+        ValueError,
+        match="conflict_policy must be one of: overwrite, skip, error",
+    ):
+        cache.import_state({"entries": []}, conflict_policy=123)  # type: ignore[arg-type]
+
+
 def test_local_cache_import_state_validates_snapshot_shape():
     cache = LocalCacheService()
 

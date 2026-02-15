@@ -14,7 +14,7 @@ from collections import Counter, OrderedDict
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from fnmatch import fnmatchcase
 from numbers import Real
-from typing import Any
+from typing import Any, Literal, cast
 
 _MISSING = object()
 
@@ -2488,12 +2488,31 @@ class LocalCacheService:
 
         return normalized_stats
 
+    @staticmethod
+    def _normalize_import_conflict_policy(
+        conflict_policy: str,
+    ) -> Literal["overwrite", "skip", "error"]:
+        """Validate import conflict behavior options."""
+        if not isinstance(conflict_policy, str):
+            raise ValueError(
+                "conflict_policy must be one of: overwrite, skip, error"
+            )
+
+        normalized_policy = conflict_policy.strip().lower()
+        if normalized_policy not in {"overwrite", "skip", "error"}:
+            raise ValueError(
+                "conflict_policy must be one of: overwrite, skip, error"
+            )
+
+        return cast(Literal["overwrite", "skip", "error"], normalized_policy)
+
     def import_state(
         self,
         snapshot: Mapping[str, Any],
         *,
         clear_existing: bool = False,
         restore_stats: bool = False,
+        conflict_policy: str = "overwrite",
     ) -> int:
         """Import entries from :meth:`export_state` snapshots.
 
@@ -2501,6 +2520,11 @@ class LocalCacheService:
             snapshot: Mapping payload with an ``entries`` collection.
             clear_existing: Remove existing cache data before import.
             restore_stats: Restore exported operational counters when ``True``.
+            conflict_policy: Behavior when imported keys already exist in the
+                target cache (and ``clear_existing`` is ``False``):
+                ``"overwrite"`` (default) replaces existing values,
+                ``"skip"`` keeps existing values and skips conflicting entries,
+                and ``"error"`` raises ``ValueError``.
 
         Returns:
             Number of successfully imported entries.
@@ -2510,6 +2534,10 @@ class LocalCacheService:
 
         if not isinstance(restore_stats, bool):
             raise ValueError("restore_stats must be a boolean")
+
+        normalized_conflict_policy = self._normalize_import_conflict_policy(
+            conflict_policy
+        )
 
         if "entries" not in snapshot:
             raise ValueError("snapshot must include an 'entries' field")
@@ -2541,6 +2569,13 @@ class LocalCacheService:
                     raise TypeError("snapshot entry ttl_seconds must be numeric")
                 if ttl_seconds <= 0:
                     continue
+
+            existing_entry = self._get_entry(key, mark_access=False)
+            if existing_entry is not None:
+                if normalized_conflict_policy == "skip":
+                    continue
+                if normalized_conflict_policy == "error":
+                    raise ValueError(f"snapshot entry key '{key}' already exists")
 
             raw_tags = raw_entry.get("tags", [])
             if raw_tags is None:
