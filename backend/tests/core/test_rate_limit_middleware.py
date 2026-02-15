@@ -541,6 +541,80 @@ def test_rate_limit_middleware_uses_x_real_ip_when_forwarded_headers_missing(
         assert first_other_internal.status_code == 200
 
 
+def test_rate_limit_middleware_uses_x_forwarded_for_and_normalizes_port_values(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+    )
+
+    with TestClient(app) as client:
+        first = client.get(
+            "/limited",
+            headers={"X-Forwarded-For": "203.0.113.10:1200"},
+        )
+        second_same_ip_different_port = client.get(
+            "/limited",
+            headers={"X-Forwarded-For": "203.0.113.10:9800"},
+        )
+        first_other_ip = client.get(
+            "/limited",
+            headers={"X-Forwarded-For": "203.0.113.11:9800"},
+        )
+
+        assert first.status_code == 200
+        assert second_same_ip_different_port.status_code == 429
+        assert first_other_ip.status_code == 200
+
+
+def test_rate_limit_middleware_skips_invalid_x_forwarded_for_candidates(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+    )
+
+    with TestClient(app) as client:
+        first = client.get(
+            "/limited",
+            headers={"X-Forwarded-For": "unknown, _proxy, 198.51.100.7"},
+        )
+        second_same = client.get(
+            "/limited",
+            headers={"X-Forwarded-For": "_proxy, 198.51.100.7:443"},
+        )
+        first_other = client.get(
+            "/limited",
+            headers={"X-Forwarded-For": "unknown, 198.51.100.8"},
+        )
+
+        assert first.status_code == 200
+        assert second_same.status_code == 429
+        assert first_other.status_code == 200
+
+
 def test_rate_limit_middleware_rejects_invalid_client_id_header() -> None:
     app = FastAPI()
 

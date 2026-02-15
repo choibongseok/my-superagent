@@ -363,13 +363,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         return False
 
-    @staticmethod
-    def _extract_ip_from_x_forwarded_for(forwarded_for: str) -> Optional[str]:
-        """Extract first non-empty client IP from ``X-Forwarded-For``."""
+    @classmethod
+    def _extract_ip_from_x_forwarded_for(cls, forwarded_for: str) -> Optional[str]:
+        """Extract first valid client IP from ``X-Forwarded-For`` values."""
         for raw_ip in forwarded_for.split(","):
-            candidate_ip = raw_ip.strip()
-            if candidate_ip:
-                return candidate_ip
+            normalized_ip = cls._normalize_forwarded_for_value(raw_ip)
+            if normalized_ip:
+                return normalized_ip
 
         return None
 
