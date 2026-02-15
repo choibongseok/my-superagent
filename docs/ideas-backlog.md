@@ -6,6 +6,176 @@
 
 ---
 
+## 2026-02-15 (AM 7:20) | 기획자 에이전트 - 플랫폼 접근성 & 사용자 경험 최적화: 웹 진출·생산성·개인화 🌐⚡🧠
+
+### 💡 Idea #87: "Progressive Web App (PWA) Support" - 앱 설치 없이 웹에서 네이티브처럼
+
+**문제점**:
+- **앱 설치 부담**: "앱 설치해야 돼?" → 이탈 😓
+- **플랫폼 제한**: Desktop/Mobile만 → 웹 사용자 포기 ❌
+- **저사양 기기**: 무거운 네이티브 앱 → 느림/크래시 🐢
+- **업데이트 마찰**: 앱 스토어 승인 → 버그 수정 지연 ⏳
+- **크로스 플랫폼 격차**: Windows/Mac/Linux/iOS/Android 각각 빌드 😰
+- **경쟁사 현황**:
+  - Notion: PWA ✅✅ (웹+앱 통합)
+  - ChatGPT: 웹만 ⚪ (설치 불가)
+  - Zapier: 웹만 ⚪
+  - **AgentHQ: Desktop + Mobile만** ❌ (웹 진출 안 함)
+
+**제안 솔루션**:
+```
+"Progressive Web App (PWA) Support" - 웹에서 네이티브 앱처럼 사용 (설치 선택)
+```
+
+**핵심 기능**:
+1. **Service Worker Caching**: Offline-first, Network-first fallback, Dynamic caching, Background sync
+2. **Web App Manifest**: Install prompt, Custom icons, Splash screen, Theme colors, Display modes (fullscreen/standalone)
+3. **Native-like Experience**: Push notifications (FCM), Badging API, File handling, Share target, Clipboard access
+4. **Responsive Design**: Mobile-first, Tablet optimized, Desktop full-screen, Touch + Mouse/Keyboard
+5. **Install Promotion**: Smart prompt (3회 방문 후), "Add to Home Screen", Install banner, A/B testing
+6. **Offline Functionality**: Cached pages, Queue tasks, Retry logic, Offline indicator
+7. **Auto-update**: Background updates, Version check, Seamless upgrades
+
+**기술 구현**:
+- Framework: Next.js (자동 PWA 지원, `next-pwa` plugin)
+- Service Worker: Workbox (Google 공식, 캐싱 전략)
+- Manifest: Web App Manifest (JSON), Icons (192x192, 512x512)
+- Push: Firebase Cloud Messaging (FCM)
+- Analytics: PWA install rate tracking
+
+**예상 임팩트**:
+- 🚀 웹 유입: +300% (앱 설치 거부 사용자 포획)
+- 🎯 설치 장벽 제거: 50% 이탈 → 10% 이탈
+- 📈 크로스 플랫폼 완성: Desktop + Mobile + **Web** ✅
+- ⏱️ 업데이트 속도: 앱 스토어 승인 불필요 (즉시 배포)
+- 💼 저사양 기기 지원: 경량 웹앱 (네이티브 대비 -70% 용량)
+- 🏆 경쟁 우위: vs ChatGPT (설치 가능 ✅ vs 불가 ❌), vs Notion (AI Agent ✅ vs ❌)
+- **차별화**: "웹·데스크톱·모바일 완전 통합 AI Agent 플랫폼"
+
+**개발 난이도**: ⭐⭐⭐☆☆ (Medium)
+
+**개발 기간**: 5주
+
+**우선순위**: 🔥 HIGH (웹 진출 필수, 진입 장벽 제거, 크로스 플랫폼 완성)
+
+**ROI**: ⭐⭐⭐⭐⭐
+
+---
+
+### 💡 Idea #88: "Contextual Quick Actions" - 텍스트 선택 시 상황별 작업 자동 제안 및 실행
+
+**문제점**:
+- **작업 시작 마찰**: "이걸 어떻게 하지?" → 고민 시간 낭비 ⏱️
+- **클릭 수 많음**: 복사 → 붙여넣기 → Agent 실행 → 결과 복사 (5단계) 😓
+- **기능 발견 안 됨**: "이런 기능도 있었어?" 몰라서 못 씀 ❌
+- **반복 작업**: 매번 같은 작업 (요약, 번역, 정리) 수동 실행 🔄
+- **컨텍스트 전환**: 작업 → Agent 페이지 → 다시 작업 (집중 방해) 😵
+- **경쟁사 현황**:
+  - Notion: AI blocks ⚪ (수동 호출)
+  - ChatGPT: 복사 붙여넣기 ❌ (수동)
+  - Google Docs: 제안 기능 ⚠️ (제한적)
+  - **AgentHQ: 작업 제안 없음** ❌
+
+**제안 솔루션**:
+```
+"Contextual Quick Actions" - 텍스트 선택 → AI가 상황별 작업 자동 제안 → 원클릭 실행
+```
+
+**핵심 기능**:
+1. **Smart Context Detection**: 텍스트 선택 (문장, 문단, 코드), 이미지, 링크, 테이블, 파일, Context analysis (AI)
+2. **AI-Powered Action Recommendation**: 
+   - 텍스트 → "요약", "번역", "정리", "키워드 추출"
+   - 코드 → "실행", "디버그", "설명", "리팩토링"
+   - 링크 → "요약", "리서치", "북마크", "공유"
+   - 숫자 → "계산", "차트", "분석"
+3. **One-click Execution**: Floating action bar, Quick preview, In-place editing, Undo/Redo
+4. **Custom Actions**: 사용자 정의 (예: "슬랙에 공유"), Templates, Favorites, Shortcuts (Cmd+K)
+5. **Learn from Usage**: ML 기반 추천 순위, Personalized, A/B testing
+6. **Batch Actions**: 여러 선택 → 일괄 실행, Chain actions, Workflow
+7. **Result Preview**: Inline preview, Hover tooltip, Copy/Edit/Replace
+
+**기술 구현**:
+- Detection: Browser Selection API, Context Menu API, Mutation Observer
+- ML: TF.js (클라이언트 경량 모델) or FastAPI (서버 추론)
+- UI: Floating toolbar (Notion 스타일), Popover, Radix UI
+- Backend: Action execution API, Result caching
+
+**예상 임팩트**:
+- 🚀 사용 빈도: +200% (마찰 제거)
+- 🎯 작업 시간: -50% (5단계 → 1단계)
+- 📈 기능 발견률: +120% (자동 제안)
+- ⏱️ 평균 작업 완료 시간: 5분 → 2분
+- 💼 사용자 만족도: NPS +30점
+- 🏆 경쟁 우위: vs Notion (자동 제안 ✅ vs 수동 ⚪), vs ChatGPT (인라인 ✅ vs 복붙 ❌)
+- **차별화**: "상황별 AI 작업을 자동 제안하는 유일한 플랫폼"
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Medium-Hard)
+
+**개발 기간**: 4주
+
+**우선순위**: 🔥 HIGH (생산성 극대화, 사용 마찰 제거, 기능 발견)
+
+**ROI**: ⭐⭐⭐⭐⭐
+
+---
+
+### 💡 Idea #89: "Adaptive UI/UX (Self-Learning Interface)" - AI가 사용 패턴 학습해서 UI 자동 커스터마이즈
+
+**문제점**:
+- **기능 찾기 어려움**: "저번에 어디서 봤는데..." → 시간 낭비 ⏱️
+- **정적 UI**: 모든 사용자에게 똑같은 UI → 개인 맞춤 없음 ❌
+- **클릭 수 많음**: 자주 쓰는 기능도 매번 3-4단계 클릭 😓
+- **기능 과부하**: 100개 기능 → 실제 쓰는 건 10개 (90개 방해) 😵
+- **학습 곡선**: 신규 사용자 "너무 복잡해!" → 이탈 💸
+- **경쟁사 현황**:
+  - Notion: 정적 UI ❌
+  - ChatGPT: 정적 UI ❌
+  - Zapier: 정적 UI ❌
+  - **AgentHQ: 정적 UI** ❌ (모두 동일)
+
+**제안 솔루션**:
+```
+"Adaptive UI/UX" - AI가 사용 패턴 학습 → UI 자동 커스터마이즈 (자주 쓰는 기능 상단, 안 쓰는 것 숨김)
+```
+
+**핵심 기능**:
+1. **Usage Tracking**: 클릭, 페이지 체류, 검색, 작업 완료, Feature usage frequency, Time-based patterns
+2. **AI-Powered UI Optimization**: 
+   - Frequently used → 상단 고정
+   - Rarely used → 숨김 (More 메뉴)
+   - Contextual → 작업별 표시
+   - ML 기반 배치 (Collaborative filtering)
+3. **Personalized Layouts**: Role-based (개발자/마케터/분석가), Task-based (리서치/문서/분석), Adaptive sidebar, Custom dashboards
+4. **Smart Onboarding**: 신규 사용자 → 간단한 UI, 점진적 노출, Contextual tips, Guided tour
+5. **A/B Testing & Learning**: Real-time optimization, User feedback, Continuous improvement
+6. **Manual Override**: 사용자가 UI 고정/숨김, Reset to default, Export/Import layout
+7. **Privacy-First**: On-device learning (TF.js), Aggregated analytics, Opt-out 가능
+
+**기술 구현**:
+- Analytics: Amplitude or Mixpanel (이벤트 추적)
+- ML: Collaborative filtering (사용자 유사도), TF.js (클라이언트 학습)
+- UI: CSS Grid (dynamic ordering), React DnD (drag & drop), LocalStorage (layout 저장)
+- Backend: Usage analytics API, ML model serving
+
+**예상 임팩트**:
+- 🚀 기능 발견률: +150% (자주 쓰는 것 노출)
+- 🎯 작업 시간: 클릭 수 -30% (1-2단계로 단축)
+- 📈 사용자 만족도: NPS +40점
+- ⏱️ 신규 사용자 온보딩: -50% 시간
+- 💼 이탈률: -25% (학습 곡선 완화)
+- 🏆 경쟁 우위: vs 모든 경쟁사 (AI-driven UI ✅ vs 정적 UI ❌)
+- **차별화**: "AI가 나를 위한 UI를 자동 생성하는 유일한 플랫폼"
+
+**개발 난이도**: ⭐⭐⭐⭐⭐ (Hard)
+
+**개발 기간**: 6주
+
+**우선순위**: 🔥 HIGH (경쟁사 대비 유일무이한 차별화, 개인화 경험, 사용 편의성)
+
+**ROI**: ⭐⭐⭐⭐⭐
+
+---
+
 ## 2026-02-15 (AM 5:20) | 기획자 에이전트 - 사용자 경험 완성: 접근성·보안·지능형 자원 관리 🔄🔒⚡
 
 ### 💡 Idea #84: "Cross-Platform Sync & Seamless Handoff" - 디바이스 간 끊김 없는 작업 전환
