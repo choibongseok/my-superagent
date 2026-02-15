@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from app.core.cache import cache, cache_key, cached
+from app.core.cache import cache, cache_key, cached, invalidate_cache
 
 
 def test_cache_key_normalizes_nested_mappings_deterministically():
@@ -705,3 +705,91 @@ async def test_cached_keeps_short_keys_when_max_key_length_is_configured(monkeyp
     assert await compute(21) == 42
 
     assert cached_values == {"example:21": 42}
+
+
+def test_cached_rejects_invalid_key_version_configuration():
+    with pytest.raises(
+        ValueError,
+        match="key_version must be a non-empty string or integer",
+    ):
+        cached(prefix="example", key_version="   ")
+
+    with pytest.raises(
+        ValueError,
+        match="key_version must be a non-empty string or integer",
+    ):
+        cached(prefix="example", key_version=True)
+
+
+@pytest.mark.asyncio
+async def test_cached_namespaces_keys_with_key_version(monkeypatch):
+    cached_values: dict[str, int] = {}
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    calls = {"count": 0}
+
+    @cached(prefix="example", key_version="2026-02")
+    async def compute(value: int) -> int:
+        calls["count"] += 1
+        return value * 2
+
+    assert await compute(21) == 42
+    assert await compute(21) == 42
+
+    assert calls["count"] == 1
+    assert cached_values == {"example:v2026-02:21": 42}
+
+
+@pytest.mark.asyncio
+async def test_cached_isolates_versions_between_namespaces(monkeypatch):
+    cached_values: dict[str, int] = {}
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    @cached(prefix="example", key_version=1)
+    async def compute_v1(value: int) -> int:
+        return value + 1
+
+    @cached(prefix="example", key_version=2)
+    async def compute_v2(value: int) -> int:
+        return value + 2
+
+    assert await compute_v1(10) == 11
+    assert await compute_v2(10) == 12
+
+    assert cached_values == {
+        "example:v1:10": 11,
+        "example:v2:10": 12,
+    }
+
+
+@pytest.mark.asyncio
+async def test_invalidate_cache_supports_key_version_namespace(monkeypatch):
+    deleted_keys: list[str] = []
+
+    async def fake_delete(key: str):
+        deleted_keys.append(key)
+        return True
+
+    monkeypatch.setattr(cache, "delete", fake_delete)
+
+    await invalidate_cache("example", 21, key_version="2026-02")
+
+    assert deleted_keys == ["example:v2026-02:21"]

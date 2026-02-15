@@ -250,6 +250,36 @@ def cache_key(*args, **kwargs) -> str:
     return ":".join(parts)
 
 
+def _normalize_key_version(key_version: Optional[str | int]) -> Optional[str]:
+    """Normalize optional cache-key namespace versions."""
+    if key_version is None:
+        return None
+
+    if isinstance(key_version, bool):
+        raise ValueError("key_version must be a non-empty string or integer")
+
+    if isinstance(key_version, int):
+        return str(key_version)
+
+    if isinstance(key_version, str):
+        normalized_key_version = key_version.strip()
+        if not normalized_key_version:
+            raise ValueError("key_version must be a non-empty string or integer")
+
+        return normalized_key_version
+
+    raise ValueError("key_version must be a non-empty string or integer")
+
+
+def _build_cache_namespace(prefix: str, key_version: Optional[str | int]) -> str:
+    """Build cache namespace, optionally appending version marker."""
+    normalized_key_version = _normalize_key_version(key_version)
+    if normalized_key_version is None:
+        return prefix
+
+    return f"{prefix}:v{normalized_key_version}"
+
+
 def cached(
     prefix: str,
     ttl: Optional[int] = None,
@@ -262,6 +292,7 @@ def cached(
     ignored_kwargs: Optional[Iterable[str]] = None,
     cache_none: bool = False,
     max_key_length: Optional[int] = None,
+    key_version: Optional[str | int] = None,
 ):
     """
     Decorator for caching function results.
@@ -290,6 +321,8 @@ def cached(
         max_key_length: Optional maximum cache-key length. Keys longer than
             this threshold are deterministically hashed while preserving the
             configured prefix.
+        key_version: Optional cache namespace version marker used to isolate
+            keys during rollouts (e.g., ``v2``).
 
     Example:
         @cached(prefix="user", ttl=300)
@@ -329,15 +362,18 @@ def cached(
     if not isinstance(cache_none, bool):
         raise ValueError("cache_none must be a boolean")
 
+    key_namespace = _build_cache_namespace(prefix, key_version)
+
     if max_key_length is not None:
         if isinstance(max_key_length, bool) or not isinstance(max_key_length, int):
             raise ValueError("max_key_length must be an integer when provided")
 
-        minimum_hashed_key_length = len(prefix) + 3 + 16
+        minimum_hashed_key_length = len(key_namespace) + 3 + 16
         if max_key_length < minimum_hashed_key_length:
             raise ValueError(
                 "max_key_length is too small for hashed keys; "
-                f"must be at least {minimum_hashed_key_length} for prefix '{prefix}'"
+                "must be at least "
+                f"{minimum_hashed_key_length} for namespace '{key_namespace}'"
             )
 
     normalized_ignored_kwargs: frozenset[str]
@@ -393,7 +429,7 @@ def cached(
             if max_key_length is None or len(key) <= max_key_length:
                 return key
 
-            hashed_prefix = f"{prefix}:h:"
+            hashed_prefix = f"{key_namespace}:h:"
             digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
             available_digest_chars = max_key_length - len(hashed_prefix)
             return f"{hashed_prefix}{digest[:available_digest_chars]}"
@@ -406,10 +442,10 @@ def cached(
                 built_key = key_builder(*key_args, **runtime_kwargs)
                 if inspect.isawaitable(built_key):
                     built_key = await built_key
-                return _shorten_cache_key_if_needed(f"{prefix}:{built_key}")
+                return _shorten_cache_key_if_needed(f"{key_namespace}:{built_key}")
 
             return _shorten_cache_key_if_needed(
-                f"{prefix}:{cache_key(*key_args, **runtime_kwargs)}"
+                f"{key_namespace}:{cache_key(*key_args, **runtime_kwargs)}"
             )
 
         async def _should_cache_result(result: Any) -> bool:
@@ -513,18 +549,26 @@ def cached(
     return decorator
 
 
-async def invalidate_cache(prefix: str, *args, **kwargs) -> None:
+async def invalidate_cache(
+    prefix: str,
+    *args,
+    key_version: Optional[str | int] = None,
+    **kwargs,
+) -> None:
     """
     Invalidate cache for specific key or pattern.
 
     Args:
         prefix: Cache key prefix
         *args: Positional arguments for key building
+        key_version: Optional cache namespace version marker used in ``cached``.
         **kwargs: Keyword arguments for key building
     """
+    namespace = _build_cache_namespace(prefix, key_version)
+
     if args or kwargs:
-        key = f"{prefix}:{cache_key(*args, **kwargs)}"
+        key = f"{namespace}:{cache_key(*args, **kwargs)}"
         await cache.delete(key)
     else:
-        # Delete all keys with prefix
-        await cache.delete_pattern(f"{prefix}:*")
+        # Delete all keys with namespace prefix
+        await cache.delete_pattern(f"{namespace}:*")
