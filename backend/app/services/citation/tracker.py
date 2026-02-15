@@ -356,6 +356,63 @@ class CitationTracker:
 
         return normalized_source_types
 
+    @classmethod
+    def _normalize_source_type_value(cls, source_type: SourceType | str) -> str:
+        """Normalize a source type enum/string into a canonical text key."""
+        if isinstance(source_type, SourceType):
+            source_type_value = source_type.value
+        else:
+            source_type_value = str(source_type)
+
+        return cls._normalize_text(source_type_value)
+
+    @classmethod
+    def _resolve_authority_weights(
+        cls,
+        authority_weights: Optional[Mapping[SourceType | str, float]],
+    ) -> dict[str, float]:
+        """Return validated authority weights merged with defaults."""
+        resolved_weights = {
+            cls._normalize_source_type_value(source_type): weight
+            for source_type, weight in cls.SOURCE_AUTHORITY_WEIGHTS.items()
+        }
+
+        if authority_weights is None:
+            return resolved_weights
+
+        if not isinstance(authority_weights, Mapping):
+            raise ValueError(
+                "authority_weights must be a mapping of source type to weight"
+            )
+
+        for source_type, weight in authority_weights.items():
+            if not isinstance(source_type, (SourceType, str)):
+                raise ValueError(
+                    "authority_weights keys must be SourceType or string values"
+                )
+
+            normalized_source_type = cls._normalize_source_type_value(source_type)
+            if not normalized_source_type:
+                raise ValueError("authority_weights keys cannot be blank")
+
+            if normalized_source_type not in resolved_weights:
+                raise ValueError(
+                    f"authority_weights contains unsupported source type: {source_type}"
+                )
+
+            if isinstance(weight, bool) or not isinstance(weight, (int, float)):
+                raise ValueError("authority_weights values must be numeric")
+
+            normalized_weight = float(weight)
+            if not 0 <= normalized_weight <= 1:
+                raise ValueError(
+                    "authority_weights values must be between 0 and 1"
+                )
+
+            resolved_weights[normalized_source_type] = normalized_weight
+
+        return resolved_weights
+
     @staticmethod
     def _domain_matches_allowed(hostname: str, allowed_domains: set[str]) -> bool:
         """Return True when hostname is an allowed domain or its subdomain."""
@@ -777,6 +834,7 @@ class CitationTracker:
         max_citations: Optional[int] = None,
         min_authority_score: Optional[float] = None,
         max_authority_score: Optional[float] = None,
+        authority_weights: Optional[Mapping[SourceType | str, float]] = None,
         min_relevance_score: Optional[float] = None,
         max_relevance_score: Optional[float] = None,
         min_hybrid_score: Optional[float] = None,
@@ -861,6 +919,10 @@ class CitationTracker:
             max_authority_score: Optional inclusive upper bound for source
                 authority score, using ``SOURCE_AUTHORITY_WEIGHTS`` values in
                 the ``0.0`` to ``1.0`` range.
+            authority_weights: Optional per-query authority weight overrides
+                keyed by source type (``SourceType`` or case-insensitive
+                string). Values must be numeric in the ``0.0`` to ``1.0``
+                range. Overrides merge with defaults.
             min_relevance_score: Optional inclusive lower bound for computed
                 relevance score. Useful when filtering out weak lexical matches
                 from broad ``match_mode='any'`` searches.
@@ -1109,6 +1171,9 @@ class CitationTracker:
         citation_counts = Counter(
             citation.source.id for citation in self.citations.values()
         )
+        resolved_authority_weights = self._resolve_authority_weights(
+            authority_weights
+        )
 
         ranked_matches: List[tuple[float, int, float, float, float, Source]] = []
 
@@ -1144,7 +1209,8 @@ class CitationTracker:
             if max_citations is not None and citation_count > max_citations:
                 continue
 
-            authority_score = self.SOURCE_AUTHORITY_WEIGHTS.get(source.type, 0.5)
+            source_type_value = self._normalize_source_type_value(source.type)
+            authority_score = resolved_authority_weights.get(source_type_value, 0.5)
             if (
                 min_authority_score is not None
                 and authority_score < min_authority_score
@@ -1155,8 +1221,6 @@ class CitationTracker:
                 and authority_score > max_authority_score
             ):
                 continue
-
-            source_type_value = self._normalize_text(str(source.type))
             if (
                 normalized_source_types is not None
                 and source_type_value not in normalized_source_types
@@ -1486,6 +1550,7 @@ class CitationTracker:
         max_citations: Optional[int] = None,
         min_authority_score: Optional[float] = None,
         max_authority_score: Optional[float] = None,
+        authority_weights: Optional[Mapping[SourceType | str, float]] = None,
         min_relevance_score: Optional[float] = None,
         max_relevance_score: Optional[float] = None,
         min_hybrid_score: Optional[float] = None,
@@ -1536,6 +1601,7 @@ class CitationTracker:
             max_citations=max_citations,
             min_authority_score=min_authority_score,
             max_authority_score=max_authority_score,
+            authority_weights=authority_weights,
             min_relevance_score=min_relevance_score,
             max_relevance_score=max_relevance_score,
             min_hybrid_score=min_hybrid_score,
@@ -1558,12 +1624,15 @@ class CitationTracker:
         citation_counts = Counter(
             citation.source.id for citation in self.citations.values()
         )
+        resolved_authority_weights = self._resolve_authority_weights(
+            authority_weights
+        )
 
         detailed_matches: List[Dict[str, Any]] = []
         for index, source in enumerate(matched_sources, start=1):
             citation_count = citation_counts.get(source.id, 0)
-            authority_score = self.SOURCE_AUTHORITY_WEIGHTS.get(
-                source.type,
+            authority_score = resolved_authority_weights.get(
+                self._normalize_source_type_value(source.type),
                 0.5,
             )
             recency_score = self._compute_recency_score(

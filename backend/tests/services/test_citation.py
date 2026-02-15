@@ -1303,6 +1303,104 @@ class TestCitationTracker:
                 "ai", min_authority_score=0.9, max_authority_score=0.6
             )
 
+    def test_search_sources_supports_authority_weight_overrides_for_sorting(self):
+        """authority_weights should let callers tune authority-driven ranking."""
+        tracker = CitationTracker()
+
+        web_id = tracker.add_source(
+            title="AI Engineering Community Digest",
+            type=SourceType.WEB,
+        )
+        article_id = tracker.add_source(
+            title="AI Engineering Research Digest",
+            type=SourceType.ARTICLE,
+        )
+
+        default_matches = tracker.search_sources("ai engineering", sort_by="authority")
+        tuned_matches = tracker.search_sources(
+            "ai engineering",
+            sort_by="authority",
+            authority_weights={
+                SourceType.WEB: 0.95,
+                SourceType.ARTICLE: 0.4,
+            },
+        )
+
+        assert [source.id for source in default_matches] == [article_id, web_id]
+        assert [source.id for source in tuned_matches] == [web_id, article_id]
+
+    def test_search_sources_authority_weight_overrides_apply_to_filters(self):
+        """authority_weights should affect min/max authority score filtering."""
+        tracker = CitationTracker()
+
+        web_id = tracker.add_source(
+            title="AI Community Blog",
+            type=SourceType.WEB,
+        )
+        tracker.add_source(
+            title="AI Database Registry",
+            type=SourceType.DATABASE,
+        )
+
+        matches = tracker.search_sources(
+            "ai",
+            min_authority_score=0.9,
+            authority_weights={"web": 0.92, "database": 0.88},
+            sort_by="authority",
+        )
+
+        assert [source.id for source in matches] == [web_id]
+
+    def test_search_sources_rejects_invalid_authority_weight_overrides(self):
+        """authority_weights overrides should validate keys, values, and ranges."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="authority_weights must be a mapping of source type to weight",
+        ):
+            tracker.search_sources("ai", authority_weights=[("web", 0.8)])
+
+        with pytest.raises(
+            ValueError,
+            match="authority_weights keys must be SourceType or string values",
+        ):
+            tracker.search_sources("ai", authority_weights={123: 0.8})
+
+        with pytest.raises(
+            ValueError,
+            match="authority_weights contains unsupported source type: newsletter",
+        ):
+            tracker.search_sources("ai", authority_weights={"newsletter": 0.8})
+
+        with pytest.raises(
+            ValueError,
+            match="authority_weights values must be numeric",
+        ):
+            tracker.search_sources("ai", authority_weights={"web": "high"})
+
+        with pytest.raises(
+            ValueError,
+            match="authority_weights values must be between 0 and 1",
+        ):
+            tracker.search_sources("ai", authority_weights={"web": 1.2})
+
+    def test_search_sources_with_details_supports_authority_weight_overrides(self):
+        """Detailed results should expose authority score after override tuning."""
+        tracker = CitationTracker()
+
+        tracker.add_source(
+            title="AI Community Blog",
+            type=SourceType.WEB,
+        )
+
+        detailed = tracker.search_sources_with_details(
+            "ai",
+            authority_weights={"web": 0.91},
+        )
+
+        assert detailed[0]["authority_score"] == pytest.approx(0.91)
+
     def test_search_sources_supports_min_relevance_score_filter(self):
         """min_relevance_score should remove weaker lexical matches."""
         tracker = CitationTracker()
