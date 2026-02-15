@@ -927,6 +927,35 @@ def _range_numeric_value(value: object, argument_spec: str) -> int | float:
     return int(spread) if float(spread).is_integer() else spread
 
 
+def _interquartile_range_numeric_value(
+    value: object,
+    argument_spec: str,
+    *,
+    transform_name: str = "iqr",
+) -> int | float:
+    """Return interquartile range (Q3-Q1) for non-empty numeric iterables."""
+    if argument_spec.strip():
+        raise ValueError(f"{transform_name} expects no arguments")
+
+    numeric_values = _iter_numeric_values(value, transform_name=transform_name)
+    if not numeric_values:
+        raise ValueError(f"{transform_name} expects a non-empty iterable value")
+
+    first_quartile = float(
+        _percentile_numeric_value(numeric_values, "25", transform_name=transform_name)
+    )
+    third_quartile = float(
+        _percentile_numeric_value(numeric_values, "75", transform_name=transform_name)
+    )
+    interquartile_range = third_quartile - first_quartile
+
+    return (
+        int(interquartile_range)
+        if float(interquartile_range).is_integer()
+        else interquartile_range
+    )
+
+
 def _fallback_value(value: object, argument_spec: str) -> object:
     """Return fallback when values are missing, blank, or empty collections."""
     args = _parse_transform_args(argument_spec)
@@ -1217,6 +1246,7 @@ class TemplateService:
         - ``{latencies->sample_variance}``, ``{latencies->svar}``
         - ``{latencies->sample_stddev}``, ``{latencies->sstddev}``
         - ``{latencies->range}``
+        - ``{latencies->iqr}``, ``{latencies->interquartile_range}``
         - ``{labels->mode}``
         - ``{nickname->strip->fallback("friend")}``
 
@@ -1323,6 +1353,12 @@ class TemplateService:
                 transform_name="sstddev",
             ),
             "range": lambda raw: _range_numeric_value(raw, ""),
+            "iqr": lambda raw: _interquartile_range_numeric_value(raw, ""),
+            "interquartile_range": lambda raw: _interquartile_range_numeric_value(
+                raw,
+                "",
+                transform_name="interquartile_range",
+            ),
             "mode": lambda raw: _mode_value(raw, ""),
         }
         supported_transforms = sorted(
@@ -1369,6 +1405,8 @@ class TemplateService:
                 "sample_stddev",
                 "sstddev",
                 "range",
+                "iqr",
+                "interquartile_range",
                 "mode",
             ]
         )
@@ -1524,6 +1562,12 @@ class TemplateService:
                         raw,
                         spec,
                     )
+                elif transform_name in {"iqr", "interquartile_range"}:
+                    operation = lambda raw, spec=argument_spec, name=transform_name: _interquartile_range_numeric_value(
+                        raw,
+                        spec,
+                        transform_name=name,
+                    )
                 elif transform_name == "mode":
                     operation = lambda raw, spec=argument_spec: _mode_value(raw, spec)
 
@@ -1619,6 +1663,7 @@ class TemplateService:
         ``{latencies->stddev}``, ``{latencies->stdev}``,
         ``{latencies->sample_variance}``, ``{latencies->svar}``,
         ``{latencies->sample_stddev}``, ``{latencies->sstddev}``,
+        ``{latencies->iqr}``, ``{latencies->interquartile_range}``,
         ``{labels->mode}``, or ``{nickname->strip->fallback("friend")}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)

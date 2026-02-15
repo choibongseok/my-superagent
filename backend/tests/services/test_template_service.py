@@ -1569,6 +1569,93 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_interquartile_range_numeric_transform(
+        self, service_with_mock_db
+    ):
+        """iqr/interquartile_range should return Q3-Q1 for iterable metrics."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "IQR: {latencies->iqr}, "
+                "Alias: {latencies->interquartile_range()->round(2)}"
+            ),
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"latencies": [1, 2, 6, 8]},
+                user_id,
+            )
+
+        assert result["prompt"] == "IQR: 4.75, Alias: 4.75"
+        assert template.usage_count == 2
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_iqr_transform_with_arguments(
+        self, service_with_mock_db
+    ):
+        """iqr should reject arguments to keep semantics deterministic."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="IQR: {latencies->iqr(weighted)}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'iqr\(weighted\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": [2, 4, 7]},
+                    user_id,
+                )
+
+        assert template.usage_count == 0
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_interquartile_range_transform_for_empty_values(
+        self, service_with_mock_db
+    ):
+        """interquartile_range should fail for empty collections."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="IQR: {latencies->interquartile_range}",
+            category="docs",
+            usage_count=4,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'interquartile_range'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": []},
+                    user_id,
+                )
+
+        assert template.usage_count == 4
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_mode_transform(self, service_with_mock_db):
         """mode should return the most frequent iterable value."""
         service, db = service_with_mock_db
