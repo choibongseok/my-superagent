@@ -612,6 +612,7 @@ class VectorStoreMemory:
         max_score_gap: Optional[float] = None,
         min_score_margin: Optional[float] = None,
         min_relative_score: Optional[float] = None,
+        min_top_score: Optional[float] = None,
         sort_by_score: bool = False,
         include_score_context: bool = False,
         unique_content: bool = False,
@@ -660,6 +661,10 @@ class VectorStoreMemory:
                 strongest candidate after thresholding. When set, only
                 results where ``score >= top_score * min_relative_score`` are
                 retained. Accepted range is ``[0, 1]``.
+            min_top_score: Optional hard quality gate applied after score-based
+                filtering. When set, all results are rejected unless the best
+                remaining candidate score is at least this value. Accepted
+                range is ``[0, 1]``.
             sort_by_score: When ``True``, sort accepted results by descending score
                 before applying the final ``k`` limit. Ties preserve original
                 vector-store order for deterministic pagination.
@@ -712,8 +717,8 @@ class VectorStoreMemory:
             ValueError: If thresholds/parameters are invalid, including unsupported
                 ``min_confidence``/``min_relevance`` values, invalid
                 ``max_score_gap``/``min_score_margin``/
-                ``min_relative_score``/``offset``/
-                ``max_results_per_session`` values, invalid
+                ``min_relative_score``/``min_top_score``/
+                ``offset``/``max_results_per_session`` values, invalid
                 ``created_after``/``created_before`` boundaries,
                 invalid ``required_terms``/``required_terms_mode``/
                 ``excluded_terms``/``excluded_terms_mode``/
@@ -820,6 +825,20 @@ class VectorStoreMemory:
             if not (0.0 <= min_relative_score <= 1.0):
                 raise ValueError(
                     f"min_relative_score must be in [0, 1], got {min_relative_score}"
+                )
+
+        if min_top_score is not None:
+            if isinstance(min_top_score, bool) or not isinstance(
+                min_top_score, (int, float)
+            ):
+                raise ValueError(
+                    f"min_top_score must be in [0, 1], got {min_top_score}"
+                )
+
+            min_top_score = float(min_top_score)
+            if not (0.0 <= min_top_score <= 1.0):
+                raise ValueError(
+                    f"min_top_score must be in [0, 1], got {min_top_score}"
                 )
 
         normalized_min_confidence = self._normalize_min_confidence(min_confidence)
@@ -1163,6 +1182,16 @@ class VectorStoreMemory:
                 minimum_allowed_score,
                 len(results),
             )
+
+        if min_top_score is not None and results:
+            top_score_after_filters = max(score for _, score in results)
+            if top_score_after_filters + SCORE_EPSILON < min_top_score:
+                logger.debug(
+                    "Applied min_top_score guard: required=%.3f, top=%.3f, rejecting all results",
+                    min_top_score,
+                    top_score_after_filters,
+                )
+                return []
 
         if sort_by_score:
             indexed_results = list(enumerate(results))

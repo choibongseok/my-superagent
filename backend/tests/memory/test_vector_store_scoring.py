@@ -1422,6 +1422,78 @@ class TestRelativeScoreFiltering:
         assert [result["content"] for result in results] == ["first", "second"]
 
 
+class TestTopScoreFiltering:
+    """Test optional top-score quality guard for scored searches."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_top_score_validation(self):
+        """min_top_score values outside [0, 1] should fail fast."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(ValueError, match="min_top_score must be in"):
+            memory.search_with_scores(query="test", min_top_score=-0.1)
+
+        with pytest.raises(ValueError, match="min_top_score must be in"):
+            memory.search_with_scores(query="test", min_top_score=1.1)
+
+        with pytest.raises(ValueError, match="min_top_score must be in"):
+            memory.search_with_scores(query="test", min_top_score=True)
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_top_score_rejects_results_when_best_match_is_too_low(self):
+        """All candidates should be rejected when top score is below the guard."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        near_doc = Document(page_content="near", metadata={})
+        low_doc = Document(page_content="low", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (near_doc, 0.79),
+                (low_doc, 0.71),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            min_top_score=0.8,
+        )
+
+        assert results == []
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_top_score_allows_results_when_top_score_meets_boundary(self):
+        """The quality guard should be inclusive at the exact threshold boundary."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        top_doc = Document(page_content="top", metadata={})
+        second_doc = Document(page_content="second", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (top_doc, 0.8),
+                (second_doc, 0.72),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            min_top_score=0.8,
+        )
+
+        assert [result["content"] for result in results] == ["top", "second"]
+
+
 class TestScoreMarginFiltering:
     """Test optional score-margin filtering above the active threshold."""
 
