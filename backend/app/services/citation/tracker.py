@@ -105,6 +105,17 @@ class CitationTracker:
         "lenient": 0.08,
     }
 
+    # Multipliers used when repeated token matches occur in title/author/
+    # description fields.
+    # - strict: dampens repeated-term boosts to reduce keyword stuffing.
+    # - balanced: current default behavior.
+    # - lenient: keeps more reward for repeated exact-term overlap.
+    TOKEN_DECAY_PROFILE_FACTORS: Dict[str, float] = {
+        "strict": 0.75,
+        "balanced": 0.5,
+        "lenient": 0.25,
+    }
+
     def __init__(self):
         """Initialize citation tracker."""
         self.sources: Dict[str, Source] = {}
@@ -722,6 +733,7 @@ class CitationTracker:
         query_tokens: list[str],
         normalized_query: str,
         query_length_profile: Literal["strict", "balanced", "lenient"] = "balanced",
+        token_decay_profile: Literal["strict", "balanced", "lenient"] = "balanced",
     ) -> float:
         """Compute deterministic relevance score for a source/query pair."""
         if not query_tokens:
@@ -743,6 +755,12 @@ class CitationTracker:
 
         score = 0.0
 
+        token_decay_factor = self.TOKEN_DECAY_PROFILE_FACTORS.get(token_decay_profile)
+        if token_decay_factor is None:
+            raise ValueError(
+                "token_decay_profile must be one of: strict, balanced, lenient"
+            )
+
         if len(query_tokens) > 1 and normalized_query in searchable_text:
             phrase_specificity = min(len(query_tokens) / 5.0, 1.0)
 
@@ -759,12 +777,16 @@ class CitationTracker:
             if token in title:
                 title_count = min(title.count(token), self.MAX_OCCURRENCES["title"])
                 for i in range(title_count):
-                    token_contribution += self.TOKEN_WEIGHTS["title"] / (1 + i * 0.5)
+                    token_contribution += self.TOKEN_WEIGHTS["title"] / (
+                        1 + i * token_decay_factor
+                    )
 
             if token in author:
                 author_count = min(author.count(token), self.MAX_OCCURRENCES["author"])
                 for i in range(author_count):
-                    token_contribution += self.TOKEN_WEIGHTS["author"] / (1 + i * 0.5)
+                    token_contribution += self.TOKEN_WEIGHTS["author"] / (
+                        1 + i * token_decay_factor
+                    )
 
             if token in description:
                 desc_count = min(
@@ -773,7 +795,7 @@ class CitationTracker:
                 )
                 for i in range(desc_count):
                     token_contribution += self.TOKEN_WEIGHTS["description"] / (
-                        1 + i * 0.5
+                        1 + i * token_decay_factor
                     )
 
             if token in source_url:
@@ -860,6 +882,7 @@ class CitationTracker:
         recency_window_days: int = 730,
         recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
         query_length_profile: Literal["strict", "balanced", "lenient"] = "balanced",
+        token_decay_profile: Literal["strict", "balanced", "lenient"] = "balanced",
         as_of: Optional[datetime] = None,
         min_token_matches: Optional[int] = None,
         max_results_per_domain: Optional[int] = None,
@@ -972,6 +995,10 @@ class CitationTracker:
                 computing relevance scores. ``"strict"`` penalizes long
                 multi-token queries more aggressively, while ``"lenient"``
                 applies lighter normalization.
+            token_decay_profile: Repeated-token decay profile used during
+                relevance scoring. ``"strict"`` reduces keyword repetition
+                effects more aggressively, while ``"lenient"`` preserves more
+                repeated-term signal.
             as_of: Optional reference timestamp for deterministic recency
                 calculations and age-day filters.
             min_token_matches: Optional minimum number of unique query tokens
@@ -1132,6 +1159,11 @@ class CitationTracker:
         if query_length_profile not in self.QUERY_LENGTH_PROFILE_FACTORS:
             raise ValueError(
                 "query_length_profile must be one of: strict, balanced, lenient"
+            )
+
+        if token_decay_profile not in self.TOKEN_DECAY_PROFILE_FACTORS:
+            raise ValueError(
+                "token_decay_profile must be one of: strict, balanced, lenient"
             )
 
         if min_token_matches is not None:
@@ -1393,6 +1425,7 @@ class CitationTracker:
                 query_tokens=query_tokens,
                 normalized_query=normalized_query,
                 query_length_profile=query_length_profile,
+                token_decay_profile=token_decay_profile,
             )
 
             if min_relevance_score is not None and score < min_relevance_score:
@@ -1671,6 +1704,7 @@ class CitationTracker:
         recency_window_days: int = 730,
         recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
         query_length_profile: Literal["strict", "balanced", "lenient"] = "balanced",
+        token_decay_profile: Literal["strict", "balanced", "lenient"] = "balanced",
         as_of: Optional[datetime] = None,
         min_token_matches: Optional[int] = None,
         max_results_per_domain: Optional[int] = None,
@@ -1727,6 +1761,7 @@ class CitationTracker:
             recency_window_days=recency_window_days,
             recency_profile=recency_profile,
             query_length_profile=query_length_profile,
+            token_decay_profile=token_decay_profile,
             as_of=as_of,
             min_token_matches=min_token_matches,
             max_results_per_domain=max_results_per_domain,
@@ -1767,6 +1802,7 @@ class CitationTracker:
                 query_tokens=query_tokens,
                 normalized_query=normalized_query,
                 query_length_profile=query_length_profile,
+                token_decay_profile=token_decay_profile,
             )
             match_details = self._build_match_details(
                 source,

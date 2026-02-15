@@ -1753,6 +1753,41 @@ class TestCitationTracker:
         assert strict_matches == []
         assert [source.id for source in lenient_matches] == [source_id]
 
+    def test_search_sources_supports_token_decay_profile_for_repeated_terms(self):
+        """token_decay_profile should tune repeated token contribution decay."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(title="Agent Agent Agent Reliability Guide")
+
+        strict_detail = tracker.search_sources_with_details(
+            "agent",
+            token_decay_profile="strict",
+        )
+        lenient_detail = tracker.search_sources_with_details(
+            "agent",
+            token_decay_profile="lenient",
+        )
+
+        strict_score = strict_detail[0]["relevance_score"]
+        lenient_score = lenient_detail[0]["relevance_score"]
+        assert strict_score < lenient_score
+
+        midpoint = (strict_score + lenient_score) / 2
+
+        strict_matches = tracker.search_sources(
+            "agent",
+            min_relevance_score=midpoint,
+            token_decay_profile="strict",
+        )
+        lenient_matches = tracker.search_sources(
+            "agent",
+            min_relevance_score=midpoint,
+            token_decay_profile="lenient",
+        )
+
+        assert strict_matches == []
+        assert [source.id for source in lenient_matches] == [source_id]
+
     def test_search_sources_rejects_invalid_query_length_profile(self):
         """query_length_profile should enforce supported normalization profiles."""
         tracker = CitationTracker()
@@ -1769,6 +1804,24 @@ class TestCitationTracker:
         ):
             tracker.search_sources_with_details(
                 "agent", query_length_profile="aggressive"
+            )
+
+    def test_search_sources_rejects_invalid_token_decay_profile(self):
+        """token_decay_profile should enforce supported repetition profiles."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="token_decay_profile must be one of: strict, balanced, lenient",
+        ):
+            tracker.search_sources("agent", token_decay_profile="aggressive")
+
+        with pytest.raises(
+            ValueError,
+            match="token_decay_profile must be one of: strict, balanced, lenient",
+        ):
+            tracker.search_sources_with_details(
+                "agent", token_decay_profile="aggressive"
             )
 
     def test_search_sources_with_details_supports_relevance_score_range_filters(self):
@@ -2824,7 +2877,9 @@ class TestCitationTracker:
 
         assert default_report["metrics"]["authority_score"] == pytest.approx(0.825)
         assert overridden_report["metrics"]["authority_score"] == pytest.approx(0.7)
-        assert overridden_report["confidence_score"] < default_report["confidence_score"]
+        assert (
+            overridden_report["confidence_score"] < default_report["confidence_score"]
+        )
         assert default_report["metrics"]["authority_weights_overridden"] is False
         assert overridden_report["metrics"]["authority_weights_overridden"] is True
 
