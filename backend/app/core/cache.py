@@ -1,8 +1,13 @@
 """Redis cache configuration and utilities."""
 
-import json
-from typing import Any, Optional, Callable
 from functools import wraps
+import json
+from collections.abc import Mapping
+from datetime import date, datetime
+from enum import Enum
+from typing import Any, Callable, Optional
+from uuid import UUID
+
 import redis.asyncio as redis
 from redis.asyncio import Redis
 
@@ -138,9 +143,60 @@ class RedisCache:
 cache = RedisCache()
 
 
+def _normalize_cache_key_value(value: Any) -> Any:
+    """Normalize cache-key values into deterministic JSON-serializable payloads."""
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+
+    if isinstance(value, Enum):
+        return _normalize_cache_key_value(value.value)
+
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+
+    if isinstance(value, UUID):
+        return str(value)
+
+    if isinstance(value, Mapping):
+        return {
+            str(key): _normalize_cache_key_value(nested_value)
+            for key, nested_value in sorted(
+                value.items(),
+                key=lambda item: str(item[0]),
+            )
+        }
+
+    if isinstance(value, (list, tuple)):
+        return [_normalize_cache_key_value(item) for item in value]
+
+    if isinstance(value, (set, frozenset)):
+        normalized_items = [_normalize_cache_key_value(item) for item in value]
+        return sorted(
+            normalized_items,
+            key=lambda item: json.dumps(
+                item,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ),
+        )
+
+    return repr(value)
+
+
+def _serialize_cache_key_value(value: Any) -> str:
+    """Serialize cache-key values with deterministic JSON encoding."""
+    return json.dumps(
+        _normalize_cache_key_value(value),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+
+
 def cache_key(*args, **kwargs) -> str:
     """
-    Generate cache key from arguments.
+    Generate a deterministic cache key from arguments.
 
     Args:
         *args: Positional arguments
@@ -149,8 +205,11 @@ def cache_key(*args, **kwargs) -> str:
     Returns:
         Cache key string
     """
-    parts = [str(arg) for arg in args]
-    parts.extend(f"{k}:{v}" for k, v in sorted(kwargs.items()))
+    parts = [_serialize_cache_key_value(arg) for arg in args]
+    parts.extend(
+        f"{key}={_serialize_cache_key_value(value)}"
+        for key, value in sorted(kwargs.items(), key=lambda item: item[0])
+    )
     return ":".join(parts)
 
 
@@ -158,6 +217,7 @@ def cached(
     prefix: str,
     ttl: Optional[int] = None,
     key_builder: Optional[Callable] = None,
+    skip_first_arg: Optional[bool] = None,
 ):
     """
     Decorator for caching function results.
@@ -166,6 +226,9 @@ def cached(
         prefix: Cache key prefix
         ttl: Time to live in seconds
         key_builder: Custom key builder function
+        skip_first_arg: Whether to omit the first positional argument when
+            building cache keys. ``None`` auto-detects bound methods when
+            ``key_builder`` is not provided.
 
     Example:
         @cached(prefix="user", ttl=300)
@@ -173,14 +236,38 @@ def cached(
             return await db.get_user(user_id)
     """
 
+    if skip_first_arg is not None and not isinstance(skip_first_arg, bool):
+        raise ValueError("skip_first_arg must be a boolean when provided")
+
     def decorator(func: Callable):
+        def _resolve_key_args(call_args: tuple[Any, ...]) -> tuple[Any, ...]:
+            if not call_args:
+                return call_args
+
+            if skip_first_arg is True:
+                return call_args[1:]
+
+            if skip_first_arg is False:
+                return call_args
+
+            if key_builder is not None:
+                return call_args
+
+            method_candidate = getattr(call_args[0], func.__name__, None)
+            if callable(method_candidate):
+                return call_args[1:]
+
+            return call_args
+
         @wraps(func)
         async def wrapper(*args, **kwargs):
+            key_args = _resolve_key_args(args)
+
             # Build cache key
             if key_builder:
-                key = f"{prefix}:{key_builder(*args, **kwargs)}"
+                key = f"{prefix}:{key_builder(*key_args, **kwargs)}"
             else:
-                key = f"{prefix}:{cache_key(*args, **kwargs)}"
+                key = f"{prefix}:{cache_key(*key_args, **kwargs)}"
 
             # Try to get from cache
             cached_value = await cache.get(key)
