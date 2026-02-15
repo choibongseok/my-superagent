@@ -89,6 +89,24 @@ class TestWeatherTool:
         ):
             WeatherPlugin(config={"pressure_unit": "psi"})
 
+    def test_wind_unit_aliases_are_normalized(self):
+        """wind_unit aliases should normalize to canonical internal units."""
+        kmh_plugin = WeatherPlugin(config={"wind_unit": "km/h"})
+        mph_plugin = WeatherPlugin(config={"wind_unit": "mi/h"})
+        ms_plugin = WeatherPlugin(config={"wind_unit": "MPS"})
+
+        assert kmh_plugin.wind_unit == "kmh"
+        assert mph_plugin.wind_unit == "mph"
+        assert ms_plugin.wind_unit == "ms"
+
+    def test_invalid_wind_units_are_rejected(self):
+        """Unsupported wind_unit values should fail fast."""
+        with pytest.raises(
+            ValueError,
+            match="Unsupported wind_unit. Use kmh, mph, or ms",
+        ):
+            WeatherPlugin(config={"wind_unit": "knots"})
+
     def test_language_codes_are_normalized(self):
         """Test language config values are normalized for API compatibility."""
         plugin = WeatherPlugin(config={"lang": "PT-BR"})
@@ -320,6 +338,41 @@ class TestWeatherTool:
             assert hpa_result["pressure_unit"] == "hpa"
             assert inhg_result["pressure_unit"] == "inhg"
             assert hpa_result["pressure"] != inhg_result["pressure"]
+            assert mock_get.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_response_cache_key_includes_wind_unit(self):
+        """Different wind_unit overrides should produce independent cache entries."""
+        plugin = WeatherPlugin(config={"api_key": "test_key", "cache_ttl_seconds": 30})
+
+        first_response = AsyncMock()
+        first_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 20.0, "humidity": 40},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 5.0},
+        }
+        first_response.raise_for_status = AsyncMock()
+
+        second_response = AsyncMock()
+        second_response.json.return_value = {
+            "name": "Seoul",
+            "main": {"temp": 20.0, "humidity": 40},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 5.0},
+        }
+        second_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(side_effect=[first_response, second_response])
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            kmh_result = await plugin.execute({"location": "Seoul", "wind_unit": "kmh"})
+            ms_result = await plugin.execute({"location": "Seoul", "wind_unit": "ms"})
+
+            assert kmh_result["wind_speed_unit"] == "km/h"
+            assert ms_result["wind_speed_unit"] == "m/s"
+            assert kmh_result["wind_speed"] != ms_result["wind_speed"]
             assert mock_get.await_count == 2
 
     @pytest.mark.asyncio
@@ -1083,6 +1136,40 @@ class TestWeatherTool:
             assert result["visibility_level"] == "poor"
 
     @pytest.mark.asyncio
+    async def test_api_wind_unit_override_converts_wind_speed_output(self):
+        """wind_unit overrides should convert API wind fields while keeping base units."""
+        plugin = WeatherPlugin(config={"api_key": "test_key", "units": "imperial"})
+
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "New York",
+            "main": {"temp": 68.5, "humidity": 55, "pressure": 1002},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 10.5, "gust": 14.0},
+            "visibility": 1609,
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response
+            )
+
+            result = await plugin.execute(
+                {
+                    "location": "New York",
+                    "wind_unit": "kmh",
+                }
+            )
+
+            assert result["units"] == "imperial"
+            assert result["wind_speed"] == 16.9
+            assert result["wind_speed_unit"] == "km/h"
+            assert result["wind_gust"] == 22.5
+            assert result["wind_gust_unit"] == "km/h"
+            assert result["wind_beaufort"] == 3
+
+    @pytest.mark.asyncio
     async def test_run_tool_formats_imperial_units(self):
         """Test run_tool output reflects imperial units."""
         plugin = WeatherPlugin(config={"units": "imperial"})
@@ -1146,6 +1233,32 @@ class TestWeatherTool:
         assert result["visibility"] == 10000.0
         assert result["visibility_unit"] == "m"
         assert result["visibility_level"] == "good"
+
+    @pytest.mark.asyncio
+    async def test_wind_unit_override_changes_mock_response_wind_output(self):
+        """wind_unit overrides should convert wind fields without changing temp units."""
+        plugin = WeatherPlugin(config={"units": "metric"})
+
+        result = await plugin.execute({"location": "Seoul", "wind_unit": "m/s"})
+
+        assert result["units"] == "metric"
+        assert result["wind_speed"] == 3.4
+        assert result["wind_speed_unit"] == "m/s"
+        assert result["wind_gust"] == 5.2
+        assert result["wind_gust_unit"] == "m/s"
+        assert result["wind_beaufort"] == 3
+
+    @pytest.mark.asyncio
+    async def test_configured_wind_unit_applies_in_mock_mode_without_override(self):
+        """Plugin-level wind_unit config should affect default execute output."""
+        plugin = WeatherPlugin(config={"units": "metric", "wind_unit": "ms"})
+
+        result = await plugin.execute({"location": "Seoul"})
+
+        assert result["wind_speed"] == 3.4
+        assert result["wind_speed_unit"] == "m/s"
+        assert result["wind_gust"] == 5.2
+        assert result["wind_gust_unit"] == "m/s"
 
     @pytest.mark.asyncio
     async def test_pressure_unit_override_changes_pressure_output_in_mock_mode(self):
@@ -1747,7 +1860,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.30.0"
+        assert manifest.version == "1.31.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]

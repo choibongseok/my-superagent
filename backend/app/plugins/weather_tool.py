@@ -47,6 +47,15 @@ class Plugin(ToolPlugin):
         "mmhg": "mmhg",
         "millimetersofmercury": "mmhg",
     }
+    WIND_UNIT_ALIASES = {
+        "kmh": "kmh",
+        "kph": "kmh",
+        "kmph": "kmh",
+        "mph": "mph",
+        "mih": "mph",
+        "ms": "ms",
+        "mps": "ms",
+    }
     LANGUAGE_PATTERN = re.compile(r"^[a-z]{2}(?:[_-][a-z]{2})?$")
     COORDINATE_LOCATION_PATTERN = re.compile(
         r"([+-]?\d+(?:\.\d+)?)(?:\s*([NnSs]))?\s*,\s*"
@@ -61,6 +70,7 @@ class Plugin(ToolPlugin):
             api_key: OpenWeatherMap API key (optional, uses mock data if not provided)
             units: Temperature units ('metric'/'celsius', 'imperial'/'fahrenheit', or 'standard'/'kelvin'; default: 'metric')
             pressure_unit: Pressure output units ('hpa', 'kpa', 'inhg', or 'mmhg'; default: 'hpa')
+            wind_unit: Optional wind-speed output unit ('kmh', 'mph', or 'ms'). Defaults to unit-family behavior.
             lang: Optional language code for localized weather descriptions (e.g., 'en', 'ko', 'pt_br')
             cache_ttl_seconds: Optional positive integer TTL for response caching (default: 0 disables caching)
             cache_max_entries: Optional maximum cache entries (default: 256)
@@ -71,6 +81,7 @@ class Plugin(ToolPlugin):
         self.pressure_unit = self._normalize_pressure_unit(
             config.get("pressure_unit", "hpa")
         )
+        self.wind_unit = self._normalize_wind_unit(config.get("wind_unit"))
         self.lang = self._normalize_language(config.get("lang"))
         self.cache_ttl_seconds = self._normalize_cache_ttl(
             config.get("cache_ttl_seconds", 0)
@@ -138,6 +149,44 @@ class Plugin(ToolPlugin):
             return self.pressure_unit
 
         return self._normalize_pressure_unit(requested_pressure_unit)
+
+    def _normalize_wind_unit(self, wind_unit: Any) -> str | None:
+        """Normalize optional wind-speed output unit aliases."""
+        if wind_unit is None:
+            return None
+        if not isinstance(wind_unit, str):
+            raise ValueError("wind_unit must be a string")
+
+        normalized_wind_unit = re.sub(r"[\s_\-/]+", "", wind_unit.strip().lower())
+        if not normalized_wind_unit:
+            return None
+
+        canonical_wind_unit = self.WIND_UNIT_ALIASES.get(normalized_wind_unit)
+        if canonical_wind_unit is None:
+            raise ValueError("Unsupported wind_unit. Use kmh, mph, or ms")
+
+        return canonical_wind_unit
+
+    @staticmethod
+    def _default_wind_unit_for_units(units: str) -> str:
+        """Resolve default wind-speed output units for the active temperature units."""
+        if units == "imperial":
+            return "mph"
+        if units == "standard":
+            return "ms"
+
+        return "kmh"
+
+    def _resolve_wind_unit(self, requested_wind_unit: Any, *, units: str) -> str:
+        """Resolve effective wind-speed output unit for a request."""
+        if requested_wind_unit is None:
+            return self.wind_unit or self._default_wind_unit_for_units(units)
+
+        normalized_wind_unit = self._normalize_wind_unit(requested_wind_unit)
+        if normalized_wind_unit is None:
+            return self.wind_unit or self._default_wind_unit_for_units(units)
+
+        return normalized_wind_unit
 
     def _normalize_language(self, language: Any) -> str | None:
         """Normalize optional language code for OpenWeatherMap localization."""
@@ -216,10 +265,14 @@ class Plugin(ToolPlugin):
         units: str,
         language: str | None,
         pressure_unit: str,
+        wind_unit: str,
     ) -> str:
         """Build deterministic cache keys for weather responses."""
         language_key = language or "default"
-        return f"weather:{location.lower()}|{units}|{language_key}|{pressure_unit}"
+        return (
+            f"weather:{location.lower()}|{units}|{language_key}|"
+            f"{pressure_unit}|{wind_unit}"
+        )
 
     @staticmethod
     def _clone_weather_result(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -270,6 +323,48 @@ class Plugin(ToolPlugin):
             "mmhg": "mmHg",
         }
         return labels.get(pressure_unit, pressure_unit)
+
+    @staticmethod
+    def _wind_unit_label(wind_unit: str) -> str:
+        """Return display labels for wind-speed units."""
+        labels = {
+            "kmh": "km/h",
+            "mph": "mph",
+            "ms": "m/s",
+        }
+        return labels.get(wind_unit, wind_unit)
+
+    @classmethod
+    def _convert_wind_speed_between_units(
+        cls,
+        wind_speed: float,
+        *,
+        from_wind_unit: str,
+        to_wind_unit: str,
+    ) -> float:
+        """Convert wind speed values between canonical wind-speed units."""
+        if from_wind_unit == to_wind_unit:
+            return round(wind_speed, 1)
+
+        if from_wind_unit == "kmh":
+            speed_kmh = wind_speed
+        elif from_wind_unit == "mph":
+            speed_kmh = wind_speed * 1.60934
+        elif from_wind_unit == "ms":
+            speed_kmh = wind_speed * 3.6
+        else:
+            raise ValueError("Unsupported wind_unit. Use kmh, mph, or ms")
+
+        if to_wind_unit == "kmh":
+            converted_speed = speed_kmh
+        elif to_wind_unit == "mph":
+            converted_speed = speed_kmh / 1.60934
+        elif to_wind_unit == "ms":
+            converted_speed = speed_kmh / 3.6
+        else:
+            raise ValueError("Unsupported wind_unit. Use kmh, mph, or ms")
+
+        return round(converted_speed, 1)
 
     @staticmethod
     def _normalize_wind_speed_for_units(api_wind_speed: float, units: str) -> float:
@@ -388,15 +483,15 @@ class Plugin(ToolPlugin):
 
         return "excellent"
 
-    @staticmethod
-    def _resolve_unit_labels(units: str) -> tuple[str, str]:
-        """Resolve display labels for temperature and wind-speed units."""
+    @classmethod
+    def _resolve_unit_labels(cls, units: str) -> tuple[str, str]:
+        """Resolve display labels for temperature and default wind-speed units."""
         if units == "imperial":
-            return "°F", "mph"
+            return "°F", cls._wind_unit_label("mph")
         if units == "standard":
-            return "K", "m/s"
+            return "K", cls._wind_unit_label("ms")
 
-        return "°C", "km/h"
+        return "°C", cls._wind_unit_label("kmh")
 
     @staticmethod
     def _convert_temperature_to_celsius(temperature: float, units: str) -> float:
@@ -854,6 +949,7 @@ class Plugin(ToolPlugin):
         location: str,
         units: str,
         pressure_unit: str,
+        wind_unit: str,
     ) -> Dict[str, Any]:
         """Build deterministic mock weather data for offline/test mode."""
         temperature_celsius = 22.5
@@ -870,8 +966,8 @@ class Plugin(ToolPlugin):
             feels_like = self._convert_metric_to_imperial_temperature(
                 feels_like_celsius
             )
-            wind_speed = self._convert_kmh_to_mph(wind_kmh)
-            wind_gust = self._convert_kmh_to_mph(wind_gust_kmh)
+            normalized_wind_speed = self._convert_kmh_to_mph(wind_kmh)
+            normalized_wind_gust = self._convert_kmh_to_mph(wind_gust_kmh)
         elif units == "standard":
             temperature = self._convert_metric_to_standard_temperature(
                 temperature_celsius
@@ -879,20 +975,34 @@ class Plugin(ToolPlugin):
             feels_like = self._convert_metric_to_standard_temperature(
                 feels_like_celsius
             )
-            wind_speed = self._convert_kmh_to_ms(wind_kmh)
-            wind_gust = self._convert_kmh_to_ms(wind_gust_kmh)
+            normalized_wind_speed = self._convert_kmh_to_ms(wind_kmh)
+            normalized_wind_gust = self._convert_kmh_to_ms(wind_gust_kmh)
         else:
             temperature = temperature_celsius
             feels_like = feels_like_celsius
-            wind_speed = wind_kmh
-            wind_gust = wind_gust_kmh
+            normalized_wind_speed = wind_kmh
+            normalized_wind_gust = wind_gust_kmh
 
         visibility, visibility_unit = self._normalize_visibility_for_units(
             visibility_meters,
             units,
         )
         visibility_level = self._classify_visibility_level(visibility, units)
-        temperature_unit, wind_speed_unit = self._resolve_unit_labels(units)
+        temperature_unit, _ = self._resolve_unit_labels(units)
+
+        base_wind_unit = self._default_wind_unit_for_units(units)
+        wind_speed = self._convert_wind_speed_between_units(
+            normalized_wind_speed,
+            from_wind_unit=base_wind_unit,
+            to_wind_unit=wind_unit,
+        )
+        wind_gust = self._convert_wind_speed_between_units(
+            normalized_wind_gust,
+            from_wind_unit=base_wind_unit,
+            to_wind_unit=wind_unit,
+        )
+        wind_speed_unit = self._wind_unit_label(wind_unit)
+
         dew_point = self._calculate_dew_point(
             temperature=temperature,
             humidity=65,
@@ -905,16 +1015,16 @@ class Plugin(ToolPlugin):
         )
         wind_chill = self._calculate_wind_chill(
             temperature=temperature,
-            wind_speed=wind_speed,
+            wind_speed=normalized_wind_speed,
             units=units,
         )
         wind_beaufort = self._calculate_wind_beaufort(
-            wind_speed=wind_speed,
+            wind_speed=normalized_wind_speed,
             units=units,
         )
         wind_severity = self._classify_wind_severity(
             wind_beaufort=wind_beaufort,
-            wind_speed=wind_speed,
+            wind_speed=normalized_wind_speed,
             units=units,
         )
         thermal_comfort = self._classify_thermal_comfort(
@@ -1222,6 +1332,7 @@ class Plugin(ToolPlugin):
                 "longitude": float (optional, requires latitude),
                 "units": str (optional, metric/celsius, imperial/fahrenheit, or standard/kelvin),
                 "pressure_unit": str (optional, hpa/kpa/inhg/mmhg; overrides plugin default),
+                "wind_unit": str (optional, kmh/mph/ms; overrides plugin/default unit-family behavior),
                 "lang": str (optional, ISO 639-1 code with optional locale such as 'ko' or 'pt_br'),
                 "refresh_cache": bool (optional, when true bypasses cache lookup and forces a fresh fetch)
             }
@@ -1269,6 +1380,10 @@ class Plugin(ToolPlugin):
         resolved_pressure_unit = self._resolve_pressure_unit(
             inputs.get("pressure_unit")
         )
+        resolved_wind_unit = self._resolve_wind_unit(
+            inputs.get("wind_unit"),
+            units=resolved_units,
+        )
         resolved_language = self._resolve_language(inputs.get("lang"))
         refresh_cache = self._normalize_refresh_cache(inputs.get("refresh_cache"))
 
@@ -1279,6 +1394,7 @@ class Plugin(ToolPlugin):
                 units=resolved_units,
                 language=resolved_language,
                 pressure_unit=resolved_pressure_unit,
+                wind_unit=resolved_wind_unit,
             )
             if not refresh_cache:
                 cached_result = self._response_cache.get(cache_key)
@@ -1300,6 +1416,7 @@ class Plugin(ToolPlugin):
                 normalized_location,
                 resolved_units,
                 resolved_pressure_unit,
+                resolved_wind_unit,
             )
             if cache_key is not None and self._response_cache is not None:
                 self._response_cache.set(
@@ -1399,26 +1516,43 @@ class Plugin(ToolPlugin):
                     else None,
                 )
                 wind_payload = data.get("wind") if isinstance(data.get("wind"), dict) else {}
-                wind_speed = self._normalize_wind_speed_for_units(
+                normalized_wind_speed = self._normalize_wind_speed_for_units(
                     wind_payload["speed"],
                     resolved_units,
                 )
-                wind_gust = self._normalize_wind_gust_for_units(
+                normalized_wind_gust = self._normalize_wind_gust_for_units(
                     wind_payload.get("gust"),
                     resolved_units,
                 )
+
+                base_wind_unit = self._default_wind_unit_for_units(resolved_units)
+                wind_speed = self._convert_wind_speed_between_units(
+                    normalized_wind_speed,
+                    from_wind_unit=base_wind_unit,
+                    to_wind_unit=resolved_wind_unit,
+                )
+                wind_gust = (
+                    self._convert_wind_speed_between_units(
+                        normalized_wind_gust,
+                        from_wind_unit=base_wind_unit,
+                        to_wind_unit=resolved_wind_unit,
+                    )
+                    if normalized_wind_gust is not None
+                    else None
+                )
+
                 wind_chill = self._calculate_wind_chill(
                     temperature=temperature,
-                    wind_speed=wind_speed,
+                    wind_speed=normalized_wind_speed,
                     units=resolved_units,
                 )
                 wind_beaufort = self._calculate_wind_beaufort(
-                    wind_speed=wind_speed,
+                    wind_speed=normalized_wind_speed,
                     units=resolved_units,
                 )
                 wind_severity = self._classify_wind_severity(
                     wind_beaufort=wind_beaufort,
-                    wind_speed=wind_speed,
+                    wind_speed=normalized_wind_speed,
                     units=resolved_units,
                 )
                 wind_direction_degrees = self._normalize_wind_direction_degrees(
@@ -1428,9 +1562,8 @@ class Plugin(ToolPlugin):
                     wind_direction_degrees
                 )
 
-                temperature_unit, wind_speed_unit = self._resolve_unit_labels(
-                    resolved_units
-                )
+                temperature_unit, _ = self._resolve_unit_labels(resolved_units)
+                wind_speed_unit = self._wind_unit_label(resolved_wind_unit)
 
                 result = {
                     "location": data.get("name") or normalized_location,
@@ -1674,6 +1807,7 @@ class Plugin(ToolPlugin):
             "for example '{\"location\":\"Seoul\",\"units\":\"imperial\"}'. "
             "Per-request units override is supported via units='metric/celsius', "
             "units='imperial/fahrenheit', or units='standard/kelvin'. "
+            "Wind speed output units can be configured globally or overridden per request via wind_unit='kmh'/'mph'/'ms'. "
             "Pressure output units can be configured globally or overridden per request via pressure_unit='hpa'/'kpa'/'inhg'/'mmhg'. "
             "Responses include both actual temperature and feels-like temperature. "
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
@@ -1687,14 +1821,15 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.30.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, hemisphere-aware coordinate parsing, explicit unit labels, configurable pressure units, dew-point/heat-index/wind-chill insights, thermal-comfort insights, humidity comfort-level insights, wind speed and gust details, Beaufort wind-force details, qualitative wind-severity insights, wind direction details, visibility and visibility-level details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
+            version="1.31.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, hemisphere-aware coordinate parsing, explicit unit labels, configurable wind and pressure units, dew-point/heat-index/wind-chill insights, thermal-comfort insights, humidity comfort-level insights, wind speed and gust details, Beaufort wind-force details, qualitative wind-severity insights, wind direction details, visibility and visibility-level details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
                 "api_key": "string (optional, OpenWeatherMap API key - uses mock data if not provided)",
                 "units": "string (optional, metric/celsius, imperial/fahrenheit, or standard/kelvin; default: metric)",
                 "pressure_unit": "string (optional, hpa/kpa/inhg/mmhg; default: hpa)",
+                "wind_unit": "string (optional, kmh/mph/ms; default follows selected temperature units)",
                 "lang": "string (optional, ISO 639-1 code with optional locale, e.g., en or pt_br)",
                 "cache_ttl_seconds": "integer (optional, >0 enables per-location response cache for this many seconds; default: 0)",
                 "cache_max_entries": "integer (optional, maximum cached responses; default: 256)",
@@ -1709,6 +1844,7 @@ class Plugin(ToolPlugin):
                 "longitude": "number (optional, must be used with latitude)",
                 "units": "string (optional, metric/celsius, imperial/fahrenheit, or standard/kelvin; overrides plugin default)",
                 "pressure_unit": "string (optional, hpa/kpa/inhg/mmhg; overrides plugin default)",
+                "wind_unit": "string (optional, kmh/mph/ms; overrides plugin/default unit-family behavior)",
                 "lang": "string (optional, ISO 639-1 code with optional locale, overrides plugin default)",
                 "refresh_cache": "boolean (optional, true bypasses cache lookup and forces a fresh fetch)",
             },
