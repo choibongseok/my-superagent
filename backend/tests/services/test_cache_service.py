@@ -2750,6 +2750,55 @@ def test_local_cache_list_keys_supports_tag_filters_with_prefix_pattern_and_limi
     assert cache.list_keys(tags=["session", "active"], limit=1) == ["session:alpha"]
 
 
+def test_local_cache_list_keys_supports_exact_namespace_filtering():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "session": "root",
+            "session:alpha": 1,
+            "session:beta": 2,
+            "session2:alpha": 3,
+            "user:gamma": 4,
+        }
+    )
+
+    assert cache.list_keys(namespace="session") == [
+        "session",
+        "session:alpha",
+        "session:beta",
+    ]
+
+
+def test_local_cache_list_keys_supports_namespace_filtering_with_custom_separator():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "team/alpha": 1,
+            "team/beta": 2,
+            "team-beta": 3,
+            "user/alpha": 4,
+        }
+    )
+
+    assert cache.list_keys(namespace="team", namespace_separator="/") == [
+        "team/alpha",
+        "team/beta",
+    ]
+
+
+def test_local_cache_list_keys_rejects_invalid_namespace_filters():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="namespace must be a string"):
+        cache.list_keys(namespace=123)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="namespace cannot contain separator"):
+        cache.list_keys(namespace="team/core", namespace_separator="/")
+
+    with pytest.raises(ValueError, match="separator cannot be empty"):
+        cache.list_keys(namespace="team", namespace_separator="  ")
+
+
 def test_local_cache_list_keys_rejects_invalid_match_all_tags_flag():
     cache = LocalCacheService()
 
@@ -2959,6 +3008,46 @@ def test_local_cache_list_entries_can_include_namespace_metadata():
         {"key": "orphan", "ttl_seconds": None, "namespace": "orphan"},
         {"key": "session:alpha", "ttl_seconds": None, "namespace": "session"},
         {"key": "session:beta", "ttl_seconds": None, "namespace": "session"},
+    ]
+
+
+def test_local_cache_list_entries_supports_exact_namespace_filtering():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "session": {"v": 0},
+            "session:alpha": {"v": 1},
+            "session:beta": {"v": 2},
+            "session2:alpha": {"v": 3},
+            "user:gamma": {"v": 4},
+        }
+    )
+
+    entries = cache.list_entries(
+        namespace="session",
+        include_namespace=True,
+        include_values=True,
+    )
+
+    assert entries == [
+        {
+            "key": "session",
+            "ttl_seconds": None,
+            "value": {"v": 0},
+            "namespace": "session",
+        },
+        {
+            "key": "session:alpha",
+            "ttl_seconds": None,
+            "value": {"v": 1},
+            "namespace": "session",
+        },
+        {
+            "key": "session:beta",
+            "ttl_seconds": None,
+            "value": {"v": 2},
+            "namespace": "session",
+        },
     ]
 
 

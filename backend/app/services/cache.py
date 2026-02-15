@@ -2371,6 +2371,8 @@ class LocalCacheService:
         pattern: str | None = None,
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
+        namespace: str | None = None,
+        namespace_separator: str = ":",
         offset: int | None = None,
         limit: int | None = None,
         descending: bool = False,
@@ -2385,6 +2387,9 @@ class LocalCacheService:
             match_all_tags: Tag matching mode when ``tags`` are provided.
                 ``False`` (default) returns keys matching any tag, while
                 ``True`` requires keys to contain every provided tag.
+            namespace: Optional exact namespace filter applied after
+                prefix/pattern/tag matching.
+            namespace_separator: Namespace delimiter used with ``namespace``.
             offset: Optional number of sorted matching keys to skip.
             limit: Optional maximum number of keys to return.
             descending: Return keys in descending lexicographic order when
@@ -2405,6 +2410,17 @@ class LocalCacheService:
         if not isinstance(descending, bool):
             raise ValueError("descending must be a boolean")
 
+        normalized_namespace: str | None = None
+        normalized_namespace_separator: str | None = None
+        if namespace is not None:
+            normalized_namespace_separator = self._normalize_namespace_separator(
+                namespace_separator
+            )
+            normalized_namespace = self._normalize_namespace(
+                namespace,
+                separator=normalized_namespace_separator,
+            )
+
         self._purge_expired_entries()
 
         matching_keys = list(
@@ -2415,6 +2431,20 @@ class LocalCacheService:
                 match_all_tags=match_all_tags,
             )
         )
+
+        if (
+            normalized_namespace is not None
+            and normalized_namespace_separator is not None
+        ):
+            matching_keys = [
+                key
+                for key in matching_keys
+                if self._extract_namespace(
+                    key,
+                    separator=normalized_namespace_separator,
+                )
+                == normalized_namespace
+            ]
 
         matching_keys.sort(reverse=descending)
 
@@ -2432,6 +2462,7 @@ class LocalCacheService:
         pattern: str | None = None,
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
+        namespace: str | None = None,
         offset: int | None = None,
         limit: int | None = None,
         descending: bool = False,
@@ -2446,6 +2477,8 @@ class LocalCacheService:
         """List active cache entries with optional filters and metadata.
 
         Args:
+            namespace: Optional exact namespace filter applied before entry
+                metadata generation.
             offset: Optional number of sorted matching entries to skip.
             descending: Return entries in descending sort order when ``True``.
             include_values: Include cached values in each entry payload.
@@ -2453,8 +2486,8 @@ class LocalCacheService:
             include_expires_at: Include absolute unix expiration timestamps.
             include_namespace: Include key namespace extracted via
                 ``namespace_separator``.
-            namespace_separator: Namespace delimiter used when
-                ``include_namespace`` is ``True``.
+            namespace_separator: Namespace delimiter used for namespace
+                filtering and optional metadata extraction.
             expiration: Expiration filter. ``"all"`` (default) returns every
                 active key, ``"expiring"`` returns only TTL-bound keys, and
                 ``"persistent"`` returns only non-expiring keys.
@@ -2499,6 +2532,8 @@ class LocalCacheService:
             pattern=pattern,
             tags=tags,
             match_all_tags=match_all_tags,
+            namespace=namespace,
+            namespace_separator=namespace_separator,
         ):
             value, expires_at = self._store[key]
             ttl_seconds = (
