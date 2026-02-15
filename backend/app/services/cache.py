@@ -2486,6 +2486,58 @@ class LocalCacheService:
 
         return self.get_many(matching_keys)
 
+    def peek_where(
+        self,
+        *,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        tags: Iterable[str] | None = None,
+        match_all_tags: bool = False,
+        namespace: str | None = None,
+        namespace_separator: str = ":",
+        offset: int | None = None,
+        limit: int | None = None,
+        descending: bool = False,
+    ) -> dict[str, Any]:
+        """Return matching key/value pairs without mutating stats or LRU order.
+
+        This helper mirrors :meth:`get_where` filtering and deterministic
+        ordering semantics while using :meth:`peek_many` for non-observing
+        reads.
+
+        Args:
+            prefix: Optional key prefix to match.
+            pattern: Optional glob pattern matched with :func:`fnmatchcase`.
+            tags: Optional tag filter. When provided, only keys associated with
+                matching tags are returned.
+            match_all_tags: Tag matching mode when ``tags`` are provided.
+                ``False`` (default) returns keys matching any tag, while
+                ``True`` requires keys to contain every provided tag.
+            namespace: Optional exact namespace filter.
+            namespace_separator: Namespace delimiter used when
+                ``namespace`` filtering is enabled.
+            offset: Optional number of sorted matching keys to skip.
+            limit: Optional maximum number of keys to return.
+            descending: Return keys in descending lexicographic order when
+                ``True``.
+
+        Returns:
+            Ordered mapping of ``key -> value`` for matching active entries.
+        """
+        matching_keys = self.list_keys(
+            prefix=prefix,
+            pattern=pattern,
+            tags=tags,
+            match_all_tags=match_all_tags,
+            namespace=namespace,
+            namespace_separator=namespace_separator,
+            offset=offset,
+            limit=limit,
+            descending=descending,
+        )
+
+        return self.peek_many(matching_keys)
+
     def list_keys(
         self,
         *,

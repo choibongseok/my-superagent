@@ -2805,6 +2805,51 @@ def test_local_cache_get_where_rejects_invalid_filter_flags():
         cache.get_where(descending="yes")  # type: ignore[arg-type]
 
 
+def test_local_cache_peek_where_supports_combined_filters_sorting_and_pagination():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", {"v": 1}, tags=["session", "active"])
+    cache.set_tagged("session:beta", {"v": 2}, tags=["session"])
+    cache.set_tagged("session:gamma", {"v": 3}, tags=["session", "active"])
+    cache.set_tagged("user:alpha", {"v": 4}, tags=["active"])
+
+    assert cache.peek_where(prefix="session:", pattern="*:alpha", tags=["active"]) == {
+        "session:alpha": {"v": 1}
+    }
+
+    assert cache.peek_where(prefix="session:", descending=True, offset=1, limit=2) == {
+        "session:beta": {"v": 2},
+        "session:alpha": {"v": 1},
+    }
+
+
+def test_local_cache_peek_where_reads_without_mutating_stats_or_lru_order():
+    cache = LocalCacheService(max_entries=2)
+    cache.set("alpha", 1)
+    cache.set("beta", 2)
+
+    before_stats = cache.stats().copy()
+
+    assert cache.peek_where(prefix="a") == {"alpha": 1}
+
+    after_stats = cache.stats()
+    assert after_stats == before_stats
+
+    cache.set("gamma", 3)
+    assert cache.get("alpha") is None
+    assert cache.get("beta") == 2
+    assert cache.get("gamma") == 3
+
+
+def test_local_cache_peek_where_rejects_invalid_filter_flags():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
+        cache.peek_where(match_all_tags="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="descending must be a boolean"):
+        cache.peek_where(descending="yes")  # type: ignore[arg-type]
+
+
 def test_local_cache_list_keys_supports_prefix_pattern_and_limit():
     cache = LocalCacheService()
     cache.set_many(
