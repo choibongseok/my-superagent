@@ -18,6 +18,8 @@ from app.core.async_runner import (
     run_async_find,
     run_async_find_batched,
     run_async_first,
+    run_async_index,
+    run_async_index_batched,
     run_async_many,
     run_async_map,
     run_async_map_batched,
@@ -978,6 +980,91 @@ def test_run_async_all_batched_rejects_non_positive_batch_size_for_empty_items()
 
     with pytest.raises(ValueError, match="batch_size must be greater than 0"):
         run_async_all_batched(_always_true, [], batch_size=0)
+
+
+def test_run_async_index_returns_first_matching_index():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_index(_is_even, [1, 3, 4, 6]) == 2
+
+
+@pytest.mark.asyncio
+async def test_run_async_index_with_existing_event_loop_returns_first_match_index():
+    async def _contains_target(value: str) -> bool:
+        await asyncio.sleep(0.01)
+        return "target" in value
+
+    assert run_async_index(_contains_target, ["alpha", "target-1", "target-2"]) == 1
+
+
+def test_run_async_index_returns_default_when_no_items_match():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_index(_is_even, [1, 3, 5], default=-1) == -1
+
+
+def test_run_async_index_raises_lookup_error_when_no_items_match_and_no_default():
+    async def _always_false(_: int) -> bool:
+        return False
+
+    with pytest.raises(LookupError, match="did not match any items"):
+        run_async_index(_always_false, [1, 2, 3])
+
+
+def test_run_async_index_rejects_non_bool_predicate_results():
+    async def _invalid(_: int) -> str:
+        return "yes"
+
+    with pytest.raises(TypeError, match="predicate must return bool"):
+        run_async_index(_invalid, [1])
+
+
+def test_run_async_index_batched_returns_first_match_index_across_batches():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_index_batched(_is_even, [1, 3, 5, 8], batch_size=2) == 3
+
+
+def test_run_async_index_batched_short_circuits_after_first_match():
+    evaluated: list[int] = []
+
+    async def _is_even(value: int) -> bool:
+        evaluated.append(value)
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_index_batched(_is_even, [1, 2, 3, 4, 5], batch_size=2) == 1
+    assert evaluated == [1, 2]
+
+
+def test_run_async_index_batched_returns_default_when_no_items_match():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_index_batched(_is_even, [1, 3, 5], batch_size=2, default=-1) == -1
+
+
+def test_run_async_index_batched_raises_lookup_error_when_no_match_and_no_default():
+    async def _always_false(_: int) -> bool:
+        return False
+
+    with pytest.raises(LookupError, match="did not match any items"):
+        run_async_index_batched(_always_false, [1, 2, 3], batch_size=2)
+
+
+def test_run_async_index_batched_rejects_non_positive_batch_size_for_empty_items():
+    async def _always_true(_: int) -> bool:
+        return True
+
+    with pytest.raises(ValueError, match="batch_size must be greater than 0"):
+        run_async_index_batched(_always_true, [], batch_size=0)
 
 
 def test_run_async_find_returns_first_item_matching_predicate():

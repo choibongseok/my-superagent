@@ -1342,6 +1342,189 @@ def run_async_dict(
 
 
 @overload
+def run_async_index(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> int:
+    ...
+
+
+@overload
+def run_async_index(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    default: D,
+) -> int | D:
+    ...
+
+
+def run_async_index(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    default: Any = _MISSING,
+) -> int | D:
+    """Return the first index matching an async predicate.
+
+    Args:
+        coro_predicate: Async callable returning ``True`` for matching items.
+        items: Iterable of candidate values.
+        timeout: Optional timeout in seconds for the full predicate run.
+        max_concurrency: Optional cap on predicate concurrency.
+        default: Fallback value returned when no items match.
+
+    Raises:
+        TypeError: If predicate is not callable or returns non-bool values.
+        ValueError: If timeout/max_concurrency are invalid.
+        LookupError: If no items match and ``default`` is not provided.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    if not callable(coro_predicate):
+        raise TypeError("run_async_index expects a callable coro_predicate")
+
+    materialized_items = list(items)
+    if not materialized_items:
+        if default is _MISSING:
+            raise LookupError("run_async_index did not match any items")
+        return cast(D, default)
+
+    predicate_results = run_async_map(
+        coro_predicate,
+        materialized_items,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    for index, include in enumerate(predicate_results):
+        if _coerce_filter_result(include, function_name="run_async_index"):
+            return index
+
+    if default is _MISSING:
+        raise LookupError("run_async_index did not match any items")
+
+    return cast(D, default)
+
+
+@overload
+def run_async_index_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+) -> int:
+    ...
+
+
+@overload
+def run_async_index_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    default: D,
+) -> int | D:
+    ...
+
+
+def run_async_index_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    default: Any = _MISSING,
+) -> int | D:
+    """Batch-oriented variant of :func:`run_async_index`.
+
+    This implementation short-circuits batch processing once the first
+    matching index is found.
+    """
+    if not callable(coro_predicate):
+        raise TypeError("run_async_index_batched expects a callable coro_predicate")
+
+    materialized_items = list(items)
+    if not materialized_items:
+        _validate_batch_size(batch_size)
+        if default is _MISSING:
+            raise LookupError("run_async_index_batched did not match any items")
+        return cast(D, default)
+
+    _validate_batch_size(batch_size)
+    _validate_timeout(timeout)
+    _validate_max_concurrency(max_concurrency)
+
+    async def _run_index_batches() -> tuple[bool, object]:
+        for batch_start in range(0, len(materialized_items), batch_size):
+            current_batch = materialized_items[batch_start : batch_start + batch_size]
+
+            awaitables: list[Awaitable[bool]] = []
+            try:
+                for item in current_batch:
+                    awaitable = coro_predicate(item)
+                    if not inspect.isawaitable(awaitable):
+                        raise TypeError(
+                            "coro_predicate must return an awaitable for each item"
+                        )
+                    awaitables.append(cast(Awaitable[bool], awaitable))
+            except Exception:
+                for candidate in awaitables:
+                    close = getattr(candidate, "close", None)
+                    if callable(close):
+                        close()
+                raise
+
+            batch_results = await _gather_with_optional_limit(
+                awaitables,
+                max_concurrency=max_concurrency,
+                return_exceptions=False,
+            )
+
+            for offset, include in enumerate(batch_results):
+                if _coerce_filter_result(
+                    include,
+                    function_name="run_async_index_batched",
+                ):
+                    return True, batch_start + offset
+
+        return False, _MISSING
+
+    async def _run_with_timeout() -> tuple[bool, object]:
+        index_runner = _run_index_batches()
+        if timeout is None:
+            return await index_runner
+        return await asyncio.wait_for(index_runner, timeout=timeout)
+
+    def _timeout_error() -> TimeoutError:
+        return TimeoutError(f"run_async_map_batched timed out after {timeout} seconds")
+
+    matched, matched_index = _run_with_event_loop_bridge(
+        _run_with_timeout,
+        timeout_error_factory=_timeout_error,
+    )
+
+    if matched:
+        return cast(int, matched_index)
+
+    if default is _MISSING:
+        raise LookupError("run_async_index_batched did not match any items")
+
+    return cast(D, default)
+
+
+@overload
 def run_async_find(
     coro_predicate: Callable[[I], Awaitable[bool]],
     items: Iterable[I],
