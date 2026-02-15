@@ -5,7 +5,7 @@ import json
 import logging
 import math
 import re
-from typing import Any, Dict
+from typing import Any, Dict, Literal
 
 import httpx
 
@@ -48,6 +48,10 @@ class Plugin(ToolPlugin):
         "millimetersofmercury": "mmhg",
     }
     LANGUAGE_PATTERN = re.compile(r"^[a-z]{2}(?:[_-][a-z]{2})?$")
+    COORDINATE_LOCATION_PATTERN = re.compile(
+        r"([+-]?\d+(?:\.\d+)?)(?:\s*([NnSs]))?\s*,\s*"
+        r"([+-]?\d+(?:\.\d+)?)(?:\s*([EeWw]))?"
+    )
 
     def __init__(self, config: Dict[str, Any]):
         """
@@ -1050,19 +1054,59 @@ class Plugin(ToolPlugin):
                 cache_state,
             )
 
+    @staticmethod
+    def _parse_coordinate_component(
+        *,
+        numeric_component: str,
+        hemisphere_component: str | None,
+        axis: Literal["lat", "lon"],
+    ) -> float:
+        """Parse numeric coordinates with optional hemisphere suffixes."""
+        parsed_component = float(numeric_component)
+        if hemisphere_component is None:
+            return parsed_component
+
+        hemisphere = hemisphere_component.upper()
+        positive_hemisphere, negative_hemisphere = (
+            ("N", "S") if axis == "lat" else ("E", "W")
+        )
+
+        if hemisphere not in {positive_hemisphere, negative_hemisphere}:
+            raise ValueError(
+                f"Invalid coordinates: unsupported {axis} hemisphere suffix"
+            )
+
+        if (
+            numeric_component.strip().startswith("-")
+            and hemisphere == positive_hemisphere
+        ):
+            raise ValueError(
+                "Invalid coordinates: numeric sign conflicts with hemisphere suffix"
+            )
+
+        magnitude = abs(parsed_component)
+        return magnitude if hemisphere == positive_hemisphere else -magnitude
+
     def _build_location_params(self, location: str) -> Dict[str, Any]:
         """Build OpenWeatherMap query params for city names or lat/lon coordinates."""
         normalized_location = location.strip()
 
-        coordinate_match = re.fullmatch(
-            r"([+-]?\d+(?:\.\d+)?)\s*,\s*([+-]?\d+(?:\.\d+)?)",
-            normalized_location,
+        coordinate_match = self.COORDINATE_LOCATION_PATTERN.fullmatch(
+            normalized_location
         )
         if not coordinate_match:
             return {"q": normalized_location}
 
-        lat = float(coordinate_match.group(1))
-        lon = float(coordinate_match.group(2))
+        lat = self._parse_coordinate_component(
+            numeric_component=coordinate_match.group(1),
+            hemisphere_component=coordinate_match.group(2),
+            axis="lat",
+        )
+        lon = self._parse_coordinate_component(
+            numeric_component=coordinate_match.group(3),
+            hemisphere_component=coordinate_match.group(4),
+            axis="lon",
+        )
         return self._build_coordinate_params(lat, lon)
 
     def _build_coordinate_params(self, lat: float, lon: float) -> Dict[str, Any]:
@@ -1625,7 +1669,7 @@ class Plugin(ToolPlugin):
             "a city_id from OpenWeatherMap (e.g., city_id=2643743 for London), "
             "a city plus optional state/country codes (e.g., location='Springfield', state_code='IL', country_code='US'), "
             "a postal code via zip_code (e.g., zip_code='94040', country_code='US'), "
-            "or coordinates (e.g., '37.5665,126.9780'). "
+            "or coordinates (e.g., '37.5665,126.9780' or '37.5665N,126.9780E'). "
             "Tool-style string input can also be provided as a JSON object for advanced options, "
             "for example '{\"location\":\"Seoul\",\"units\":\"imperial\"}'. "
             "Per-request units override is supported via units='metric/celsius', "
@@ -1643,8 +1687,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.29.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point/heat-index/wind-chill insights, thermal-comfort insights, humidity comfort-level insights, wind speed and gust details, Beaufort wind-force details, qualitative wind-severity insights, wind direction details, visibility and visibility-level details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
+            version="1.30.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, hemisphere-aware coordinate parsing, explicit unit labels, configurable pressure units, dew-point/heat-index/wind-chill insights, thermal-comfort insights, humidity comfort-level insights, wind speed and gust details, Beaufort wind-force details, qualitative wind-severity insights, wind direction details, visibility and visibility-level details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -1656,7 +1700,7 @@ class Plugin(ToolPlugin):
                 "cache_max_entries": "integer (optional, maximum cached responses; default: 256)",
             },
             inputs={
-                "location": "string (optional, required when city_id, zip_code, and latitude/longitude are not provided)",
+                "location": "string (optional, required when city_id, zip_code, and latitude/longitude are not provided; supports city names or coordinate pairs like '37.5665,126.9780' or '37.5665N,126.9780E')",
                 "city_id": "integer (optional, OpenWeatherMap city ID; cannot be combined with other location fields)",
                 "zip_code": "string (optional, postal code; can be combined with country_code)",
                 "country_code": "string (optional, ISO alpha-2 country code used with location or zip_code)",

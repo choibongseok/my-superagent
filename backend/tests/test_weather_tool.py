@@ -1380,6 +1380,44 @@ class TestWeatherTool:
             assert result["location"] == "Seoul"
 
     @pytest.mark.asyncio
+    async def test_coordinate_location_query_with_hemisphere_suffixes(self, api_plugin):
+        """Coordinate strings with hemisphere suffixes should map to signed lat/lon values."""
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "name": "Sydney",
+            "main": {"temp": 25.0, "humidity": 55},
+            "weather": [{"description": "clear sky"}],
+            "wind": {"speed": 4.0},
+        }
+        mock_response.raise_for_status = AsyncMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value.get = mock_get
+
+            result = await api_plugin.execute({"location": "33.8688S, 151.2093E"})
+
+            _, kwargs = mock_get.call_args
+            assert kwargs["params"]["lat"] == -33.8688
+            assert kwargs["params"]["lon"] == 151.2093
+            assert "q" not in kwargs["params"]
+            assert result["location"] == "Sydney"
+
+    @pytest.mark.asyncio
+    async def test_coordinate_location_rejects_conflicting_sign_and_hemisphere(
+        self, api_plugin
+    ):
+        """Conflicting numeric signs and hemisphere suffixes should fail fast."""
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(
+                ValueError,
+                match="numeric sign conflicts with hemisphere suffix",
+            ):
+                await api_plugin.execute({"location": "-37.5665N, 126.9780E"})
+
+            mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_structured_coordinate_query(self, api_plugin):
         """Test structured latitude/longitude inputs map to lat/lon params."""
         mock_response = AsyncMock()
@@ -1709,7 +1747,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.29.0"
+        assert manifest.version == "1.30.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
