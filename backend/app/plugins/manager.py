@@ -1,6 +1,7 @@
 """Plugin manager for loading, managing, and executing plugins."""
 
 import importlib
+import json
 import logging
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -402,7 +403,7 @@ class PluginManager:
         """Normalize list query field selectors.
 
         Supported values: ``name``, ``description``, ``author``,
-        ``version``, ``permissions``, ``module_path``.
+        ``version``, ``permissions``, ``module_path``, ``config``.
         """
         default_query_fields = {"name", "description", "author"}
         if query_fields is None:
@@ -418,6 +419,7 @@ class PluginManager:
             "version",
             "permissions",
             "module_path",
+            "config",
         }
         normalized_query_fields: set[str] = set()
         for field in query_fields:
@@ -462,6 +464,8 @@ class PluginManager:
             field_values.extend(manifest.permissions)
         if "module_path" in query_fields and plugin is not None:
             field_values.append(plugin.__class__.__module__)
+        if "config" in query_fields and plugin is not None:
+            field_values.append(json.dumps(plugin.config, sort_keys=True, default=str))
 
         if query_case_sensitive:
             searchable_text = " ".join(
@@ -528,7 +532,7 @@ class PluginManager:
             query_fields: Optional fields used for free-text filtering.
                 Defaults to ``name``, ``description``, and ``author``.
                 Additional supported fields: ``version``, ``permissions``,
-                and ``module_path``.
+                ``module_path``, and runtime ``config`` values.
             query_match_mode: Query matching strategy. ``"all"`` (default)
                 requires all query tokens to appear, ``"any"`` requires at
                 least one token, and ``"phrase"`` requires the normalized
@@ -537,7 +541,8 @@ class PluginManager:
                 query text. Defaults to ``False`` for case-insensitive
                 matching.
             sort_by: Optional manifest field used for sorting output. Supports
-                ``"name"``, ``"version"``, and ``"author"``.
+                ``"name"``, ``"version"``, ``"author"``, and
+                ``"permission_count"``.
             sort_order: Sorting direction used when ``sort_by`` is provided.
                 Supports ``"asc"`` (default) and ``"desc"``.
             offset: Number of filtered/sorted plugin entries to skip before
@@ -597,14 +602,18 @@ class PluginManager:
 
         normalized_query_fields = self._normalize_query_fields(query_fields)
 
-        allowed_sort_fields = {"name", "version", "author"}
+        allowed_sort_fields = {"name", "version", "author", "permission_count"}
         if sort_by is not None:
             if not isinstance(sort_by, str) or not sort_by.strip():
-                raise ValueError("sort_by must be one of: name, version, author")
+                raise ValueError(
+                    "sort_by must be one of: name, version, author, permission_count"
+                )
 
             sort_by = sort_by.strip().lower()
             if sort_by not in allowed_sort_fields:
-                raise ValueError("sort_by must be one of: name, version, author")
+                raise ValueError(
+                    "sort_by must be one of: name, version, author, permission_count"
+                )
 
         if not isinstance(sort_order, str) or not sort_order.strip():
             raise ValueError("sort_order must be 'asc' or 'desc'")
@@ -695,11 +704,19 @@ class PluginManager:
             ]
 
         if sort_by is not None:
-            manifests = sorted(
-                manifests,
-                key=lambda manifest: str(getattr(manifest, sort_by, "")).casefold(),
-                reverse=normalized_sort_order == "desc",
-            )
+            reverse_sort = normalized_sort_order == "desc"
+            if sort_by == "permission_count":
+                manifests = sorted(
+                    manifests,
+                    key=lambda manifest: len(manifest.permissions),
+                    reverse=reverse_sort,
+                )
+            else:
+                manifests = sorted(
+                    manifests,
+                    key=lambda manifest: str(getattr(manifest, sort_by, "")).casefold(),
+                    reverse=reverse_sort,
+                )
 
         if offset:
             manifests = manifests[offset:]

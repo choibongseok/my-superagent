@@ -1015,6 +1015,55 @@ async def test_list_plugins_supports_sorting_by_manifest_fields(tmp_path, monkey
     ]
 
 
+@pytest.mark.asyncio
+async def test_list_plugins_supports_sorting_by_permission_count(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+    (tmp_path / "gamma.py").write_text("# gamma", encoding="utf-8")
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"]),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class(
+                "beta-plugin",
+                ["network.http", "filesystem.read", "messaging.send"],
+            ),
+        ),
+        "app.plugins.gamma": _plugin_module(
+            "app.plugins.gamma",
+            _build_plugin_class("gamma-plugin", ["network.http", "filesystem.read"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    sorted_plugins = manager.list_plugins(
+        sort_by="permission_count",
+        sort_order="desc",
+    )
+
+    assert [item["name"] for item in sorted_plugins] == [
+        "beta-plugin",
+        "gamma-plugin",
+        "alpha-plugin",
+    ]
+
+
 def test_list_plugins_validates_sort_options(tmp_path):
     manager = PluginManager(plugin_dir=str(tmp_path))
 
@@ -1170,6 +1219,48 @@ async def test_list_plugins_query_supports_custom_fields_and_match_modes(
         query_match_mode="any",
     )
     assert [item["name"] for item in any_match] == ["slack-plugin"]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_query_supports_runtime_config_field(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+    (tmp_path / "slack_notifier.py").write_text("# slack", encoding="utf-8")
+
+    modules = {
+        "app.plugins.weather_tool": _plugin_module(
+            "app.plugins.weather_tool",
+            _build_plugin_class("weather-plugin", ["network.http"]),
+        ),
+        "app.plugins.slack_notifier": _plugin_module(
+            "app.plugins.slack_notifier",
+            _build_plugin_class("slack-plugin", ["messaging.send"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory(
+        plugin_configs={
+            "weather_tool": {"region": "Seoul", "units": "metric"},
+            "slack_notifier": {"channel": "alerts"},
+        }
+    )
+
+    filtered = manager.list_plugins(
+        query="seoul",
+        query_fields=["config"],
+    )
+
+    assert [item["name"] for item in filtered] == ["weather-plugin"]
 
 
 @pytest.mark.asyncio
