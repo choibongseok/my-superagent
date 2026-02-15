@@ -67,6 +67,37 @@ def create_refresh_token(data: dict) -> str:
     )
 
 
+def _normalize_expected_types(
+    expected_type: str | Iterable[str] | None,
+) -> tuple[str, ...]:
+    """Normalize expected token type requirements for ``decode_token``."""
+    if expected_type is None:
+        return ()
+
+    if isinstance(expected_type, str):
+        normalized_expected_type = expected_type.strip()
+        if not normalized_expected_type:
+            raise ValueError("expected_type cannot be blank")
+
+        return (normalized_expected_type,)
+
+    normalized_expected_types: list[str] = []
+    for token_type in expected_type:
+        if not isinstance(token_type, str):
+            raise TypeError("expected_type must contain only strings")
+
+        normalized_token_type = token_type.strip()
+        if not normalized_token_type:
+            raise ValueError("expected_type cannot contain blank values")
+
+        normalized_expected_types.append(normalized_token_type)
+
+    if not normalized_expected_types:
+        raise ValueError("expected_type cannot be an empty iterable")
+
+    return tuple(dict.fromkeys(normalized_expected_types))
+
+
 def _normalize_required_claims(
     required_claims: Iterable[str] | None,
 ) -> tuple[str, ...]:
@@ -367,7 +398,7 @@ def _extract_issued_at_timestamp(payload: Mapping[str, Any]) -> float | None:
 def decode_token(
     token: str,
     *,
-    expected_type: str | None = None,
+    expected_type: str | Iterable[str] | None = None,
     expected_subject: str | Iterable[str] | None = None,
     expected_issuer: str | None = None,
     expected_audience: str | Iterable[str] | None = None,
@@ -383,7 +414,9 @@ def decode_token(
 
     Args:
         token: JWT token string.
-        expected_type: Optional token ``type`` claim value to enforce.
+        expected_type: Optional token ``type`` claim value(s) to enforce.
+            Accepts either a single type string or an iterable of allowed
+            type values.
         expected_subject: Optional token ``sub`` claim value(s) to enforce.
             Accepts either a single subject string or an iterable of allowed
             subject values.
@@ -420,6 +453,7 @@ def decode_token(
     if not isinstance(match_any_scopes, bool):
         raise TypeError("match_any_scopes must be a boolean")
 
+    normalized_expected_types = _normalize_expected_types(expected_type)
     normalized_expected_subjects = _normalize_expected_subjects(expected_subject)
     normalized_expected_audiences = _normalize_expected_audiences(expected_audience)
     normalized_required_claims = _normalize_required_claims(required_claims)
@@ -445,8 +479,17 @@ def decode_token(
     except JWTError:
         return None
 
-    if expected_type is not None and payload.get("type") != expected_type:
-        return None
+    if normalized_expected_types:
+        token_type = payload.get("type")
+        if not isinstance(token_type, str):
+            return None
+
+        normalized_token_type = token_type.strip()
+        if not normalized_token_type:
+            return None
+
+        if normalized_token_type not in normalized_expected_types:
+            return None
 
     if normalized_expected_subjects:
         subject_claim = payload.get("sub")

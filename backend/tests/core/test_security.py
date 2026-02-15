@@ -29,6 +29,31 @@ def test_decode_token_rejects_type_mismatch() -> None:
     assert decode_token(refresh_token, expected_type="access") is None
 
 
+def test_decode_token_accepts_expected_type_allowlist_match() -> None:
+    token = create_access_token({"sub": "user-123"})
+
+    payload = decode_token(token, expected_type=["refresh", "access"])
+
+    assert payload is not None
+    assert payload["type"] == "access"
+
+
+def test_decode_token_validates_expected_type_input() -> None:
+    token = create_access_token({"sub": "user-123"})
+
+    with pytest.raises(ValueError, match="expected_type cannot be blank"):
+        decode_token(token, expected_type="   ")
+
+    with pytest.raises(ValueError, match="expected_type cannot be an empty iterable"):
+        decode_token(token, expected_type=[])
+
+    with pytest.raises(TypeError, match="expected_type must contain only strings"):
+        decode_token(token, expected_type=["access", 123])
+
+    with pytest.raises(ValueError, match="expected_type cannot contain blank values"):
+        decode_token(token, expected_type=["access", "   "])
+
+
 def test_decode_token_accepts_expected_subject_string_match() -> None:
     token = create_access_token({"sub": "user-123"})
 
