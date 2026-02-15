@@ -1018,6 +1018,61 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_variance_numeric_transform(
+        self, service_with_mock_db
+    ):
+        """variance/var should return population variance for numeric iterables."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "Variance: {latencies->variance->round(2)}, "
+                "Alias: {latencies->var->round(2)}"
+            ),
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"latencies": [1, 2, 3, 4]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Variance: 1.25, Alias: 1.25"
+        assert template.usage_count == 2
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_variance_transform_with_function_syntax(
+        self, service_with_mock_db
+    ):
+        """variance() should be accepted when users prefer function-call notation."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Variance: {latencies->variance()->round(2)}",
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"latencies": [2, 2, 5, 9]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Variance: 8.25"
+        assert template.usage_count == 4
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_mode_transform(self, service_with_mock_db):
         """mode should return the most frequent iterable value."""
         service, db = service_with_mock_db
@@ -1161,6 +1216,35 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_use_template_rejects_variance_transform_with_arguments(
+        self, service_with_mock_db
+    ):
+        """variance should reject arguments so behavior remains deterministic."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Variance: {latencies->variance(sample)}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'variance\(sample\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": [2, 4, 7]},
+                    user_id,
+                )
+
+        assert template.usage_count == 2
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_rejects_stddev_transform_for_empty_collections(
         self, service_with_mock_db
     ):
@@ -1187,6 +1271,35 @@ class TestTemplateServiceUseTemplate:
                 )
 
         assert template.usage_count == 6
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_variance_transform_for_empty_collections(
+        self, service_with_mock_db
+    ):
+        """variance should fail for empty iterables to avoid silent defaults."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Variance: {latencies->variance}",
+            category="docs",
+            usage_count=5,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'variance'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": []},
+                    user_id,
+                )
+
+        assert template.usage_count == 5
         db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio

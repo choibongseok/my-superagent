@@ -659,20 +659,35 @@ def _median_numeric_value(value: object, argument_spec: str) -> int | float:
     return int(median) if float(median).is_integer() else median
 
 
-def _standard_deviation_numeric_value(value: object, argument_spec: str) -> int | float:
-    """Return population standard deviation for non-empty numeric iterables."""
+def _variance_numeric_value(
+    value: object,
+    argument_spec: str,
+    *,
+    transform_name: str = "variance",
+) -> int | float:
+    """Return population variance for non-empty numeric iterables."""
     if argument_spec.strip():
-        raise ValueError("stddev expects no arguments")
+        raise ValueError(f"{transform_name} expects no arguments")
 
-    numeric_values = _iter_numeric_values(value, transform_name="stddev")
+    numeric_values = _iter_numeric_values(value, transform_name=transform_name)
     if not numeric_values:
-        raise ValueError("stddev expects a non-empty iterable value")
+        raise ValueError(f"{transform_name} expects a non-empty iterable value")
 
     average = sum(numeric_values) / len(numeric_values)
     variance = sum((item - average) ** 2 for item in numeric_values) / len(
         numeric_values
     )
-    standard_deviation = math.sqrt(variance)
+
+    return int(variance) if float(variance).is_integer() else variance
+
+
+def _standard_deviation_numeric_value(value: object, argument_spec: str) -> int | float:
+    """Return population standard deviation for non-empty numeric iterables."""
+    if argument_spec.strip():
+        raise ValueError("stddev expects no arguments")
+
+    variance = _variance_numeric_value(value, "", transform_name="stddev")
+    standard_deviation = math.sqrt(float(variance))
 
     return (
         int(standard_deviation)
@@ -1013,6 +1028,7 @@ class TemplateService:
         - ``{durations->sum}``, ``{durations->sum(10)}``
         - ``{durations->avg}``
         - ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``
+        - ``{latencies->variance}``, ``{latencies->var}``
         - ``{latencies->stddev}``, ``{latencies->stdev}``
         - ``{labels->mode}``
         - ``{nickname->strip->fallback("friend")}``
@@ -1077,6 +1093,8 @@ class TemplateService:
             "min": lambda raw: _min_numeric_value(raw, ""),
             "max": lambda raw: _max_numeric_value(raw, ""),
             "median": lambda raw: _median_numeric_value(raw, ""),
+            "variance": lambda raw: _variance_numeric_value(raw, ""),
+            "var": lambda raw: _variance_numeric_value(raw, "", transform_name="var"),
             "stddev": lambda raw: _standard_deviation_numeric_value(raw, ""),
             "stdev": lambda raw: _standard_deviation_numeric_value(raw, ""),
             "mode": lambda raw: _mode_value(raw, ""),
@@ -1107,6 +1125,8 @@ class TemplateService:
                 "min",
                 "max",
                 "median",
+                "variance",
+                "var",
                 "stddev",
                 "stdev",
                 "mode",
@@ -1212,6 +1232,12 @@ class TemplateService:
                         raw,
                         spec,
                     )
+                elif transform_name in {"variance", "var"}:
+                    operation = lambda raw, spec=argument_spec, name=transform_name: _variance_numeric_value(
+                        raw,
+                        spec,
+                        transform_name=name,
+                    )
                 elif transform_name in {"stddev", "stdev"}:
                     operation = lambda raw, spec=argument_spec: _standard_deviation_numeric_value(
                         raw,
@@ -1304,6 +1330,7 @@ class TemplateService:
         ``{score->clamp(0,1)->round(2)}``,
         ``{durations->sum}``, ``{durations->sum(10)}``, ``{durations->avg}``,
         ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``,
+        ``{latencies->variance}``, ``{latencies->var}``,
         ``{latencies->stddev}``, ``{latencies->stdev}``,
         ``{labels->mode}``, or ``{nickname->strip->fallback("friend")}``).
         """
