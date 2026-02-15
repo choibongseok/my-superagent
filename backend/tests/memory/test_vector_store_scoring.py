@@ -617,6 +617,100 @@ class TestScoreSorting:
         assert [result["content"] for result in results] == ["first", "second"]
 
 
+class TestRecencySorting:
+    """Test optional recency-based sorting controls."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_sort_by_recency_validation(self):
+        """sort_by_recency must be a boolean."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(ValueError, match="sort_by_recency must be a boolean"):
+            memory.search_with_scores(query="test", sort_by_recency="yes")
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_sort_by_recency_orders_results_by_newest_timestamp_first(self):
+        """Most recent memories should appear first when recency sorting is enabled."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        newest_doc = Document(
+            page_content="newest",
+            metadata={"timestamp": "2026-02-15T10:30:00Z"},
+        )
+        older_doc = Document(
+            page_content="older",
+            metadata={"timestamp": "2026-02-14T10:30:00Z"},
+        )
+        missing_timestamp_doc = Document(page_content="missing", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (older_doc, 0.91),
+                (missing_timestamp_doc, 0.95),
+                (newest_doc, 0.89),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            sort_by_recency=True,
+        )
+
+        assert [result["content"] for result in results] == [
+            "newest",
+            "older",
+            "missing",
+        ]
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_sort_by_score_then_recency_breaks_ties_deterministically(self):
+        """Score sorting should remain primary while recency breaks equal-score ties."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        highest_score_doc = Document(
+            page_content="highest-score",
+            metadata={"timestamp": "2026-02-13T08:00:00Z"},
+        )
+        tie_old_doc = Document(
+            page_content="tie-old",
+            metadata={"timestamp": "2026-02-14T08:00:00Z"},
+        )
+        tie_new_doc = Document(
+            page_content="tie-new",
+            metadata={"timestamp": "2026-02-15T08:00:00Z"},
+        )
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (tie_old_doc, 0.9),
+                (highest_score_doc, 0.95),
+                (tie_new_doc, 0.9),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            sort_by_score=True,
+            sort_by_recency=True,
+        )
+
+        assert [result["content"] for result in results] == [
+            "highest-score",
+            "tie-new",
+            "tie-old",
+        ]
+
+
 class TestTimestampWindowFiltering:
     """Test optional timestamp boundaries for scored search results."""
 

@@ -657,6 +657,7 @@ class VectorStoreMemory:
         min_relative_score: Optional[float] = None,
         min_top_score: Optional[float] = None,
         sort_by_score: bool = False,
+        sort_by_recency: bool = False,
         include_score_context: bool = False,
         unique_content: bool = False,
         required_terms: Optional[List[str]] = None,
@@ -714,6 +715,11 @@ class VectorStoreMemory:
             sort_by_score: When ``True``, sort accepted results by descending score
                 before applying the final ``k`` limit. Ties preserve original
                 vector-store order for deterministic pagination.
+            sort_by_recency: When ``True``, sort accepted results by descending
+                ``metadata.timestamp`` (most recent first) before pagination.
+                Memories without valid timestamps are treated as oldest. When
+                combined with ``sort_by_score``, score is applied first and
+                recency breaks ties.
             include_score_context: When ``True``, attach a ``score_context`` object
                 to each result with explainability details (rank, top-score gap,
                 and threshold margin).
@@ -779,7 +785,8 @@ class VectorStoreMemory:
                 invalid ``required_terms``/``required_terms_mode``/
                 ``excluded_terms``/``excluded_terms_mode``/
                 ``session_ids``/``excluded_session_ids`` values,
-                or non-boolean ``include_score_context``/``unique_content``.
+                or non-boolean ``sort_by_recency``/``include_score_context``/
+                ``unique_content``.
         """
         # Input validation
         if score_threshold is not None and not (0.0 <= score_threshold <= 1.0):
@@ -799,6 +806,9 @@ class VectorStoreMemory:
 
         if not isinstance(include_score_context, bool):
             raise ValueError("include_score_context must be a boolean")
+
+        if not isinstance(sort_by_recency, bool):
+            raise ValueError("sort_by_recency must be a boolean")
 
         if not isinstance(unique_content, bool):
             raise ValueError("unique_content must be a boolean")
@@ -1310,9 +1320,30 @@ class VectorStoreMemory:
                 )
                 return []
 
-        if sort_by_score:
+        if sort_by_score or sort_by_recency:
             indexed_results = list(enumerate(results))
-            indexed_results.sort(key=lambda item: (-item[1][1], item[0]))
+
+            def _timestamp_sort_key(doc: Document) -> float:
+                parsed_timestamp = self._parse_result_timestamp(doc.metadata)
+                if parsed_timestamp is None:
+                    return float("-inf")
+                return parsed_timestamp.timestamp()
+
+            if sort_by_score and sort_by_recency:
+                indexed_results.sort(
+                    key=lambda item: (
+                        -item[1][1],
+                        -_timestamp_sort_key(item[1][0]),
+                        item[0],
+                    )
+                )
+            elif sort_by_score:
+                indexed_results.sort(key=lambda item: (-item[1][1], item[0]))
+            else:
+                indexed_results.sort(
+                    key=lambda item: (-_timestamp_sort_key(item[1][0]), item[0])
+                )
+
             results = [result for _, result in indexed_results]
 
         if unique_content:
