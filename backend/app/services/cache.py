@@ -257,6 +257,8 @@ class LocalCacheService:
         pattern: str | None = None,
         tag_prefix: str | None = None,
         tag_pattern: str | None = None,
+        min_count: int | None = None,
+        max_count: int | None = None,
         offset: int | None = None,
         limit: int | None = None,
         include_keys: bool = False,
@@ -270,6 +272,10 @@ class LocalCacheService:
             pattern: Optional key glob filter applied with :func:`fnmatchcase`.
             tag_prefix: Optional tag-name prefix filter.
             tag_pattern: Optional tag-name glob filter.
+            min_count: Optional minimum number of matching keys required
+                for a tag to be included.
+            max_count: Optional maximum number of matching keys allowed
+                for a tag to be included.
             offset: Optional number of sorted tag rows to skip.
             limit: Optional maximum number of tag rows to return.
             include_keys: Include sorted matching keys for each tag row.
@@ -290,6 +296,21 @@ class LocalCacheService:
 
         if tag_pattern is not None and not isinstance(tag_pattern, str):
             raise ValueError("tag_pattern must be a string")
+
+        if min_count is not None:
+            if isinstance(min_count, bool) or not isinstance(min_count, int):
+                raise ValueError("min_count must be a non-negative integer")
+            if min_count < 0:
+                raise ValueError("min_count must be a non-negative integer")
+
+        if max_count is not None:
+            if isinstance(max_count, bool) or not isinstance(max_count, int):
+                raise ValueError("max_count must be a non-negative integer")
+            if max_count < 0:
+                raise ValueError("max_count must be a non-negative integer")
+
+        if min_count is not None and max_count is not None and min_count > max_count:
+            raise ValueError("min_count cannot be greater than max_count")
 
         if offset is not None and offset < 0:
             raise ValueError("offset must be greater than or equal to 0")
@@ -328,9 +349,15 @@ class LocalCacheService:
             if not matching_keys:
                 continue
 
+            tag_count = len(matching_keys)
+            if min_count is not None and tag_count < min_count:
+                continue
+            if max_count is not None and tag_count > max_count:
+                continue
+
             row: dict[str, Any] = {
                 "tag": tag,
-                "count": len(matching_keys),
+                "count": tag_count,
             }
             if include_keys:
                 row["keys"] = matching_keys

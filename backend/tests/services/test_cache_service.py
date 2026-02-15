@@ -1570,6 +1570,26 @@ def test_local_cache_list_tag_stats_supports_sorting_by_count_or_tag_direction()
     ]
 
 
+def test_local_cache_list_tag_stats_supports_min_and_max_count_filters():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["session", "active"])
+    cache.set_tagged("session:beta", 2, tags=["session"])
+    cache.set_tagged("user:alpha", 3, tags=["active", "user"])
+
+    assert cache.list_tag_stats(min_count=2) == [
+        {"tag": "active", "count": 2},
+        {"tag": "session", "count": 2},
+    ]
+
+    assert cache.list_tag_stats(max_count=1) == [
+        {"tag": "user", "count": 1},
+    ]
+
+    assert cache.list_tag_stats(min_count=1, max_count=1, include_keys=True) == [
+        {"tag": "user", "count": 1, "keys": ["user:alpha"]},
+    ]
+
+
 def test_local_cache_list_tag_stats_rejects_invalid_pagination_and_flags():
     cache = LocalCacheService()
 
@@ -1578,6 +1598,21 @@ def test_local_cache_list_tag_stats_rejects_invalid_pagination_and_flags():
 
     with pytest.raises(ValueError, match="tag_pattern must be a string"):
         cache.list_tag_stats(tag_pattern=123)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="min_count must be a non-negative integer"):
+        cache.list_tag_stats(min_count=-1)
+
+    with pytest.raises(ValueError, match="min_count must be a non-negative integer"):
+        cache.list_tag_stats(min_count=1.5)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="max_count must be a non-negative integer"):
+        cache.list_tag_stats(max_count=-1)
+
+    with pytest.raises(ValueError, match="max_count must be a non-negative integer"):
+        cache.list_tag_stats(max_count=1.5)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="min_count cannot be greater than max_count"):
+        cache.list_tag_stats(min_count=2, max_count=1)
 
     with pytest.raises(ValueError, match="offset must be greater than or equal to 0"):
         cache.list_tag_stats(offset=-1)
