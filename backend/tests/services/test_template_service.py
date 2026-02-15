@@ -934,6 +934,65 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_product_numeric_transforms(
+        self, service_with_mock_db
+    ):
+        """product/prod should multiply numeric iterables with optional seeded start."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "Product: {durations->product}, "
+                "Seeded: {durations->product(0.5)}, "
+                "Alias: {durations->prod}"
+            ),
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"durations": [2, 1.5, 4]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Product: 12, Seeded: 6, Alias: 12"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_product_transform_with_too_many_arguments(
+        self, service_with_mock_db
+    ):
+        """product should accept at most one argument for seeded multiplication."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Product: {durations->product(2,3)}",
+            category="docs",
+            usage_count=4,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'product\(2,3\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"durations": [1, 2, 3]},
+                    user_id,
+                )
+
+        assert template.usage_count == 4
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_min_and_max_numeric_transforms(
         self, service_with_mock_db
     ):

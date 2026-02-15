@@ -602,6 +602,32 @@ def _sum_numeric_values(value: object, argument_spec: str) -> int | float:
     return int(total) if float(total).is_integer() else total
 
 
+def _product_numeric_values(
+    value: object,
+    argument_spec: str,
+    *,
+    transform_name: str = "product",
+) -> int | float:
+    """Multiply iterable numeric values with an optional ``start`` argument."""
+    args: list[str] = []
+    if argument_spec.strip():
+        args = _parse_transform_args(argument_spec)
+
+    if len(args) > 1:
+        raise ValueError(f"{transform_name} expects zero or one argument: start")
+
+    start = 1.0
+    if args:
+        start = _normalize_numeric_transform_value(
+            args[0].strip(), transform_name=transform_name
+        )
+
+    product = math.prod(
+        _iter_numeric_values(value, transform_name=transform_name), start=start
+    )
+    return int(product) if float(product).is_integer() else product
+
+
 def _average_numeric_values(value: object, argument_spec: str) -> int | float:
     """Return mean value for non-empty iterable numeric inputs."""
     if argument_spec.strip():
@@ -1039,6 +1065,7 @@ class TemplateService:
         - ``{estimate->floor}``, ``{estimate->ceil}``
         - ``{score->clamp(0,1)->round(2)}``
         - ``{durations->sum}``, ``{durations->sum(10)}``
+        - ``{durations->product}``, ``{durations->product(0.5)}``
         - ``{durations->avg}``
         - ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``
         - ``{latencies->variance}``, ``{latencies->var}``
@@ -1102,6 +1129,12 @@ class TemplateService:
             "ceil": _ceil_numeric,
             "clamp": lambda raw: _clamp_numeric(raw, ""),
             "sum": lambda raw: _sum_numeric_values(raw, ""),
+            "product": lambda raw: _product_numeric_values(raw, ""),
+            "prod": lambda raw: _product_numeric_values(
+                raw,
+                "",
+                transform_name="prod",
+            ),
             "avg": lambda raw: _average_numeric_values(raw, ""),
             "mean": lambda raw: _average_numeric_values(raw, ""),
             "min": lambda raw: _min_numeric_value(raw, ""),
@@ -1135,6 +1168,8 @@ class TemplateService:
                 "round([ndigits])",
                 "clamp(<min>,<max>)",
                 "sum([start])",
+                "product([start])",
+                "prod([start])",
                 "avg",
                 "mean",
                 "min",
@@ -1227,6 +1262,12 @@ class TemplateService:
                 elif transform_name == "sum":
                     operation = lambda raw, spec=argument_spec: _sum_numeric_values(
                         raw, spec
+                    )
+                elif transform_name in {"product", "prod"}:
+                    operation = lambda raw, spec=argument_spec, name=transform_name: _product_numeric_values(
+                        raw,
+                        spec,
+                        transform_name=name,
                     )
                 elif transform_name in {"avg", "mean"}:
                     operation = lambda raw, spec=argument_spec: _average_numeric_values(
@@ -1349,8 +1390,10 @@ class TemplateService:
         ``{title->append(" ✅")}``, ``{score->round(2)}``,
         ``{delta->abs}``, ``{estimate->floor}``, ``{estimate->ceil}``,
         ``{score->clamp(0,1)->round(2)}``,
-        ``{durations->sum}``, ``{durations->sum(10)}``, ``{durations->avg}``,
-        ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``,
+        ``{durations->sum}``, ``{durations->sum(10)}``,
+        ``{durations->product}``, ``{durations->product(0.5)}``,
+        ``{durations->avg}``, ``{latencies->min}``, ``{latencies->max}``,
+        ``{latencies->median}``,
         ``{latencies->variance}``, ``{latencies->var}``,
         ``{latencies->stddev}``, ``{latencies->stdev}``,
         ``{labels->mode}``, or ``{nickname->strip->fallback("friend")}``).
