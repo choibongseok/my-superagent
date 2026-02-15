@@ -363,6 +363,76 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         return False
 
+    @staticmethod
+    def _extract_ip_from_x_forwarded_for(forwarded_for: str) -> Optional[str]:
+        """Extract first non-empty client IP from ``X-Forwarded-For``."""
+        for raw_ip in forwarded_for.split(","):
+            candidate_ip = raw_ip.strip()
+            if candidate_ip:
+                return candidate_ip
+
+        return None
+
+    @staticmethod
+    def _normalize_forwarded_for_value(value: str) -> Optional[str]:
+        """Normalize RFC 7239 ``for`` values into bare client IP/host values."""
+        candidate = value.strip().strip('"')
+        if not candidate:
+            return None
+
+        lowered_candidate = candidate.lower()
+        # RFC 7239 permits "unknown" and obfuscated identifiers. Skip both.
+        if lowered_candidate == "unknown" or candidate.startswith("_"):
+            return None
+
+        if candidate.startswith("["):
+            end_bracket = candidate.find("]")
+            if end_bracket > 1:
+                return candidate[1:end_bracket]
+
+        if candidate.count(":") == 1:
+            host, _, port = candidate.partition(":")
+            if host and port.isdigit():
+                return host
+
+        return candidate
+
+    @classmethod
+    def _extract_ip_from_forwarded_header(cls, forwarded: str) -> Optional[str]:
+        """Extract first valid client IP/host from RFC 7239 ``Forwarded``."""
+        for entry in forwarded.split(","):
+            for parameter in entry.split(";"):
+                key, separator, value = parameter.partition("=")
+                if separator != "=" or key.strip().lower() != "for":
+                    continue
+
+                normalized_value = cls._normalize_forwarded_for_value(value)
+                if normalized_value:
+                    return normalized_value
+
+        return None
+
+    @classmethod
+    def _extract_client_ip(cls, request: Request) -> str:
+        """Resolve best-effort client IP from common proxy forwarding headers."""
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            xff_ip = cls._extract_ip_from_x_forwarded_for(forwarded_for)
+            if xff_ip:
+                return xff_ip
+
+        forwarded = request.headers.get("Forwarded")
+        if forwarded:
+            forwarded_ip = cls._extract_ip_from_forwarded_header(forwarded)
+            if forwarded_ip:
+                return forwarded_ip
+
+        x_real_ip = request.headers.get("X-Real-IP")
+        if x_real_ip and x_real_ip.strip():
+            return x_real_ip.strip()
+
+        return request.client.host if request.client else "unknown"
+
     def _get_client_id(self, request: Request) -> str:
         """
         Get client identifier for rate limiting.
@@ -385,13 +455,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if hasattr(request.state, "user_id"):
             return f"user:{request.state.user_id}"
 
-        # Fall back to IP address
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            client_ip = forwarded_for.split(",")[0].strip()
-        else:
-            client_ip = request.client.host if request.client else "unknown"
-
+        client_ip = self._extract_client_ip(request)
         return f"ip:{client_ip}"
 
     def _resolve_path_request_cost(

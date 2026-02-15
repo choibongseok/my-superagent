@@ -473,6 +473,74 @@ def test_rate_limit_middleware_uses_client_id_header_for_bucket_isolation(
         assert first_beta.status_code == 200
 
 
+def test_rate_limit_middleware_uses_forwarded_header_for_bucket_isolation(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+    )
+
+    with TestClient(app) as client:
+        first_ipv6 = client.get(
+            "/limited",
+            headers={"Forwarded": 'for="[2001:db8::1]:1234";proto=https'},
+        )
+        second_same_ipv6 = client.get(
+            "/limited",
+            headers={"Forwarded": "for=[2001:db8::1]"},
+        )
+        first_other_ipv6 = client.get(
+            "/limited",
+            headers={"Forwarded": "for=[2001:db8::2]"},
+        )
+
+        assert first_ipv6.status_code == 200
+        assert second_same_ipv6.status_code == 429
+        assert first_other_ipv6.status_code == 200
+
+
+def test_rate_limit_middleware_uses_x_real_ip_when_forwarded_headers_missing(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+    )
+
+    with TestClient(app) as client:
+        first_internal = client.get("/limited", headers={"X-Real-IP": "10.0.0.1"})
+        second_internal = client.get("/limited", headers={"X-Real-IP": "10.0.0.1"})
+        first_other_internal = client.get(
+            "/limited",
+            headers={"X-Real-IP": "10.0.0.2"},
+        )
+
+        assert first_internal.status_code == 200
+        assert second_internal.status_code == 429
+        assert first_other_internal.status_code == 200
+
+
 def test_rate_limit_middleware_rejects_invalid_client_id_header() -> None:
     app = FastAPI()
 
