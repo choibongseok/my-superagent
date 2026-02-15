@@ -218,6 +218,8 @@ class TestMemoryManagerContext:
             "min_score_margin": None,
             "include_score_context": False,
             "unique_content": False,
+            "required_terms": None,
+            "required_terms_mode": "all",
             "offset": None,
             "max_results_per_session": None,
         }
@@ -258,6 +260,8 @@ class TestMemoryManagerContext:
             "min_score_margin": None,
             "include_score_context": False,
             "unique_content": False,
+            "required_terms": None,
+            "required_terms_mode": "all",
             "offset": None,
             "max_results_per_session": None,
         }
@@ -300,9 +304,33 @@ class TestMemoryManagerContext:
             "min_score_margin": 0.04,
             "include_score_context": True,
             "unique_content": True,
+            "required_terms": None,
+            "required_terms_mode": "all",
             "offset": 2,
             "max_results_per_session": None,
         }
+
+    def test_search_memory_forwards_required_terms_controls(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="session-lexical",
+            use_vector_memory=False,
+        )
+        manager.vector_memory = RecordingVectorMemory()
+
+        manager.search_memory(
+            query="launch prep",
+            required_terms=["checklist", "launch"],
+            required_terms_mode="any",
+        )
+
+        assert manager.vector_memory.last_search_with_scores_kwargs[
+            "required_terms"
+        ] == ["checklist", "launch"]
+        assert (
+            manager.vector_memory.last_search_with_scores_kwargs["required_terms_mode"]
+            == "any"
+        )
 
     def test_search_memory_supports_per_session_result_cap(self):
         manager = MemoryManager(

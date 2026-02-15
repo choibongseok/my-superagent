@@ -325,6 +325,8 @@ class MemoryManager:
         min_score_margin: Optional[float] = None,
         include_score_context: bool = False,
         unique_content: bool = False,
+        required_terms: Optional[List[str]] = None,
+        required_terms_mode: str = "all",
         offset: Optional[int] = None,
         max_results_per_session: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
@@ -351,6 +353,10 @@ class MemoryManager:
                 this additional margin.
             include_score_context: Include per-result ranking/threshold context.
             unique_content: Drop duplicate memories using normalized content.
+            required_terms: Optional lexical terms that must appear in memory
+                content after normalization.
+            required_terms_mode: Lexical matching mode for ``required_terms``
+                ("all" or "any").
             offset: Zero-based pagination offset applied before final ``k`` limit.
             max_results_per_session: Optional per-session cap for result
                 diversification based on ``metadata.session_id``.
@@ -386,6 +392,8 @@ class MemoryManager:
                 min_score_margin=min_score_margin,
                 include_score_context=include_score_context,
                 unique_content=unique_content,
+                required_terms=required_terms,
+                required_terms_mode=required_terms_mode,
                 offset=offset,
                 max_results_per_session=max_results_per_session,
             )

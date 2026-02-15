@@ -42,6 +42,22 @@ class TestVectorStoreInitializationFallback:
         with pytest.raises(RuntimeError, match="Vector store is unavailable"):
             memory.search(query="test")
 
+    @patch(
+        "app.memory.vector_store.OpenAIEmbeddings",
+        side_effect=RuntimeError("missing openai api key"),
+    )
+    def test_initialization_falls_back_when_embeddings_init_fails(
+        self,
+        _mock_embeddings,
+    ):
+        """Embedding init failures should also trigger degraded mode."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        assert memory.available is False
+
+        with pytest.raises(RuntimeError, match="Vector store is unavailable"):
+            memory.search(query="test")
+
 
 class TestVectorStoreScoringValidation:
     """Test input validation for scoring parameters."""
@@ -854,6 +870,110 @@ class TestUniqueContentDeduplication:
         assert [result["content"] for result in results] == [
             "Status update",
             "status update",
+        ]
+
+
+class TestRequiredTermsFiltering:
+    """Test optional lexical constraints layered on semantic search."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_required_terms_validation(self):
+        """required_terms must be a non-empty list of non-empty strings."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(
+            ValueError, match="required_terms must be a list of non-empty strings"
+        ):
+            memory.search_with_scores(query="test", required_terms="roadmap")
+
+        with pytest.raises(ValueError, match="required_terms cannot be empty"):
+            memory.search_with_scores(query="test", required_terms=[])
+
+        with pytest.raises(
+            ValueError, match="required_terms must contain only non-empty strings"
+        ):
+            memory.search_with_scores(query="test", required_terms=["roadmap", "  "])
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_required_terms_mode_validation(self):
+        """required_terms_mode should accept only 'all' or 'any'."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(
+            ValueError, match="required_terms_mode must be either 'all' or 'any'"
+        ):
+            memory.search_with_scores(
+                query="test",
+                required_terms=["roadmap"],
+                required_terms_mode="strict",
+            )
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_required_terms_all_mode_keeps_only_full_matches(self):
+        """Mode=all should keep content containing every required term."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        full_match = Document(
+            page_content="Project roadmap and release plan", metadata={}
+        )
+        partial_match = Document(page_content="Project roadmap draft", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (full_match, 0.9),
+                (partial_match, 0.88),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            required_terms=["roadmap", "release plan"],
+            required_terms_mode="all",
+        )
+
+        assert [result["content"] for result in results] == [
+            "Project roadmap and release plan"
+        ]
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_required_terms_any_mode_is_case_and_whitespace_insensitive(self):
+        """Mode=any should support normalized lexical matching."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        roadmap_doc = Document(page_content="Roadmap retrospective", metadata={})
+        launch_doc = Document(
+            page_content="  product    LAUNCH checklist  ", metadata={}
+        )
+        unrelated_doc = Document(page_content="Budget review", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (roadmap_doc, 0.91),
+                (launch_doc, 0.86),
+                (unrelated_doc, 0.82),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            required_terms=["  ROADMAP  ", "launch checklist"],
+            required_terms_mode="any",
+            sort_by_score=True,
+        )
+
+        assert [result["content"] for result in results] == [
+            "Roadmap retrospective",
+            "  product    LAUNCH checklist  ",
         ]
 
 

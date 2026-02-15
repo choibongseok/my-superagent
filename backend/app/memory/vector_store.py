@@ -107,15 +107,18 @@ class VectorStoreMemory:
         self.collection_name = f"{collection_name}_{user_id}"
         self.top_k = top_k
 
-        # Initialize embeddings
-        self.embeddings = OpenAIEmbeddings(
-            model=embedding_model,
-            openai_api_key=settings.OPENAI_API_KEY,
-        )
-
         self.available = True
+        self.embeddings: Optional[OpenAIEmbeddings] = None
 
         try:
+            # Initialize embeddings and PGVector backend.
+            # Both can fail (missing API key, DB outage, invalid DSN),
+            # so they are wrapped in the same degraded-mode guard.
+            self.embeddings = OpenAIEmbeddings(
+                model=embedding_model,
+                openai_api_key=settings.OPENAI_API_KEY,
+            )
+
             # Initialize PGVector store
             self.vector_store = PGVector(
                 collection_name=self.collection_name,
@@ -140,6 +143,7 @@ class VectorStoreMemory:
             )
         except Exception as error:
             self.available = False
+            self.embeddings = None
             self.vector_store = _UnavailableVectorStore(str(error))
             self.retriever = None
             self.memory = None
@@ -426,6 +430,61 @@ class VectorStoreMemory:
 
         return deduplicated_results
 
+    @classmethod
+    def _normalize_required_terms(
+        cls,
+        required_terms: Optional[List[str]],
+    ) -> Optional[List[str]]:
+        """Normalize required lexical terms used for post-search filtering."""
+        if required_terms is None:
+            return None
+
+        if not isinstance(required_terms, list):
+            raise ValueError("required_terms must be a list of non-empty strings")
+
+        normalized_terms: List[str] = []
+        for term in required_terms:
+            if not isinstance(term, str):
+                raise ValueError("required_terms must contain only non-empty strings")
+
+            normalized_term = cls._normalize_content_for_deduplication(term)
+            if not normalized_term:
+                raise ValueError("required_terms must contain only non-empty strings")
+
+            normalized_terms.append(normalized_term)
+
+        if not normalized_terms:
+            raise ValueError("required_terms cannot be empty")
+
+        return normalized_terms
+
+    @staticmethod
+    def _normalize_required_terms_mode(required_terms_mode: str) -> str:
+        """Validate lexical matching mode for required terms."""
+        if not isinstance(required_terms_mode, str):
+            raise ValueError("required_terms_mode must be either 'all' or 'any'")
+
+        normalized_mode = required_terms_mode.strip().lower()
+        if normalized_mode not in {"all", "any"}:
+            raise ValueError("required_terms_mode must be either 'all' or 'any'")
+
+        return normalized_mode
+
+    @classmethod
+    def _matches_required_terms(
+        cls,
+        content: Any,
+        normalized_terms: List[str],
+        required_terms_mode: str,
+    ) -> bool:
+        """Return True when content satisfies required lexical terms."""
+        normalized_content = cls._normalize_content_for_deduplication(content)
+
+        if required_terms_mode == "all":
+            return all(term in normalized_content for term in normalized_terms)
+
+        return any(term in normalized_content for term in normalized_terms)
+
     def search(
         self,
         query: str,
@@ -486,6 +545,8 @@ class VectorStoreMemory:
         sort_by_score: bool = False,
         include_score_context: bool = False,
         unique_content: bool = False,
+        required_terms: Optional[List[str]] = None,
+        required_terms_mode: str = "all",
         created_after: Optional[datetime | str] = None,
         created_before: Optional[datetime | str] = None,
         offset: Optional[int] = None,
@@ -530,6 +591,12 @@ class VectorStoreMemory:
             unique_content: When ``True``, collapse duplicate memories by
                 normalized content (case/whitespace insensitive) before applying
                 pagination.
+            required_terms: Optional lexical terms that must appear in the
+                memory content after normalization (case/whitespace-insensitive).
+                Use this to combine semantic search with strict keyword guards.
+            required_terms_mode: Lexical matching mode for ``required_terms``.
+                ``"all"`` keeps results containing every term; ``"any"`` keeps
+                results containing at least one term.
             created_after: Optional lower timestamp bound (inclusive) used to
                 keep only memories with ``metadata.timestamp`` on/after this
                 value. Accepts timezone-aware/naive ``datetime`` objects or
@@ -555,6 +622,7 @@ class VectorStoreMemory:
                 ``max_score_gap``/``min_score_margin``/``offset``/
                 ``max_results_per_session`` values, invalid
                 ``created_after``/``created_before`` boundaries,
+                invalid ``required_terms``/``required_terms_mode`` values,
                 or non-boolean ``include_score_context``/``unique_content``.
         """
         # Input validation
@@ -578,6 +646,11 @@ class VectorStoreMemory:
 
         if not isinstance(unique_content, bool):
             raise ValueError("unique_content must be a boolean")
+
+        normalized_required_terms = self._normalize_required_terms(required_terms)
+        normalized_required_terms_mode = self._normalize_required_terms_mode(
+            required_terms_mode
+        )
 
         if offset is not None:
             if isinstance(offset, bool) or not isinstance(offset, int):
@@ -725,6 +798,25 @@ class VectorStoreMemory:
                 if normalized_created_before is not None
                 else None,
                 pre_temporal_count,
+                len(results),
+            )
+
+        if normalized_required_terms is not None:
+            pre_lexical_count = len(results)
+            results = [
+                (doc, score)
+                for doc, score in results
+                if self._matches_required_terms(
+                    doc.page_content,
+                    normalized_required_terms,
+                    normalized_required_terms_mode,
+                )
+            ]
+            logger.debug(
+                "Applied required_terms filtering: terms=%s, mode=%s, before=%d, after=%d",
+                normalized_required_terms,
+                normalized_required_terms_mode,
+                pre_lexical_count,
                 len(results),
             )
 
