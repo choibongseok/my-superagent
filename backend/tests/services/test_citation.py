@@ -1461,6 +1461,64 @@ class TestCitationTracker:
                 max_relevance_score=5.0,
             )
 
+    def test_search_sources_supports_query_length_profile_for_relevance_thresholds(
+        self,
+    ):
+        """query_length_profile should tune long-query relevance normalization."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(
+            title="Agentic Workflow Reliability Guardrails Handbook"
+        )
+        query = "agentic workflow reliability guardrails"
+
+        strict_detail = tracker.search_sources_with_details(
+            query,
+            query_length_profile="strict",
+        )
+        lenient_detail = tracker.search_sources_with_details(
+            query,
+            query_length_profile="lenient",
+        )
+
+        strict_score = strict_detail[0]["relevance_score"]
+        lenient_score = lenient_detail[0]["relevance_score"]
+        assert strict_score < lenient_score
+
+        midpoint = (strict_score + lenient_score) / 2
+
+        strict_matches = tracker.search_sources(
+            query,
+            min_relevance_score=midpoint,
+            query_length_profile="strict",
+        )
+        lenient_matches = tracker.search_sources(
+            query,
+            min_relevance_score=midpoint,
+            query_length_profile="lenient",
+        )
+
+        assert strict_matches == []
+        assert [source.id for source in lenient_matches] == [source_id]
+
+    def test_search_sources_rejects_invalid_query_length_profile(self):
+        """query_length_profile should enforce supported normalization profiles."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="query_length_profile must be one of: strict, balanced, lenient",
+        ):
+            tracker.search_sources("agent", query_length_profile="aggressive")
+
+        with pytest.raises(
+            ValueError,
+            match="query_length_profile must be one of: strict, balanced, lenient",
+        ):
+            tracker.search_sources_with_details(
+                "agent", query_length_profile="aggressive"
+            )
+
     def test_search_sources_with_details_supports_relevance_score_range_filters(self):
         """Detailed search should pass through min/max relevance constraints."""
         tracker = CitationTracker()

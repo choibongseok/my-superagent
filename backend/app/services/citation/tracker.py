@@ -95,6 +95,16 @@ class CitationTracker:
         "lenient": 0.75,
     }
 
+    # Multipliers used for query-length normalization in relevance scoring.
+    # - strict: stronger penalties for longer queries.
+    # - balanced: current default behavior.
+    # - lenient: lighter penalties for long/specific queries.
+    QUERY_LENGTH_PROFILE_FACTORS: Dict[str, float] = {
+        "strict": 0.22,
+        "balanced": 0.15,
+        "lenient": 0.08,
+    }
+
     def __init__(self):
         """Initialize citation tracker."""
         self.sources: Dict[str, Source] = {}
@@ -713,6 +723,7 @@ class CitationTracker:
         *,
         query_tokens: list[str],
         normalized_query: str,
+        query_length_profile: Literal["strict", "balanced", "lenient"] = "balanced",
     ) -> float:
         """Compute deterministic relevance score for a source/query pair."""
         if not query_tokens:
@@ -775,10 +786,16 @@ class CitationTracker:
 
             score += token_contribution
 
+        profile_factor = self.QUERY_LENGTH_PROFILE_FACTORS.get(query_length_profile)
+        if profile_factor is None:
+            raise ValueError(
+                "query_length_profile must be one of: strict, balanced, lenient"
+            )
+
         # Smooth logarithmic penalty that increases gradually with query length
-        # without discontinuities. The 0.15 multiplier balances behavior while
-        # ensuring continuous scoring across all query lengths.
-        query_length_factor = 1 + math.log(len(query_tokens) + 1) * 0.15
+        # without discontinuities. Profile multipliers let callers tune how
+        # aggressively long multi-token queries are normalized.
+        query_length_factor = 1 + math.log(len(query_tokens) + 1) * profile_factor
 
         score = score / query_length_factor
         return round(score, 2)
@@ -843,6 +860,7 @@ class CitationTracker:
         max_recency_score: Optional[float] = None,
         recency_window_days: int = 730,
         recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
+        query_length_profile: Literal["strict", "balanced", "lenient"] = "balanced",
         as_of: Optional[datetime] = None,
         min_token_matches: Optional[int] = None,
         max_results_per_domain: Optional[int] = None,
@@ -944,6 +962,10 @@ class CitationTracker:
             recency_profile: Recency sensitivity profile used when
                 ``sort_by='recency'``. ``"strict"`` penalizes stale sources
                 more aggressively, while ``"lenient"`` decays slower.
+            query_length_profile: Query-length normalization profile used when
+                computing relevance scores. ``"strict"`` penalizes long
+                multi-token queries more aggressively, while ``"lenient"``
+                applies lighter normalization.
             as_of: Optional reference timestamp for deterministic recency
                 calculations and age-day filters.
             min_token_matches: Optional minimum number of unique query tokens
@@ -1086,6 +1108,11 @@ class CitationTracker:
         if recency_profile not in self.RECENCY_PROFILE_FACTORS:
             raise ValueError(
                 "recency_profile must be one of: strict, balanced, lenient"
+            )
+
+        if query_length_profile not in self.QUERY_LENGTH_PROFILE_FACTORS:
+            raise ValueError(
+                "query_length_profile must be one of: strict, balanced, lenient"
             )
 
         if min_token_matches is not None:
@@ -1327,6 +1354,7 @@ class CitationTracker:
                 source,
                 query_tokens=query_tokens,
                 normalized_query=normalized_query,
+                query_length_profile=query_length_profile,
             )
 
             if min_relevance_score is not None and score < min_relevance_score:
@@ -1559,6 +1587,7 @@ class CitationTracker:
         max_recency_score: Optional[float] = None,
         recency_window_days: int = 730,
         recency_profile: Literal["strict", "balanced", "lenient"] = "balanced",
+        query_length_profile: Literal["strict", "balanced", "lenient"] = "balanced",
         as_of: Optional[datetime] = None,
         min_token_matches: Optional[int] = None,
         max_results_per_domain: Optional[int] = None,
@@ -1610,6 +1639,7 @@ class CitationTracker:
             max_recency_score=max_recency_score,
             recency_window_days=recency_window_days,
             recency_profile=recency_profile,
+            query_length_profile=query_length_profile,
             as_of=as_of,
             min_token_matches=min_token_matches,
             max_results_per_domain=max_results_per_domain,
@@ -1649,6 +1679,7 @@ class CitationTracker:
                 source,
                 query_tokens=query_tokens,
                 normalized_query=normalized_query,
+                query_length_profile=query_length_profile,
             )
             match_details = self._build_match_details(
                 source,
