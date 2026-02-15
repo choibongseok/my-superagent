@@ -423,9 +423,12 @@ async def refresh_token(
     """
     from app.core.security import decode_token
     
-    payload = decode_token(token_data.refresh_token)
-    
-    if not payload or payload.get("type") != "refresh":
+    payload = decode_token(
+        token_data.refresh_token,
+        expected_type="refresh",
+    )
+
+    if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",

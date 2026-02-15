@@ -33,23 +33,20 @@ async def get_current_user(
     """
     token = credentials.credentials
     
-    payload = decode_token(token)
-    
-    if not payload or payload.get("type") != "access":
+    payload = decode_token(
+        token,
+        expected_type="access",
+        required_claims=("sub",),
+    )
+
+    if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    user_id = payload.get("sub")
-    
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+
+    user_id = payload["sub"]
     
     result = await db.execute(
         select(User).where(User.id == user_id)

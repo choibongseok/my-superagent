@@ -45,7 +45,7 @@ def test_refresh_token_accepts_refresh_token_only_payload(client, mock_db, monke
 
     monkeypatch.setattr(
         "app.core.security.decode_token",
-        lambda token: {"sub": str(user.id), "type": "refresh"},
+        lambda token, **_: {"sub": str(user.id), "type": "refresh"},
     )
     monkeypatch.setattr(auth, "create_access_token", lambda data: "new_access_token")
     monkeypatch.setattr(auth, "create_refresh_token", lambda data: "new_refresh_token")

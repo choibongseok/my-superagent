@@ -128,16 +128,17 @@ async def websocket_endpoint(
 
     try:
         # Decode JWT token
-        payload = decode_token(token)
+        payload = decode_token(
+            token,
+            expected_type="access",
+            required_claims=("sub",),
+        )
 
-        if not payload or payload.get("type") != "access":
+        if not payload:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
-        user_id_str = payload.get("sub")
-        if not user_id_str:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
+        user_id_str = payload["sub"]
 
         user_id = UUID(user_id_str)
     except Exception as e:
