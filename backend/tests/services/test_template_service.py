@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, unquote_plus
 from uuid import uuid4
 
 import pytest
@@ -2245,6 +2245,60 @@ class TestTemplateServiceUseTemplate:
 
         assert result["prompt"].endswith("q=agent+hq+launch")
         assert template.usage_count == 4
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_urldecode_transform(
+        self, service_with_mock_db
+    ):
+        """urldecode transform should decode query-escaped payloads."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Decoded: {query->urldecode}",
+            category="docs",
+            usage_count=2,
+        )
+
+        encoded_query = "Agent+HQ+launch%2F2026+%EC%95%88%EC%A0%84"
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"query": encoded_query},
+                user_id,
+            )
+
+        assert result["prompt"] == f"Decoded: {unquote_plus(encoded_query)}"
+        assert template.usage_count == 3
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_urlencode_urldecode_roundtrip(
+        self, service_with_mock_db
+    ):
+        """urlencode + urldecode should preserve original text when chained."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Roundtrip: {query->urlencode->urldecode}",
+            category="docs",
+            usage_count=1,
+        )
+
+        raw_query = "A+B launch notes / 2026"
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"query": raw_query},
+                user_id,
+            )
+
+        assert result["prompt"] == f"Roundtrip: {raw_query}"
+        assert template.usage_count == 2
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio

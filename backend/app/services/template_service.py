@@ -10,7 +10,7 @@ import unicodedata
 from collections.abc import Mapping
 from string import Formatter
 from typing import List, Optional
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, unquote_plus
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -1316,7 +1316,7 @@ class TemplateService:
         - ``{milestones->slice(0,2)->join(", ")}``
         - ``{items->slice(0,10,2)->join(", ")}``
         - ``{notes->dedent->indent("  ")->strip}``
-        - ``{search_query->urlencode}``
+        - ``{search_query->urlencode}``, ``{search_query->urldecode}``
         - ``{title->slug}``
         - ``{summary->compact}``
         - ``{notes->trim_lines}``
@@ -1382,6 +1382,7 @@ class TemplateService:
             "json": lambda raw: _to_json(raw, pretty=False),
             "json_pretty": lambda raw: _to_json(raw, pretty=True),
             "urlencode": lambda raw: quote_plus(str(raw), safe=""),
+            "urldecode": lambda raw: unquote_plus(str(raw)),
             "slug": _to_slug,
             "split": lambda raw: _split_text(raw, ""),
             "flatten": _flatten_values,
@@ -1758,7 +1759,8 @@ class TemplateService:
         ``{milestones->slice(0,2)}``, ``{items->slice(0,10,2)}``,
         ``{notes->dedent->indent("> ")->strip}``,
         ``{payload->json}``, ``{payload->json_pretty}``,
-        ``{search_query->urlencode}``, ``{title->slug}``,
+        ``{search_query->urlencode}``, ``{search_query->urldecode}``,
+        ``{title->slug}``,
         ``{summary->compact}``, ``{notes->trim_lines}``,
         ``{ticket->prepend("#")}``,
         ``{title->append(" ✅")}``, ``{score->round(2)}``,
