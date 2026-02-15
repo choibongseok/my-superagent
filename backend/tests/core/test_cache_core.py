@@ -1,5 +1,7 @@
 """Tests for Redis cache key utilities and cache decorators."""
 
+import asyncio
+
 import pytest
 
 from app.core.cache import cache, cache_key, cached
@@ -251,6 +253,11 @@ def test_cached_rejects_non_callable_cache_condition():
         cached(prefix="example", cache_condition="not-callable")  # type: ignore[arg-type]
 
 
+def test_cached_rejects_invalid_coalesce_inflight_flag():
+    with pytest.raises(ValueError, match="coalesce_inflight must be a boolean"):
+        cached(prefix="example", coalesce_inflight="yes")  # type: ignore[arg-type]
+
+
 @pytest.mark.asyncio
 async def test_cached_cache_condition_can_skip_writing_specific_results(monkeypatch):
     cached_values: dict[str, int | None] = {}
@@ -384,3 +391,63 @@ async def test_cached_async_cache_condition_must_return_boolean(monkeypatch):
 
     with pytest.raises(ValueError, match="cache_condition must return a boolean"):
         await compute(1)
+
+
+@pytest.mark.asyncio
+async def test_cached_coalesces_concurrent_calls_for_the_same_key(monkeypatch):
+    cached_values: dict[str, int] = {}
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    calls = {"count": 0}
+
+    @cached(prefix="example")
+    async def compute(value: int) -> int:
+        calls["count"] += 1
+        await asyncio.sleep(0.01)
+        return value * 2
+
+    first, second, third = await asyncio.gather(
+        compute(21),
+        compute(21),
+        compute(21),
+    )
+
+    assert (first, second, third) == (42, 42, 42)
+    assert calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_cached_can_disable_inflight_coalescing(monkeypatch):
+    cached_values: dict[str, int] = {}
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    calls = {"count": 0}
+
+    @cached(prefix="example", coalesce_inflight=False)
+    async def compute(value: int) -> int:
+        calls["count"] += 1
+        await asyncio.sleep(0.01)
+        return value * 2
+
+    first, second = await asyncio.gather(compute(21), compute(21))
+
+    assert (first, second) == (42, 42)
+    assert calls["count"] == 2

@@ -1,5 +1,6 @@
 """Redis cache configuration and utilities."""
 
+import asyncio
 from functools import wraps
 import inspect
 import json
@@ -222,6 +223,7 @@ def cached(
     refresh_flag: Optional[str] = "refresh_cache",
     disable_flag: Optional[str] = "disable_cache",
     cache_condition: Optional[Callable[[Any], bool | Awaitable[bool]]] = None,
+    coalesce_inflight: bool = True,
 ):
     """
     Decorator for caching function results.
@@ -240,6 +242,9 @@ def cached(
         cache_condition: Optional predicate that receives the computed result
             and returns ``True`` when the value should be written to cache.
             The predicate may be synchronous or asynchronous.
+        coalesce_inflight: When ``True`` (default), concurrent calls that
+            resolve to the same cache key will await a single in-flight
+            execution instead of triggering duplicate work.
 
     Example:
         @cached(prefix="user", ttl=300)
@@ -272,6 +277,9 @@ def cached(
 
     if cache_condition is not None and not callable(cache_condition):
         raise ValueError("cache_condition must be callable when provided")
+
+    if not isinstance(coalesce_inflight, bool):
+        raise ValueError("coalesce_inflight must be a boolean")
 
     def decorator(func: Callable):
         def _resolve_key_args(call_args: tuple[Any, ...]) -> tuple[Any, ...]:
@@ -331,6 +339,20 @@ def cached(
 
             return decision
 
+        inflight_tasks: dict[str, asyncio.Task[Any]] = {}
+
+        async def _execute_and_maybe_cache(
+            key: str,
+            call_args: tuple[Any, ...],
+            runtime_kwargs: dict[str, Any],
+        ) -> Any:
+            result = await func(*call_args, **runtime_kwargs)
+
+            if await _should_cache_result(result):
+                await cache.set(key, result, ttl)
+
+            return result
+
         @wraps(func)
         async def wrapper(*args, **kwargs):
             runtime_kwargs = dict(kwargs)
@@ -349,14 +371,23 @@ def cached(
                 if cached_value is not None:
                     return cached_value
 
-            # Execute function
-            result = await func(*args, **runtime_kwargs)
+            if not coalesce_inflight:
+                return await _execute_and_maybe_cache(key, args, runtime_kwargs)
 
-            # Cache result
-            if await _should_cache_result(result):
-                await cache.set(key, result, ttl)
+            existing_task = inflight_tasks.get(key)
+            if existing_task is not None:
+                return await asyncio.shield(existing_task)
 
-            return result
+            task = asyncio.create_task(
+                _execute_and_maybe_cache(key, args, runtime_kwargs)
+            )
+            inflight_tasks[key] = task
+
+            try:
+                return await asyncio.shield(task)
+            finally:
+                if inflight_tasks.get(key) is task:
+                    inflight_tasks.pop(key, None)
 
         return wrapper
 
