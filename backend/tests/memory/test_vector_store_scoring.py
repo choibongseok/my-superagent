@@ -1082,6 +1082,132 @@ class TestExcludedTermsFiltering:
         ]
 
 
+class TestSessionIdFiltering:
+    """Test optional session-id allow/deny filtering controls."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_session_ids_validation(self):
+        """session_ids must be a non-empty list of non-empty strings."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(
+            ValueError, match="session_ids must be a list of non-empty strings"
+        ):
+            memory.search_with_scores(query="test", session_ids="session-1")
+
+        with pytest.raises(ValueError, match="session_ids cannot be empty"):
+            memory.search_with_scores(query="test", session_ids=[])
+
+        with pytest.raises(
+            ValueError, match="session_ids must contain only non-empty strings"
+        ):
+            memory.search_with_scores(query="test", session_ids=["session-1", " "])
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_excluded_session_ids_validation(self):
+        """excluded_session_ids must be a non-empty list of non-empty strings."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(
+            ValueError,
+            match="excluded_session_ids must be a list of non-empty strings",
+        ):
+            memory.search_with_scores(query="test", excluded_session_ids="session-1")
+
+        with pytest.raises(
+            ValueError, match="excluded_session_ids must contain only non-empty strings"
+        ):
+            memory.search_with_scores(
+                query="test",
+                excluded_session_ids=["session-1", ""],
+            )
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_session_id_filters_cannot_overlap(self):
+        """Overlapping allow/deny filters should fail fast with clear feedback."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(
+            ValueError,
+            match="session_ids and excluded_session_ids cannot overlap",
+        ):
+            memory.search_with_scores(
+                query="test",
+                session_ids=["session-1"],
+                excluded_session_ids=["session-1"],
+            )
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_session_ids_allowlist_keeps_only_matching_sessions(self):
+        """session_ids should retain only results from explicitly allowed sessions."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        allowed_doc = Document(
+            page_content="allowed",
+            metadata={"session_id": "session-1"},
+        )
+        other_doc = Document(
+            page_content="other",
+            metadata={"session_id": "session-2"},
+        )
+        missing_session_doc = Document(page_content="missing-session", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (allowed_doc, 0.9),
+                (other_doc, 0.87),
+                (missing_session_doc, 0.85),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            session_ids=["  session-1  "],
+        )
+
+        assert [result["content"] for result in results] == ["allowed"]
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_excluded_session_ids_denylist_removes_only_target_sessions(self):
+        """excluded_session_ids should remove matching sessions and keep others."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        denied_doc = Document(
+            page_content="denied",
+            metadata={"session_id": "session-2"},
+        )
+        kept_doc = Document(
+            page_content="kept",
+            metadata={"session_id": "session-1"},
+        )
+        global_doc = Document(page_content="global", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (denied_doc, 0.9),
+                (kept_doc, 0.88),
+                (global_doc, 0.84),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            excluded_session_ids=["session-2", "session-2"],
+        )
+
+        assert [result["content"] for result in results] == ["kept", "global"]
+
+
 class TestSessionDiversification:
     """Test optional per-session result diversification controls."""
 

@@ -510,6 +510,35 @@ class VectorStoreMemory:
 
         return normalized_mode
 
+    @staticmethod
+    def _normalize_session_id_filters(
+        session_ids: Optional[List[str]],
+        *,
+        field_name: str,
+    ) -> Optional[List[str]]:
+        """Normalize optional session-id include/exclude filters."""
+        if session_ids is None:
+            return None
+
+        if not isinstance(session_ids, list):
+            raise ValueError(f"{field_name} must be a list of non-empty strings")
+
+        normalized_session_ids: List[str] = []
+        for session_id in session_ids:
+            if not isinstance(session_id, str):
+                raise ValueError(f"{field_name} must contain only non-empty strings")
+
+            normalized_session_id = session_id.strip()
+            if not normalized_session_id:
+                raise ValueError(f"{field_name} must contain only non-empty strings")
+
+            normalized_session_ids.append(normalized_session_id)
+
+        if not normalized_session_ids:
+            raise ValueError(f"{field_name} cannot be empty")
+
+        return list(dict.fromkeys(normalized_session_ids))
+
     @classmethod
     def _matches_required_terms(
         cls,
@@ -590,6 +619,8 @@ class VectorStoreMemory:
         required_terms_mode: str = "all",
         excluded_terms: Optional[List[str]] = None,
         excluded_terms_mode: str = "any",
+        session_ids: Optional[List[str]] = None,
+        excluded_session_ids: Optional[List[str]] = None,
         created_after: Optional[datetime | str] = None,
         created_before: Optional[datetime | str] = None,
         offset: Optional[int] = None,
@@ -651,6 +682,13 @@ class VectorStoreMemory:
             excluded_terms_mode: Lexical matching mode for ``excluded_terms``.
                 ``"any"`` excludes results containing at least one term;
                 ``"all"`` excludes only when all excluded terms are present.
+            session_ids: Optional session-id allowlist applied after semantic
+                retrieval. When provided, only memories where
+                ``metadata.session_id`` matches one of these identifiers are
+                retained.
+            excluded_session_ids: Optional session-id denylist applied after
+                retrieval. Memories where ``metadata.session_id`` matches one
+                of these identifiers are excluded.
             created_after: Optional lower timestamp bound (inclusive) used to
                 keep only memories with ``metadata.timestamp`` on/after this
                 value. Accepts timezone-aware/naive ``datetime`` objects or
@@ -678,7 +716,8 @@ class VectorStoreMemory:
                 ``max_results_per_session`` values, invalid
                 ``created_after``/``created_before`` boundaries,
                 invalid ``required_terms``/``required_terms_mode``/
-                ``excluded_terms``/``excluded_terms_mode`` values,
+                ``excluded_terms``/``excluded_terms_mode``/
+                ``session_ids``/``excluded_session_ids`` values,
                 or non-boolean ``include_score_context``/``unique_content``.
         """
         # Input validation
@@ -711,6 +750,21 @@ class VectorStoreMemory:
         normalized_excluded_terms_mode = self._normalize_excluded_terms_mode(
             excluded_terms_mode
         )
+        normalized_session_ids = self._normalize_session_id_filters(
+            session_ids,
+            field_name="session_ids",
+        )
+        normalized_excluded_session_ids = self._normalize_session_id_filters(
+            excluded_session_ids,
+            field_name="excluded_session_ids",
+        )
+
+        if (
+            normalized_session_ids is not None
+            and normalized_excluded_session_ids is not None
+            and set(normalized_session_ids) & set(normalized_excluded_session_ids)
+        ):
+            raise ValueError("session_ids and excluded_session_ids cannot overlap")
 
         if offset is not None:
             if isinstance(offset, bool) or not isinstance(offset, int):
@@ -910,6 +964,43 @@ class VectorStoreMemory:
                 normalized_excluded_terms,
                 normalized_excluded_terms_mode,
                 pre_exclusion_count,
+                len(results),
+            )
+
+        if normalized_session_ids is not None:
+            session_filter_set = set(normalized_session_ids)
+            pre_session_scope_count = len(results)
+            results = [
+                (doc, score)
+                for doc, score in results
+                if isinstance(doc.metadata, dict)
+                and doc.metadata.get("session_id") is not None
+                and str(doc.metadata.get("session_id")) in session_filter_set
+            ]
+            logger.debug(
+                "Applied session_ids filtering: sessions=%s, before=%d, after=%d",
+                normalized_session_ids,
+                pre_session_scope_count,
+                len(results),
+            )
+
+        if normalized_excluded_session_ids is not None:
+            excluded_session_filter_set = set(normalized_excluded_session_ids)
+            pre_session_exclusion_count = len(results)
+            results = [
+                (doc, score)
+                for doc, score in results
+                if not (
+                    isinstance(doc.metadata, dict)
+                    and doc.metadata.get("session_id") is not None
+                    and str(doc.metadata.get("session_id"))
+                    in excluded_session_filter_set
+                )
+            ]
+            logger.debug(
+                "Applied excluded_session_ids filtering: sessions=%s, before=%d, after=%d",
+                normalized_excluded_session_ids,
+                pre_session_exclusion_count,
                 len(results),
             )
 
