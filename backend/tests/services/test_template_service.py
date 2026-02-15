@@ -741,6 +741,90 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_abs_floor_and_ceil_transforms(
+        self, service_with_mock_db
+    ):
+        """abs/floor/ceil should support numeric normalization and rounding bounds."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "Magnitude: {delta->abs}, Floor: {estimate->floor}, "
+                "Ceil: {estimate->ceil}"
+            ),
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"delta": -3.5, "estimate": 2.1},
+                user_id,
+            )
+
+        assert result["prompt"] == "Magnitude: 3.5, Floor: 2, Ceil: 3"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_abs_transform_preserves_integer_output(
+        self, service_with_mock_db
+    ):
+        """abs should return integer text for integral numeric values."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Magnitude: {delta->abs}",
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"delta": -4},
+                user_id,
+            )
+
+        assert result["prompt"] == "Magnitude: 4"
+        assert template.usage_count == 4
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_abs_transform_for_non_numeric_values(
+        self, service_with_mock_db
+    ):
+        """abs should fail fast for non-numeric values."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Magnitude: {delta->abs}",
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'abs'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"delta": "unknown"},
+                    user_id,
+                )
+
+        assert template.usage_count == 1
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_clamp_transform(self, service_with_mock_db):
         """clamp(min,max) should bound numeric inputs into an inclusive range."""
         service, db = service_with_mock_db

@@ -3,6 +3,7 @@
 import csv
 import json
 import logging
+import math
 import re
 import textwrap
 import unicodedata
@@ -483,6 +484,36 @@ def _round_numeric(value: object, argument_spec: str) -> int | float:
     return round(numeric_value, ndigits)
 
 
+def _normalize_numeric_transform_value(value: object, *, transform_name: str) -> float:
+    """Normalize numeric inputs for scalar math transforms."""
+    if isinstance(value, bool):
+        raise ValueError(f"{transform_name} expects a numeric value")
+
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{transform_name} expects a numeric value") from exc
+
+
+def _absolute_numeric(value: object) -> int | float:
+    """Return absolute numeric magnitude while preserving integer outputs."""
+    numeric_value = _normalize_numeric_transform_value(value, transform_name="abs")
+    absolute_value = abs(numeric_value)
+    return int(absolute_value) if absolute_value.is_integer() else absolute_value
+
+
+def _floor_numeric(value: object) -> int:
+    """Floor numeric values to the nearest lower integer."""
+    numeric_value = _normalize_numeric_transform_value(value, transform_name="floor")
+    return math.floor(numeric_value)
+
+
+def _ceil_numeric(value: object) -> int:
+    """Ceil numeric values to the nearest higher integer."""
+    numeric_value = _normalize_numeric_transform_value(value, transform_name="ceil")
+    return math.ceil(numeric_value)
+
+
 def _clamp_numeric(value: object, argument_spec: str) -> int | float:
     """Clamp numeric values into an inclusive ``[min,max]`` range."""
     args = _parse_transform_args(argument_spec)
@@ -787,6 +818,8 @@ class TemplateService:
         - ``{summary->compact}``
         - ``{ticket->prepend("#")}``, ``{title->append(" ✅")}``
         - ``{score->round(2)}``
+        - ``{delta->abs}``
+        - ``{estimate->floor}``, ``{estimate->ceil}``
         - ``{score->clamp(0,1)->round(2)}``
         - ``{nickname->strip->fallback("friend")}``
 
@@ -838,6 +871,9 @@ class TemplateService:
             "last": lambda raw: _select_boundary_item(raw, "last"),
             "reverse": _reverse_value,
             "round": lambda raw: _round_numeric(raw, ""),
+            "abs": _absolute_numeric,
+            "floor": _floor_numeric,
+            "ceil": _ceil_numeric,
             "clamp": lambda raw: _clamp_numeric(raw, ""),
         }
         supported_transforms = sorted(
@@ -1016,6 +1052,7 @@ class TemplateService:
         ``{search_query->urlencode}``, ``{title->slug}``,
         ``{summary->compact}``, ``{ticket->prepend("#")}``,
         ``{title->append(" ✅")}``, ``{score->round(2)}``,
+        ``{delta->abs}``, ``{estimate->floor}``, ``{estimate->ceil}``,
         ``{score->clamp(0,1)->round(2)}``,
         or ``{nickname->strip->fallback("friend")}``).
         """
