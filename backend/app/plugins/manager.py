@@ -404,6 +404,8 @@ class PluginManager:
         match_any_permissions: bool = False,
         include_runtime: bool = False,
         initialized: Optional[bool] = None,
+        sort_by: Optional[str] = None,
+        sort_order: str = "asc",
     ) -> List[Dict[str, Any]]:
         """
         List loaded plugins with optional selector and permission filters.
@@ -428,6 +430,10 @@ class PluginManager:
             initialized: Optional runtime initialization filter. ``True``
                 returns only initialized plugins, ``False`` returns only
                 non-initialized plugins, and ``None`` disables filtering.
+            sort_by: Optional manifest field used for sorting output. Supports
+                ``"name"``, ``"version"``, and ``"author"``.
+            sort_order: Sorting direction used when ``sort_by`` is provided.
+                Supports ``"asc"`` (default) and ``"desc"``.
 
         Returns:
             List of plugin manifests.
@@ -453,6 +459,22 @@ class PluginManager:
 
         if initialized is not None and not isinstance(initialized, bool):
             raise ValueError("initialized must be a boolean when provided")
+
+        allowed_sort_fields = {"name", "version", "author"}
+        if sort_by is not None:
+            if not isinstance(sort_by, str) or not sort_by.strip():
+                raise ValueError("sort_by must be one of: name, version, author")
+
+            sort_by = sort_by.strip().lower()
+            if sort_by not in allowed_sort_fields:
+                raise ValueError("sort_by must be one of: name, version, author")
+
+        if not isinstance(sort_order, str) or not sort_order.strip():
+            raise ValueError("sort_order must be 'asc' or 'desc'")
+
+        normalized_sort_order = sort_order.strip().lower()
+        if normalized_sort_order not in {"asc", "desc"}:
+            raise ValueError("sort_order must be 'asc' or 'desc'")
 
         if include_selectors is not None:
             overlap = include_selectors & exclude_selectors
@@ -511,6 +533,13 @@ class PluginManager:
                     and plugin.is_initialized() is initialized
                 )
             ]
+
+        if sort_by is not None:
+            manifests = sorted(
+                manifests,
+                key=lambda manifest: str(getattr(manifest, sort_by, "")).casefold(),
+                reverse=normalized_sort_order == "desc",
+            )
 
         plugin_entries: List[Dict[str, Any]] = []
         for manifest in manifests:

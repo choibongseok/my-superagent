@@ -15,6 +15,8 @@ def _build_plugin_class(
     manifest_name: str,
     permissions: list[str],
     lifecycle: dict[str, int] | None = None,
+    *,
+    author: str = "tests",
 ):
     """Create a minimal runtime plugin class for manager tests."""
 
@@ -34,7 +36,7 @@ def _build_plugin_class(
             name=manifest_name,
             version="1.0.0",
             description=f"{manifest_name} plugin",
-            author="tests",
+            author=author,
             permissions=permissions,
             inputs={},
             outputs={"ok": "boolean"},
@@ -959,3 +961,65 @@ async def test_list_plugins_validates_runtime_filter_flags(tmp_path):
         match="initialized must be a boolean when provided",
     ):
         manager.list_plugins(initialized="yes")  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_supports_sorting_by_manifest_fields(tmp_path, monkeypatch):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+    (tmp_path / "gamma.py").write_text("# gamma", encoding="utf-8")
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class(
+                "alpha-plugin",
+                ["network.http"],
+                author="alice",
+            ),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class(
+                "beta-plugin",
+                ["network.http"],
+                author="zoe",
+            ),
+        ),
+        "app.plugins.gamma": _plugin_module(
+            "app.plugins.gamma",
+            _build_plugin_class(
+                "gamma-plugin",
+                ["network.http"],
+                author="mike",
+            ),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    sorted_plugins = manager.list_plugins(sort_by="author", sort_order="DESC")
+
+    assert [item["name"] for item in sorted_plugins] == [
+        "beta-plugin",
+        "gamma-plugin",
+        "alpha-plugin",
+    ]
+
+
+def test_list_plugins_validates_sort_options(tmp_path):
+    manager = PluginManager(plugin_dir=str(tmp_path))
+
+    with pytest.raises(ValueError, match="sort_by must be one of"):
+        manager.list_plugins(sort_by="priority")
+
+    with pytest.raises(ValueError, match="sort_order must be 'asc' or 'desc'"):
+        manager.list_plugins(sort_by="name", sort_order="up")
