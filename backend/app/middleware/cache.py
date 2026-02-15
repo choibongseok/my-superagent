@@ -167,6 +167,25 @@ class CacheMiddleware(BaseHTTPMiddleware):
 
         return body, cached_data.get("media_type", "application/json")
 
+    @staticmethod
+    def _response_disables_caching(response: Response) -> bool:
+        """Return whether response headers mark payload as non-cacheable."""
+        cache_control = response.headers.get("Cache-Control", "")
+        directives = {
+            directive.strip().lower()
+            for directive in cache_control.split(",")
+            if directive.strip()
+        }
+
+        if {"no-cache", "no-store", "private", "max-age=0"} & directives:
+            return True
+
+        pragma = response.headers.get("Pragma", "")
+        if pragma.strip().lower() == "no-cache":
+            return True
+
+        return "set-cookie" in response.headers
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """
         Process request with caching.
@@ -206,8 +225,8 @@ class CacheMiddleware(BaseHTTPMiddleware):
         # Get response from handler
         response = await call_next(request)
 
-        # Cache successful responses
-        if response.status_code == 200:
+        # Cache successful responses unless response headers explicitly disable caching.
+        if response.status_code == 200 and not self._response_disables_caching(response):
             body = b""
             async for chunk in response.body_iterator:
                 body += chunk

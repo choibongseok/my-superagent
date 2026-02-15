@@ -184,3 +184,66 @@ def test_cache_middleware_supports_disabling_vary_headers(
         assert english_request.headers["X-Cache"] == "HIT"
 
     assert calls["count"] == 1
+
+
+def test_cache_middleware_skips_caching_for_no_store_responses(
+    fake_cache: InMemoryAsyncCache,
+) -> None:
+    del fake_cache
+
+    app = FastAPI()
+    calls = {"count": 0}
+
+    @app.get("/private")
+    async def private_payload() -> PlainTextResponse:
+        calls["count"] += 1
+        return PlainTextResponse(
+            f"private-{calls['count']}",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    app.add_middleware(CacheMiddleware, cache_ttl=30)
+
+    with TestClient(app) as client:
+        first = client.get("/private")
+        assert first.status_code == 200
+        assert first.text == "private-1"
+        assert "X-Cache" not in first.headers
+
+        second = client.get("/private")
+        assert second.status_code == 200
+        assert second.text == "private-2"
+        assert "X-Cache" not in second.headers
+
+    assert calls["count"] == 2
+
+
+def test_cache_middleware_skips_caching_when_set_cookie_is_present(
+    fake_cache: InMemoryAsyncCache,
+) -> None:
+    del fake_cache
+
+    app = FastAPI()
+    calls = {"count": 0}
+
+    @app.get("/session")
+    async def session_payload() -> PlainTextResponse:
+        calls["count"] += 1
+        response = PlainTextResponse(f"session-{calls['count']}")
+        response.set_cookie("sessionid", f"token-{calls['count']}")
+        return response
+
+    app.add_middleware(CacheMiddleware, cache_ttl=30)
+
+    with TestClient(app) as client:
+        first = client.get("/session")
+        assert first.status_code == 200
+        assert first.text == "session-1"
+        assert "X-Cache" not in first.headers
+
+        second = client.get("/session")
+        assert second.status_code == 200
+        assert second.text == "session-2"
+        assert "X-Cache" not in second.headers
+
+    assert calls["count"] == 2
