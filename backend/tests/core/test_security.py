@@ -27,6 +27,64 @@ def test_decode_token_rejects_type_mismatch() -> None:
     assert decode_token(refresh_token, expected_type="access") is None
 
 
+def test_decode_token_accepts_expected_subject_string_match() -> None:
+    token = create_access_token({"sub": "user-123"})
+
+    payload = decode_token(token, expected_subject="user-123")
+
+    assert payload is not None
+    assert payload["sub"] == "user-123"
+
+
+def test_decode_token_accepts_expected_subject_allowlist_match() -> None:
+    token = create_access_token({"sub": "user-123"})
+
+    payload = decode_token(
+        token,
+        expected_subject=("user-456", "user-123"),
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_rejects_missing_or_mismatched_expected_subject() -> None:
+    token = create_access_token({"sub": "user-123"})
+
+    assert decode_token(token, expected_subject="user-999") is None
+    assert (
+        decode_token(
+            create_access_token({"scope": "chat:read"}),
+            expected_subject="user-123",
+        )
+        is None
+    )
+
+
+def test_decode_token_validates_expected_subject_input() -> None:
+    token = create_access_token({"sub": "user-123"})
+
+    with pytest.raises(ValueError, match="expected_subject cannot be blank"):
+        decode_token(token, expected_subject="   ")
+
+    with pytest.raises(
+        ValueError,
+        match="expected_subject cannot be an empty iterable",
+    ):
+        decode_token(token, expected_subject=[])
+
+    with pytest.raises(
+        TypeError,
+        match="expected_subject must contain only strings",
+    ):
+        decode_token(token, expected_subject=["user-123", 123])
+
+    with pytest.raises(
+        ValueError,
+        match="expected_subject cannot contain blank values",
+    ):
+        decode_token(token, expected_subject=["user-123", "   "])
+
+
 def test_decode_token_rejects_missing_required_claim() -> None:
     token_without_sub = create_access_token({"scope": "chat:read"})
 

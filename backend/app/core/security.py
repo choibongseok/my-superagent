@@ -117,6 +117,37 @@ def _normalize_required_claim_values(
     return normalized_claim_values
 
 
+def _normalize_expected_subjects(
+    expected_subject: str | Iterable[str] | None,
+) -> tuple[str, ...]:
+    """Normalize expected subject requirements for ``decode_token``."""
+    if expected_subject is None:
+        return ()
+
+    if isinstance(expected_subject, str):
+        normalized_subject = expected_subject.strip()
+        if not normalized_subject:
+            raise ValueError("expected_subject cannot be blank")
+
+        return (normalized_subject,)
+
+    normalized_subjects: list[str] = []
+    for subject in expected_subject:
+        if not isinstance(subject, str):
+            raise TypeError("expected_subject must contain only strings")
+
+        normalized_subject = subject.strip()
+        if not normalized_subject:
+            raise ValueError("expected_subject cannot contain blank values")
+
+        normalized_subjects.append(normalized_subject)
+
+    if not normalized_subjects:
+        raise ValueError("expected_subject cannot be an empty iterable")
+
+    return tuple(dict.fromkeys(normalized_subjects))
+
+
 def _normalize_expected_audiences(
     expected_audience: str | Iterable[str] | None,
 ) -> tuple[str, ...]:
@@ -185,6 +216,7 @@ def decode_token(
     token: str,
     *,
     expected_type: str | None = None,
+    expected_subject: str | Iterable[str] | None = None,
     expected_issuer: str | None = None,
     expected_audience: str | Iterable[str] | None = None,
     required_claims: Iterable[str] | None = None,
@@ -195,6 +227,9 @@ def decode_token(
     Args:
         token: JWT token string.
         expected_type: Optional token ``type`` claim value to enforce.
+        expected_subject: Optional token ``sub`` claim value(s) to enforce.
+            Accepts either a single subject string or an iterable of allowed
+            subject values.
         expected_issuer: Optional token ``iss`` claim value to enforce.
         expected_audience: Optional token ``aud`` claim value(s) to enforce.
             Accepts either a single audience string or an iterable of allowed
@@ -214,6 +249,7 @@ def decode_token(
         if not expected_issuer:
             raise ValueError("expected_issuer cannot be blank")
 
+    normalized_expected_subjects = _normalize_expected_subjects(expected_subject)
     normalized_expected_audiences = _normalize_expected_audiences(expected_audience)
     normalized_required_claims = _normalize_required_claims(required_claims)
     normalized_required_claim_values = _normalize_required_claim_values(
@@ -232,6 +268,18 @@ def decode_token(
 
     if expected_type is not None and payload.get("type") != expected_type:
         return None
+
+    if normalized_expected_subjects:
+        subject_claim = payload.get("sub")
+        if not isinstance(subject_claim, str):
+            return None
+
+        normalized_subject_claim = subject_claim.strip()
+        if not normalized_subject_claim:
+            return None
+
+        if normalized_subject_claim not in normalized_expected_subjects:
+            return None
 
     if expected_issuer is not None and payload.get("iss") != expected_issuer:
         return None
