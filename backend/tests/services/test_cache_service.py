@@ -1763,6 +1763,34 @@ def test_local_cache_list_namespaces_supports_key_pattern_and_tag_filters():
     ) == [{"namespace": "session", "count": 2}]
 
 
+def test_local_cache_list_namespaces_supports_count_based_sorting():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "session:alpha": 1,
+            "session:beta": 2,
+            "user:alpha": 3,
+            "audit:1": 4,
+            "audit:2": 5,
+            "audit:3": 6,
+        }
+    )
+
+    assert cache.list_namespaces(sort_by="count") == ["user", "session", "audit"]
+
+    assert cache.list_namespaces(sort_by="count", descending=True) == [
+        "audit",
+        "session",
+        "user",
+    ]
+
+    assert cache.list_namespaces(sort_by="count", include_counts=True) == [
+        {"namespace": "user", "count": 1},
+        {"namespace": "session", "count": 2},
+        {"namespace": "audit", "count": 3},
+    ]
+
+
 def test_local_cache_list_namespaces_rejects_invalid_inputs():
     cache = LocalCacheService()
 
@@ -1786,6 +1814,12 @@ def test_local_cache_list_namespaces_rejects_invalid_inputs():
 
     with pytest.raises(ValueError, match="include_counts must be a boolean"):
         cache.list_namespaces(include_counts="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match='sort_by must be either "namespace" or "count"',
+    ):
+        cache.list_namespaces(sort_by="age")
 
     with pytest.raises(ValueError, match="descending must be a boolean"):
         cache.list_namespaces(descending="yes")  # type: ignore[arg-type]

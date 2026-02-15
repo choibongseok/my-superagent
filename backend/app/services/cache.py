@@ -1689,6 +1689,7 @@ class LocalCacheService:
         offset: int | None = None,
         limit: int | None = None,
         include_counts: bool = False,
+        sort_by: str = "namespace",
         descending: bool = False,
     ) -> list[str] | list[dict[str, Any]]:
         """List active key namespaces with optional filtering and counts.
@@ -1705,8 +1706,9 @@ class LocalCacheService:
             offset: Optional number of sorted namespaces to skip.
             limit: Optional maximum number of namespaces to return.
             include_counts: Include entry counts per namespace.
-            descending: Return namespaces in descending lexicographic order
-                when ``True``.
+            sort_by: Sort strategy. ``"namespace"`` (default) sorts by name,
+                while ``"count"`` sorts by per-namespace entry counts.
+            descending: Return namespaces in descending order for ``sort_by``.
         """
         if prefix is not None and not isinstance(prefix, str):
             raise ValueError("prefix must be a string")
@@ -1725,6 +1727,9 @@ class LocalCacheService:
 
         if not isinstance(include_counts, bool):
             raise ValueError("include_counts must be a boolean")
+
+        if sort_by not in {"namespace", "count"}:
+            raise ValueError('sort_by must be either "namespace" or "count"')
 
         if not isinstance(descending, bool):
             raise ValueError("descending must be a boolean")
@@ -1747,7 +1752,14 @@ class LocalCacheService:
 
             namespace_counts[namespace] += 1
 
-        namespace_rows = sorted(namespace_counts.items(), reverse=descending)
+        namespace_rows = list(namespace_counts.items())
+        if sort_by == "count":
+            if descending:
+                namespace_rows.sort(key=lambda row: (-row[1], row[0]))
+            else:
+                namespace_rows.sort(key=lambda row: (row[1], row[0]))
+        else:
+            namespace_rows.sort(key=lambda row: row[0], reverse=descending)
 
         if offset:
             namespace_rows = namespace_rows[offset:]
