@@ -210,6 +210,52 @@ class TestConversationMemory:
         assert isinstance(matches[0], SystemMessage)
         assert matches[0].content == "Use concise responses"
 
+    def test_search_messages_supports_starts_with_matching(self):
+        """starts_with mode should match only leading query text."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("Release status: green")
+        memory.add_ai_message("Status update: release on track")
+        memory.add_system_message("release cadence policy")
+
+        matches = memory.search_messages("release", match_mode="starts_with")
+
+        assert [message.content for message in matches] == [
+            "Release status: green",
+            "release cadence policy",
+        ]
+
+    def test_search_messages_supports_ends_with_matching_case_sensitive(self):
+        """ends_with mode should honor case_sensitive for trailing text checks."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("Checklist DONE")
+        memory.add_ai_message("Checklist done")
+
+        case_insensitive_matches = memory.search_messages(
+            "done",
+            match_mode="ends_with",
+        )
+        case_sensitive_matches = memory.search_messages(
+            "done",
+            match_mode="ends_with",
+            case_sensitive=True,
+        )
+
+        assert [message.content for message in case_insensitive_matches] == [
+            "Checklist DONE",
+            "Checklist done",
+        ]
+        assert [message.content for message in case_sensitive_matches] == [
+            "Checklist done",
+        ]
+
     def test_search_messages_supports_multiple_role_filters(self):
         """Search role filters should accept iterables and comma-separated strings."""
         memory = ConversationMemory(

@@ -222,6 +222,8 @@ class ConversationMemory:
         match_mode: Literal[
             "substring",
             "exact",
+            "starts_with",
+            "ends_with",
             "word",
             "regex",
             "fuzzy",
@@ -243,6 +245,8 @@ class ConversationMemory:
             match_mode: Matching strategy:
                 - "substring": query appears anywhere in content (default)
                 - "exact": query must match the full message content
+                - "starts_with": content begins with query text
+                - "ends_with": content ends with query text
                 - "word": query matches whole-word boundaries
                 - "regex": query is treated as a regular expression
                 - "fuzzy": typo-tolerant matching using similarity ratio
@@ -269,6 +273,8 @@ class ConversationMemory:
         if normalized_match_mode not in {
             "substring",
             "exact",
+            "starts_with",
+            "ends_with",
             "word",
             "regex",
             "fuzzy",
@@ -277,7 +283,8 @@ class ConversationMemory:
         }:
             raise ValueError(
                 "match_mode must be one of: "
-                "substring, exact, word, regex, fuzzy, all_terms, any_terms"
+                "substring, exact, starts_with, ends_with, word, regex, "
+                "fuzzy, all_terms, any_terms"
             )
 
         if not (0.0 <= fuzzy_threshold <= 1.0):
@@ -318,6 +325,10 @@ class ConversationMemory:
                 is_match = target_query in searchable_content
             elif normalized_match_mode == "exact":
                 is_match = searchable_content == target_query
+            elif normalized_match_mode == "starts_with":
+                is_match = searchable_content.startswith(target_query)
+            elif normalized_match_mode == "ends_with":
+                is_match = searchable_content.endswith(target_query)
             elif normalized_match_mode in {"word", "regex"}:
                 # regex_pattern is guaranteed for "word" and "regex" modes.
                 is_match = bool(regex_pattern and regex_pattern.search(content))

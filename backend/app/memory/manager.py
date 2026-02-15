@@ -231,8 +231,8 @@ class MemoryManager:
             case_sensitive: Whether search should be case-sensitive
             last_n: Restrict search to the last N messages
             limit: Maximum number of matched messages to return
-            match_mode: Matching strategy (substring, exact, word, regex,
-                fuzzy, all_terms, any_terms)
+            match_mode: Matching strategy (substring, exact, starts_with,
+                ends_with, word, regex, fuzzy, all_terms, any_terms)
             fuzzy_threshold: Similarity threshold when using fuzzy mode (0-1)
 
         Returns:
