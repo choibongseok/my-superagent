@@ -232,6 +232,117 @@ def test_local_cache_replace_many_replaces_existing_keys_only():
     assert cache.get_many(["a", "b", "missing"]) == {"a": 10, "b": 20}
 
 
+def test_local_cache_update_transforms_existing_key_and_preserves_ttl_by_default():
+    cache = LocalCacheService()
+    cache.set("counter", 1, ttl_seconds=1)
+
+    time.sleep(0.4)
+
+    updated = cache.update("counter", lambda value: value + 1)
+
+    assert updated == 2
+    assert cache.get("counter") == 2
+
+    ttl = cache.ttl_remaining("counter")
+    assert ttl is not None
+    assert 0 < ttl < 1
+
+
+def test_local_cache_update_can_override_ttl_when_keep_ttl_is_false():
+    cache = LocalCacheService()
+    cache.set("counter", 1, ttl_seconds=1)
+
+    time.sleep(0.4)
+
+    updated = cache.update(
+        "counter",
+        lambda value: value + 1,
+        ttl_seconds=2,
+        keep_ttl=False,
+    )
+
+    assert updated == 2
+    ttl = cache.ttl_remaining("counter")
+    assert ttl is not None
+    assert 1.5 <= ttl <= 2
+
+
+def test_local_cache_update_requires_default_for_missing_or_expired_keys():
+    cache = LocalCacheService()
+
+    with pytest.raises(
+        LookupError,
+        match="update cannot mutate a missing key without a default",
+    ):
+        cache.update("missing", lambda value: value)
+
+    cache.set("temp", "value", ttl_seconds=1)
+    time.sleep(1.05)
+
+    with pytest.raises(
+        LookupError,
+        match="update cannot mutate a missing key without a default",
+    ):
+        cache.update("temp", lambda value: value)
+
+
+def test_local_cache_update_can_seed_missing_key_with_default_and_ttl():
+    cache = LocalCacheService()
+
+    updated = cache.update(
+        "seeded",
+        lambda value: value + 5,
+        default=10,
+        ttl_seconds=1,
+    )
+
+    assert updated == 15
+    assert cache.get("seeded") == 15
+
+    time.sleep(1.05)
+    assert cache.get("seeded") is None
+
+
+def test_local_cache_update_rejects_invalid_updaters():
+    cache = LocalCacheService()
+    cache.set("safe", "value")
+
+    with pytest.raises(TypeError, match="updater must be callable"):
+        cache.update("safe", 123)  # type: ignore[arg-type]
+
+    class DummyAwaitable:
+        def __await__(self):
+            if False:  # pragma: no cover - required to satisfy generator protocol
+                yield
+            return "never"
+
+    with pytest.raises(TypeError, match="updater must return a non-awaitable value"):
+        cache.update("safe", lambda value: DummyAwaitable())
+
+
+def test_local_cache_update_many_applies_updates_once_per_unique_key():
+    cache = LocalCacheService()
+    cache.set("alpha", 1)
+    cache.set("beta", 2)
+
+    updates = cache.update_many(
+        ["alpha", "missing", "alpha", "beta"],
+        lambda value: value + 1,
+        default=0,
+    )
+
+    assert updates == {
+        "alpha": 2,
+        "missing": 1,
+        "beta": 3,
+    }
+    assert cache.get_many(["alpha", "missing", "beta"]) == {
+        "alpha": 2,
+        "missing": 1,
+        "beta": 3,
+    }
+
+
 def test_local_cache_compare_and_set_updates_only_on_expected_match():
     cache = LocalCacheService()
     cache.set("version", 1)

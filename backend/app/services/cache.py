@@ -16,6 +16,8 @@ from fnmatch import fnmatchcase
 from numbers import Real
 from typing import Any
 
+_MISSING = object()
+
 
 class LocalCacheService:
     """Simple in-process key/value cache with optional TTL.
@@ -466,6 +468,97 @@ class LocalCacheService:
                 replaced += 1
 
         return replaced
+
+    def update(
+        self,
+        key: str,
+        updater: Callable[[Any], Any],
+        *,
+        default: Any = _MISSING,
+        ttl_seconds: int | None = None,
+        keep_ttl: bool = True,
+    ) -> Any:
+        """Transform and store a key using ``updater``.
+
+        Args:
+            key: Cache key to update.
+            updater: Callable receiving the current value and returning the
+                next value to store.
+            default: Optional value used when ``key`` is missing or expired.
+                When omitted, missing keys raise :class:`LookupError`.
+            ttl_seconds: TTL to apply for new keys, or when ``keep_ttl`` is
+                ``False`` for existing keys.
+            keep_ttl: Preserve the current absolute expiration for existing
+                keys by default.
+
+        Returns:
+            The new value returned by ``updater``.
+
+        Raises:
+            LookupError: If ``key`` is missing/expired and ``default`` is not
+                provided.
+            TypeError: If ``updater`` is not callable or returns an awaitable.
+            ValueError: If ``keep_ttl`` is not a boolean.
+        """
+        if not callable(updater):
+            raise TypeError("updater must be callable")
+
+        if not isinstance(keep_ttl, bool):
+            raise ValueError("keep_ttl must be a boolean")
+
+        item = self._get_entry(key)
+        self._record_lookup(hit=item is not None)
+
+        if item is None:
+            if default is _MISSING:
+                raise LookupError("update cannot mutate a missing key without a default")
+
+            new_value = updater(default)
+            if inspect.isawaitable(new_value):
+                raise TypeError("updater must return a non-awaitable value")
+
+            self.set(key, new_value, ttl_seconds=ttl_seconds)
+            return new_value
+
+        current_value, expires_at = item
+        new_value = updater(current_value)
+        if inspect.isawaitable(new_value):
+            raise TypeError("updater must return a non-awaitable value")
+
+        if keep_ttl:
+            self._store[key] = (new_value, expires_at)
+            self._mark_accessed(key)
+            self._increment_stat("sets")
+            return new_value
+
+        self.set(key, new_value, ttl_seconds=ttl_seconds)
+        return new_value
+
+    def update_many(
+        self,
+        keys: Iterable[str],
+        updater: Callable[[Any], Any],
+        *,
+        default: Any = _MISSING,
+        ttl_seconds: int | None = None,
+        keep_ttl: bool = True,
+    ) -> dict[str, Any]:
+        """Apply :meth:`update` across multiple keys.
+
+        Duplicate keys are processed once, preserving the order of first
+        appearance in ``keys``.
+        """
+        updated_values: dict[str, Any] = {}
+        for key in dict.fromkeys(keys):
+            updated_values[key] = self.update(
+                key,
+                updater,
+                default=default,
+                ttl_seconds=ttl_seconds,
+                keep_ttl=keep_ttl,
+            )
+
+        return updated_values
 
     def compare_and_set(
         self,
