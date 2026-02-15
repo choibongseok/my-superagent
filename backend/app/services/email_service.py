@@ -38,6 +38,18 @@ class EmailService:
         r"(?:\.(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?))*$",
         flags=re.IGNORECASE,
     )
+    _HEADER_NAME_PATTERN = re.compile(r"^[!-9;-~]+$")
+    _PROTECTED_HEADERS = {
+        "bcc",
+        "cc",
+        "content-transfer-encoding",
+        "content-type",
+        "from",
+        "mime-version",
+        "reply-to",
+        "subject",
+        "to",
+    }
 
     def __init__(self):
         """Initialize email service with settings."""
@@ -168,6 +180,57 @@ class EmailService:
         return merged
 
     @classmethod
+    def _normalize_headers(
+        cls,
+        headers: Mapping[str, str] | None,
+    ) -> dict[str, str]:
+        """Normalize optional custom headers for outbound messages."""
+        if headers is None:
+            return {}
+        if not isinstance(headers, Mapping):
+            raise TypeError("headers must be a mapping of header names to values")
+
+        normalized_headers: dict[str, str] = {}
+        seen_header_names: set[str] = set()
+
+        for raw_name, raw_value in headers.items():
+            if not isinstance(raw_name, str):
+                raise TypeError("headers keys must be strings")
+            if not isinstance(raw_value, str):
+                raise TypeError("headers values must be strings")
+
+            header_name = cls._sanitize_header_value(
+                raw_name,
+                field_name="headers name",
+            )
+            if not header_name:
+                raise ValueError("headers names must not be empty")
+            if not cls._HEADER_NAME_PATTERN.fullmatch(header_name):
+                raise ValueError(
+                    "headers names must contain only visible ASCII header token characters"
+                )
+
+            normalized_name = header_name.casefold()
+            if normalized_name in cls._PROTECTED_HEADERS:
+                raise ValueError(
+                    f"headers cannot override protected header: {header_name}"
+                )
+            if normalized_name in seen_header_names:
+                raise ValueError(
+                    f"headers cannot contain duplicate names: {header_name}"
+                )
+
+            header_value = cls._sanitize_header_value(
+                raw_value,
+                field_name=f"headers[{header_name}]",
+            )
+
+            seen_header_names.add(normalized_name)
+            normalized_headers[header_name] = header_value
+
+        return normalized_headers
+
+    @classmethod
     def _normalize_attachments(
         cls,
         attachments: Sequence[Mapping[str, object]] | None,
@@ -235,7 +298,9 @@ class EmailService:
         part = MIMEBase(main_type, sub_type)
         part.set_payload(attachment.content)
         encoders.encode_base64(part)
-        part.add_header("Content-Disposition", "attachment", filename=attachment.filename)
+        part.add_header(
+            "Content-Disposition", "attachment", filename=attachment.filename
+        )
         return part
 
     def _create_message(
@@ -247,8 +312,9 @@ class EmailService:
         cc_emails: Optional[Sequence[str]] = None,
         reply_to_email: str | None = None,
         attachments: Sequence[EmailAttachment] | None = None,
+        headers: Mapping[str, str] | None = None,
     ) -> MIMEMultipart:
-        """Create an email message with optional CC, Reply-To, and attachments."""
+        """Create an email message with optional CC, Reply-To, attachments, and headers."""
         normalized_attachments = list(attachments or [])
         msg = MIMEMultipart("mixed" if normalized_attachments else "alternative")
         msg["Subject"] = subject
@@ -260,6 +326,9 @@ class EmailService:
 
         if reply_to_email:
             msg["Reply-To"] = reply_to_email
+
+        for header_name, header_value in (headers or {}).items():
+            msg[header_name] = header_value
 
         content_container: MIMEMultipart | None = None
         if normalized_attachments:
@@ -290,6 +359,7 @@ class EmailService:
         bcc_emails: Optional[Sequence[str]] = None,
         reply_to_email: str | None = None,
         attachments: Sequence[Mapping[str, object]] | None = None,
+        headers: Mapping[str, str] | None = None,
     ) -> bool:
         """
         Send an email.
@@ -307,6 +377,10 @@ class EmailService:
                 - content (bytes | bytearray | memoryview | str): Payload data
                 - mime_type (str, optional): MIME type, defaults to
                   "application/octet-stream"
+            headers: Optional custom message headers. Header names are
+                validated and cannot override core delivery headers such as
+                Subject, From, To, Cc, Bcc, Reply-To, Content-Type, and
+                MIME-Version.
 
         Returns:
             True if sent successfully, False otherwise
@@ -316,6 +390,13 @@ class EmailService:
             return False
 
         try:
+            normalized_subject = self._sanitize_header_value(
+                subject,
+                field_name="subject",
+            )
+            if not normalized_subject:
+                raise ValueError("subject must not be empty")
+
             to_recipients = self._normalize_recipients(
                 to_email,
                 field_name="to_email",
@@ -335,6 +416,7 @@ class EmailService:
                 field_name="reply_to_email",
             )
             normalized_attachments = self._normalize_attachments(attachments)
+            normalized_headers = self._normalize_headers(headers)
 
             delivery_recipients = self._merge_unique_recipients(
                 to_recipients,
@@ -344,12 +426,13 @@ class EmailService:
 
             msg = self._create_message(
                 to_recipients,
-                subject,
+                normalized_subject,
                 html_body,
                 text_body,
                 cc_emails=cc_recipients,
                 reply_to_email=reply_to_recipient,
                 attachments=normalized_attachments,
+                headers=normalized_headers,
             )
 
             # Connect to SMTP server
@@ -358,7 +441,7 @@ class EmailService:
                 server.login(self.smtp_user, self.smtp_password)
                 server.send_message(msg, to_addrs=delivery_recipients)
 
-            logger.info(f"Email sent to {delivery_recipients}: {subject}")
+            logger.info(f"Email sent to {delivery_recipients}: {normalized_subject}")
             return True
 
         except Exception as e:

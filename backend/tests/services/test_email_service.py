@@ -292,7 +292,11 @@ class TestEmailService:
 
         assert sent_message["To"] == "Jane@Test.com"
         assert sent_message["Cc"] == "ops@test.com"
-        assert delivery_recipients == ["Jane@Test.com", "ops@test.com", "audit@test.com"]
+        assert delivery_recipients == [
+            "Jane@Test.com",
+            "ops@test.com",
+            "audit@test.com",
+        ]
 
     @patch("app.services.email_service.smtplib.SMTP")
     def test_send_email_allows_display_name_reply_to(self, mock_smtp, email_service):
@@ -389,6 +393,61 @@ class TestEmailService:
         result = email_service.send_email(
             to_email="not-an-email",
             subject="Invalid",
+            html_body="<p>should fail</p>",
+        )
+
+        assert result is False
+        mock_smtp.assert_not_called()
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_supports_custom_headers(self, mock_smtp, email_service):
+        """Custom headers should be attached without affecting recipient delivery."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="With headers",
+            html_body="<p>custom headers</p>",
+            headers={
+                "X-Correlation-ID": "run-123",
+                "List-Unsubscribe": "<mailto:unsubscribe@test.com>",
+            },
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        assert sent_message["X-Correlation-ID"] == "run-123"
+        assert sent_message["List-Unsubscribe"] == "<mailto:unsubscribe@test.com>"
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_rejects_protected_custom_headers(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Custom headers cannot override core routing headers like Subject."""
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Safe subject",
+            html_body="<p>should fail</p>",
+            headers={"Subject": "override"},
+        )
+
+        assert result is False
+        mock_smtp.assert_not_called()
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_rejects_subject_newline_injection(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Subject should reject newline injection attempts before SMTP use."""
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Legit\nBCC:attacker@test.com",
             html_body="<p>should fail</p>",
         )
 
