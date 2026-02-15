@@ -619,3 +619,125 @@ async def test_validate_permissions_supports_glob_patterns(tmp_path, monkeypatch
         ["network.http", "filesystem.*"],
     )
     assert not manager.validate_permissions("weather-plugin", ["network.ws"])
+
+
+@pytest.mark.asyncio
+async def test_load_plugins_from_directory_required_permissions_supports_any_matching(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "network_only.py").write_text("# network", encoding="utf-8")
+    (tmp_path / "filesystem_only.py").write_text("# filesystem", encoding="utf-8")
+
+    modules = {
+        "app.plugins.network_only": _plugin_module(
+            "app.plugins.network_only",
+            _build_plugin_class("network-only", ["network.http"]),
+        ),
+        "app.plugins.filesystem_only": _plugin_module(
+            "app.plugins.filesystem_only",
+            _build_plugin_class("filesystem-only", ["filesystem.read"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    loaded = await manager.load_plugins_from_directory(
+        required_permissions=["network.http", "filesystem.read"],
+        match_any_permissions=True,
+    )
+
+    assert loaded == ["filesystem-only", "network-only"]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_required_permissions_support_any_matching(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "network_only.py").write_text("# network", encoding="utf-8")
+    (tmp_path / "filesystem_only.py").write_text("# filesystem", encoding="utf-8")
+
+    modules = {
+        "app.plugins.network_only": _plugin_module(
+            "app.plugins.network_only",
+            _build_plugin_class("network-only", ["network.http"]),
+        ),
+        "app.plugins.filesystem_only": _plugin_module(
+            "app.plugins.filesystem_only",
+            _build_plugin_class("filesystem-only", ["filesystem.read"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    filtered = manager.list_plugins(
+        required_permissions=["network.http", "filesystem.read"],
+        match_any_permissions=True,
+    )
+
+    assert [item["name"] for item in filtered] == [
+        "filesystem-only",
+        "network-only",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_validate_permissions_supports_any_matching_mode(tmp_path, monkeypatch):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+
+    module = _plugin_module(
+        "app.plugins.weather_tool",
+        _build_plugin_class("weather-plugin", ["network.http", "filesystem.read"]),
+    )
+
+    def _import_module(name: str):
+        if name == "app.plugins.weather_tool":
+            return module
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    assert not manager.validate_permissions(
+        "weather-plugin",
+        ["network.ws", "filesystem.write"],
+    )
+    assert manager.validate_permissions(
+        "weather-plugin",
+        ["network.ws", "network.http"],
+        match_any_permissions=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_required_permission_any_matching_flag_must_be_boolean(tmp_path):
+    manager = PluginManager(plugin_dir=str(tmp_path))
+
+    with pytest.raises(ValueError, match="match_any_permissions must be a boolean"):
+        await manager.load_plugins_from_directory(
+            required_permissions=["network.http"],
+            match_any_permissions="yes",  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(ValueError, match="match_any_permissions must be a boolean"):
+        manager.list_plugins(
+            required_permissions=["network.http"],
+            match_any_permissions="yes",  # type: ignore[arg-type]
+        )

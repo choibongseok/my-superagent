@@ -172,21 +172,36 @@ class PluginManager:
         cls,
         plugin_permissions: Sequence[str],
         required_permissions: Optional[set[str]],
+        *,
+        match_any_permissions: bool = False,
     ) -> bool:
-        """Return whether a plugin permission set satisfies all requirements."""
+        """Return whether a plugin permission set satisfies permission filters.
+
+        By default, all required permissions must match. When
+        ``match_any_permissions`` is ``True``, matching any one requirement is
+        sufficient.
+        """
         if required_permissions is None:
             return True
+
+        if not isinstance(match_any_permissions, bool):
+            raise ValueError("match_any_permissions must be a boolean")
 
         normalized_plugin_permissions = {
             str(permission) for permission in plugin_permissions
         }
-        return all(
+        matches = (
             cls._permission_requirement_matches(
                 normalized_plugin_permissions,
                 required_permission,
             )
             for required_permission in required_permissions
         )
+
+        if match_any_permissions:
+            return any(matches)
+
+        return all(matches)
 
     async def load_plugins_from_directory(
         self,
@@ -196,6 +211,7 @@ class PluginManager:
         include_plugins: Optional[Sequence[str]] = None,
         exclude_plugins: Optional[Sequence[str]] = None,
         required_permissions: Optional[Sequence[str]] = None,
+        match_any_permissions: bool = False,
         stop_on_error: bool = False,
     ) -> List[str]:
         """
@@ -218,6 +234,9 @@ class PluginManager:
                 only plugins that satisfy all listed permissions in their
                 manifest are kept loaded. Exact permission names and glob
                 patterns (for example, ``"network.*"``) are supported.
+            match_any_permissions: When ``True``, plugin permission filtering
+                becomes an OR match (any required permission). Defaults to
+                ``False`` (all required permissions).
             stop_on_error: If True, fail fast when a plugin cannot be loaded.
 
         Returns:
@@ -239,6 +258,9 @@ class PluginManager:
         normalized_required_permissions = self._normalize_required_permissions(
             required_permissions
         )
+
+        if not isinstance(match_any_permissions, bool):
+            raise ValueError("match_any_permissions must be a boolean")
 
         if include_selectors is not None:
             overlap = include_selectors & exclude_selectors
@@ -286,6 +308,7 @@ class PluginManager:
                 if not self._has_required_permissions(
                     manifest.permissions,
                     normalized_required_permissions,
+                    match_any_permissions=match_any_permissions,
                 ):
                     logger.debug(
                         "Skipping plugin %s (missing required permissions)",
@@ -378,6 +401,7 @@ class PluginManager:
         *,
         include_plugins: Optional[Sequence[str]] = None,
         exclude_plugins: Optional[Sequence[str]] = None,
+        match_any_permissions: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         List loaded plugins with optional selector and permission filters.
@@ -386,6 +410,9 @@ class PluginManager:
             required_permissions: If provided, only plugins with all listed
                 permissions are returned. Exact permission names and glob
                 patterns (for example, ``"network.*"``) are supported.
+            match_any_permissions: When ``True``, permission filtering uses OR
+                semantics (any required permission). Defaults to ``False`` for
+                AND semantics.
             include_plugins: Optional allowlist of plugin selectors. Selectors
                 may reference manifest names (for example ``"weather-plugin"``),
                 module stems (``"weather_tool"``), module paths
@@ -409,6 +436,9 @@ class PluginManager:
         normalized_required_permissions = self._normalize_required_permissions(
             required_permissions
         )
+
+        if not isinstance(match_any_permissions, bool):
+            raise ValueError("match_any_permissions must be a boolean")
 
         if include_selectors is not None:
             overlap = include_selectors & exclude_selectors
@@ -454,6 +484,7 @@ class PluginManager:
                 if self._has_required_permissions(
                     manifest.permissions,
                     normalized_required_permissions,
+                    match_any_permissions=match_any_permissions,
                 )
             ]
 
@@ -564,6 +595,8 @@ class PluginManager:
         self,
         plugin_name: str,
         required_permissions: List[str],
+        *,
+        match_any_permissions: bool = False,
     ) -> bool:
         """
         Validate plugin has required permissions.
@@ -574,9 +607,12 @@ class PluginManager:
         Args:
             plugin_name: Plugin name
             required_permissions: Required permissions or patterns
+            match_any_permissions: When ``True``, return ``True`` if any
+                required permission matches. Defaults to ``False`` (all must
+                match).
 
         Returns:
-            True if plugin has all required permissions
+            True if plugin satisfies required permission filters
         """
         manifest = self.get_manifest(plugin_name)
 
@@ -590,6 +626,7 @@ class PluginManager:
         return self._has_required_permissions(
             manifest.permissions,
             normalized_required_permissions,
+            match_any_permissions=match_any_permissions,
         )
 
 
