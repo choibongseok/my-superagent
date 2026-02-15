@@ -960,6 +960,93 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_median_numeric_transform(
+        self, service_with_mock_db
+    ):
+        """median should return middle values for odd/even numeric collections."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "Median odd: {odd_latencies->median}, "
+                "Median even: {even_latencies->median}"
+            ),
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"odd_latencies": [12, 3.5, 7], "even_latencies": [10, 2, 7, 4]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Median odd: 7, Median even: 5.5"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_median_transform_with_arguments(
+        self, service_with_mock_db
+    ):
+        """median should reject arguments so behavior stays deterministic."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Median latency: {latencies->median(2)}",
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'median\(2\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": [2, 4, 7]},
+                    user_id,
+                )
+
+        assert template.usage_count == 1
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_median_transform_for_empty_collections(
+        self, service_with_mock_db
+    ):
+        """median should fail for empty iterables to avoid silent defaults."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Median latency: {latencies->median}",
+            category="docs",
+            usage_count=5,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'median'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": []},
+                    user_id,
+                )
+
+        assert template.usage_count == 5
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_rejects_min_transform_for_empty_collections(
         self, service_with_mock_db
     ):

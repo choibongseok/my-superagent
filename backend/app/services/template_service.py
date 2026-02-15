@@ -641,6 +641,24 @@ def _max_numeric_value(value: object, argument_spec: str) -> int | float:
     return int(maximum) if float(maximum).is_integer() else maximum
 
 
+def _median_numeric_value(value: object, argument_spec: str) -> int | float:
+    """Return the median numeric value from a non-empty iterable."""
+    if argument_spec.strip():
+        raise ValueError("median expects no arguments")
+
+    numeric_values = sorted(_iter_numeric_values(value, transform_name="median"))
+    if not numeric_values:
+        raise ValueError("median expects a non-empty iterable value")
+
+    midpoint = len(numeric_values) // 2
+    if len(numeric_values) % 2 == 1:
+        median = numeric_values[midpoint]
+    else:
+        median = (numeric_values[midpoint - 1] + numeric_values[midpoint]) / 2
+
+    return int(median) if float(median).is_integer() else median
+
+
 def _fallback_value(value: object, argument_spec: str) -> object:
     """Return fallback when values are missing, blank, or empty collections."""
     args = _parse_transform_args(argument_spec)
@@ -921,7 +939,7 @@ class TemplateService:
         - ``{score->clamp(0,1)->round(2)}``
         - ``{durations->sum}``, ``{durations->sum(10)}``
         - ``{durations->avg}``
-        - ``{latencies->min}``, ``{latencies->max}``
+        - ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``
         - ``{nickname->strip->fallback("friend")}``
 
         Returns:
@@ -983,6 +1001,7 @@ class TemplateService:
             "mean": lambda raw: _average_numeric_values(raw, ""),
             "min": lambda raw: _min_numeric_value(raw, ""),
             "max": lambda raw: _max_numeric_value(raw, ""),
+            "median": lambda raw: _median_numeric_value(raw, ""),
         }
         supported_transforms = sorted(
             [
@@ -1009,6 +1028,7 @@ class TemplateService:
                 "mean",
                 "min",
                 "max",
+                "median",
             ]
         )
 
@@ -1106,6 +1126,11 @@ class TemplateService:
                         raw,
                         spec,
                     )
+                elif transform_name == "median":
+                    operation = lambda raw, spec=argument_spec: _median_numeric_value(
+                        raw,
+                        spec,
+                    )
 
             if operation is None:
                 supported = ", ".join(supported_transforms)
@@ -1190,7 +1215,7 @@ class TemplateService:
         ``{delta->abs}``, ``{estimate->floor}``, ``{estimate->ceil}``,
         ``{score->clamp(0,1)->round(2)}``,
         ``{durations->sum}``, ``{durations->sum(10)}``, ``{durations->avg}``,
-        ``{latencies->min}``, ``{latencies->max}``,
+        ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``,
         or ``{nickname->strip->fallback("friend")}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
