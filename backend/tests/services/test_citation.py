@@ -475,6 +475,106 @@ class TestCitationTracker:
         ):
             tracker.search_sources("agent", max_results_per_domain=0)
 
+    def test_search_sources_supports_max_results_per_author_cap(self):
+        """Author diversity cap should limit repeated author entries in ranked output."""
+        tracker = CitationTracker()
+
+        first_author_id = tracker.add_source(
+            title="Agentic Workflow Alpha",
+            author="Alex Kim",
+        )
+        tracker.add_source(
+            title="Agentic Workflow Beta",
+            author="Alex Kim",
+        )
+        other_author_id = tracker.add_source(
+            title="Agentic Workflow Gamma",
+            author="Morgan Lee",
+        )
+
+        matches = tracker.search_sources(
+            "agentic workflow",
+            max_results_per_author=1,
+        )
+
+        assert [source.id for source in matches] == [first_author_id, other_author_id]
+
+    def test_search_sources_max_results_per_author_does_not_cap_missing_authors(self):
+        """Sources without authors should remain uncapped by author diversity filters."""
+        tracker = CitationTracker()
+
+        tracker.add_source(title="Agentic Workflow Alpha")
+        tracker.add_source(title="Agentic Workflow Beta")
+        first_author_id = tracker.add_source(
+            title="Agentic Workflow Delta",
+            author="Alex Kim",
+        )
+        tracker.add_source(
+            title="Agentic Workflow Gamma",
+            author="Alex Kim",
+        )
+
+        matches = tracker.search_sources(
+            "agentic workflow",
+            max_results_per_author=1,
+        )
+
+        assert [source.title for source in matches] == [
+            "Agentic Workflow Alpha",
+            "Agentic Workflow Beta",
+            "Agentic Workflow Delta",
+        ]
+        assert first_author_id in {source.id for source in matches}
+
+    def test_search_sources_rejects_invalid_max_results_per_author(self):
+        """max_results_per_author should validate integer and positive values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="max_results_per_author must be an integer",
+        ):
+            tracker.search_sources("agent", max_results_per_author=1.5)
+
+        with pytest.raises(
+            ValueError,
+            match="max_results_per_author must be an integer",
+        ):
+            tracker.search_sources("agent", max_results_per_author=True)
+
+        with pytest.raises(
+            ValueError,
+            match="max_results_per_author must be greater than 0",
+        ):
+            tracker.search_sources("agent", max_results_per_author=0)
+
+    def test_search_sources_with_details_supports_max_results_per_author_cap(self):
+        """Detailed search should pass max_results_per_author through consistently."""
+        tracker = CitationTracker()
+
+        first_author_id = tracker.add_source(
+            title="Agent Reliability Alpha",
+            author="Alex Kim",
+        )
+        tracker.add_source(
+            title="Agent Reliability Beta",
+            author="Alex Kim",
+        )
+        other_author_id = tracker.add_source(
+            title="Agent Reliability Gamma",
+            author="Morgan Lee",
+        )
+
+        detailed = tracker.search_sources_with_details(
+            "agent reliability",
+            max_results_per_author=1,
+        )
+
+        assert [item["source"].id for item in detailed] == [
+            first_author_id,
+            other_author_id,
+        ]
+
     def test_search_sources_with_details_supports_min_token_matches_filter(self):
         """Detailed search should apply min_token_matches consistently."""
         tracker = CitationTracker()

@@ -415,9 +415,7 @@ class CitationTracker:
 
             normalized_weight = float(weight)
             if not 0 <= normalized_weight <= 1:
-                raise ValueError(
-                    "authority_weights values must be between 0 and 1"
-                )
+                raise ValueError("authority_weights values must be between 0 and 1")
 
             resolved_weights[normalized_source_type] = normalized_weight
 
@@ -864,6 +862,7 @@ class CitationTracker:
         as_of: Optional[datetime] = None,
         min_token_matches: Optional[int] = None,
         max_results_per_domain: Optional[int] = None,
+        max_results_per_author: Optional[int] = None,
         sort_by: Literal[
             "relevance",
             "hybrid",
@@ -976,6 +975,10 @@ class CitationTracker:
                 returned per normalized domain bucket (case-insensitive and
                 without ``www``). Subdomains are grouped using a lightweight
                 eTLD+1 heuristic. Sources without parseable URLs are not capped.
+            max_results_per_author: Optional cap for how many results can be
+                returned per normalized author name (case-insensitive and
+                whitespace-normalized). Sources without an author are not
+                capped.
             sort_by: Result ordering strategy. ``"relevance"`` favors textual
                 score, ``"hybrid"`` blends relevance with authority,
                 citation traction, and recency quality signals, ``"title"``
@@ -1131,6 +1134,14 @@ class CitationTracker:
             if max_results_per_domain <= 0:
                 raise ValueError("max_results_per_domain must be greater than 0")
 
+        if max_results_per_author is not None:
+            if isinstance(max_results_per_author, bool) or not isinstance(
+                max_results_per_author, int
+            ):
+                raise ValueError("max_results_per_author must be an integer")
+            if max_results_per_author <= 0:
+                raise ValueError("max_results_per_author must be greater than 0")
+
         normalized_match_mode = self._normalize_text(match_mode)
         if normalized_match_mode not in {"all", "any", "phrase"}:
             raise ValueError("match_mode must be 'all', 'any', or 'phrase'")
@@ -1198,9 +1209,7 @@ class CitationTracker:
         citation_counts = Counter(
             citation.source.id for citation in self.citations.values()
         )
-        resolved_authority_weights = self._resolve_authority_weights(
-            authority_weights
-        )
+        resolved_authority_weights = self._resolve_authority_weights(authority_weights)
 
         ranked_matches: List[tuple[float, int, float, float, float, Source]] = []
 
@@ -1482,6 +1491,23 @@ class CitationTracker:
 
             sources = diversity_capped_sources
 
+        if max_results_per_author is not None:
+            author_counts: Counter[str] = Counter()
+            author_capped_sources: List[Source] = []
+            for source in sources:
+                normalized_author = self._normalize_text(source.author)
+                if not normalized_author:
+                    author_capped_sources.append(source)
+                    continue
+
+                if author_counts[normalized_author] >= max_results_per_author:
+                    continue
+
+                author_counts[normalized_author] += 1
+                author_capped_sources.append(source)
+
+            sources = author_capped_sources
+
         if offset is not None:
             sources = sources[offset:]
 
@@ -1591,6 +1617,7 @@ class CitationTracker:
         as_of: Optional[datetime] = None,
         min_token_matches: Optional[int] = None,
         max_results_per_domain: Optional[int] = None,
+        max_results_per_author: Optional[int] = None,
         sort_by: Literal[
             "relevance",
             "hybrid",
@@ -1643,6 +1670,7 @@ class CitationTracker:
             as_of=as_of,
             min_token_matches=min_token_matches,
             max_results_per_domain=max_results_per_domain,
+            max_results_per_author=max_results_per_author,
             sort_by=sort_by,
         )
 
@@ -1654,9 +1682,7 @@ class CitationTracker:
         citation_counts = Counter(
             citation.source.id for citation in self.citations.values()
         )
-        resolved_authority_weights = self._resolve_authority_weights(
-            authority_weights
-        )
+        resolved_authority_weights = self._resolve_authority_weights(authority_weights)
 
         detailed_matches: List[Dict[str, Any]] = []
         for index, source in enumerate(matched_sources, start=1):
