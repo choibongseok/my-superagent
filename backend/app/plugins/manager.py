@@ -406,6 +406,8 @@ class PluginManager:
         initialized: Optional[bool] = None,
         sort_by: Optional[str] = None,
         sort_order: str = "asc",
+        offset: int = 0,
+        limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         List loaded plugins with optional selector and permission filters.
@@ -434,6 +436,10 @@ class PluginManager:
                 ``"name"``, ``"version"``, and ``"author"``.
             sort_order: Sorting direction used when ``sort_by`` is provided.
                 Supports ``"asc"`` (default) and ``"desc"``.
+            offset: Number of filtered/sorted plugin entries to skip before
+                returning results. Defaults to ``0``.
+            limit: Optional maximum number of plugin entries to return after
+                applying ``offset``. ``None`` returns all remaining entries.
 
         Returns:
             List of plugin manifests.
@@ -475,6 +481,14 @@ class PluginManager:
         normalized_sort_order = sort_order.strip().lower()
         if normalized_sort_order not in {"asc", "desc"}:
             raise ValueError("sort_order must be 'asc' or 'desc'")
+
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be an integer greater than or equal to 0")
+
+        if limit is not None and (
+            isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0
+        ):
+            raise ValueError("limit must be an integer greater than 0")
 
         if include_selectors is not None:
             overlap = include_selectors & exclude_selectors
@@ -540,6 +554,12 @@ class PluginManager:
                 key=lambda manifest: str(getattr(manifest, sort_by, "")).casefold(),
                 reverse=normalized_sort_order == "desc",
             )
+
+        if offset:
+            manifests = manifests[offset:]
+
+        if limit is not None:
+            manifests = manifests[:limit]
 
         plugin_entries: List[Dict[str, Any]] = []
         for manifest in manifests:

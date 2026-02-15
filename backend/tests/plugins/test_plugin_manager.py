@@ -1023,3 +1023,52 @@ def test_list_plugins_validates_sort_options(tmp_path):
 
     with pytest.raises(ValueError, match="sort_order must be 'asc' or 'desc'"):
         manager.list_plugins(sort_by="name", sort_order="up")
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_supports_offset_and_limit_pagination(tmp_path, monkeypatch):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+    (tmp_path / "gamma.py").write_text("# gamma", encoding="utf-8")
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"]),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class("beta-plugin", ["network.http"]),
+        ),
+        "app.plugins.gamma": _plugin_module(
+            "app.plugins.gamma",
+            _build_plugin_class("gamma-plugin", ["network.http"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    paged_plugins = manager.list_plugins(sort_by="name", offset=1, limit=1)
+
+    assert [item["name"] for item in paged_plugins] == ["beta-plugin"]
+
+
+def test_list_plugins_validates_pagination_options(tmp_path):
+    manager = PluginManager(plugin_dir=str(tmp_path))
+
+    with pytest.raises(
+        ValueError,
+        match="offset must be an integer greater than or equal to 0",
+    ):
+        manager.list_plugins(offset=-1)
+
+    with pytest.raises(ValueError, match="limit must be an integer greater than 0"):
+        manager.list_plugins(limit=0)
