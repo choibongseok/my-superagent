@@ -1678,6 +1678,110 @@ class LocalCacheService:
         }
         return self.delete_many(matching_keys)
 
+    def _build_namespace_key_mapping(
+        self,
+        source_namespace: str,
+        target_namespace: str,
+        *,
+        separator: str,
+    ) -> dict[str, str]:
+        """Build deterministic ``source_key -> target_key`` namespace mappings."""
+        source_prefix = f"{source_namespace}{separator}"
+        target_prefix = f"{target_namespace}{separator}"
+
+        source_keys = sorted(
+            key
+            for key in self._store
+            if self._extract_namespace(key, separator=separator) == source_namespace
+        )
+
+        key_mapping: dict[str, str] = {}
+        for source_key in source_keys:
+            if source_key == source_namespace:
+                target_key = target_namespace
+            else:
+                suffix = source_key.removeprefix(source_prefix)
+                target_key = f"{target_prefix}{suffix}"
+
+            key_mapping[source_key] = target_key
+
+        return key_mapping
+
+    def copy_namespace(
+        self,
+        source_namespace: str,
+        target_namespace: str,
+        *,
+        separator: str = ":",
+        overwrite: bool = False,
+    ) -> int:
+        """Copy all keys from one namespace into another namespace.
+
+        Root keys and nested keys preserve relative suffixes. For example,
+        ``session`` and ``session:alpha`` copy into ``archive`` as
+        ``archive`` and ``archive:alpha``.
+        """
+        normalized_separator = self._normalize_namespace_separator(separator)
+        normalized_source = self._normalize_namespace(
+            source_namespace,
+            separator=normalized_separator,
+        )
+        normalized_target = self._normalize_namespace(
+            target_namespace,
+            separator=normalized_separator,
+        )
+
+        if normalized_source == normalized_target:
+            return 0
+
+        self._purge_expired_entries()
+        key_mapping = self._build_namespace_key_mapping(
+            normalized_source,
+            normalized_target,
+            separator=normalized_separator,
+        )
+        if not key_mapping:
+            return 0
+
+        return self.copy_many(key_mapping, overwrite=overwrite)
+
+    def rename_namespace(
+        self,
+        source_namespace: str,
+        target_namespace: str,
+        *,
+        separator: str = ":",
+        overwrite: bool = False,
+    ) -> int:
+        """Rename all keys from ``source_namespace`` into ``target_namespace``.
+
+        Key suffixes are preserved using the same mapping semantics as
+        :meth:`copy_namespace`.
+        """
+        normalized_separator = self._normalize_namespace_separator(separator)
+        normalized_source = self._normalize_namespace(
+            source_namespace,
+            separator=normalized_separator,
+        )
+        normalized_target = self._normalize_namespace(
+            target_namespace,
+            separator=normalized_separator,
+        )
+
+        if normalized_source == normalized_target:
+            return 0
+
+        self._purge_expired_entries()
+        key_mapping = self._build_namespace_key_mapping(
+            normalized_source,
+            normalized_target,
+            separator=normalized_separator,
+        )
+        if not key_mapping:
+            return 0
+
+        return self.rename_many(key_mapping, overwrite=overwrite)
+
     def _find_matching_keys(
         self,
         *,

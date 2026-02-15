@@ -1711,6 +1711,133 @@ async def test_local_cache_clear_namespaces_cancels_matching_inflight_tasks():
     assert cache.get("session:pending") is None
 
 
+def test_local_cache_copy_namespace_copies_root_and_nested_keys_with_tags_and_ttl():
+    cache = LocalCacheService()
+    cache.set_tagged("session", "root", tags=["scope:session"])
+    cache.set_tagged(
+        "session:alpha", "A", tags=["active", "scope:session"], ttl_seconds=2
+    )
+    cache.set("session:beta", "B")
+    cache.set("user:alpha", "U")
+
+    time.sleep(0.4)
+
+    copied = cache.copy_namespace("session", "archive")
+
+    assert copied == 3
+    assert cache.get("session") == "root"
+    assert cache.get("session:alpha") == "A"
+    assert cache.get("session:beta") == "B"
+
+    assert cache.get("archive") == "root"
+    assert cache.get("archive:alpha") == "A"
+    assert cache.get("archive:beta") == "B"
+    assert cache.get("user:alpha") == "U"
+
+    assert cache.list_tags("archive") == ["scope:session"]
+    assert cache.list_tags("archive:alpha") == ["active", "scope:session"]
+
+    source_ttl = cache.ttl_remaining("session:alpha")
+    copied_ttl = cache.ttl_remaining("archive:alpha")
+    assert source_ttl is not None
+    assert copied_ttl is not None
+    assert 1.0 <= copied_ttl <= 2
+    assert abs(source_ttl - copied_ttl) < 0.2
+
+
+def test_local_cache_copy_namespace_supports_custom_separator_and_overwrite():
+    cache = LocalCacheService()
+    cache.set("team/alpha", 1)
+    cache.set("project/alpha", 9)
+
+    assert cache.copy_namespace("team", "project", separator="/") == 0
+    assert cache.get("team/alpha") == 1
+    assert cache.get("project/alpha") == 9
+
+    assert cache.copy_namespace("team", "project", separator="/", overwrite=True) == 1
+    assert cache.get("team/alpha") == 1
+    assert cache.get("project/alpha") == 1
+
+
+def test_local_cache_copy_namespace_rejects_invalid_inputs_and_same_namespace_noops():
+    cache = LocalCacheService()
+    cache.set("session:alpha", 1)
+
+    with pytest.raises(ValueError, match="namespace cannot be empty"):
+        cache.copy_namespace("   ", "archive")
+
+    with pytest.raises(ValueError, match="namespace cannot contain separator"):
+        cache.copy_namespace("session:alpha", "archive")
+
+    with pytest.raises(ValueError, match="separator cannot be empty"):
+        cache.copy_namespace("session", "archive", separator="")
+
+    assert cache.copy_namespace("session", "session") == 0
+    assert cache.get("session:alpha") == 1
+
+
+def test_local_cache_rename_namespace_moves_root_and_nested_keys_with_tags_and_ttl():
+    cache = LocalCacheService()
+    cache.set_tagged("session", "root", tags=["scope:session"])
+    cache.set_tagged(
+        "session:alpha", "A", tags=["active", "scope:session"], ttl_seconds=2
+    )
+    cache.set("session:beta", "B")
+    cache.set("user:alpha", "U")
+
+    time.sleep(0.4)
+
+    renamed = cache.rename_namespace("session", "archive")
+
+    assert renamed == 3
+    assert cache.get("session") is None
+    assert cache.get("session:alpha") is None
+    assert cache.get("session:beta") is None
+
+    assert cache.get("archive") == "root"
+    assert cache.get("archive:alpha") == "A"
+    assert cache.get("archive:beta") == "B"
+    assert cache.get("user:alpha") == "U"
+
+    assert cache.list_tags("archive") == ["scope:session"]
+    assert cache.list_tags("archive:alpha") == ["active", "scope:session"]
+
+    ttl = cache.ttl_remaining("archive:alpha")
+    assert ttl is not None
+    assert 1.0 <= ttl <= 2
+
+
+def test_local_cache_rename_namespace_supports_custom_separator_and_overwrite():
+    cache = LocalCacheService()
+    cache.set("team/alpha", 1)
+    cache.set("project/alpha", 9)
+
+    assert cache.rename_namespace("team", "project", separator="/") == 0
+    assert cache.get("team/alpha") == 1
+    assert cache.get("project/alpha") == 9
+
+    assert cache.rename_namespace("team", "project", separator="/", overwrite=True) == 1
+    assert cache.get("team/alpha") is None
+    assert cache.get("project/alpha") == 1
+
+
+def test_local_cache_rename_namespace_rejects_invalid_inputs_and_same_namespace_noops():
+    cache = LocalCacheService()
+    cache.set("session:alpha", 1)
+
+    with pytest.raises(ValueError, match="namespace cannot be empty"):
+        cache.rename_namespace("session", "   ")
+
+    with pytest.raises(ValueError, match="namespace cannot contain separator"):
+        cache.rename_namespace("session", "archive:old")
+
+    with pytest.raises(ValueError, match="separator cannot be empty"):
+        cache.rename_namespace("session", "archive", separator="")
+
+    assert cache.rename_namespace("session", "session") == 0
+    assert cache.get("session:alpha") == 1
+
+
 def test_local_cache_clear_prefix_removes_matching_keys_only():
     cache = LocalCacheService()
     cache.set_many(
