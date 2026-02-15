@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 
@@ -304,6 +305,11 @@ def test_cached_rejects_invalid_coalesce_inflight_flag():
         cached(prefix="example", coalesce_inflight="yes")  # type: ignore[arg-type]
 
 
+def test_cached_rejects_invalid_cache_none_flag():
+    with pytest.raises(ValueError, match="cache_none must be a boolean"):
+        cached(prefix="example", cache_none="yes")  # type: ignore[arg-type]
+
+
 def test_cached_rejects_invalid_ignored_kwargs_configuration():
     with pytest.raises(
         ValueError,
@@ -422,6 +428,66 @@ async def test_cached_cache_condition_must_return_boolean(monkeypatch):
 
     with pytest.raises(ValueError, match="cache_condition must return a boolean"):
         await compute(1)
+
+
+@pytest.mark.asyncio
+async def test_cached_does_not_cache_none_results_by_default(monkeypatch):
+    cached_values: dict[str, int | None] = {}
+
+    async def fake_get(key: str):
+        return cached_values[key] if key in cached_values else None
+
+    async def fake_set(key: str, value: int | None, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    calls = {"count": 0}
+
+    @cached(prefix="example")
+    async def compute(value: int) -> int | None:
+        calls["count"] += 1
+        return None
+
+    assert await compute(10) is None
+    assert await compute(10) is None
+
+    assert calls["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_cached_can_cache_none_results_when_enabled(monkeypatch):
+    cached_values: dict[str, Any] = {}
+
+    async def fake_get(key: str):
+        return cached_values[key] if key in cached_values else None
+
+    async def fake_set(key: str, value: Any, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    calls = {"count": 0}
+
+    @cached(prefix="example", cache_none=True)
+    async def compute(value: int) -> int | None:
+        calls["count"] += 1
+        return None
+
+    assert await compute(10) is None
+    assert await compute(10) is None
+
+    assert calls["count"] == 1
+    assert cached_values == {
+        "example:10": {
+            "__openclaw_cached_payload_v1__": True,
+            "value": None,
+        }
+    }
 
 
 @pytest.mark.asyncio

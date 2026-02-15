@@ -259,6 +259,7 @@ def cached(
     cache_condition: Optional[Callable[[Any], bool | Awaitable[bool]]] = None,
     coalesce_inflight: bool = True,
     ignored_kwargs: Optional[Iterable[str]] = None,
+    cache_none: bool = False,
 ):
     """
     Decorator for caching function results.
@@ -282,6 +283,8 @@ def cached(
             execution instead of triggering duplicate work.
         ignored_kwargs: Optional iterable of kwarg names excluded from cache
             key generation while still being passed to the wrapped function.
+        cache_none: When ``True``, cache and replay ``None`` results by
+            storing an internal envelope payload.
 
     Example:
         @cached(prefix="user", ttl=300)
@@ -317,6 +320,9 @@ def cached(
 
     if not isinstance(coalesce_inflight, bool):
         raise ValueError("coalesce_inflight must be a boolean")
+
+    if not isinstance(cache_none, bool):
+        raise ValueError("cache_none must be a boolean")
 
     normalized_ignored_kwargs: frozenset[str]
     if ignored_kwargs is None:
@@ -394,6 +400,34 @@ def cached(
 
             return decision
 
+        def _encode_cached_payload(result: Any) -> Any:
+            if not cache_none:
+                return result
+
+            return {
+                "__openclaw_cached_payload_v1__": True,
+                "value": result,
+            }
+
+        def _decode_cached_payload(payload: Any) -> tuple[bool, Any]:
+            if not cache_none:
+                if payload is None:
+                    return False, None
+                return True, payload
+
+            if (
+                isinstance(payload, Mapping)
+                and payload.get("__openclaw_cached_payload_v1__") is True
+                and "value" in payload
+            ):
+                return True, payload["value"]
+
+            if payload is None:
+                return False, None
+
+            # Backward compatibility for values cached before envelope support.
+            return True, payload
+
         inflight_tasks: dict[str, asyncio.Task[Any]] = {}
 
         async def _execute_and_maybe_cache(
@@ -404,7 +438,7 @@ def cached(
             result = await func(*call_args, **runtime_kwargs)
 
             if await _should_cache_result(result):
-                await cache.set(key, result, ttl)
+                await cache.set(key, _encode_cached_payload(result), ttl)
 
             return result
 
@@ -426,8 +460,9 @@ def cached(
 
             # Try to get from cache
             if not refresh_cache:
-                cached_value = await cache.get(key)
-                if cached_value is not None:
+                cached_payload = await cache.get(key)
+                has_cached_value, cached_value = _decode_cached_payload(cached_payload)
+                if has_cached_value:
                     return cached_value
 
             if not coalesce_inflight:
