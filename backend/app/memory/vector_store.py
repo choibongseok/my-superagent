@@ -458,6 +458,34 @@ class VectorStoreMemory:
 
         return normalized_terms
 
+    @classmethod
+    def _normalize_excluded_terms(
+        cls,
+        excluded_terms: Optional[List[str]],
+    ) -> Optional[List[str]]:
+        """Normalize excluded lexical terms used for post-search filtering."""
+        if excluded_terms is None:
+            return None
+
+        if not isinstance(excluded_terms, list):
+            raise ValueError("excluded_terms must be a list of non-empty strings")
+
+        normalized_terms: List[str] = []
+        for term in excluded_terms:
+            if not isinstance(term, str):
+                raise ValueError("excluded_terms must contain only non-empty strings")
+
+            normalized_term = cls._normalize_content_for_deduplication(term)
+            if not normalized_term:
+                raise ValueError("excluded_terms must contain only non-empty strings")
+
+            normalized_terms.append(normalized_term)
+
+        if not normalized_terms:
+            raise ValueError("excluded_terms cannot be empty")
+
+        return normalized_terms
+
     @staticmethod
     def _normalize_required_terms_mode(required_terms_mode: str) -> str:
         """Validate lexical matching mode for required terms."""
@@ -467,6 +495,18 @@ class VectorStoreMemory:
         normalized_mode = required_terms_mode.strip().lower()
         if normalized_mode not in {"all", "any"}:
             raise ValueError("required_terms_mode must be either 'all' or 'any'")
+
+        return normalized_mode
+
+    @staticmethod
+    def _normalize_excluded_terms_mode(excluded_terms_mode: str) -> str:
+        """Validate lexical matching mode for excluded terms."""
+        if not isinstance(excluded_terms_mode, str):
+            raise ValueError("excluded_terms_mode must be either 'all' or 'any'")
+
+        normalized_mode = excluded_terms_mode.strip().lower()
+        if normalized_mode not in {"all", "any"}:
+            raise ValueError("excluded_terms_mode must be either 'all' or 'any'")
 
         return normalized_mode
 
@@ -548,6 +588,8 @@ class VectorStoreMemory:
         unique_content: bool = False,
         required_terms: Optional[List[str]] = None,
         required_terms_mode: str = "all",
+        excluded_terms: Optional[List[str]] = None,
+        excluded_terms_mode: str = "any",
         created_after: Optional[datetime | str] = None,
         created_before: Optional[datetime | str] = None,
         offset: Optional[int] = None,
@@ -602,6 +644,13 @@ class VectorStoreMemory:
             required_terms_mode: Lexical matching mode for ``required_terms``.
                 ``"all"`` keeps results containing every term; ``"any"`` keeps
                 results containing at least one term.
+            excluded_terms: Optional lexical terms used to exclude candidate
+                memories after normalization (case/whitespace-insensitive).
+                This can be combined with ``required_terms`` for stricter
+                semantic + lexical routing.
+            excluded_terms_mode: Lexical matching mode for ``excluded_terms``.
+                ``"any"`` excludes results containing at least one term;
+                ``"all"`` excludes only when all excluded terms are present.
             created_after: Optional lower timestamp bound (inclusive) used to
                 keep only memories with ``metadata.timestamp`` on/after this
                 value. Accepts timezone-aware/naive ``datetime`` objects or
@@ -628,7 +677,8 @@ class VectorStoreMemory:
                 ``min_relative_score``/``offset``/
                 ``max_results_per_session`` values, invalid
                 ``created_after``/``created_before`` boundaries,
-                invalid ``required_terms``/``required_terms_mode`` values,
+                invalid ``required_terms``/``required_terms_mode``/
+                ``excluded_terms``/``excluded_terms_mode`` values,
                 or non-boolean ``include_score_context``/``unique_content``.
         """
         # Input validation
@@ -656,6 +706,10 @@ class VectorStoreMemory:
         normalized_required_terms = self._normalize_required_terms(required_terms)
         normalized_required_terms_mode = self._normalize_required_terms_mode(
             required_terms_mode
+        )
+        normalized_excluded_terms = self._normalize_excluded_terms(excluded_terms)
+        normalized_excluded_terms_mode = self._normalize_excluded_terms_mode(
+            excluded_terms_mode
         )
 
         if offset is not None:
@@ -837,6 +891,25 @@ class VectorStoreMemory:
                 normalized_required_terms,
                 normalized_required_terms_mode,
                 pre_lexical_count,
+                len(results),
+            )
+
+        if normalized_excluded_terms is not None:
+            pre_exclusion_count = len(results)
+            results = [
+                (doc, score)
+                for doc, score in results
+                if not self._matches_required_terms(
+                    doc.page_content,
+                    normalized_excluded_terms,
+                    normalized_excluded_terms_mode,
+                )
+            ]
+            logger.debug(
+                "Applied excluded_terms filtering: terms=%s, mode=%s, before=%d, after=%d",
+                normalized_excluded_terms,
+                normalized_excluded_terms_mode,
+                pre_exclusion_count,
                 len(results),
             )
 

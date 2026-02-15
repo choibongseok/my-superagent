@@ -977,6 +977,111 @@ class TestRequiredTermsFiltering:
         ]
 
 
+class TestExcludedTermsFiltering:
+    """Test optional negative lexical constraints for semantic search."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_excluded_terms_validation(self):
+        """excluded_terms must be a non-empty list of non-empty strings."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(
+            ValueError, match="excluded_terms must be a list of non-empty strings"
+        ):
+            memory.search_with_scores(query="test", excluded_terms="roadmap")
+
+        with pytest.raises(ValueError, match="excluded_terms cannot be empty"):
+            memory.search_with_scores(query="test", excluded_terms=[])
+
+        with pytest.raises(
+            ValueError, match="excluded_terms must contain only non-empty strings"
+        ):
+            memory.search_with_scores(query="test", excluded_terms=["roadmap", "  "])
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_excluded_terms_mode_validation(self):
+        """excluded_terms_mode should accept only 'all' or 'any'."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(
+            ValueError, match="excluded_terms_mode must be either 'all' or 'any'"
+        ):
+            memory.search_with_scores(
+                query="test",
+                excluded_terms=["roadmap"],
+                excluded_terms_mode="strict",
+            )
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_excluded_terms_any_mode_filters_case_and_whitespace_insensitively(self):
+        """Mode=any should remove results containing at least one excluded term."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        roadmap_doc = Document(page_content="Roadmap retrospective", metadata={})
+        launch_doc = Document(
+            page_content="  product    LAUNCH checklist  ", metadata={}
+        )
+        clean_doc = Document(page_content="Budget review", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (roadmap_doc, 0.91),
+                (launch_doc, 0.86),
+                (clean_doc, 0.82),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            excluded_terms=["  ROADMAP  ", "launch checklist"],
+            excluded_terms_mode="any",
+            sort_by_score=True,
+        )
+
+        assert [result["content"] for result in results] == ["Budget review"]
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_excluded_terms_all_mode_excludes_only_when_all_terms_are_present(self):
+        """Mode=all should keep docs that do not contain every excluded term."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        full_match_doc = Document(
+            page_content="Project roadmap with launch plan", metadata={}
+        )
+        partial_match_doc = Document(page_content="Project roadmap draft", metadata={})
+        clean_doc = Document(page_content="Budget review", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (full_match_doc, 0.92),
+                (partial_match_doc, 0.88),
+                (clean_doc, 0.8),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            excluded_terms=["roadmap", "launch plan"],
+            excluded_terms_mode="all",
+            sort_by_score=True,
+        )
+
+        assert [result["content"] for result in results] == [
+            "Project roadmap draft",
+            "Budget review",
+        ]
+
+
 class TestSessionDiversification:
     """Test optional per-session result diversification controls."""
 
