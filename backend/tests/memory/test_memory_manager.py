@@ -215,8 +215,10 @@ class TestMemoryManagerContext:
             "adaptive_std_multiplier": 1.5,
             "min_adaptive_threshold": 0.5,
             "max_score_gap": None,
+            "min_score_margin": None,
             "include_score_context": False,
             "unique_content": False,
+            "offset": None,
         }
 
     def test_search_memory_supports_session_scoping_and_score_sorting(self):
@@ -252,8 +254,10 @@ class TestMemoryManagerContext:
             "adaptive_std_multiplier": 1.5,
             "min_adaptive_threshold": 0.5,
             "max_score_gap": None,
+            "min_score_margin": None,
             "include_score_context": False,
             "unique_content": False,
+            "offset": None,
         }
 
     def test_search_memory_exposes_advanced_vector_scoring_controls(self):
@@ -272,8 +276,10 @@ class TestMemoryManagerContext:
             adaptive_std_multiplier=2.0,
             min_adaptive_threshold=0.6,
             max_score_gap=0.08,
+            min_score_margin=0.04,
             include_score_context=True,
             unique_content=True,
+            offset=2,
         )
 
         assert results == [{"content": "cached"}]
@@ -289,6 +295,8 @@ class TestMemoryManagerContext:
             "adaptive_std_multiplier": 2.0,
             "min_adaptive_threshold": 0.6,
             "max_score_gap": 0.08,
+            "min_score_margin": 0.04,
             "include_score_context": True,
             "unique_content": True,
+            "offset": 2,
         }

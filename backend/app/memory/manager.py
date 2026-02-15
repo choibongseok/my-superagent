@@ -322,8 +322,10 @@ class MemoryManager:
         adaptive_std_multiplier: float = 1.5,
         min_adaptive_threshold: float = 0.5,
         max_score_gap: Optional[float] = None,
+        min_score_margin: Optional[float] = None,
         include_score_context: bool = False,
         unique_content: bool = False,
+        offset: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search long-term memory.
@@ -344,8 +346,11 @@ class MemoryManager:
                 adaptive thresholding.
             min_adaptive_threshold: Lower bound for adaptive thresholding.
             max_score_gap: Keep only results within this score gap from top score.
+            min_score_margin: Require matches to exceed the active threshold by
+                this additional margin.
             include_score_context: Include per-result ranking/threshold context.
             unique_content: Drop duplicate memories using normalized content.
+            offset: Zero-based pagination offset applied before final ``k`` limit.
 
         Returns:
             List of matching memories
@@ -375,8 +380,10 @@ class MemoryManager:
                 adaptive_std_multiplier=adaptive_std_multiplier,
                 min_adaptive_threshold=min_adaptive_threshold,
                 max_score_gap=max_score_gap,
+                min_score_margin=min_score_margin,
                 include_score_context=include_score_context,
                 unique_content=unique_content,
+                offset=offset,
             )
         except Exception as e:
             logger.error(f"Memory search failed: {e}")
