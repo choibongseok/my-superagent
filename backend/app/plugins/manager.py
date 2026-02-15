@@ -443,12 +443,37 @@ class PluginManager:
         return normalized_query_fields
 
     @staticmethod
+    def _split_query_tokens(
+        query_tokens: Sequence[str],
+    ) -> tuple[list[str], list[str]]:
+        """Split query tokens into include/exclude groups.
+
+        Tokens prefixed with ``-`` are treated as exclusion tokens. Bare
+        ``-`` tokens are rejected as invalid.
+        """
+        include_tokens: list[str] = []
+        exclude_tokens: list[str] = []
+
+        for token in query_tokens:
+            if token.startswith("-"):
+                if len(token) == 1:
+                    raise ValueError(
+                        "query cannot contain bare '-' tokens; use '-term'"
+                    )
+                exclude_tokens.append(token[1:])
+            else:
+                include_tokens.append(token)
+
+        return include_tokens, exclude_tokens
+
+    @staticmethod
     def _manifest_matches_query(
         manifest: PluginManifest,
         plugin: Optional[BasePlugin],
         *,
         query: str,
         query_tokens: list[str],
+        exclude_query_tokens: list[str],
         query_fields: set[str],
         query_match_mode: str,
         query_case_sensitive: bool,
@@ -497,7 +522,13 @@ class PluginManager:
 
         if query_match_mode == "phrase":
             return query in searchable_text
+
+        if any(token in searchable_text for token in exclude_query_tokens):
+            return False
+
         if query_match_mode == "any":
+            if not query_tokens:
+                return True
             return any(token in searchable_text for token in query_tokens)
 
         return all(token in searchable_text for token in query_tokens)
@@ -554,7 +585,9 @@ class PluginManager:
             query_match_mode: Query matching strategy. ``"all"`` (default)
                 requires all query tokens to appear, ``"any"`` requires at
                 least one token, and ``"phrase"`` requires the normalized
-                query phrase to appear contiguously.
+                query phrase to appear contiguously. In ``"all"`` and
+                ``"any"`` modes, prefix tokens with ``-`` (for example,
+                ``"weather -slack"``) to exclude matches containing that token.
             query_case_sensitive: When ``True``, preserve case when matching
                 query text. Defaults to ``False`` for case-insensitive
                 matching.
@@ -602,6 +635,7 @@ class PluginManager:
 
         normalized_query = None
         query_tokens: list[str] = []
+        exclude_query_tokens: list[str] = []
         if query is not None:
             normalized_query = " ".join(query.split())
             if not normalized_query:
@@ -618,6 +652,9 @@ class PluginManager:
         normalized_query_match_mode = query_match_mode.strip().lower()
         if normalized_query_match_mode not in {"all", "any", "phrase"}:
             raise ValueError("query_match_mode must be one of: all, any, phrase")
+
+        if normalized_query is not None and normalized_query_match_mode != "phrase":
+            query_tokens, exclude_query_tokens = self._split_query_tokens(query_tokens)
 
         normalized_query_fields = self._normalize_query_fields(query_fields)
 
@@ -725,6 +762,7 @@ class PluginManager:
                     self.plugins.get(manifest.name),
                     query=normalized_query,
                     query_tokens=query_tokens,
+                    exclude_query_tokens=exclude_query_tokens,
                     query_fields=normalized_query_fields,
                     query_match_mode=normalized_query_match_mode,
                     query_case_sensitive=query_case_sensitive,

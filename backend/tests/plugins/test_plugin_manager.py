@@ -1456,6 +1456,50 @@ async def test_list_plugins_query_supports_case_sensitive_matching(
     assert [item["name"] for item in case_sensitive_match] == ["weather-alert"]
 
 
+@pytest.mark.asyncio
+async def test_list_plugins_query_supports_exclusion_tokens(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+    (tmp_path / "slack_notifier.py").write_text("# slack", encoding="utf-8")
+
+    modules = {
+        "app.plugins.weather_tool": _plugin_module(
+            "app.plugins.weather_tool",
+            _build_plugin_class("weather-plugin", ["network.http"]),
+        ),
+        "app.plugins.slack_notifier": _plugin_module(
+            "app.plugins.slack_notifier",
+            _build_plugin_class("slack-plugin", ["messaging.send"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    include_and_exclude = manager.list_plugins(
+        query="plugin -slack",
+        query_fields=["name"],
+        query_match_mode="all",
+    )
+    assert [item["name"] for item in include_and_exclude] == ["weather-plugin"]
+
+    exclude_only = manager.list_plugins(
+        query="-slack",
+        query_fields=["name"],
+        query_match_mode="any",
+    )
+    assert [item["name"] for item in exclude_only] == ["weather-plugin"]
+
+
 def test_list_plugins_validates_query_options(tmp_path):
     manager = PluginManager(plugin_dir=str(tmp_path))
 
@@ -1476,3 +1520,6 @@ def test_list_plugins_validates_query_options(tmp_path):
 
     with pytest.raises(ValueError, match="query_fields must be subset of"):
         manager.list_plugins(query="weather", query_fields=["name", "labels"])
+
+    with pytest.raises(ValueError, match="query cannot contain bare '-' tokens"):
+        manager.list_plugins(query="weather -", query_match_mode="all")
