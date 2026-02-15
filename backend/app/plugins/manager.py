@@ -403,7 +403,8 @@ class PluginManager:
         """Normalize list query field selectors.
 
         Supported values: ``name``, ``description``, ``author``,
-        ``version``, ``permissions``, ``module_path``, ``config``.
+        ``version``, ``permissions``, ``inputs``, ``outputs``,
+        ``config_schema``, ``module_path``, ``config``.
         """
         default_query_fields = {"name", "description", "author"}
         if query_fields is None:
@@ -418,6 +419,9 @@ class PluginManager:
             "author",
             "version",
             "permissions",
+            "inputs",
+            "outputs",
+            "config_schema",
             "module_path",
             "config",
         }
@@ -462,6 +466,18 @@ class PluginManager:
             field_values.append(manifest.version)
         if "permissions" in query_fields:
             field_values.extend(manifest.permissions)
+        if "inputs" in query_fields:
+            field_values.append(
+                json.dumps(manifest.inputs, sort_keys=True, default=str)
+            )
+        if "outputs" in query_fields:
+            field_values.append(
+                json.dumps(manifest.outputs, sort_keys=True, default=str)
+            )
+        if "config_schema" in query_fields:
+            field_values.append(
+                json.dumps(manifest.config_schema, sort_keys=True, default=str)
+            )
         if "module_path" in query_fields and plugin is not None:
             field_values.append(plugin.__class__.__module__)
         if "config" in query_fields and plugin is not None:
@@ -532,7 +548,9 @@ class PluginManager:
             query_fields: Optional fields used for free-text filtering.
                 Defaults to ``name``, ``description``, and ``author``.
                 Additional supported fields: ``version``, ``permissions``,
-                ``module_path``, and runtime ``config`` values.
+                manifest ``inputs``, manifest ``outputs``,
+                manifest ``config_schema``, ``module_path``, and runtime
+                ``config`` values.
             query_match_mode: Query matching strategy. ``"all"`` (default)
                 requires all query tokens to appear, ``"any"`` requires at
                 least one token, and ``"phrase"`` requires the normalized

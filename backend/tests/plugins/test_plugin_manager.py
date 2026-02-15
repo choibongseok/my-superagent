@@ -17,6 +17,10 @@ def _build_plugin_class(
     lifecycle: dict[str, int] | None = None,
     *,
     author: str = "tests",
+    description: str | None = None,
+    inputs: dict[str, Any] | None = None,
+    outputs: dict[str, Any] | None = None,
+    config_schema: dict[str, Any] | None = None,
 ):
     """Create a minimal runtime plugin class for manager tests."""
 
@@ -35,11 +39,12 @@ def _build_plugin_class(
         return PluginManifest(
             name=manifest_name,
             version="1.0.0",
-            description=f"{manifest_name} plugin",
+            description=description or f"{manifest_name} plugin",
             author=author,
             permissions=permissions,
-            inputs={},
-            outputs={"ok": "boolean"},
+            inputs=inputs or {},
+            outputs=outputs or {"ok": "boolean"},
+            config_schema=config_schema,
         )
 
     return type(
@@ -1339,6 +1344,72 @@ async def test_list_plugins_query_supports_runtime_config_field(
     )
 
     assert [item["name"] for item in filtered] == ["weather-plugin"]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_query_supports_manifest_schema_fields(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+    (tmp_path / "slack_notifier.py").write_text("# slack", encoding="utf-8")
+
+    modules = {
+        "app.plugins.weather_tool": _plugin_module(
+            "app.plugins.weather_tool",
+            _build_plugin_class(
+                "weather-plugin",
+                ["network.http"],
+                inputs={"city_name": "string"},
+                outputs={"forecast": "string"},
+                config_schema={
+                    "properties": {
+                        "units": {
+                            "type": "string",
+                        }
+                    }
+                },
+            ),
+        ),
+        "app.plugins.slack_notifier": _plugin_module(
+            "app.plugins.slack_notifier",
+            _build_plugin_class(
+                "slack-plugin",
+                ["messaging.send"],
+                inputs={"message": "string"},
+                outputs={"delivery_status": "string"},
+                config_schema={
+                    "properties": {
+                        "webhook_url": {
+                            "type": "string",
+                        }
+                    }
+                },
+            ),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    input_match = manager.list_plugins(
+        query="city_name",
+        query_fields=["inputs"],
+    )
+    assert [item["name"] for item in input_match] == ["weather-plugin"]
+
+    schema_match = manager.list_plugins(
+        query="webhook_url",
+        query_fields=["config_schema"],
+    )
+    assert [item["name"] for item in schema_match] == ["slack-plugin"]
 
 
 @pytest.mark.asyncio
