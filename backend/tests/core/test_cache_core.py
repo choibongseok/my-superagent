@@ -304,6 +304,77 @@ def test_cached_rejects_invalid_coalesce_inflight_flag():
         cached(prefix="example", coalesce_inflight="yes")  # type: ignore[arg-type]
 
 
+def test_cached_rejects_invalid_ignored_kwargs_configuration():
+    with pytest.raises(
+        ValueError,
+        match="ignored_kwargs must be an iterable of non-empty strings",
+    ):
+        cached(prefix="example", ignored_kwargs="trace_id")
+
+    with pytest.raises(
+        ValueError,
+        match="ignored_kwargs must be an iterable of non-empty strings",
+    ):
+        cached(prefix="example", ignored_kwargs=["trace_id", "  "])
+
+    with pytest.raises(
+        ValueError,
+        match="ignored_kwargs must be an iterable of non-empty strings",
+    ):
+        cached(prefix="example", ignored_kwargs=["trace_id", 123])
+
+
+@pytest.mark.asyncio
+async def test_cached_can_ignore_selected_kwargs_in_cache_key(monkeypatch):
+    cached_values: dict[str, str] = {}
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: str, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    calls = {"count": 0}
+
+    @cached(prefix="example", ignored_kwargs=["trace_id"])
+    async def compute(value: int, *, trace_id: str) -> str:
+        calls["count"] += 1
+        return f"{value}:{trace_id}:{calls['count']}"
+
+    assert await compute(10, trace_id="first") == "10:first:1"
+    assert await compute(10, trace_id="second") == "10:first:1"
+
+    assert calls["count"] == 1
+    assert cached_values == {"example:10": "10:first:1"}
+
+
+@pytest.mark.asyncio
+async def test_cached_ignored_kwargs_still_reach_function_when_recomputing(monkeypatch):
+    cached_values: dict[str, str] = {}
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: str, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    @cached(prefix="example", ignored_kwargs=["trace_id"])
+    async def compute(value: int, *, trace_id: str) -> str:
+        return f"{value}:{trace_id}"
+
+    assert await compute(10, trace_id="first") == "10:first"
+    assert await compute(10, trace_id="second", refresh_cache=True) == "10:second"
+    assert await compute(10, trace_id="third") == "10:second"
+
+
 @pytest.mark.asyncio
 async def test_cached_cache_condition_can_skip_writing_specific_results(monkeypatch):
     cached_values: dict[str, int | None] = {}

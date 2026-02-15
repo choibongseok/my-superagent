@@ -5,7 +5,7 @@ from dataclasses import asdict, is_dataclass
 from functools import wraps
 import inspect
 import json
-from collections.abc import Awaitable, Mapping
+from collections.abc import Awaitable, Iterable, Mapping
 from datetime import date, datetime
 from enum import Enum
 from typing import Any, Callable, Optional
@@ -258,6 +258,7 @@ def cached(
     disable_flag: Optional[str] = "disable_cache",
     cache_condition: Optional[Callable[[Any], bool | Awaitable[bool]]] = None,
     coalesce_inflight: bool = True,
+    ignored_kwargs: Optional[Iterable[str]] = None,
 ):
     """
     Decorator for caching function results.
@@ -279,6 +280,8 @@ def cached(
         coalesce_inflight: When ``True`` (default), concurrent calls that
             resolve to the same cache key will await a single in-flight
             execution instead of triggering duplicate work.
+        ignored_kwargs: Optional iterable of kwarg names excluded from cache
+            key generation while still being passed to the wrapped function.
 
     Example:
         @cached(prefix="user", ttl=300)
@@ -314,6 +317,24 @@ def cached(
 
     if not isinstance(coalesce_inflight, bool):
         raise ValueError("coalesce_inflight must be a boolean")
+
+    normalized_ignored_kwargs: frozenset[str]
+    if ignored_kwargs is None:
+        normalized_ignored_kwargs = frozenset()
+    elif isinstance(ignored_kwargs, str):
+        raise ValueError(
+            "ignored_kwargs must be an iterable of non-empty strings"
+        )
+    else:
+        normalized_values: set[str] = set()
+        for name in ignored_kwargs:
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError(
+                    "ignored_kwargs must be an iterable of non-empty strings"
+                )
+            normalized_values.add(name)
+
+        normalized_ignored_kwargs = frozenset(normalized_values)
 
     def decorator(func: Callable):
         def _resolve_key_args(call_args: tuple[Any, ...]) -> tuple[Any, ...]:
@@ -396,8 +417,12 @@ def cached(
             if disable_cache:
                 return await func(*args, **runtime_kwargs)
 
+            key_kwargs = dict(runtime_kwargs)
+            for ignored_name in normalized_ignored_kwargs:
+                key_kwargs.pop(ignored_name, None)
+
             key_args = _resolve_key_args(args)
-            key = await _build_cache_key(key_args, runtime_kwargs)
+            key = await _build_cache_key(key_args, key_kwargs)
 
             # Try to get from cache
             if not refresh_cache:
