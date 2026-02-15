@@ -548,6 +548,143 @@ class PluginManager:
         logger.info(f"Plugin reloaded: {plugin_name}")
         return reloaded_plugin
 
+    @staticmethod
+    def _normalize_plugin_config_overrides(
+        plugin_configs: Optional[Mapping[str, Mapping[str, Any]]],
+    ) -> Mapping[str, Mapping[str, Any]]:
+        """Validate plugin config overrides used by bulk reload helpers."""
+        if plugin_configs is None:
+            return {}
+
+        if not isinstance(plugin_configs, Mapping):
+            raise ValueError("plugin_configs must be a mapping")
+
+        normalized_configs: Dict[str, Mapping[str, Any]] = {}
+        for key, value in plugin_configs.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError("plugin_configs keys must be non-empty strings")
+            if not isinstance(value, Mapping):
+                raise ValueError(
+                    "plugin_configs values must be mapping configuration objects"
+                )
+
+            normalized_configs[key.strip()] = value
+
+        return normalized_configs
+
+    @staticmethod
+    def _resolve_plugin_override_config(
+        *,
+        manifest_name: str,
+        module_path: str,
+        overrides: Mapping[str, Mapping[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve optional override config for a specific plugin identity."""
+        module_stem = module_path.split(".")[-1] if module_path else ""
+        normalized_manifest_name = manifest_name.replace("-", "_")
+
+        for config_key in (
+            manifest_name,
+            normalized_manifest_name,
+            module_path,
+            module_stem,
+        ):
+            if not config_key:
+                continue
+
+            if config_key in overrides:
+                return dict(overrides[config_key])
+
+        return None
+
+    async def reload_plugins(
+        self,
+        *,
+        include_plugins: Optional[Sequence[str]] = None,
+        exclude_plugins: Optional[Sequence[str]] = None,
+        plugin_configs: Optional[Mapping[str, Mapping[str, Any]]] = None,
+        stop_on_error: bool = False,
+    ) -> List[str]:
+        """Reload loaded plugins in bulk with optional selectors and overrides.
+
+        Args:
+            include_plugins: Optional allowlist of selectors (manifest name,
+                module stem/path, filename, or glob pattern).
+            exclude_plugins: Optional denylist of selectors in the same format
+                as ``include_plugins``.
+            plugin_configs: Optional configuration overrides applied per plugin.
+                Keys may reference manifest name (e.g. ``"weather-plugin"``),
+                normalized manifest name (``"weather_plugin"``), module path
+                (``"app.plugins.weather_tool"``), or module stem
+                (``"weather_tool"``).
+            stop_on_error: If ``True``, re-raise the first reload failure.
+
+        Returns:
+            List of successfully reloaded plugin names.
+        """
+        include_selectors = (
+            {self._normalize_module_selector(selector) for selector in include_plugins}
+            if include_plugins is not None
+            else None
+        )
+        exclude_selectors = {
+            self._normalize_module_selector(selector)
+            for selector in (exclude_plugins or [])
+        }
+
+        if include_selectors is not None:
+            overlap = include_selectors & exclude_selectors
+            if overlap:
+                conflicting = ", ".join(sorted(overlap))
+                raise ValueError(
+                    f"Plugins cannot be both included and excluded: {conflicting}"
+                )
+
+        overrides = self._normalize_plugin_config_overrides(plugin_configs)
+        reloaded_plugins: List[str] = []
+
+        for manifest in sorted(self.manifests.values(), key=lambda item: item.name):
+            plugin = self.plugins.get(manifest.name)
+            if plugin is None:
+                continue
+
+            module_path = plugin.__class__.__module__
+
+            if include_selectors is not None and not self._manifest_matches_selectors(
+                manifest.name,
+                module_path,
+                include_selectors,
+            ):
+                continue
+
+            if exclude_selectors and self._manifest_matches_selectors(
+                manifest.name,
+                module_path,
+                exclude_selectors,
+            ):
+                continue
+
+            override_config = self._resolve_plugin_override_config(
+                manifest_name=manifest.name,
+                module_path=module_path,
+                overrides=overrides,
+            )
+
+            try:
+                await self.reload_plugin(manifest.name, override_config)
+                reloaded_plugins.append(manifest.name)
+            except Exception:
+                logger.error(
+                    "Failed to reload plugin: %s", manifest.name, exc_info=True
+                )
+                if stop_on_error:
+                    raise
+
+        logger.info(
+            "Reloaded %d plugin(s): %s", len(reloaded_plugins), reloaded_plugins
+        )
+        return reloaded_plugins
+
     async def unload_plugin(self, plugin_name: str) -> bool:
         """
         Unload a plugin.

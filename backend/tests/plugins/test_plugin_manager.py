@@ -595,6 +595,130 @@ async def test_reload_plugin_raises_for_missing_plugin():
 
 
 @pytest.mark.asyncio
+async def test_reload_plugins_reloads_all_loaded_plugins(tmp_path, monkeypatch):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+
+    alpha_lifecycle: dict[str, int] = {}
+    beta_lifecycle: dict[str, int] = {}
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"], alpha_lifecycle),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class("beta-plugin", ["filesystem.read"], beta_lifecycle),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory(
+        plugin_configs={
+            "alpha": {"units": "metric"},
+            "beta": {"scope": "local"},
+        }
+    )
+
+    reloaded = await manager.reload_plugins()
+
+    assert reloaded == ["alpha-plugin", "beta-plugin"]
+    assert alpha_lifecycle == {"initialized": 2, "cleaned": 1}
+    assert beta_lifecycle == {"initialized": 2, "cleaned": 1}
+    assert manager.get_plugin("alpha-plugin").config == {"units": "metric"}
+    assert manager.get_plugin("beta-plugin").config == {"scope": "local"}
+
+
+@pytest.mark.asyncio
+async def test_reload_plugins_supports_selectors_and_config_overrides(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+    (tmp_path / "slack_notifier.py").write_text("# slack", encoding="utf-8")
+
+    weather_lifecycle: dict[str, int] = {}
+    slack_lifecycle: dict[str, int] = {}
+
+    modules = {
+        "app.plugins.weather_tool": _plugin_module(
+            "app.plugins.weather_tool",
+            _build_plugin_class(
+                "weather-plugin",
+                ["network.http"],
+                weather_lifecycle,
+            ),
+        ),
+        "app.plugins.slack_notifier": _plugin_module(
+            "app.plugins.slack_notifier",
+            _build_plugin_class(
+                "slack-plugin",
+                ["network.http"],
+                slack_lifecycle,
+            ),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory(
+        plugin_configs={
+            "weather_tool": {"units": "metric"},
+            "slack_notifier": {"channel": "alerts"},
+        }
+    )
+
+    reloaded = await manager.reload_plugins(
+        include_plugins=["weather*"],
+        plugin_configs={"weather-plugin": {"units": "imperial"}},
+    )
+
+    assert reloaded == ["weather-plugin"]
+    assert weather_lifecycle == {"initialized": 2, "cleaned": 1}
+    assert slack_lifecycle == {"initialized": 1}
+
+    assert manager.get_plugin("weather-plugin").config == {"units": "imperial"}
+    assert manager.get_plugin("slack-plugin").config == {"channel": "alerts"}
+
+
+@pytest.mark.asyncio
+async def test_reload_plugins_validates_selector_overlap_and_config_payload(tmp_path):
+    manager = PluginManager(plugin_dir=str(tmp_path))
+
+    with pytest.raises(
+        ValueError,
+        match="Plugins cannot be both included and excluded: weather_tool",
+    ):
+        await manager.reload_plugins(
+            include_plugins=["weather_tool"],
+            exclude_plugins=["weather_tool.py"],
+        )
+
+    with pytest.raises(ValueError, match="plugin_configs must be a mapping"):
+        await manager.reload_plugins(plugin_configs=[("weather", {"units": "metric"})])
+
+    with pytest.raises(
+        ValueError,
+        match="plugin_configs values must be mapping configuration objects",
+    ):
+        await manager.reload_plugins(plugin_configs={"weather": "metric"})
+
+
+@pytest.mark.asyncio
 async def test_validate_permissions_supports_glob_patterns(tmp_path, monkeypatch):
     (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
 
