@@ -659,6 +659,57 @@ def _median_numeric_value(value: object, argument_spec: str) -> int | float:
     return int(median) if float(median).is_integer() else median
 
 
+def _mode_value(value: object, argument_spec: str) -> object:
+    """Return the most frequent item from a non-empty iterable.
+
+    Tie-breaking is deterministic and preserves the first value that reached
+    the highest frequency.
+    """
+    if argument_spec.strip():
+        raise ValueError("mode expects no arguments")
+
+    if isinstance(value, (str, bytes, bytearray)):
+        raise ValueError("mode expects an iterable value, not a string")
+
+    try:
+        iterator = iter(value)
+    except TypeError as exc:
+        raise ValueError("mode expects an iterable value") from exc
+
+    hashable_counts: dict[object, int] = {}
+    unhashable_items: list[object] = []
+    unhashable_counts: list[int] = []
+
+    best_item: object | None = None
+    best_count = 0
+    found_any = False
+
+    for item in iterator:
+        found_any = True
+        try:
+            count = hashable_counts.get(item, 0) + 1
+            hashable_counts[item] = count
+        except TypeError:
+            count = 1
+            for index, existing in enumerate(unhashable_items):
+                if existing == item:
+                    unhashable_counts[index] += 1
+                    count = unhashable_counts[index]
+                    break
+            else:
+                unhashable_items.append(item)
+                unhashable_counts.append(1)
+
+        if count > best_count:
+            best_item = item
+            best_count = count
+
+    if not found_any:
+        raise ValueError("mode expects a non-empty iterable value")
+
+    return best_item
+
+
 def _fallback_value(value: object, argument_spec: str) -> object:
     """Return fallback when values are missing, blank, or empty collections."""
     args = _parse_transform_args(argument_spec)
@@ -940,6 +991,7 @@ class TemplateService:
         - ``{durations->sum}``, ``{durations->sum(10)}``
         - ``{durations->avg}``
         - ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``
+        - ``{labels->mode}``
         - ``{nickname->strip->fallback("friend")}``
 
         Returns:
@@ -1002,6 +1054,7 @@ class TemplateService:
             "min": lambda raw: _min_numeric_value(raw, ""),
             "max": lambda raw: _max_numeric_value(raw, ""),
             "median": lambda raw: _median_numeric_value(raw, ""),
+            "mode": lambda raw: _mode_value(raw, ""),
         }
         supported_transforms = sorted(
             [
@@ -1029,6 +1082,7 @@ class TemplateService:
                 "min",
                 "max",
                 "median",
+                "mode",
             ]
         )
 
@@ -1131,6 +1185,8 @@ class TemplateService:
                         raw,
                         spec,
                     )
+                elif transform_name == "mode":
+                    operation = lambda raw, spec=argument_spec: _mode_value(raw, spec)
 
             if operation is None:
                 supported = ", ".join(supported_transforms)
@@ -1216,7 +1272,7 @@ class TemplateService:
         ``{score->clamp(0,1)->round(2)}``,
         ``{durations->sum}``, ``{durations->sum(10)}``, ``{durations->avg}``,
         ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``,
-        or ``{nickname->strip->fallback("friend")}``).
+        ``{labels->mode}``, or ``{nickname->strip->fallback("friend")}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)
         missing_inputs = sorted(key for key in required_inputs if key not in inputs)

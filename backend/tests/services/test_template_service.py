@@ -989,6 +989,91 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_mode_transform(self, service_with_mock_db):
+        """mode should return the most frequent iterable value."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Dominant label: {labels->mode}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"labels": ["urgent", "normal", "normal", "urgent", "normal"]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Dominant label: normal"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_mode_transform_for_unhashable_values(
+        self, service_with_mock_db
+    ):
+        """mode should support unhashable values such as dictionaries."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Primary owner payload: {owners->mode}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "owners": [
+                        {"name": "Mina"},
+                        {"name": "Jin"},
+                        {"name": "Mina"},
+                    ]
+                },
+                user_id,
+            )
+
+        assert result["prompt"] == "Primary owner payload: {'name': 'Mina'}"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_mode_transform_with_arguments(
+        self, service_with_mock_db
+    ):
+        """mode should reject arguments to keep behavior deterministic."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Dominant label: {labels->mode(top)}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'mode\(top\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"labels": ["normal", "urgent"]},
+                    user_id,
+                )
+
+        assert template.usage_count == 0
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_rejects_median_transform_with_arguments(
         self, service_with_mock_db
     ):
