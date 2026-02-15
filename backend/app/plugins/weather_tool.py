@@ -662,6 +662,29 @@ class Plugin(ToolPlugin):
         return normalized_cloudiness
 
     @staticmethod
+    def _classify_humidity_level(humidity: Any) -> str | None:
+        """Classify humidity into user-friendly comfort ranges."""
+        if humidity is None or isinstance(humidity, bool):
+            return None
+
+        try:
+            normalized_humidity = int(round(float(humidity)))
+        except (TypeError, ValueError):
+            return None
+
+        if not 0 <= normalized_humidity <= 100:
+            return None
+
+        if normalized_humidity < 30:
+            return "dry"
+        if normalized_humidity <= 60:
+            return "comfortable"
+        if normalized_humidity <= 75:
+            return "humid"
+
+        return "very humid"
+
+    @staticmethod
     def _normalize_unix_timestamp(value: Any) -> int | None:
         """Best-effort unix timestamp parsing for daylight detection fields."""
         if value is None or isinstance(value, bool):
@@ -783,6 +806,7 @@ class Plugin(ToolPlugin):
             "feels_like": feels_like,
             "condition": "Partly Cloudy",
             "humidity": 65,
+            "humidity_level": self._classify_humidity_level(65),
             "cloudiness": 40,
             "daylight_status": "day",
             "pressure": self._convert_pressure_from_hpa(pressure_hpa, pressure_unit),
@@ -1044,6 +1068,7 @@ class Plugin(ToolPlugin):
                 "feels_like": float,
                 "condition": str,
                 "humidity": int,
+                "humidity_level": str | None,
                 "cloudiness": int | None,
                 "daylight_status": str | None,
                 "pressure": float | None,
@@ -1143,6 +1168,7 @@ class Plugin(ToolPlugin):
                 temperature = round(main["temp"], 1)
                 feels_like = round(main.get("feels_like", main["temp"]), 1)
                 humidity = main["humidity"]
+                humidity_level = self._classify_humidity_level(humidity)
                 dew_point = self._calculate_dew_point(
                     temperature=temperature,
                     humidity=humidity,
@@ -1234,6 +1260,7 @@ class Plugin(ToolPlugin):
                     "feels_like": feels_like,
                     "condition": data["weather"][0]["description"].title(),
                     "humidity": humidity,
+                    "humidity_level": humidity_level,
                     "cloudiness": cloudiness,
                     "daylight_status": daylight_status,
                     "pressure": pressure,
@@ -1355,13 +1382,17 @@ class Plugin(ToolPlugin):
             precipitation_1h=result.get("precipitation_1h"),
             precipitation_3h=result.get("precipitation_3h"),
         )
+        humidity_level = result.get("humidity_level")
+        humidity_suffix = ""
+        if isinstance(humidity_level, str) and humidity_level.strip():
+            humidity_suffix = f" ({humidity_level.strip().title()})"
 
         lines = [
             f"Weather in {result['location']}:",
             f"Temperature: {result['temperature']}{temperature_unit}",
             f"Feels Like: {feels_like}{temperature_unit}",
             f"Condition: {result['condition']}",
-            f"Humidity: {result['humidity']}%",
+            f"Humidity: {result['humidity']}%{humidity_suffix}",
             f"Wind Speed: {result['wind_speed']} {wind_unit}",
         ]
 
@@ -1423,7 +1454,7 @@ class Plugin(ToolPlugin):
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
             "Set refresh_cache=true to bypass cached responses and force a fresh API fetch. "
-            "Returns temperature, dew-point temperature, heat-index temperature, wind-chill temperature, feels-like temperature, weather condition, humidity, cloud coverage, daylight status, pressure, wind speed, optional wind gust, Beaufort wind-force details, wind direction, visibility, and precipitation summaries when available. "
+            "Returns temperature, dew-point temperature, heat-index temperature, wind-chill temperature, feels-like temperature, weather condition, humidity with comfort-level classification, cloud coverage, daylight status, pressure, wind speed, optional wind gust, Beaufort wind-force details, wind direction, visibility, and precipitation summaries when available. "
             "Requires OpenWeatherMap API key in plugin config."
         )
 
@@ -1431,8 +1462,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.25.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point/heat-index/wind-chill insights, wind speed and gust details, Beaufort wind-force details, wind direction details, visibility details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
+            version="1.26.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point/heat-index/wind-chill insights, humidity comfort-level insights, wind speed and gust details, Beaufort wind-force details, wind direction details, visibility details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -1469,6 +1500,7 @@ class Plugin(ToolPlugin):
                 "feels_like": "float",
                 "condition": "string",
                 "humidity": "integer",
+                "humidity_level": "string | null (dry, comfortable, humid, or very humid)",
                 "cloudiness": "integer | null (cloud coverage percentage)",
                 "daylight_status": "string | null (day or night based on sunrise/sunset)",
                 "pressure": "float | null",

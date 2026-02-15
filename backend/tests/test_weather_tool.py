@@ -36,6 +36,7 @@ class TestWeatherTool:
         assert result["feels_like"] == 21.3
         assert result["condition"] == "Partly Cloudy"
         assert result["humidity"] == 65
+        assert result["humidity_level"] == "humid"
         assert result["cloudiness"] == 40
         assert result["daylight_status"] == "day"
         assert result["pressure"] == 1013
@@ -98,6 +99,18 @@ class TestWeatherTool:
             match="lang must be an ISO 639-1 code",
         ):
             WeatherPlugin(config={"lang": "english"})
+
+    def test_humidity_level_classification_ranges(self):
+        """Humidity comfort labels should map across expected range boundaries."""
+        plugin = WeatherPlugin(config={})
+
+        assert plugin._classify_humidity_level(20) == "dry"
+        assert plugin._classify_humidity_level(45) == "comfortable"
+        assert plugin._classify_humidity_level(70) == "humid"
+        assert plugin._classify_humidity_level(82) == "very humid"
+        assert plugin._classify_humidity_level(None) is None
+        assert plugin._classify_humidity_level(True) is None
+        assert plugin._classify_humidity_level("not-a-number") is None
 
     def test_cache_config_validation(self):
         """Cache settings should validate numeric and range constraints."""
@@ -333,6 +346,7 @@ class TestWeatherTool:
         assert "Dew Point: 15.6°C" in result
         assert "Condition:" in result
         assert "Humidity:" in result
+        assert "Humidity: 65% (Humid)" in result
         assert "Wind Speed:" in result
         assert "Wind Gust:" in result
         assert "Wind Direction:" in result
@@ -626,6 +640,7 @@ class TestWeatherTool:
             assert result["feels_like"] == 14.7
             assert result["condition"] == "Light Rain"
             assert result["humidity"] == 72
+            assert result["humidity_level"] == "humid"
             assert result["cloudiness"] == 88
             assert result["daylight_status"] == "day"
             assert result["pressure"] == 1008
@@ -763,6 +778,7 @@ class TestWeatherTool:
 
             result = await api_plugin.execute({"location": "London"})
 
+            assert result["humidity_level"] == "very humid"
             assert result["pressure"] is None
             assert result["cloudiness"] is None
             assert result["daylight_status"] is None
@@ -1537,7 +1553,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.25.0"
+        assert manifest.version == "1.26.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
@@ -1557,6 +1573,7 @@ class TestWeatherTool:
         assert "refresh_cache" in manifest.inputs
         assert "feels_like" in manifest.outputs
         assert "temperature_unit" in manifest.outputs
+        assert "humidity_level" in manifest.outputs
         assert "heat_index" in manifest.outputs
         assert "heat_index_unit" in manifest.outputs
         assert "pressure" in manifest.outputs
@@ -1594,6 +1611,7 @@ class TestWeatherTool:
         assert "pressure_unit" in description
         assert "feels-like temperature" in description
         assert "heat-index temperature" in description
+        assert "comfort-level" in description
         assert "pressure" in description
         assert "Beaufort" in description
         assert "wind direction" in description
