@@ -283,3 +283,92 @@ def test_decode_token_validates_expected_audience_input() -> None:
         match="expected_audience cannot contain blank values",
     ):
         decode_token(token, expected_audience=["api://agenthq", "   "])
+
+
+def test_decode_token_accepts_required_scopes_all_match() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "scope": "chat:read profile:view offline_access",
+        }
+    )
+
+    payload = decode_token(
+        token,
+        required_scopes=["chat:read", "profile:view"],
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_accepts_required_scopes_with_match_any_mode() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "scope": ["chat:read", "analytics:view"],
+        }
+    )
+
+    payload = decode_token(
+        token,
+        required_scopes=["chat:write", "analytics:view"],
+        match_any_scopes=True,
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_rejects_missing_required_scopes() -> None:
+    token = create_access_token({"sub": "user-123", "scope": "chat:read"})
+
+    assert decode_token(token, required_scopes=["chat:read", "chat:write"]) is None
+
+
+def test_decode_token_supports_custom_scope_claim_name() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "scp": "chat:read,chat:write",
+        }
+    )
+
+    payload = decode_token(
+        token,
+        required_scopes="chat:write",
+        scope_claim="scp",
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_rejects_invalid_scope_claim_payload_shape() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "scope": ["chat:read", 42],
+        }
+    )
+
+    assert decode_token(token, required_scopes="chat:read") is None
+
+
+def test_decode_token_validates_scope_requirement_inputs() -> None:
+    token = create_access_token({"sub": "user-123", "scope": "chat:read"})
+
+    with pytest.raises(ValueError, match="required_scopes cannot be blank"):
+        decode_token(token, required_scopes="   ")
+
+    with pytest.raises(ValueError, match="required_scopes cannot be an empty iterable"):
+        decode_token(token, required_scopes=[])
+
+    with pytest.raises(TypeError, match="required_scopes must contain only strings"):
+        decode_token(token, required_scopes=["chat:read", 123])
+
+    with pytest.raises(TypeError, match="scope_claim must be a string"):
+        decode_token(token, required_scopes="chat:read", scope_claim=123)
+
+    with pytest.raises(ValueError, match="scope_claim cannot be blank"):
+        decode_token(token, required_scopes="chat:read", scope_claim="   ")
+
+    with pytest.raises(TypeError, match="match_any_scopes must be a boolean"):
+        decode_token(token, required_scopes="chat:read", match_any_scopes="yes")

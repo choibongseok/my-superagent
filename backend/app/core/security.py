@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
+import re
 from typing import Any
 
 from jose import JWTError, jwt
@@ -117,6 +118,100 @@ def _normalize_required_claim_values(
     return normalized_claim_values
 
 
+_SCOPE_SPLIT_PATTERN = re.compile(r"[,\s]+")
+
+
+def _split_scope_tokens(raw_scopes: str) -> tuple[str, ...]:
+    """Split scope strings into normalized scope tokens."""
+    normalized_scope_string = raw_scopes.strip()
+    if not normalized_scope_string:
+        return ()
+
+    scopes = tuple(
+        token for token in _SCOPE_SPLIT_PATTERN.split(normalized_scope_string) if token
+    )
+    if not scopes:
+        return ()
+
+    return tuple(dict.fromkeys(scopes))
+
+
+def _normalize_required_scopes(
+    required_scopes: str | Iterable[str] | None,
+) -> tuple[str, ...]:
+    """Normalize required scope inputs used by ``decode_token``."""
+    if required_scopes is None:
+        return ()
+
+    if isinstance(required_scopes, str):
+        normalized_scopes = _split_scope_tokens(required_scopes)
+        if not normalized_scopes:
+            raise ValueError("required_scopes cannot be blank")
+
+        return normalized_scopes
+
+    normalized_scopes: list[str] = []
+    for scope in required_scopes:
+        if not isinstance(scope, str):
+            raise TypeError("required_scopes must contain only strings")
+
+        scope_tokens = _split_scope_tokens(scope)
+        if not scope_tokens:
+            raise ValueError("required_scopes cannot contain blank values")
+
+        normalized_scopes.extend(scope_tokens)
+
+    if not normalized_scopes:
+        raise ValueError("required_scopes cannot be an empty iterable")
+
+    return tuple(dict.fromkeys(normalized_scopes))
+
+
+def _normalize_scope_claim_name(scope_claim: str) -> str:
+    """Normalize optional scope-claim names for ``decode_token``."""
+    if not isinstance(scope_claim, str):
+        raise TypeError("scope_claim must be a string")
+
+    normalized_scope_claim = scope_claim.strip()
+    if not normalized_scope_claim:
+        raise ValueError("scope_claim cannot be blank")
+
+    return normalized_scope_claim
+
+
+def _extract_token_scopes(
+    payload: Mapping[str, Any],
+    scope_claim: str,
+) -> tuple[str, ...] | None:
+    """Extract normalized token scopes from decoded payload."""
+    claim_value = payload.get(scope_claim)
+    if claim_value is None:
+        return None
+
+    if isinstance(claim_value, str):
+        token_scopes = _split_scope_tokens(claim_value)
+        return token_scopes or None
+
+    if isinstance(claim_value, (list, tuple, set, frozenset)):
+        normalized_scopes: list[str] = []
+        for item in claim_value:
+            if not isinstance(item, str):
+                return None
+
+            scope_tokens = _split_scope_tokens(item)
+            if not scope_tokens:
+                return None
+
+            normalized_scopes.extend(scope_tokens)
+
+        if not normalized_scopes:
+            return None
+
+        return tuple(dict.fromkeys(normalized_scopes))
+
+    return None
+
+
 def _normalize_expected_subjects(
     expected_subject: str | Iterable[str] | None,
 ) -> tuple[str, ...]:
@@ -221,6 +316,9 @@ def decode_token(
     expected_audience: str | Iterable[str] | None = None,
     required_claims: Iterable[str] | None = None,
     required_claim_values: Mapping[str, Any] | None = None,
+    required_scopes: str | Iterable[str] | None = None,
+    scope_claim: str = "scope",
+    match_any_scopes: bool = False,
 ) -> dict[str, Any] | None:
     """Decode a JWT token with optional type/claim validation.
 
@@ -237,6 +335,13 @@ def decode_token(
         required_claims: Optional claims that must be present and non-empty.
         required_claim_values: Optional claim value requirements. Values may
             be exact scalars or non-empty collections of allowed values.
+        required_scopes: Optional OAuth-style scope requirements. Accepts a
+            scope string (space/comma-delimited) or iterable of scope strings.
+        scope_claim: Token claim name containing scopes. Defaults to
+            ``"scope"``.
+        match_any_scopes: Scope matching mode. ``False`` (default) requires
+            every ``required_scopes`` entry to be present. ``True`` requires
+            at least one matching scope.
 
     Returns:
         Decoded payload when valid, otherwise ``None``.
@@ -249,12 +354,17 @@ def decode_token(
         if not expected_issuer:
             raise ValueError("expected_issuer cannot be blank")
 
+    if not isinstance(match_any_scopes, bool):
+        raise TypeError("match_any_scopes must be a boolean")
+
     normalized_expected_subjects = _normalize_expected_subjects(expected_subject)
     normalized_expected_audiences = _normalize_expected_audiences(expected_audience)
     normalized_required_claims = _normalize_required_claims(required_claims)
     normalized_required_claim_values = _normalize_required_claim_values(
         required_claim_values
     )
+    normalized_required_scopes = _normalize_required_scopes(required_scopes)
+    normalized_scope_claim = _normalize_scope_claim_name(scope_claim)
 
     try:
         payload = jwt.decode(
@@ -303,6 +413,20 @@ def decode_token(
     for claim, expected_values in normalized_required_claim_values.items():
         claim_value = payload.get(claim)
         if claim_value is None or claim_value not in expected_values:
+            return None
+
+    if normalized_required_scopes:
+        token_scopes = _extract_token_scopes(payload, normalized_scope_claim)
+        if token_scopes is None:
+            return None
+
+        token_scope_set = set(token_scopes)
+        required_scope_set = set(normalized_required_scopes)
+
+        if match_any_scopes:
+            if token_scope_set.isdisjoint(required_scope_set):
+                return None
+        elif not required_scope_set.issubset(token_scope_set):
             return None
 
     return payload
