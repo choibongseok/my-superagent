@@ -2788,6 +2788,64 @@ class TestCitationTracker:
             < lenient_report["metrics"]["recency_score"]
         )
 
+    def test_get_validation_report_supports_authority_weight_overrides(self):
+        """Authority overrides should tune confidence metrics deterministically."""
+        tracker = CitationTracker()
+        anchor_time = datetime(2026, 2, 13, 12, 0, tzinfo=timezone.utc)
+
+        db_source_id = tracker.add_source(
+            title="Regulatory Database",
+            url="https://data.example.com/regulatory",
+            type=SourceType.DATABASE,
+            published_date=anchor_time - timedelta(days=2),
+        )
+        web_source_id = tracker.add_source(
+            title="Community Blog Summary",
+            url="https://blog.example.org/summary",
+            type=SourceType.WEB,
+            published_date=anchor_time - timedelta(days=2),
+        )
+
+        tracker.cite(db_source_id, quoted_text="Primary source")
+        tracker.cite(web_source_id, quoted_text="Secondary source")
+
+        default_report = tracker.get_validation_report(
+            min_sources=1,
+            as_of=anchor_time,
+        )
+        overridden_report = tracker.get_validation_report(
+            min_sources=1,
+            as_of=anchor_time,
+            authority_weights={
+                SourceType.DATABASE: 0.4,
+                "web": 1.0,
+            },
+        )
+
+        assert default_report["metrics"]["authority_score"] == pytest.approx(0.825)
+        assert overridden_report["metrics"]["authority_score"] == pytest.approx(0.7)
+        assert overridden_report["confidence_score"] < default_report["confidence_score"]
+        assert default_report["metrics"]["authority_weights_overridden"] is False
+        assert overridden_report["metrics"]["authority_weights_overridden"] is True
+
+    def test_get_validation_report_rejects_invalid_authority_weights(self):
+        """Validation report should enforce authority weight schema and ranges."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="authority_weights contains unsupported source type",
+        ):
+            tracker.get_validation_report(authority_weights={"whitepaper": 0.9})
+
+        with pytest.raises(
+            ValueError,
+            match="authority_weights values must be between 0 and 1",
+        ):
+            tracker.get_validation_report(
+                authority_weights={SourceType.WEB: 1.2},
+            )
+
     def test_get_validation_report_rejects_invalid_recency_profile(self):
         """Validation report should reject unsupported recency profile values."""
         tracker = CitationTracker()

@@ -2185,6 +2185,7 @@ class CitationTracker:
         include_source_ids: Optional[str | Iterable[str]] = None,
         exclude_source_ids: Optional[str | Iterable[str]] = None,
         cited_only: bool = False,
+        authority_weights: Optional[Mapping[SourceType | str, float]] = None,
     ) -> Dict[str, Any]:
         """Generate a lightweight fact-check confidence report for current sources.
 
@@ -2209,6 +2210,9 @@ class CitationTracker:
             exclude_source_ids: Optional source-id deny-list.
             cited_only: When ``True``, include only sources that are cited at
                 least once in the current tracker.
+            authority_weights: Optional authority weight overrides used when
+                computing validation authority metrics. Keys may be
+                ``SourceType`` values or case-insensitive strings.
 
         Returns:
             Dictionary with aggregate confidence score, level, gaps, and metrics.
@@ -2237,6 +2241,7 @@ class CitationTracker:
             exclude_source_ids,
             argument_name="exclude_source_ids",
         )
+        resolved_authority_weights = self._resolve_authority_weights(authority_weights)
 
         reference_time = self._normalize_datetime(
             as_of if as_of is not None else datetime.now(timezone.utc)
@@ -2321,6 +2326,7 @@ class CitationTracker:
                     "authority_score": 0.0,
                     "recency_score": 0.0,
                     "recency_profile": recency_profile,
+                    "authority_weights_overridden": authority_weights is not None,
                 },
             }
             if include_source_breakdown:
@@ -2340,16 +2346,17 @@ class CitationTracker:
             if parsed.hostname
         }
 
-        authority_weights = []
+        authority_score_values: list[float] = []
         recency_scores = []
         source_breakdown: List[Dict[str, Any]] = []
 
         for source in scoped_sources:
-            authority_score_for_source = self.SOURCE_AUTHORITY_WEIGHTS.get(
-                source.type,
+            normalized_source_type = self._normalize_source_type_value(source.type)
+            authority_score_for_source = resolved_authority_weights.get(
+                normalized_source_type,
                 0.5,
             )
-            authority_weights.append(authority_score_for_source)
+            authority_score_values.append(authority_score_for_source)
 
             source_recency_score = self._compute_recency_score(
                 source.published_date,
@@ -2373,8 +2380,8 @@ class CitationTracker:
         source_count_score = min(total_sources / min_sources, 1.0)
         domain_diversity_score = min(len(unique_domains) / total_sources, 1.0)
         authority_score = (
-            sum(authority_weights) / len(authority_weights)
-            if authority_weights
+            sum(authority_score_values) / len(authority_score_values)
+            if authority_score_values
             else 0.0
         )
         recency_score = (
@@ -2440,6 +2447,7 @@ class CitationTracker:
                 "authority_score": round(authority_score, 3),
                 "recency_score": round(recency_score, 3),
                 "recency_profile": recency_profile,
+                "authority_weights_overridden": authority_weights is not None,
             },
         }
 
