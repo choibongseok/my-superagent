@@ -821,3 +821,31 @@ async def test_invalidate_cache_supports_key_version_namespace(monkeypatch):
     await invalidate_cache("example", 21, key_version="2026-02")
 
     assert deleted_keys == ["example:v2026-02:21"]
+
+
+@pytest.mark.asyncio
+async def test_invalidate_cache_hashes_key_when_max_key_length_is_configured(
+    monkeypatch,
+):
+    deleted_keys: list[str] = []
+
+    async def fake_delete(key: str):
+        deleted_keys.append(key)
+        return True
+
+    monkeypatch.setattr(cache, "delete", fake_delete)
+
+    await invalidate_cache("example", "x" * 200, max_key_length=36)
+
+    assert len(deleted_keys) == 1
+    assert deleted_keys[0].startswith("example:h:")
+    assert len(deleted_keys[0]) <= 36
+
+
+@pytest.mark.asyncio
+async def test_invalidate_cache_rejects_invalid_max_key_length_configuration():
+    with pytest.raises(ValueError, match="max_key_length must be an integer"):
+        await invalidate_cache("example", 1, max_key_length="64")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="max_key_length is too small for hashed keys"):
+        await invalidate_cache("example", 1, max_key_length=20)

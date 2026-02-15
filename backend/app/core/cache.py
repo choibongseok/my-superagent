@@ -280,6 +280,43 @@ def _build_cache_namespace(prefix: str, key_version: Optional[str | int]) -> str
     return f"{prefix}:v{normalized_key_version}"
 
 
+def _validate_max_key_length(
+    max_key_length: Optional[int],
+    *,
+    key_namespace: str,
+) -> None:
+    """Validate optional cache-key hashing length constraints."""
+    if max_key_length is None:
+        return
+
+    if isinstance(max_key_length, bool) or not isinstance(max_key_length, int):
+        raise ValueError("max_key_length must be an integer when provided")
+
+    minimum_hashed_key_length = len(key_namespace) + 3 + 16
+    if max_key_length < minimum_hashed_key_length:
+        raise ValueError(
+            "max_key_length is too small for hashed keys; "
+            "must be at least "
+            f"{minimum_hashed_key_length} for namespace '{key_namespace}'"
+        )
+
+
+def _shorten_cache_storage_key(
+    key: str,
+    *,
+    key_namespace: str,
+    max_key_length: Optional[int],
+) -> str:
+    """Deterministically hash cache keys that exceed ``max_key_length``."""
+    if max_key_length is None or len(key) <= max_key_length:
+        return key
+
+    hashed_prefix = f"{key_namespace}:h:"
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    available_digest_chars = max_key_length - len(hashed_prefix)
+    return f"{hashed_prefix}{digest[:available_digest_chars]}"
+
+
 def cached(
     prefix: str,
     ttl: Optional[int] = None,
@@ -366,18 +403,7 @@ def cached(
         raise ValueError("cache_none must be a boolean")
 
     key_namespace = _build_cache_namespace(prefix, key_version)
-
-    if max_key_length is not None:
-        if isinstance(max_key_length, bool) or not isinstance(max_key_length, int):
-            raise ValueError("max_key_length must be an integer when provided")
-
-        minimum_hashed_key_length = len(key_namespace) + 3 + 16
-        if max_key_length < minimum_hashed_key_length:
-            raise ValueError(
-                "max_key_length is too small for hashed keys; "
-                "must be at least "
-                f"{minimum_hashed_key_length} for namespace '{key_namespace}'"
-            )
+    _validate_max_key_length(max_key_length, key_namespace=key_namespace)
 
     normalized_ignored_kwargs: frozenset[str]
     if ignored_kwargs is None:
@@ -428,15 +454,6 @@ def cached(
 
             return flag_value
 
-        def _shorten_cache_key_if_needed(key: str) -> str:
-            if max_key_length is None or len(key) <= max_key_length:
-                return key
-
-            hashed_prefix = f"{key_namespace}:h:"
-            digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
-            available_digest_chars = max_key_length - len(hashed_prefix)
-            return f"{hashed_prefix}{digest[:available_digest_chars]}"
-
         async def _build_cache_key(
             key_args: tuple[Any, ...],
             runtime_kwargs: dict[str, Any],
@@ -445,10 +462,16 @@ def cached(
                 built_key = key_builder(*key_args, **runtime_kwargs)
                 if inspect.isawaitable(built_key):
                     built_key = await built_key
-                return _shorten_cache_key_if_needed(f"{key_namespace}:{built_key}")
+                return _shorten_cache_storage_key(
+                    f"{key_namespace}:{built_key}",
+                    key_namespace=key_namespace,
+                    max_key_length=max_key_length,
+                )
 
-            return _shorten_cache_key_if_needed(
-                f"{key_namespace}:{cache_key(*key_args, **runtime_kwargs)}"
+            return _shorten_cache_storage_key(
+                f"{key_namespace}:{cache_key(*key_args, **runtime_kwargs)}",
+                key_namespace=key_namespace,
+                max_key_length=max_key_length,
             )
 
         async def _should_cache_result(result: Any) -> bool:
@@ -566,6 +589,7 @@ async def invalidate_cache(
     prefix: str,
     *args,
     key_version: Optional[str | int] = None,
+    max_key_length: Optional[int] = None,
     **kwargs,
 ) -> None:
     """
@@ -575,12 +599,18 @@ async def invalidate_cache(
         prefix: Cache key prefix
         *args: Positional arguments for key building
         key_version: Optional cache namespace version marker used in ``cached``.
+        max_key_length: Optional key hashing length used with ``cached``.
         **kwargs: Keyword arguments for key building
     """
     namespace = _build_cache_namespace(prefix, key_version)
+    _validate_max_key_length(max_key_length, key_namespace=namespace)
 
     if args or kwargs:
-        key = f"{namespace}:{cache_key(*args, **kwargs)}"
+        key = _shorten_cache_storage_key(
+            f"{namespace}:{cache_key(*args, **kwargs)}",
+            key_namespace=namespace,
+            max_key_length=max_key_length,
+        )
         await cache.delete(key)
     else:
         # Delete all keys with namespace prefix
