@@ -747,6 +747,19 @@ def _mode_value(value: object, argument_spec: str) -> object:
     return best_item
 
 
+def _range_numeric_value(value: object, argument_spec: str) -> int | float:
+    """Return numeric spread (max-min) for non-empty numeric iterables."""
+    if argument_spec.strip():
+        raise ValueError("range expects no arguments")
+
+    numeric_values = _iter_numeric_values(value, transform_name="range")
+    if not numeric_values:
+        raise ValueError("range expects a non-empty iterable value")
+
+    spread = max(numeric_values) - min(numeric_values)
+    return int(spread) if float(spread).is_integer() else spread
+
+
 def _fallback_value(value: object, argument_spec: str) -> object:
     """Return fallback when values are missing, blank, or empty collections."""
     args = _parse_transform_args(argument_spec)
@@ -1030,6 +1043,7 @@ class TemplateService:
         - ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``
         - ``{latencies->variance}``, ``{latencies->var}``
         - ``{latencies->stddev}``, ``{latencies->stdev}``
+        - ``{latencies->range}``
         - ``{labels->mode}``
         - ``{nickname->strip->fallback("friend")}``
 
@@ -1097,6 +1111,7 @@ class TemplateService:
             "var": lambda raw: _variance_numeric_value(raw, "", transform_name="var"),
             "stddev": lambda raw: _standard_deviation_numeric_value(raw, ""),
             "stdev": lambda raw: _standard_deviation_numeric_value(raw, ""),
+            "range": lambda raw: _range_numeric_value(raw, ""),
             "mode": lambda raw: _mode_value(raw, ""),
         }
         supported_transforms = sorted(
@@ -1129,6 +1144,7 @@ class TemplateService:
                 "var",
                 "stddev",
                 "stdev",
+                "range",
                 "mode",
             ]
         )
@@ -1240,6 +1256,11 @@ class TemplateService:
                     )
                 elif transform_name in {"stddev", "stdev"}:
                     operation = lambda raw, spec=argument_spec: _standard_deviation_numeric_value(
+                        raw,
+                        spec,
+                    )
+                elif transform_name == "range":
+                    operation = lambda raw, spec=argument_spec: _range_numeric_value(
                         raw,
                         spec,
                     )

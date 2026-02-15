@@ -1073,6 +1073,93 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_range_numeric_transform(
+        self, service_with_mock_db
+    ):
+        """range/range() should return numeric spread for iterable metrics."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "Spread: {latencies->range}, "
+                "Function: {latencies->range()->round(2)}"
+            ),
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"latencies": [9.5, 2, 5]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Spread: 7.5, Function: 7.5"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_range_transform_with_arguments(
+        self, service_with_mock_db
+    ):
+        """range should reject arguments to keep semantics deterministic."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Spread: {latencies->range(sample)}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'range\(sample\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": [2, 4, 7]},
+                    user_id,
+                )
+
+        assert template.usage_count == 2
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_range_transform_for_empty_collections(
+        self, service_with_mock_db
+    ):
+        """range should fail for empty iterables to avoid ambiguous defaults."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Spread: {latencies->range}",
+            category="docs",
+            usage_count=4,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'range'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": []},
+                    user_id,
+                )
+
+        assert template.usage_count == 4
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_mode_transform(self, service_with_mock_db):
         """mode should return the most frequent iterable value."""
         service, db = service_with_mock_db
