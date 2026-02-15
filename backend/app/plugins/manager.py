@@ -402,6 +402,8 @@ class PluginManager:
         include_plugins: Optional[Sequence[str]] = None,
         exclude_plugins: Optional[Sequence[str]] = None,
         match_any_permissions: bool = False,
+        include_runtime: bool = False,
+        initialized: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
         """
         List loaded plugins with optional selector and permission filters.
@@ -420,6 +422,12 @@ class PluginManager:
                 (``"weather_tool.py"``), or glob patterns.
             exclude_plugins: Optional denylist of selectors in the same format
                 as ``include_plugins``.
+            include_runtime: When ``True``, include runtime metadata
+                (initialization status, module path, and active config) with
+                each listed plugin.
+            initialized: Optional runtime initialization filter. ``True``
+                returns only initialized plugins, ``False`` returns only
+                non-initialized plugins, and ``None`` disables filtering.
 
         Returns:
             List of plugin manifests.
@@ -439,6 +447,12 @@ class PluginManager:
 
         if not isinstance(match_any_permissions, bool):
             raise ValueError("match_any_permissions must be a boolean")
+
+        if not isinstance(include_runtime, bool):
+            raise ValueError("include_runtime must be a boolean")
+
+        if initialized is not None and not isinstance(initialized, bool):
+            raise ValueError("initialized must be a boolean when provided")
 
         if include_selectors is not None:
             overlap = include_selectors & exclude_selectors
@@ -488,7 +502,33 @@ class PluginManager:
                 )
             ]
 
-        return [manifest.to_dict() for manifest in manifests]
+        if initialized is not None:
+            manifests = [
+                manifest
+                for manifest in manifests
+                if (
+                    (plugin := self.plugins.get(manifest.name)) is not None
+                    and plugin.is_initialized() is initialized
+                )
+            ]
+
+        plugin_entries: List[Dict[str, Any]] = []
+        for manifest in manifests:
+            manifest_payload = manifest.to_dict()
+
+            if include_runtime:
+                plugin = self.plugins.get(manifest.name)
+                manifest_payload.update(
+                    {
+                        "initialized": plugin.is_initialized() if plugin else False,
+                        "module_path": plugin.__class__.__module__ if plugin else None,
+                        "config": dict(plugin.config) if plugin else None,
+                    }
+                )
+
+            plugin_entries.append(manifest_payload)
+
+        return plugin_entries
 
     def get_plugin(self, plugin_name: str) -> Optional[BasePlugin]:
         """

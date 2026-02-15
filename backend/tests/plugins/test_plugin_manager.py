@@ -865,3 +865,97 @@ async def test_required_permission_any_matching_flag_must_be_boolean(tmp_path):
             required_permissions=["network.http"],
             match_any_permissions="yes",  # type: ignore[arg-type]
         )
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_include_runtime_enriches_manifest_entries(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+
+    module = _plugin_module(
+        "app.plugins.weather_tool",
+        _build_plugin_class("weather-plugin", ["network.http"]),
+    )
+
+    def _import_module(name: str):
+        if name == "app.plugins.weather_tool":
+            return module
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory(
+        plugin_configs={"weather_tool": {"units": "metric"}}
+    )
+
+    listed = manager.list_plugins(include_runtime=True)
+
+    assert listed == [
+        {
+            "name": "weather-plugin",
+            "version": "1.0.0",
+            "description": "weather-plugin plugin",
+            "author": "tests",
+            "permissions": ["network.http"],
+            "config_schema": {},
+            "inputs": {},
+            "outputs": {"ok": "boolean"},
+            "initialized": True,
+            "module_path": "app.plugins.weather_tool",
+            "config": {"units": "metric"},
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_can_filter_by_initialized_state(tmp_path, monkeypatch):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"]),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class("beta-plugin", ["filesystem.read"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    beta_plugin = manager.get_plugin("beta-plugin")
+    assert beta_plugin is not None
+    beta_plugin._initialized = False
+
+    initialized_plugins = manager.list_plugins(initialized=True)
+    non_initialized_plugins = manager.list_plugins(initialized=False)
+
+    assert [item["name"] for item in initialized_plugins] == ["alpha-plugin"]
+    assert [item["name"] for item in non_initialized_plugins] == ["beta-plugin"]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_validates_runtime_filter_flags(tmp_path):
+    manager = PluginManager(plugin_dir=str(tmp_path))
+
+    with pytest.raises(ValueError, match="include_runtime must be a boolean"):
+        manager.list_plugins(include_runtime="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="initialized must be a boolean when provided",
+    ):
+        manager.list_plugins(initialized="yes")  # type: ignore[arg-type]
