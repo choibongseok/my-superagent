@@ -659,6 +659,28 @@ def _median_numeric_value(value: object, argument_spec: str) -> int | float:
     return int(median) if float(median).is_integer() else median
 
 
+def _standard_deviation_numeric_value(value: object, argument_spec: str) -> int | float:
+    """Return population standard deviation for non-empty numeric iterables."""
+    if argument_spec.strip():
+        raise ValueError("stddev expects no arguments")
+
+    numeric_values = _iter_numeric_values(value, transform_name="stddev")
+    if not numeric_values:
+        raise ValueError("stddev expects a non-empty iterable value")
+
+    average = sum(numeric_values) / len(numeric_values)
+    variance = sum((item - average) ** 2 for item in numeric_values) / len(
+        numeric_values
+    )
+    standard_deviation = math.sqrt(variance)
+
+    return (
+        int(standard_deviation)
+        if float(standard_deviation).is_integer()
+        else standard_deviation
+    )
+
+
 def _mode_value(value: object, argument_spec: str) -> object:
     """Return the most frequent item from a non-empty iterable.
 
@@ -991,6 +1013,7 @@ class TemplateService:
         - ``{durations->sum}``, ``{durations->sum(10)}``
         - ``{durations->avg}``
         - ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``
+        - ``{latencies->stddev}``, ``{latencies->stdev}``
         - ``{labels->mode}``
         - ``{nickname->strip->fallback("friend")}``
 
@@ -1054,6 +1077,8 @@ class TemplateService:
             "min": lambda raw: _min_numeric_value(raw, ""),
             "max": lambda raw: _max_numeric_value(raw, ""),
             "median": lambda raw: _median_numeric_value(raw, ""),
+            "stddev": lambda raw: _standard_deviation_numeric_value(raw, ""),
+            "stdev": lambda raw: _standard_deviation_numeric_value(raw, ""),
             "mode": lambda raw: _mode_value(raw, ""),
         }
         supported_transforms = sorted(
@@ -1082,6 +1107,8 @@ class TemplateService:
                 "min",
                 "max",
                 "median",
+                "stddev",
+                "stdev",
                 "mode",
             ]
         )
@@ -1185,6 +1212,11 @@ class TemplateService:
                         raw,
                         spec,
                     )
+                elif transform_name in {"stddev", "stdev"}:
+                    operation = lambda raw, spec=argument_spec: _standard_deviation_numeric_value(
+                        raw,
+                        spec,
+                    )
                 elif transform_name == "mode":
                     operation = lambda raw, spec=argument_spec: _mode_value(raw, spec)
 
@@ -1272,6 +1304,7 @@ class TemplateService:
         ``{score->clamp(0,1)->round(2)}``,
         ``{durations->sum}``, ``{durations->sum(10)}``, ``{durations->avg}``,
         ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``,
+        ``{latencies->stddev}``, ``{latencies->stdev}``,
         ``{labels->mode}``, or ``{nickname->strip->fallback("friend")}``).
         """
         required_inputs = cls._extract_template_variables(prompt_template)

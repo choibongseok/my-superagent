@@ -989,6 +989,35 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_stddev_numeric_transform(
+        self, service_with_mock_db
+    ):
+        """stddev/stdev should return population standard deviation values."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "Stddev: {latencies->stddev->round(3)}, "
+                "Alias: {latencies->stdev->round(3)}"
+            ),
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"latencies": [1, 2, 3, 4]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Stddev: 1.118, Alias: 1.118"
+        assert template.usage_count == 3
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_mode_transform(self, service_with_mock_db):
         """mode should return the most frequent iterable value."""
         service, db = service_with_mock_db
@@ -1100,6 +1129,64 @@ class TestTemplateServiceUseTemplate:
                 )
 
         assert template.usage_count == 1
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_stddev_transform_with_arguments(
+        self, service_with_mock_db
+    ):
+        """stddev should reject arguments to keep semantics unambiguous."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Stddev: {latencies->stddev(sample)}",
+            category="docs",
+            usage_count=4,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'stddev\(sample\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": [2, 4, 7]},
+                    user_id,
+                )
+
+        assert template.usage_count == 4
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_stddev_transform_for_empty_collections(
+        self, service_with_mock_db
+    ):
+        """stddev should fail for empty iterables to avoid silent defaults."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Stddev: {latencies->stddev}",
+            category="docs",
+            usage_count=6,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'stddev'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": []},
+                    user_id,
+                )
+
+        assert template.usage_count == 6
         db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
