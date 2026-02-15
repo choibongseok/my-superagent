@@ -2039,6 +2039,119 @@ def test_local_cache_clear_patterns_returns_zero_for_empty_patterns():
     assert cache.get("stable") == "value"
 
 
+def test_local_cache_tag_where_adds_tags_to_matching_keys_only():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["session", "active"])
+    cache.set_tagged("session:beta", 2, tags=["session"])
+    cache.set_tagged("user:alpha", 3, tags=["active"])
+
+    tagged = cache.tag_where(
+        ["reviewed", "active"],
+        prefix="session:",
+        pattern="*:alpha",
+        tags=["active"],
+    )
+
+    assert tagged == 1
+    assert cache.list_tags("session:alpha") == ["active", "reviewed", "session"]
+    assert cache.list_tags("session:beta") == ["session"]
+    assert cache.list_tags("user:alpha") == ["active"]
+
+
+def test_local_cache_tag_where_supports_match_all_tag_filtering():
+    cache = LocalCacheService()
+    cache.set_tagged("alpha", 1, tags=["group:a", "shared"])
+    cache.set_tagged("beta", 2, tags=["group:b", "shared"])
+    cache.set_tagged("gamma", 3, tags=["group:a"])
+
+    tagged = cache.tag_where(
+        ["selected"],
+        tags=["group:a", "shared"],
+        match_all_tags=True,
+    )
+
+    assert tagged == 1
+    assert cache.list_tags("alpha") == ["group:a", "selected", "shared"]
+    assert cache.list_tags("beta") == ["group:b", "shared"]
+    assert cache.list_tags("gamma") == ["group:a"]
+
+
+def test_local_cache_tag_where_requires_filters_and_non_empty_add_tags():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["active"])
+
+    with pytest.raises(ValueError, match="at least one filter must be provided"):
+        cache.tag_where(["reviewed"])
+
+    with pytest.raises(
+        ValueError,
+        match="add_tags must include at least one non-empty tag",
+    ):
+        cache.tag_where(["   "], prefix="session:")
+
+
+def test_local_cache_tag_where_rejects_invalid_match_all_tags_flag():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
+        cache.tag_where(["reviewed"], prefix="session:", match_all_tags="yes")  # type: ignore[arg-type]
+
+
+def test_local_cache_untag_where_removes_selected_tags_for_matching_keys_only():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["session", "active", "reviewed"])
+    cache.set_tagged("session:beta", 2, tags=["session", "reviewed"])
+    cache.set_tagged("user:alpha", 3, tags=["active", "reviewed"])
+
+    untagged = cache.untag_where(
+        ["active"],
+        prefix="session:",
+        tags=["reviewed"],
+    )
+
+    assert untagged == 1
+    assert cache.list_tags("session:alpha") == ["reviewed", "session"]
+    assert cache.list_tags("session:beta") == ["reviewed", "session"]
+    assert cache.list_tags("user:alpha") == ["active", "reviewed"]
+
+
+def test_local_cache_untag_where_can_remove_all_tags_with_match_all_filtering():
+    cache = LocalCacheService()
+    cache.set_tagged("alpha", 1, tags=["group:a", "shared"])
+    cache.set_tagged("beta", 2, tags=["group:b", "shared"])
+    cache.set_tagged("gamma", 3, tags=["group:a"])
+
+    untagged = cache.untag_where(
+        tags=["group:a", "shared"],
+        match_all_tags=True,
+    )
+
+    assert untagged == 1
+    assert cache.list_tags("alpha") == []
+    assert cache.list_tags("beta") == ["group:b", "shared"]
+    assert cache.list_tags("gamma") == ["group:a"]
+
+
+def test_local_cache_untag_where_requires_filter_and_validates_flags():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="at least one filter must be provided"):
+        cache.untag_where(["active"])
+
+    with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
+        cache.untag_where(["active"], prefix="session:", match_all_tags="yes")  # type: ignore[arg-type]
+
+
+def test_local_cache_untag_where_returns_zero_when_remove_tags_is_empty():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["active", "session"])
+
+    untagged = cache.untag_where(["   "], prefix="session:")
+
+    assert untagged == 0
+    assert cache.list_tags("session:alpha") == ["active", "session"]
+
+
 def test_local_cache_clear_where_supports_combined_prefix_pattern_and_tags():
     cache = LocalCacheService()
     cache.set_tagged("session:alpha", 1, tags=["active", "session"])

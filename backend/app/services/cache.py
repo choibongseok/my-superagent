@@ -1895,6 +1895,131 @@ class LocalCacheService:
             and (pattern is None or fnmatchcase(key, pattern))
         }
 
+    def tag_where(
+        self,
+        add_tags: Iterable[str],
+        *,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        tags: Iterable[str] | None = None,
+        match_all_tags: bool = False,
+    ) -> int:
+        """Attach ``add_tags`` to keys matching combined filters.
+
+        At least one filter must be provided to avoid accidental broad writes.
+
+        Args:
+            add_tags: Tags to add to each matching key.
+            prefix: Optional key prefix to match.
+            pattern: Optional glob pattern matched with :func:`fnmatchcase`.
+            tags: Optional tag filter used to select candidate keys.
+            match_all_tags: Tag matching mode when ``tags`` are provided.
+                ``False`` (default) matches keys with any provided tag, while
+                ``True`` requires keys to contain every provided tag.
+
+        Returns:
+            Number of keys whose tag sets changed.
+        """
+        if not isinstance(match_all_tags, bool):
+            raise ValueError("match_all_tags must be a boolean")
+
+        if prefix is None and pattern is None and tags is None:
+            raise ValueError("at least one filter must be provided")
+
+        normalized_add_tags = self._normalize_tags(add_tags)
+        if not normalized_add_tags:
+            raise ValueError("add_tags must include at least one non-empty tag")
+
+        self._purge_expired_entries()
+        matching_keys = sorted(
+            self._find_matching_keys(
+                prefix=prefix,
+                pattern=pattern,
+                tags=tags,
+                match_all_tags=match_all_tags,
+            )
+        )
+
+        tagged = 0
+        for key in matching_keys:
+            existing_tags = self._tags_by_key.get(key, set())
+            combined_tags = existing_tags | normalized_add_tags
+            if combined_tags == existing_tags:
+                continue
+
+            self._replace_key_tags(key, combined_tags)
+            tagged += 1
+
+        return tagged
+
+    def untag_where(
+        self,
+        remove_tags: Iterable[str] | None = None,
+        *,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        tags: Iterable[str] | None = None,
+        match_all_tags: bool = False,
+    ) -> int:
+        """Remove tags from keys matching combined filters.
+
+        At least one filter must be provided to avoid accidental broad writes.
+
+        Args:
+            remove_tags: Optional subset of tags to remove. When ``None``, all
+                tags are removed from matching keys.
+            prefix: Optional key prefix to match.
+            pattern: Optional glob pattern matched with :func:`fnmatchcase`.
+            tags: Optional tag filter used to select candidate keys.
+            match_all_tags: Tag matching mode when ``tags`` are provided.
+                ``False`` (default) matches keys with any provided tag, while
+                ``True`` requires keys to contain every provided tag.
+
+        Returns:
+            Number of keys whose tag sets changed.
+        """
+        if not isinstance(match_all_tags, bool):
+            raise ValueError("match_all_tags must be a boolean")
+
+        if prefix is None and pattern is None and tags is None:
+            raise ValueError("at least one filter must be provided")
+
+        normalized_remove_tags: set[str] | None = None
+        if remove_tags is not None:
+            normalized_remove_tags = self._normalize_tags(remove_tags)
+            if not normalized_remove_tags:
+                return 0
+
+        self._purge_expired_entries()
+        matching_keys = sorted(
+            self._find_matching_keys(
+                prefix=prefix,
+                pattern=pattern,
+                tags=tags,
+                match_all_tags=match_all_tags,
+            )
+        )
+
+        untagged = 0
+        for key in matching_keys:
+            existing_tags = self._tags_by_key.get(key, set())
+            if not existing_tags:
+                continue
+
+            if normalized_remove_tags is None:
+                self._detach_key_from_tags(key)
+                untagged += 1
+                continue
+
+            remaining_tags = existing_tags - normalized_remove_tags
+            if remaining_tags == existing_tags:
+                continue
+
+            self._replace_key_tags(key, remaining_tags)
+            untagged += 1
+
+        return untagged
+
     def clear_where(
         self,
         *,
