@@ -1583,6 +1583,48 @@ class LocalCacheService:
         }
         return self.delete_many(matching_keys)
 
+    def _find_matching_keys(
+        self,
+        *,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        tags: Iterable[str] | None = None,
+        match_all_tags: bool = False,
+        include_inflight: bool = False,
+    ) -> set[str]:
+        """Resolve keys matching combined prefix/glob/tag filters.
+
+        Args:
+            prefix: Optional key prefix filter.
+            pattern: Optional glob pattern matched with :func:`fnmatchcase`.
+            tags: Optional tag filter with any/all matching semantics.
+            match_all_tags: Require all tags when ``True``.
+            include_inflight: Include in-flight population keys when ``True``.
+
+        Returns:
+            Set of matching key names.
+
+        Notes:
+            Expired keys are expected to be purged by caller before invoking
+            this helper.
+        """
+        if tags is None:
+            candidate_keys = (
+                self._all_known_keys() if include_inflight else set(self._store.keys())
+            )
+        else:
+            candidate_keys = self._resolve_keys_for_tags(
+                tags,
+                match_all_tags=match_all_tags,
+            )
+
+        return {
+            key
+            for key in candidate_keys
+            if (prefix is None or key.startswith(prefix))
+            and (pattern is None or fnmatchcase(key, pattern))
+        }
+
     def clear_where(
         self,
         *,
@@ -1616,20 +1658,13 @@ class LocalCacheService:
 
         self._purge_expired_entries()
 
-        if tags is None:
-            candidate_keys: set[str] = self._all_known_keys()
-        else:
-            candidate_keys = self._resolve_keys_for_tags(
-                tags,
-                match_all_tags=match_all_tags,
-            )
-
-        matching_keys = {
-            key
-            for key in candidate_keys
-            if (prefix is None or key.startswith(prefix))
-            and (pattern is None or fnmatchcase(key, pattern))
-        }
+        matching_keys = self._find_matching_keys(
+            prefix=prefix,
+            pattern=pattern,
+            tags=tags,
+            match_all_tags=match_all_tags,
+            include_inflight=True,
+        )
 
         return self.delete_many(matching_keys)
 
@@ -1671,20 +1706,13 @@ class LocalCacheService:
 
         self._purge_expired_entries()
 
-        if tags is None:
-            candidate_keys: set[str] = self._all_known_keys()
-        else:
-            candidate_keys = self._resolve_keys_for_tags(
-                tags,
-                match_all_tags=match_all_tags,
-            )
-
-        matching_keys = {
-            key
-            for key in candidate_keys
-            if (prefix is None or key.startswith(prefix))
-            and (pattern is None or fnmatchcase(key, pattern))
-        }
+        matching_keys = self._find_matching_keys(
+            prefix=prefix,
+            pattern=pattern,
+            tags=tags,
+            match_all_tags=match_all_tags,
+            include_inflight=True,
+        )
 
         popped_values = self.pop_many(sorted(matching_keys))
 
@@ -1693,6 +1721,41 @@ class LocalCacheService:
             self.delete_many(remaining_keys)
 
         return popped_values
+
+    def count_where(
+        self,
+        *,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        tags: Iterable[str] | None = None,
+        match_all_tags: bool = False,
+    ) -> int:
+        """Count active keys matching combined prefix/glob/tag filters.
+
+        Args:
+            prefix: Optional key prefix to match.
+            pattern: Optional glob pattern matched with :func:`fnmatchcase`.
+            tags: Optional tag filter. When provided, only keys associated with
+                matching tags are counted.
+            match_all_tags: Tag matching mode when ``tags`` are provided.
+                ``False`` (default) counts keys matching any provided tag,
+                while ``True`` requires keys to contain every provided tag.
+
+        Returns:
+            Number of matching active cache entries.
+        """
+        if not isinstance(match_all_tags, bool):
+            raise ValueError("match_all_tags must be a boolean")
+
+        self._purge_expired_entries()
+        return len(
+            self._find_matching_keys(
+                prefix=prefix,
+                pattern=pattern,
+                tags=tags,
+                match_all_tags=match_all_tags,
+            )
+        )
 
     def list_keys(
         self,
@@ -1737,21 +1800,14 @@ class LocalCacheService:
 
         self._purge_expired_entries()
 
-        if tags is None:
-            candidate_keys = set(self._store.keys())
-        else:
-            candidate_keys = self._resolve_keys_for_tags(
-                tags,
+        matching_keys = list(
+            self._find_matching_keys(
+                prefix=prefix,
+                pattern=pattern,
+                tags=tags,
                 match_all_tags=match_all_tags,
             )
-
-        matching_keys: list[str] = []
-        for key in candidate_keys:
-            if prefix is not None and not key.startswith(prefix):
-                continue
-            if pattern is not None and not fnmatchcase(key, pattern):
-                continue
-            matching_keys.append(key)
+        )
 
         matching_keys.sort(reverse=descending)
 

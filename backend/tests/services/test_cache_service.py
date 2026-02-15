@@ -1916,6 +1916,38 @@ def test_local_cache_prune_expired_returns_zero_when_no_entries_expire():
     assert cache.prune_expired() == 0
 
 
+def test_local_cache_count_where_supports_prefix_pattern_and_tag_filters():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["session", "active"])
+    cache.set_tagged("session:beta", 2, tags=["session"])
+    cache.set_tagged("user:alpha", 3, tags=["active"])
+
+    assert cache.count_where() == 3
+    assert cache.count_where(prefix="session:") == 2
+    assert cache.count_where(pattern="*:alpha") == 2
+    assert cache.count_where(tags=["active"]) == 2
+    assert cache.count_where(tags=["session", "active"]) == 3
+    assert cache.count_where(tags=["session", "active"], match_all_tags=True) == 1
+
+
+def test_local_cache_count_where_ignores_expired_entries_and_tracks_active_count_only():
+    cache = LocalCacheService()
+    cache.set_tagged("short", "x", tags=["volatile"], ttl_seconds=1)
+    cache.set_tagged("stable", "y", tags=["volatile"])
+
+    time.sleep(1.05)
+
+    assert cache.count_where(tags=["volatile"]) == 1
+    assert cache.count_where() == 1
+
+
+def test_local_cache_count_where_rejects_invalid_match_all_tags_flag():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
+        cache.count_where(match_all_tags="yes")  # type: ignore[arg-type]
+
+
 def test_local_cache_list_keys_supports_prefix_pattern_and_limit():
     cache = LocalCacheService()
     cache.set_many(
