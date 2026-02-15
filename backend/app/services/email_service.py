@@ -48,10 +48,20 @@ class EmailService:
         "content-transfer-encoding",
         "content-type",
         "from",
+        "importance",
         "mime-version",
+        "priority",
         "reply-to",
         "subject",
         "to",
+        "x-priority",
+    }
+    _PRIORITY_ALIASES = {
+        "high": "high",
+        "urgent": "high",
+        "normal": "normal",
+        "medium": "normal",
+        "low": "low",
     }
 
     def __init__(self):
@@ -189,6 +199,46 @@ class EmailService:
             raise ValueError(f"{field_name} must include a single email address")
 
         return parsed_addresses[0]
+
+    @classmethod
+    def _normalize_priority(cls, priority: str | None) -> str | None:
+        """Normalize optional priority values for outbound message headers."""
+        if priority is None:
+            return None
+        if not isinstance(priority, str):
+            raise TypeError("priority must be a string")
+
+        normalized_priority = priority.strip().lower()
+        if not normalized_priority:
+            raise ValueError("priority must not be empty")
+
+        canonical_priority = cls._PRIORITY_ALIASES.get(normalized_priority)
+        if canonical_priority is None:
+            raise ValueError("priority must be one of: high, normal, low")
+
+        return canonical_priority
+
+    @staticmethod
+    def _apply_priority_headers(msg: MIMEMultipart, priority: str | None) -> None:
+        """Apply RFC-friendly priority headers for client inbox triage."""
+        if priority is None:
+            return
+
+        if priority == "high":
+            msg["Importance"] = "high"
+            msg["Priority"] = "urgent"
+            msg["X-Priority"] = "1"
+            return
+
+        if priority == "normal":
+            msg["Importance"] = "normal"
+            msg["Priority"] = "normal"
+            msg["X-Priority"] = "3"
+            return
+
+        msg["Importance"] = "low"
+        msg["Priority"] = "non-urgent"
+        msg["X-Priority"] = "5"
 
     @staticmethod
     def _merge_unique_recipients(*recipient_groups: Sequence[str]) -> list[str]:
@@ -391,9 +441,10 @@ class EmailService:
         reply_to_email: str | None = None,
         attachments: Sequence[EmailAttachment] | None = None,
         headers: Mapping[str, str] | None = None,
+        priority: str | None = None,
         auto_text_body: bool = True,
     ) -> MIMEMultipart:
-        """Create an email message with optional CC, Reply-To, attachments, and headers."""
+        """Create an email message with optional CC, Reply-To, attachments, headers, and priority."""
         normalized_attachments = list(attachments or [])
         msg = MIMEMultipart("mixed" if normalized_attachments else "alternative")
         msg["Subject"] = subject
@@ -405,6 +456,8 @@ class EmailService:
 
         if reply_to_email:
             msg["Reply-To"] = reply_to_email
+
+        self._apply_priority_headers(msg, priority)
 
         for header_name, header_value in (headers or {}).items():
             msg[header_name] = header_value
@@ -443,6 +496,7 @@ class EmailService:
         reply_to_email: str | None = None,
         attachments: Sequence[Mapping[str, object]] | None = None,
         headers: Mapping[str, str] | None = None,
+        priority: str | None = None,
         auto_text_body: bool = True,
     ) -> bool:
         """
@@ -467,8 +521,11 @@ class EmailService:
                   "application/octet-stream"
             headers: Optional custom message headers. Header names are
                 validated and cannot override core delivery headers such as
-                Subject, From, To, Cc, Bcc, Reply-To, Content-Type, and
-                MIME-Version.
+                Subject, From, To, Cc, Bcc, Reply-To, Content-Type,
+                MIME-Version, and priority headers.
+            priority: Optional delivery priority level (``"high"``,
+                ``"normal"``, or ``"low"``). Aliases ``"urgent"`` and
+                ``"medium"`` are also supported.
             auto_text_body: When ``True`` and ``text_body`` is omitted,
                 generate a plain-text fallback from ``html_body`` for improved
                 client compatibility.
@@ -509,6 +566,7 @@ class EmailService:
                 reply_to_email,
                 field_name="reply_to_email",
             )
+            normalized_priority = self._normalize_priority(priority)
             normalized_attachments = self._normalize_attachments(attachments)
             normalized_headers = self._normalize_headers(headers)
 
@@ -527,6 +585,7 @@ class EmailService:
                 reply_to_email=reply_to_recipient,
                 attachments=normalized_attachments,
                 headers=normalized_headers,
+                priority=normalized_priority,
                 auto_text_body=auto_text_body,
             )
 

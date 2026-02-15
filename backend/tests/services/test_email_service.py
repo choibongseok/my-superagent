@@ -555,6 +555,63 @@ class TestEmailService:
         mock_smtp.assert_not_called()
 
     @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_sets_priority_headers_for_high_priority(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """High-priority emails should include consistent triage headers."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Priority",
+            html_body="<p>urgent</p>",
+            priority="high",
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        assert sent_message["Importance"] == "high"
+        assert sent_message["Priority"] == "urgent"
+        assert sent_message["X-Priority"] == "1"
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_supports_priority_aliases(self, mock_smtp, email_service):
+        """Priority aliases should normalize to canonical header values."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Priority alias",
+            html_body="<p>normal</p>",
+            priority="medium",
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        assert sent_message["Importance"] == "normal"
+        assert sent_message["Priority"] == "normal"
+        assert sent_message["X-Priority"] == "3"
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_rejects_invalid_priority(self, mock_smtp, email_service):
+        """Unsupported priority values should fail before SMTP calls."""
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Priority",
+            html_body="<p>invalid</p>",
+            priority="critical",
+        )
+
+        assert result is False
+        mock_smtp.assert_not_called()
+
+    @patch("app.services.email_service.smtplib.SMTP")
     def test_send_email_supports_custom_headers(self, mock_smtp, email_service):
         """Custom headers should be attached without affecting recipient delivery."""
         mock_server = MagicMock()
