@@ -938,6 +938,44 @@ class LocalCacheService:
 
         return max(0.0, expires_at - time.time())
 
+    def ttl_remaining_many(
+        self,
+        keys: Iterable[str],
+        *,
+        include_missing: bool = False,
+    ) -> dict[str, float | None]:
+        """Return TTL metadata for multiple keys.
+
+        Duplicate keys are processed once, preserving order of first
+        appearance.
+
+        Args:
+            keys: Cache keys to inspect.
+            include_missing: Include missing/expired keys in the output with
+                ``None`` values.
+
+        Returns:
+            Mapping of key -> remaining TTL seconds. Non-expiring keys are
+            included with ``None`` values.
+        """
+        results: dict[str, float | None] = {}
+
+        for key in dict.fromkeys(keys):
+            item = self._get_entry(key)
+            if item is None:
+                if include_missing:
+                    results[key] = None
+                continue
+
+            _, expires_at = item
+            if expires_at is None:
+                results[key] = None
+                continue
+
+            results[key] = max(0.0, expires_at - time.time())
+
+        return results
+
     def touch(self, key: str, ttl_seconds: int | None) -> bool:
         """Refresh TTL for an existing key while preserving its value.
 

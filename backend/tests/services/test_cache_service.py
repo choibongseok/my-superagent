@@ -659,6 +659,51 @@ def test_local_cache_ttl_remaining_returns_none_for_missing_or_non_expiring_keys
     assert cache.ttl_remaining("persistent") is None
 
 
+def test_local_cache_ttl_remaining_many_returns_unique_keys_in_request_order():
+    cache = LocalCacheService()
+    cache.set("expiring", "value", ttl_seconds=2)
+    cache.set("persistent", "value")
+
+    ttls = cache.ttl_remaining_many(["expiring", "persistent", "expiring"])
+
+    assert list(ttls.keys()) == ["expiring", "persistent"]
+    assert ttls["persistent"] is None
+    assert ttls["expiring"] is not None
+    assert 0 < ttls["expiring"] <= 2
+
+
+def test_local_cache_ttl_remaining_many_can_include_missing_or_expired_keys():
+    cache = LocalCacheService()
+    cache.set("active", "value", ttl_seconds=2)
+    cache.set("short", "value", ttl_seconds=1)
+
+    time.sleep(1.05)
+
+    ttls = cache.ttl_remaining_many(
+        ["missing", "active", "short", "unknown"],
+        include_missing=True,
+    )
+
+    assert list(ttls.keys()) == ["missing", "active", "short", "unknown"]
+    assert ttls["missing"] is None
+    assert ttls["short"] is None
+    assert ttls["unknown"] is None
+    assert ttls["active"] is not None
+    assert 0 < ttls["active"] <= 2
+
+
+def test_local_cache_ttl_remaining_many_does_not_mutate_lookup_stats():
+    cache = LocalCacheService()
+    cache.set("active", "value", ttl_seconds=2)
+
+    before_stats = cache.stats().copy()
+
+    cache.ttl_remaining_many(["active", "missing"], include_missing=True)
+
+    after_stats = cache.stats()
+    assert after_stats == before_stats
+
+
 def test_local_cache_touch_extends_existing_ttl():
     cache = LocalCacheService()
     cache.set("session", "abc", ttl_seconds=1)
