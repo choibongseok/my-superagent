@@ -1018,6 +1018,94 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_harmonic_mean_numeric_transforms(
+        self, service_with_mock_db
+    ):
+        """harmmean/hmean/harmonic_mean should return harmonic means for iterables."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "Harm mean: {durations->harmmean->round(3)}, "
+                "Alias: {durations->hmean()->round(3)}, "
+                "Function: {durations->harmonic_mean()->round(3)}"
+            ),
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"durations": [1, 2, 4]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Harm mean: 1.714, Alias: 1.714, Function: 1.714"
+        assert template.usage_count == 2
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_harmonic_mean_transform_for_non_positive_values(
+        self, service_with_mock_db
+    ):
+        """harmmean should reject zero and negative values."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Harm mean: {durations->harmmean}",
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'harmmean'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"durations": [0, 2, -4]},
+                    user_id,
+                )
+
+        assert template.usage_count == 3
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_harmonic_mean_transform_with_arguments(
+        self, service_with_mock_db
+    ):
+        """harmmean should reject arguments to keep semantics deterministic."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Harm mean: {durations->harmmean(weighted)}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'harmmean\(weighted\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"durations": [1, 2, 4]},
+                    user_id,
+                )
+
+        assert template.usage_count == 2
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_product_numeric_transforms(
         self, service_with_mock_db
     ):

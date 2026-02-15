@@ -671,6 +671,33 @@ def _geometric_mean_numeric_values(
     return geometric_mean
 
 
+def _harmonic_mean_numeric_values(
+    value: object,
+    argument_spec: str,
+    *,
+    transform_name: str = "harmmean",
+) -> int | float:
+    """Return harmonic mean for non-empty positive numeric iterables."""
+    if argument_spec.strip():
+        raise ValueError(f"{transform_name} expects no arguments")
+
+    numeric_values = _iter_numeric_values(value, transform_name=transform_name)
+    if not numeric_values:
+        raise ValueError(f"{transform_name} expects a non-empty iterable value")
+
+    if any(item <= 0 for item in numeric_values):
+        raise ValueError(f"{transform_name} expects positive numeric values")
+
+    reciprocal_sum = sum(1 / item for item in numeric_values)
+    harmonic_mean = len(numeric_values) / reciprocal_sum
+
+    rounded_integer = round(harmonic_mean)
+    if math.isclose(harmonic_mean, rounded_integer, rel_tol=0.0, abs_tol=1e-12):
+        return int(rounded_integer)
+
+    return harmonic_mean
+
+
 def _min_numeric_value(value: object, argument_spec: str) -> int | float:
     """Return the minimum numeric value from a non-empty iterable."""
     if argument_spec.strip():
@@ -1138,6 +1165,7 @@ class TemplateService:
         - ``{durations->product}``, ``{durations->product(0.5)}``
         - ``{durations->avg}``
         - ``{durations->geomean}``, ``{durations->gmean}``
+        - ``{durations->harmmean}``, ``{durations->hmean}``, ``{durations->harmonic_mean}``
         - ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``
         - ``{latencies->percentile(95)}``, ``{latencies->pctl(90)}``
         - ``{latencies->variance}``, ``{latencies->var}``
@@ -1215,6 +1243,17 @@ class TemplateService:
                 "",
                 transform_name="gmean",
             ),
+            "harmmean": lambda raw: _harmonic_mean_numeric_values(raw, ""),
+            "hmean": lambda raw: _harmonic_mean_numeric_values(
+                raw,
+                "",
+                transform_name="hmean",
+            ),
+            "harmonic_mean": lambda raw: _harmonic_mean_numeric_values(
+                raw,
+                "",
+                transform_name="harmonic_mean",
+            ),
             "min": lambda raw: _min_numeric_value(raw, ""),
             "max": lambda raw: _max_numeric_value(raw, ""),
             "median": lambda raw: _median_numeric_value(raw, ""),
@@ -1252,6 +1291,9 @@ class TemplateService:
                 "mean",
                 "geomean",
                 "gmean",
+                "harmmean",
+                "hmean",
+                "harmonic_mean",
                 "min",
                 "max",
                 "median",
@@ -1358,6 +1400,12 @@ class TemplateService:
                     )
                 elif transform_name in {"geomean", "gmean"}:
                     operation = lambda raw, spec=argument_spec, name=transform_name: _geometric_mean_numeric_values(
+                        raw,
+                        spec,
+                        transform_name=name,
+                    )
+                elif transform_name in {"harmmean", "hmean", "harmonic_mean"}:
+                    operation = lambda raw, spec=argument_spec, name=transform_name: _harmonic_mean_numeric_values(
                         raw,
                         spec,
                         transform_name=name,
