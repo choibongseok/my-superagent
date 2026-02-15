@@ -1,6 +1,7 @@
 """Redis cache configuration and utilities."""
 
 import asyncio
+from dataclasses import asdict, is_dataclass
 from functools import wraps
 import inspect
 import json
@@ -145,6 +146,35 @@ class RedisCache:
 cache = RedisCache()
 
 
+def _extract_mapping_payload(value: Any) -> Mapping[str, Any] | None:
+    """Extract mapping-style payloads from structured objects for key stability."""
+    if is_dataclass(value) and not isinstance(value, type):
+        return asdict(value)
+
+    mapping_extractors = (
+        ("model_dump", {"mode": "json"}),
+        ("dict", {}),
+        ("_asdict", {}),
+    )
+
+    for extractor_name, extractor_kwargs in mapping_extractors:
+        extractor = getattr(value, extractor_name, None)
+        if not callable(extractor):
+            continue
+
+        try:
+            payload = extractor(**extractor_kwargs)
+        except TypeError:
+            payload = extractor()
+        except Exception:
+            continue
+
+        if isinstance(payload, Mapping):
+            return payload
+
+    return None
+
+
 def _normalize_cache_key_value(value: Any) -> Any:
     """Normalize cache-key values into deterministic JSON-serializable payloads."""
     if isinstance(value, (str, int, float, bool)) or value is None:
@@ -158,6 +188,10 @@ def _normalize_cache_key_value(value: Any) -> Any:
 
     if isinstance(value, UUID):
         return str(value)
+
+    extracted_mapping = _extract_mapping_payload(value)
+    if extracted_mapping is not None:
+        return _normalize_cache_key_value(extracted_mapping)
 
     if isinstance(value, Mapping):
         return {

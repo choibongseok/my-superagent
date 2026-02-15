@@ -1,6 +1,7 @@
 """Tests for Redis cache key utilities and cache decorators."""
 
 import asyncio
+from dataclasses import dataclass
 
 import pytest
 
@@ -28,6 +29,51 @@ def test_cache_key_normalizes_nested_mappings_deterministically():
 
 def test_cache_key_distinguishes_string_and_numeric_scalars():
     assert cache_key("1") != cache_key(1)
+
+
+def test_cache_key_normalizes_dataclass_instances_deterministically():
+    @dataclass
+    class Filters:
+        region: str
+        team: list[str]
+
+    @dataclass
+    class Query:
+        filters: Filters
+        limit: int
+
+    left = Query(filters=Filters(region="apac", team=["platform", "search"]), limit=10)
+    right = Query(
+        filters=Filters(team=["platform", "search"], region="apac"),
+        limit=10,
+    )
+
+    assert cache_key(left) == cache_key(right)
+
+
+def test_cache_key_uses_model_dump_payloads_when_available():
+    class FakeModel:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def model_dump(self, mode="python"):
+            assert mode == "json"
+            return self._payload
+
+    left = FakeModel(
+        {
+            "filters": {"region": "apac", "team": ["platform", "search"]},
+            "limit": 10,
+        }
+    )
+    right = FakeModel(
+        {
+            "limit": 10,
+            "filters": {"team": ["platform", "search"], "region": "apac"},
+        }
+    )
+
+    assert cache_key(left) == cache_key(right)
 
 
 @pytest.mark.asyncio
