@@ -380,6 +380,81 @@ def test_render_many_can_render_specific_version(temp_registry):
     assert rendered == ["v1:A", "v1:B"]
 
 
+def test_render_many_safe_collects_per_item_failures_without_raising(temp_registry):
+    """render_many_safe should preserve order while reporting per-item errors."""
+    temp_registry.register(
+        name="bulk_safe",
+        template="{title}: {body}",
+        variables=["title", "body"],
+        version="v1",
+    )
+
+    rows = temp_registry.render_many_safe(
+        "bulk_safe",
+        [
+            {"title": "ok", "body": "first"},
+            {"title": "missing body"},
+            "not-a-mapping",  # type: ignore[list-item]
+        ],
+    )
+
+    assert rows == [
+        {
+            "index": 0,
+            "ok": True,
+            "rendered": "ok: first",
+            "error": None,
+        },
+        {
+            "index": 1,
+            "ok": False,
+            "rendered": None,
+            "error": "Missing prompt variables for 'bulk_safe' at index 1: body",
+        },
+        {
+            "index": 2,
+            "ok": False,
+            "rendered": None,
+            "error": "render_many_safe expects each variable set to be a mapping",
+        },
+    ]
+
+
+def test_render_many_safe_supports_non_strict_mode_and_default_variables(temp_registry):
+    """render_many_safe should reuse render semantics for strict/default options."""
+    temp_registry.register(
+        name="bulk_safe_defaults",
+        template="{greeting}, {name}",
+        variables=["greeting", "name"],
+        version="v1",
+    )
+
+    rows = temp_registry.render_many_safe(
+        "bulk_safe_defaults",
+        [
+            {"name": "Codex", "extra": "ignored"},
+            {"name": "Planner", "greeting": "Welcome"},
+        ],
+        strict=False,
+        default_variables={"greeting": "Hello"},
+    )
+
+    assert rows == [
+        {
+            "index": 0,
+            "ok": True,
+            "rendered": "Hello, Codex",
+            "error": None,
+        },
+        {
+            "index": 1,
+            "ok": True,
+            "rendered": "Welcome, Planner",
+            "error": None,
+        },
+    ]
+
+
 def test_list_versions(temp_registry):
     """Test listing all versions of a prompt."""
     # Register multiple versions

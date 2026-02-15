@@ -299,6 +299,70 @@ class PromptRegistry:
 
         return rendered_prompts
 
+    def render_many_safe(
+        self,
+        name: str,
+        variable_sets: Iterable[Mapping[str, Any]],
+        *,
+        version: str | None = None,
+        strict: bool = True,
+        default_variables: Mapping[str, Any] | None = None,
+    ) -> List[Dict[str, Any]]:
+        """Render many variable sets while collecting per-item failures.
+
+        Unlike :meth:`render_many`, this helper never raises for per-item
+        rendering issues. Instead, each row includes ``ok`` and either
+        ``rendered`` output or an ``error`` message.
+
+        Raises:
+            ValueError: When the prompt/version is missing.
+            TypeError: When ``default_variables`` is not a mapping.
+        """
+        prompt_version = self._get_prompt_or_raise(name, version=version)
+
+        results: List[Dict[str, Any]] = []
+        for index, values in enumerate(variable_sets):
+            if not isinstance(values, Mapping):
+                results.append(
+                    {
+                        "index": index,
+                        "ok": False,
+                        "rendered": None,
+                        "error": "render_many_safe expects each variable set to be a mapping",
+                    }
+                )
+                continue
+
+            try:
+                rendered = self._render_prompt_version(
+                    name=name,
+                    prompt_version=prompt_version,
+                    provided_variables=dict(values),
+                    strict=strict,
+                    default_variables=default_variables,
+                    error_context=f" at index {index}",
+                )
+            except Exception as error:
+                results.append(
+                    {
+                        "index": index,
+                        "ok": False,
+                        "rendered": None,
+                        "error": str(error),
+                    }
+                )
+            else:
+                results.append(
+                    {
+                        "index": index,
+                        "ok": True,
+                        "rendered": rendered,
+                        "error": None,
+                    }
+                )
+
+        return results
+
     def rollback(
         self,
         name: str,
