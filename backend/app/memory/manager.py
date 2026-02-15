@@ -323,10 +323,15 @@ class MemoryManager:
         min_adaptive_threshold: float = 0.5,
         max_score_gap: Optional[float] = None,
         min_score_margin: Optional[float] = None,
+        min_relative_score: Optional[float] = None,
         include_score_context: bool = False,
         unique_content: bool = False,
         required_terms: Optional[List[str]] = None,
         required_terms_mode: str = "all",
+        excluded_terms: Optional[List[str]] = None,
+        excluded_terms_mode: str = "any",
+        created_after: Optional[datetime | str] = None,
+        created_before: Optional[datetime | str] = None,
         offset: Optional[int] = None,
         max_results_per_session: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
@@ -351,12 +356,20 @@ class MemoryManager:
             max_score_gap: Keep only results within this score gap from top score.
             min_score_margin: Require matches to exceed the active threshold by
                 this additional margin.
+            min_relative_score: Keep only results whose score remains above this
+                ratio of the top candidate.
             include_score_context: Include per-result ranking/threshold context.
             unique_content: Drop duplicate memories using normalized content.
             required_terms: Optional lexical terms that must appear in memory
                 content after normalization.
             required_terms_mode: Lexical matching mode for ``required_terms``
                 ("all" or "any").
+            excluded_terms: Optional lexical terms that should remove matching
+                memories after normalization.
+            excluded_terms_mode: Lexical matching mode for ``excluded_terms``
+                ("all" or "any").
+            created_after: Optional inclusive lower timestamp bound for matches.
+            created_before: Optional inclusive upper timestamp bound for matches.
             offset: Zero-based pagination offset applied before final ``k`` limit.
             max_results_per_session: Optional per-session cap for result
                 diversification based on ``metadata.session_id``.
@@ -390,10 +403,15 @@ class MemoryManager:
                 min_adaptive_threshold=min_adaptive_threshold,
                 max_score_gap=max_score_gap,
                 min_score_margin=min_score_margin,
+                min_relative_score=min_relative_score,
                 include_score_context=include_score_context,
                 unique_content=unique_content,
                 required_terms=required_terms,
                 required_terms_mode=required_terms_mode,
+                excluded_terms=excluded_terms,
+                excluded_terms_mode=excluded_terms_mode,
+                created_after=created_after,
+                created_before=created_before,
                 offset=offset,
                 max_results_per_session=max_results_per_session,
             )

@@ -1,5 +1,7 @@
 """Tests for MemoryManager context retrieval behavior."""
 
+from datetime import datetime, timezone
+
 from app.memory.manager import MemoryManager
 
 
@@ -216,10 +218,15 @@ class TestMemoryManagerContext:
             "min_adaptive_threshold": 0.5,
             "max_score_gap": None,
             "min_score_margin": None,
+            "min_relative_score": None,
             "include_score_context": False,
             "unique_content": False,
             "required_terms": None,
             "required_terms_mode": "all",
+            "excluded_terms": None,
+            "excluded_terms_mode": "any",
+            "created_after": None,
+            "created_before": None,
             "offset": None,
             "max_results_per_session": None,
         }
@@ -258,10 +265,15 @@ class TestMemoryManagerContext:
             "min_adaptive_threshold": 0.5,
             "max_score_gap": None,
             "min_score_margin": None,
+            "min_relative_score": None,
             "include_score_context": False,
             "unique_content": False,
             "required_terms": None,
             "required_terms_mode": "all",
+            "excluded_terms": None,
+            "excluded_terms_mode": "any",
+            "created_after": None,
+            "created_before": None,
             "offset": None,
             "max_results_per_session": None,
         }
@@ -302,10 +314,15 @@ class TestMemoryManagerContext:
             "min_adaptive_threshold": 0.6,
             "max_score_gap": 0.08,
             "min_score_margin": 0.04,
+            "min_relative_score": None,
             "include_score_context": True,
             "unique_content": True,
             "required_terms": None,
             "required_terms_mode": "all",
+            "excluded_terms": None,
+            "excluded_terms_mode": "any",
+            "created_after": None,
+            "created_before": None,
             "offset": 2,
             "max_results_per_session": None,
         }
@@ -351,3 +368,43 @@ class TestMemoryManagerContext:
             ]
             == 1
         )
+
+    def test_search_memory_forwards_negative_lexical_and_relative_controls(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="session-lexical",
+            use_vector_memory=False,
+        )
+        manager.vector_memory = RecordingVectorMemory()
+
+        manager.search_memory(
+            query="launch prep",
+            min_relative_score=0.9,
+            excluded_terms=["deprecated", "archive"],
+            excluded_terms_mode="all",
+        )
+
+        forwarded_kwargs = manager.vector_memory.last_search_with_scores_kwargs
+        assert forwarded_kwargs["min_relative_score"] == 0.9
+        assert forwarded_kwargs["excluded_terms"] == ["deprecated", "archive"]
+        assert forwarded_kwargs["excluded_terms_mode"] == "all"
+
+    def test_search_memory_forwards_timestamp_boundaries(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="session-time-window",
+            use_vector_memory=False,
+        )
+        manager.vector_memory = RecordingVectorMemory()
+
+        created_after = datetime(2026, 2, 15, 8, 0, tzinfo=timezone.utc)
+
+        manager.search_memory(
+            query="incident timeline",
+            created_after=created_after,
+            created_before="2026-02-15T12:00:00Z",
+        )
+
+        forwarded_kwargs = manager.vector_memory.last_search_with_scores_kwargs
+        assert forwarded_kwargs["created_after"] == created_after
+        assert forwarded_kwargs["created_before"] == "2026-02-15T12:00:00Z"
