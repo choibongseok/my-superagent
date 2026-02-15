@@ -540,9 +540,10 @@ class PluginManager:
             query_case_sensitive: When ``True``, preserve case when matching
                 query text. Defaults to ``False`` for case-insensitive
                 matching.
-            sort_by: Optional manifest field used for sorting output. Supports
-                ``"name"``, ``"version"``, ``"author"``, and
-                ``"permission_count"``.
+            sort_by: Optional field used for sorting output. Supports
+                ``"name"``, ``"version"``, ``"author"``,
+                ``"permission_count"``, runtime ``"module_path"``, and
+                runtime ``"initialized"`` status.
             sort_order: Sorting direction used when ``sort_by`` is provided.
                 Supports ``"asc"`` (default) and ``"desc"``.
             offset: Number of filtered/sorted plugin entries to skip before
@@ -602,17 +603,26 @@ class PluginManager:
 
         normalized_query_fields = self._normalize_query_fields(query_fields)
 
-        allowed_sort_fields = {"name", "version", "author", "permission_count"}
+        allowed_sort_fields = {
+            "name",
+            "version",
+            "author",
+            "permission_count",
+            "module_path",
+            "initialized",
+        }
         if sort_by is not None:
             if not isinstance(sort_by, str) or not sort_by.strip():
                 raise ValueError(
-                    "sort_by must be one of: name, version, author, permission_count"
+                    "sort_by must be one of: name, version, author, "
+                    "permission_count, module_path, initialized"
                 )
 
             sort_by = sort_by.strip().lower()
             if sort_by not in allowed_sort_fields:
                 raise ValueError(
-                    "sort_by must be one of: name, version, author, permission_count"
+                    "sort_by must be one of: name, version, author, "
+                    "permission_count, module_path, initialized"
                 )
 
         if not isinstance(sort_order, str) or not sort_order.strip():
@@ -709,6 +719,35 @@ class PluginManager:
                 manifests = sorted(
                     manifests,
                     key=lambda manifest: len(manifest.permissions),
+                    reverse=reverse_sort,
+                )
+            elif sort_by == "module_path":
+                manifests = sorted(
+                    manifests,
+                    key=lambda manifest: (
+                        str(
+                            (
+                                plugin.__class__.__module__
+                                if (plugin := self.plugins.get(manifest.name))
+                                is not None
+                                else ""
+                            )
+                        ).casefold(),
+                        manifest.name.casefold(),
+                    ),
+                    reverse=reverse_sort,
+                )
+            elif sort_by == "initialized":
+                manifests = sorted(
+                    manifests,
+                    key=lambda manifest: (
+                        (
+                            plugin.is_initialized()
+                            if (plugin := self.plugins.get(manifest.name)) is not None
+                            else False
+                        ),
+                        manifest.name.casefold(),
+                    ),
                     reverse=reverse_sort,
                 )
             else:
