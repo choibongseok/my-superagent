@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import html
 import logging
+import mimetypes
+import os
 import re
 import smtplib
 from collections.abc import Mapping, Sequence
@@ -90,8 +92,7 @@ class EmailService:
         without_tags = re.sub(r"(?s)<[^>]+>", " ", with_block_newlines)
 
         normalized_lines = [
-            " ".join(line.split())
-            for line in html.unescape(without_tags).splitlines()
+            " ".join(line.split()) for line in html.unescape(without_tags).splitlines()
         ]
 
         return "\n".join(line for line in normalized_lines if line).strip()
@@ -262,7 +263,15 @@ class EmailService:
         cls,
         attachments: Sequence[Mapping[str, object]] | None,
     ) -> list[EmailAttachment]:
-        """Normalize attachment payloads for MIME encoding."""
+        """Normalize attachment payloads for MIME encoding.
+
+        Each attachment entry can provide either:
+        - ``content`` (bytes-like or string payload), or
+        - ``path`` / ``file_path`` to load content from disk.
+
+        ``filename`` is required for ``content`` attachments and optional for
+        path-based attachments (defaults to the path basename).
+        """
         if attachments is None:
             return []
 
@@ -271,7 +280,56 @@ class EmailService:
             if not isinstance(attachment, Mapping):
                 raise TypeError("attachments entries must be mappings")
 
+            raw_path = attachment.get("path", attachment.get("file_path"))
+            has_content = "content" in attachment
+            has_path = raw_path is not None
+
+            if has_content and has_path:
+                raise ValueError(
+                    "attachments must provide either content or path, not both"
+                )
+            if not has_content and not has_path:
+                raise ValueError("attachments must provide content or path")
+
+            resolved_path: str | None = None
+            payload: bytes
+
+            if has_path:
+                if not isinstance(raw_path, str):
+                    raise TypeError("attachments path must be a string")
+
+                resolved_path = cls._sanitize_header_value(
+                    raw_path,
+                    field_name="attachments path",
+                )
+                if not resolved_path:
+                    raise ValueError("attachments path must not be empty")
+
+                try:
+                    with open(resolved_path, "rb") as file_handle:
+                        payload = file_handle.read()
+                except OSError as exc:
+                    raise ValueError(
+                        f"attachments[{index}] path could not be read: {resolved_path}"
+                    ) from exc
+            else:
+                content = attachment.get("content")
+                if isinstance(content, str):
+                    payload = content.encode("utf-8")
+                elif isinstance(content, (bytes, bytearray, memoryview)):
+                    payload = bytes(content)
+                else:
+                    raise TypeError(
+                        "attachments content must be bytes, bytearray, memoryview, or str"
+                    )
+
+            if not payload:
+                raise ValueError("attachments content must not be empty")
+
             raw_filename = attachment.get("filename")
+            if raw_filename is None and resolved_path is not None:
+                raw_filename = os.path.basename(resolved_path)
+
             if not isinstance(raw_filename, str):
                 raise TypeError("attachments filename must be a string")
 
@@ -282,20 +340,13 @@ class EmailService:
             if not filename:
                 raise ValueError("attachments filename must not be empty")
 
-            content = attachment.get("content")
-            if isinstance(content, str):
-                payload = content.encode("utf-8")
-            elif isinstance(content, (bytes, bytearray, memoryview)):
-                payload = bytes(content)
-            else:
-                raise TypeError(
-                    "attachments content must be bytes, bytearray, memoryview, or str"
+            raw_mime_type = attachment.get("mime_type")
+            if raw_mime_type is None:
+                guessed_mime_type = (
+                    mimetypes.guess_type(resolved_path)[0] if resolved_path else None
                 )
+                raw_mime_type = guessed_mime_type or "application/octet-stream"
 
-            if not payload:
-                raise ValueError("attachments content must not be empty")
-
-            raw_mime_type = attachment.get("mime_type", "application/octet-stream")
             if not isinstance(raw_mime_type, str):
                 raise TypeError("attachments mime_type must be a string")
 
@@ -406,9 +457,13 @@ class EmailService:
             bcc_emails: Blind carbon-copy recipients hidden from headers
             reply_to_email: Optional Reply-To email address for recipient responses
             attachments: Optional email attachments with keys:
-                - filename (str): Attachment display name
+                - filename (str, optional): Attachment display name. Required
+                  when using ``content`` and optional when using ``path``.
                 - content (bytes | bytearray | memoryview | str): Payload data
-                - mime_type (str, optional): MIME type, defaults to
+                - path / file_path (str): Filesystem path to load attachment
+                  content from disk
+                - mime_type (str, optional): MIME type. Defaults to detected
+                  file type for path-based attachments, otherwise
                   "application/octet-stream"
             headers: Optional custom message headers. Header names are
                 validated and cannot override core delivery headers such as

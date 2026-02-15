@@ -451,6 +451,71 @@ class TestEmailService:
         ]
 
     @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_supports_path_based_attachments(
+        self,
+        mock_smtp,
+        email_service,
+        tmp_path,
+    ):
+        """Attachments can be loaded from local file paths with inferred metadata."""
+        report_path = tmp_path / "report.txt"
+        report_path.write_text("daily summary", encoding="utf-8")
+
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Path attachment",
+            html_body="<p>See file.</p>",
+            attachments=[
+                {
+                    "path": str(report_path),
+                }
+            ],
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        attachments = [
+            part
+            for part in sent_message.walk()
+            if part.get_content_disposition() == "attachment"
+        ]
+
+        assert len(attachments) == 1
+        assert attachments[0].get_filename() == "report.txt"
+        assert attachments[0].get_content_type() == "text/plain"
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_rejects_attachments_with_conflicting_content_and_path(
+        self,
+        mock_smtp,
+        email_service,
+        tmp_path,
+    ):
+        """Attachment entries must provide either content or path, not both."""
+        report_path = tmp_path / "report.txt"
+        report_path.write_text("daily summary", encoding="utf-8")
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Invalid attachment",
+            html_body="<p>fail</p>",
+            attachments=[
+                {
+                    "filename": "report.txt",
+                    "content": "inline",
+                    "path": str(report_path),
+                }
+            ],
+        )
+
+        assert result is False
+        mock_smtp.assert_not_called()
+
+    @patch("app.services.email_service.smtplib.SMTP")
     def test_send_email_rejects_invalid_attachment_payloads(
         self,
         mock_smtp,
