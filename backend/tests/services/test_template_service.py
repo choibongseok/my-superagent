@@ -2892,6 +2892,128 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_flatten_transform_for_nested_iterables(
+        self, service_with_mock_db
+    ):
+        """flatten should collapse one iterable nesting level for pipelines."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Owners: {owner_groups->flatten->unique->sort->join(" | ")}',
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "owner_groups": [
+                        ["Mina", "Jin"],
+                        ("Jin", "Alex"),
+                        ["Mina"],
+                    ]
+                },
+                user_id,
+            )
+
+        assert result["prompt"] == "Owners: Alex | Jin | Mina"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_flatten_transform_preserves_string_items(
+        self, service_with_mock_db
+    ):
+        """flatten should keep nested strings as atomic values, not characters."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Values: {values->flatten->join(",")}',
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "values": [
+                        ["ab", "cd"],
+                        "ef",
+                        ("gh",),
+                    ]
+                },
+                user_id,
+            )
+
+        assert result["prompt"] == "Values: ab,cd,ef,gh"
+        assert template.usage_count == 4
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_flatten_transform_for_non_iterables(
+        self, service_with_mock_db
+    ):
+        """flatten should reject scalar values that are not iterable."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Values: {value->flatten}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match="Failed to apply template transform 'flatten'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"value": 42},
+                    user_id,
+                )
+
+        assert template.usage_count == 2
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_flatten_transform_with_arguments(
+        self, service_with_mock_db
+    ):
+        """flatten should not accept arguments to keep semantics unambiguous."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Values: {value->flatten(1)}",
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'flatten\(1\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"value": [["a"]]},
+                    user_id,
+                )
+
+        assert template.usage_count == 1
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_sort_transform_for_strings(
         self, service_with_mock_db
     ):

@@ -7,6 +7,7 @@ import math
 import re
 import textwrap
 import unicodedata
+from collections.abc import Mapping
 from string import Formatter
 from typing import List, Optional
 from urllib.parse import quote_plus
@@ -330,6 +331,47 @@ def _split_text(value: object, argument_spec: str) -> list[str]:
             raise ValueError("split maxsplit must be greater than or equal to -1")
 
     return value.split(separator, maxsplit)
+
+
+def _flatten_values(value: object) -> list[object]:
+    """Flatten one level of nested iterables while preserving item order."""
+    if isinstance(value, (str, bytes, bytearray)):
+        raise ValueError("flatten expects an iterable value, not a string")
+
+    try:
+        iterator = iter(value)
+    except TypeError as exc:
+        raise ValueError("flatten expects an iterable value") from exc
+
+    flattened: list[object] = []
+
+    for item in iterator:
+        if isinstance(item, (str, bytes, bytearray, Mapping)):
+            flattened.append(item)
+            continue
+
+        try:
+            nested_iterator = iter(item)
+        except TypeError:
+            flattened.append(item)
+            continue
+
+        flattened.extend(nested_iterator)
+
+    return flattened
+
+
+def _flatten_values_with_args(
+    value: object,
+    argument_spec: str,
+    *,
+    transform_name: str = "flatten",
+) -> list[object]:
+    """Apply flatten transform while rejecting unsupported arguments."""
+    if argument_spec.strip():
+        raise ValueError(f"{transform_name} expects no arguments")
+
+    return _flatten_values(value)
 
 
 def _unique_values(value: object) -> list[object]:
@@ -1266,6 +1308,7 @@ class TemplateService:
         - ``{title->replace_regex("agent","assistant","i")}``
         - ``{path->strip_prefix("/tmp/")->strip_suffix(".txt")}``
         - ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``
+        - ``{owner_groups->flatten->unique->sort->join(", ")}``
         - ``{items->length}``
         - ``{owners->distinct_count}``
         - ``{backlog->first}``, ``{backlog->last}``
@@ -1341,6 +1384,8 @@ class TemplateService:
             "urlencode": lambda raw: quote_plus(str(raw), safe=""),
             "slug": _to_slug,
             "split": lambda raw: _split_text(raw, ""),
+            "flatten": _flatten_values,
+            "flat": _flatten_values,
             "unique": _unique_values,
             "sort": lambda raw: _sort_values(raw, ""),
             "length": _length_of,
@@ -1423,6 +1468,8 @@ class TemplateService:
                 "append(<suffix>)",
                 "join([separator])",
                 "split([separator[,maxsplit]])",
+                "flatten",
+                "flat",
                 "sort([asc|desc])",
                 "distinct_count",
                 "slice(<start>[,<end>[,<step>]])",
@@ -1518,6 +1565,12 @@ class TemplateService:
                     operation = lambda raw, spec=argument_spec: _join_values(raw, spec)
                 elif transform_name == "split":
                     operation = lambda raw, spec=argument_spec: _split_text(raw, spec)
+                elif transform_name in {"flatten", "flat"}:
+                    operation = lambda raw, spec=argument_spec, name=transform_name: _flatten_values_with_args(
+                        raw,
+                        spec,
+                        transform_name=name,
+                    )
                 elif transform_name == "sort":
                     operation = lambda raw, spec=argument_spec: _sort_values(raw, spec)
                 elif transform_name == "slice":
@@ -1698,7 +1751,8 @@ class TemplateService:
         ``{title->replace("Agent", "Assistant")}``,
         ``{title->replace_regex("agent","assistant","i")}``,
         ``{path->strip_prefix("/tmp/")->strip_suffix(".txt")}``,
-        ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
+        ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``,
+        ``{owner_groups->flatten->unique->sort->join(", ")}``, ``{items->length}``,
         ``{owners->distinct_count}``, ``{queue->first}``, ``{queue->last}``,
         ``{tasks->reverse}``,
         ``{milestones->slice(0,2)}``, ``{items->slice(0,10,2)}``,
