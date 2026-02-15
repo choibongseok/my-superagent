@@ -244,3 +244,57 @@ async def test_cached_rejects_non_boolean_cache_control_flags(monkeypatch):
 
     with pytest.raises(ValueError, match="disable_cache must be a boolean"):
         await compute(1, disable_cache="yes")
+
+
+def test_cached_rejects_non_callable_cache_condition():
+    with pytest.raises(ValueError, match="cache_condition must be callable"):
+        cached(prefix="example", cache_condition="not-callable")  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_cached_cache_condition_can_skip_writing_specific_results(monkeypatch):
+    cached_values: dict[str, int | None] = {}
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int | None, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    calls = {"count": 0}
+
+    @cached(prefix="example", cache_condition=lambda value: value is not None)
+    async def compute(value: int) -> int | None:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return None
+        return value + calls["count"]
+
+    assert await compute(10) is None
+    assert await compute(10) == 12
+    assert await compute(10) == 12
+
+    assert calls["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_cached_cache_condition_must_return_boolean(monkeypatch):
+    async def fake_get(_: str):
+        return None
+
+    async def fake_set(_: str, __: int, ttl=None):
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    @cached(prefix="example", cache_condition=lambda _: "yes")
+    async def compute(value: int) -> int:
+        return value
+
+    with pytest.raises(ValueError, match="cache_condition must return a boolean"):
+        await compute(1)

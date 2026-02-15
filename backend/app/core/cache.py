@@ -220,6 +220,7 @@ def cached(
     skip_first_arg: Optional[bool] = None,
     refresh_flag: Optional[str] = "refresh_cache",
     disable_flag: Optional[str] = "disable_cache",
+    cache_condition: Optional[Callable[[Any], bool]] = None,
 ):
     """
     Decorator for caching function results.
@@ -235,6 +236,8 @@ def cached(
             while still writing the new result to cache.
         disable_flag: Optional kwarg name that bypasses cache reads and writes
             for a single call.
+        cache_condition: Optional predicate that receives the computed result
+            and returns ``True`` when the value should be written to cache.
 
     Example:
         @cached(prefix="user", ttl=300)
@@ -264,6 +267,9 @@ def cached(
         and refresh_flag == disable_flag
     ):
         raise ValueError("refresh_flag and disable_flag must be different values")
+
+    if cache_condition is not None and not callable(cache_condition):
+        raise ValueError("cache_condition must be callable when provided")
 
     def decorator(func: Callable):
         def _resolve_key_args(call_args: tuple[Any, ...]) -> tuple[Any, ...]:
@@ -298,6 +304,16 @@ def cached(
 
             return flag_value
 
+        def _should_cache_result(result: Any) -> bool:
+            if cache_condition is None:
+                return True
+
+            decision = cache_condition(result)
+            if not isinstance(decision, bool):
+                raise ValueError("cache_condition must return a boolean")
+
+            return decision
+
         @wraps(func)
         async def wrapper(*args, **kwargs):
             runtime_kwargs = dict(kwargs)
@@ -325,7 +341,8 @@ def cached(
             result = await func(*args, **runtime_kwargs)
 
             # Cache result
-            await cache.set(key, result, ttl)
+            if _should_cache_result(result):
+                await cache.set(key, result, ttl)
 
             return result
 
