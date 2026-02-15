@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import re
 import smtplib
@@ -68,6 +69,32 @@ class EmailService:
             raise ValueError(f"{field_name} entries cannot contain newline characters")
 
         return value.strip()
+
+    @classmethod
+    def _build_fallback_text_body(cls, html_body: str) -> str:
+        """Build a readable plain-text fallback from HTML content."""
+        if not isinstance(html_body, str):
+            raise TypeError("html_body must be a string")
+
+        without_scripts = re.sub(
+            r"(?is)<(script|style)\b[^>]*>.*?</\1>",
+            " ",
+            html_body,
+        )
+        with_breaks = re.sub(r"(?i)<\s*br\s*/?>", "\n", without_scripts)
+        with_block_newlines = re.sub(
+            r"(?i)</\s*(p|div|li|tr|h[1-6])\s*>",
+            "\n",
+            with_breaks,
+        )
+        without_tags = re.sub(r"(?s)<[^>]+>", " ", with_block_newlines)
+
+        normalized_lines = [
+            " ".join(line.split())
+            for line in html.unescape(without_tags).splitlines()
+        ]
+
+        return "\n".join(line for line in normalized_lines if line).strip()
 
     @classmethod
     def _parse_recipient_addresses(
@@ -313,6 +340,7 @@ class EmailService:
         reply_to_email: str | None = None,
         attachments: Sequence[EmailAttachment] | None = None,
         headers: Mapping[str, str] | None = None,
+        auto_text_body: bool = True,
     ) -> MIMEMultipart:
         """Create an email message with optional CC, Reply-To, attachments, and headers."""
         normalized_attachments = list(attachments or [])
@@ -337,9 +365,13 @@ class EmailService:
 
         target_container = content_container or msg
 
-        # Add plain text version if provided
-        if text_body:
-            target_container.attach(MIMEText(text_body, "plain"))
+        effective_text_body = text_body
+        if effective_text_body is None and auto_text_body:
+            effective_text_body = self._build_fallback_text_body(html_body)
+
+        # Add plain text version if provided or auto-generated
+        if effective_text_body:
+            target_container.attach(MIMEText(effective_text_body, "plain"))
 
         # Add HTML version
         target_container.attach(MIMEText(html_body, "html"))
@@ -360,6 +392,7 @@ class EmailService:
         reply_to_email: str | None = None,
         attachments: Sequence[Mapping[str, object]] | None = None,
         headers: Mapping[str, str] | None = None,
+        auto_text_body: bool = True,
     ) -> bool:
         """
         Send an email.
@@ -381,6 +414,9 @@ class EmailService:
                 validated and cannot override core delivery headers such as
                 Subject, From, To, Cc, Bcc, Reply-To, Content-Type, and
                 MIME-Version.
+            auto_text_body: When ``True`` and ``text_body`` is omitted,
+                generate a plain-text fallback from ``html_body`` for improved
+                client compatibility.
 
         Returns:
             True if sent successfully, False otherwise
@@ -390,6 +426,9 @@ class EmailService:
             return False
 
         try:
+            if not isinstance(auto_text_body, bool):
+                raise TypeError("auto_text_body must be a boolean")
+
             normalized_subject = self._sanitize_header_value(
                 subject,
                 field_name="subject",
@@ -433,6 +472,7 @@ class EmailService:
                 reply_to_email=reply_to_recipient,
                 attachments=normalized_attachments,
                 headers=normalized_headers,
+                auto_text_body=auto_text_body,
             )
 
             # Connect to SMTP server

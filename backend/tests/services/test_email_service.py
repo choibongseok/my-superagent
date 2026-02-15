@@ -40,6 +40,96 @@ class TestEmailService:
         assert msg.is_multipart()
 
     @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_auto_generates_plain_text_fallback_from_html(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """HTML-only emails should include an auto-generated plain-text fallback."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Fallback",
+            html_body="<h1>Hello</h1><p>Line&nbsp;two<br>Again</p>",
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        payload_parts = [
+            part
+            for part in sent_message.walk()
+            if part.get_content_maintype() == "text"
+        ]
+
+        plain_parts = [
+            part for part in payload_parts if part.get_content_subtype() == "plain"
+        ]
+        html_parts = [
+            part for part in payload_parts if part.get_content_subtype() == "html"
+        ]
+
+        assert len(plain_parts) == 1
+        assert len(html_parts) == 1
+
+        plain_body = plain_parts[0].get_payload(decode=True).decode()
+        assert "Hello" in plain_body
+        assert "Line two" in plain_body
+        assert "Again" in plain_body
+        assert "<h1>" not in plain_body
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_can_disable_auto_text_body_fallback(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Fallback plain-text generation can be disabled when not needed."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="No fallback",
+            html_body="<p>Only HTML</p>",
+            auto_text_body=False,
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        payload_parts = [
+            part
+            for part in sent_message.walk()
+            if part.get_content_maintype() == "text"
+        ]
+
+        plain_parts = [
+            part for part in payload_parts if part.get_content_subtype() == "plain"
+        ]
+        html_parts = [
+            part for part in payload_parts if part.get_content_subtype() == "html"
+        ]
+
+        assert plain_parts == []
+        assert len(html_parts) == 1
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_validates_auto_text_body_flag(self, mock_smtp, email_service):
+        """auto_text_body must be a boolean flag."""
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Invalid",
+            html_body="<p>invalid</p>",
+            auto_text_body="yes",  # type: ignore[arg-type]
+        )
+
+        assert result is False
+        mock_smtp.assert_not_called()
+
+    @patch("app.services.email_service.smtplib.SMTP")
     def test_send_email_success(self, mock_smtp, email_service):
         """Test successful email sending."""
         mock_server = MagicMock()
