@@ -6,7 +6,7 @@ semantic similarity search across conversation history.
 
 import logging
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from langchain.embeddings import OpenAIEmbeddings
@@ -375,6 +375,23 @@ class VectorStoreMemory:
 
         return parsed_timestamp.astimezone(timezone.utc)
 
+    @staticmethod
+    def _normalize_max_age_hours(max_age_hours: Optional[float]) -> Optional[float]:
+        """Normalize optional max-age window for recency-based filtering."""
+        if max_age_hours is None:
+            return None
+
+        if isinstance(max_age_hours, bool) or not isinstance(
+            max_age_hours, (int, float)
+        ):
+            raise ValueError("max_age_hours must be a positive number")
+
+        normalized_max_age = float(max_age_hours)
+        if normalized_max_age <= 0:
+            raise ValueError("max_age_hours must be greater than 0")
+
+        return normalized_max_age
+
     def _build_user_scoped_filter(
         self,
         filter_dict: Optional[Dict[str, Any]] = None,
@@ -624,6 +641,7 @@ class VectorStoreMemory:
         excluded_session_ids: Optional[List[str]] = None,
         created_after: Optional[datetime | str] = None,
         created_before: Optional[datetime | str] = None,
+        max_age_hours: Optional[float] = None,
         offset: Optional[int] = None,
         max_results_per_session: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
@@ -702,6 +720,9 @@ class VectorStoreMemory:
                 keep only memories with ``metadata.timestamp`` on/before this
                 value. Accepts timezone-aware/naive ``datetime`` objects or
                 ISO-8601 strings.
+            max_age_hours: Optional recency window (in hours) used to keep
+                only memories newer than ``now - max_age_hours``. This can be
+                combined with ``created_after``; the stricter lower bound wins.
             offset: Optional zero-based pagination offset applied after filtering
                 and ordering but before the final ``k`` limit. Must be >= 0 when
                 provided.
@@ -719,7 +740,7 @@ class VectorStoreMemory:
                 ``max_score_gap``/``min_score_margin``/
                 ``min_relative_score``/``min_top_score``/
                 ``offset``/``max_results_per_session`` values, invalid
-                ``created_after``/``created_before`` boundaries,
+                ``created_after``/``created_before``/``max_age_hours`` boundaries,
                 invalid ``required_terms``/``required_terms_mode``/
                 ``excluded_terms``/``excluded_terms_mode``/
                 ``session_ids``/``excluded_session_ids`` values,
@@ -863,6 +884,17 @@ class VectorStoreMemory:
             created_before,
             field_name="created_before",
         )
+
+        normalized_max_age_hours = self._normalize_max_age_hours(max_age_hours)
+        if normalized_max_age_hours is not None:
+            max_age_boundary = datetime.now(timezone.utc) - timedelta(
+                hours=normalized_max_age_hours
+            )
+            if (
+                normalized_created_after is None
+                or max_age_boundary > normalized_created_after
+            ):
+                normalized_created_after = max_age_boundary
 
         if (
             normalized_created_after is not None

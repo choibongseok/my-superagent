@@ -5,7 +5,7 @@ This module tests the complex scoring algorithms in vector_store.py,
 including input validation, edge cases, and adaptive threshold calculations.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 
 import pytest
@@ -646,6 +646,89 @@ class TestTimestampWindowFiltering:
                 created_after="2026-02-15T10:00:00Z",
                 created_before="2026-02-15T09:00:00Z",
             )
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_max_age_hours_validation(self):
+        """max_age_hours should reject invalid values."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(ValueError, match="max_age_hours must be a positive number"):
+            memory.search_with_scores(query="test", max_age_hours="2")
+
+        with pytest.raises(ValueError, match="max_age_hours must be a positive number"):
+            memory.search_with_scores(query="test", max_age_hours=True)
+
+        with pytest.raises(ValueError, match="max_age_hours must be greater than 0"):
+            memory.search_with_scores(query="test", max_age_hours=0)
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_max_age_hours_filters_outdated_memories(self):
+        """max_age_hours should keep only results inside the recency window."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        now = datetime.now(timezone.utc)
+        old_doc = Document(
+            page_content="old",
+            metadata={"timestamp": (now - timedelta(hours=3)).isoformat()},
+        )
+        recent_doc = Document(
+            page_content="recent",
+            metadata={"timestamp": (now - timedelta(minutes=20)).isoformat()},
+        )
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (old_doc, 0.9),
+                (recent_doc, 0.87),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            max_age_hours=1,
+        )
+
+        assert [result["content"] for result in results] == ["recent"]
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_created_after_wins_when_stricter_than_max_age_window(self):
+        """When both are set, the stricter lower time boundary should apply."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        now = datetime.now(timezone.utc)
+        inside_max_age_only = Document(
+            page_content="inside-max-age",
+            metadata={"timestamp": (now - timedelta(hours=1)).isoformat()},
+        )
+        inside_both = Document(
+            page_content="inside-both",
+            metadata={"timestamp": (now - timedelta(minutes=20)).isoformat()},
+        )
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (inside_max_age_only, 0.9),
+                (inside_both, 0.88),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            max_age_hours=2,
+            created_after=(now - timedelta(minutes=30)).isoformat(),
+        )
+
+        assert [result["content"] for result in results] == ["inside-both"]
 
     @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
     def test_created_after_filters_out_older_memories(self):
