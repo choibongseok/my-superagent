@@ -757,6 +757,68 @@ class TestUniqueContentDeduplication:
         ]
 
 
+class TestSessionDiversification:
+    """Test optional per-session result diversification controls."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_max_results_per_session_validation(self):
+        """max_results_per_session must be a positive integer when provided."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(
+            ValueError, match="max_results_per_session must be an integer"
+        ):
+            memory.search_with_scores(query="test", max_results_per_session=1.5)
+
+        with pytest.raises(
+            ValueError, match="max_results_per_session must be an integer"
+        ):
+            memory.search_with_scores(query="test", max_results_per_session=True)
+
+        with pytest.raises(
+            ValueError, match="max_results_per_session must be greater than 0"
+        ):
+            memory.search_with_scores(query="test", max_results_per_session=0)
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_max_results_per_session_limits_each_session_bucket(self):
+        """Diversification should retain only the top N matches per session_id."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 10
+
+        session_one_top = Document(page_content="s1-top", metadata={"session_id": "s1"})
+        session_one_second = Document(
+            page_content="s1-second", metadata={"session_id": "s1"}
+        )
+        session_two_top = Document(page_content="s2-top", metadata={"session_id": "s2"})
+        no_session_doc = Document(page_content="global", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (session_one_top, 0.95),
+                (session_one_second, 0.90),
+                (session_two_top, 0.87),
+                (no_session_doc, 0.81),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            sort_by_score=True,
+            max_results_per_session=1,
+        )
+
+        assert [result["content"] for result in results] == [
+            "s1-top",
+            "s2-top",
+            "global",
+        ]
+
+
 class TestScoreGapFiltering:
     """Test optional score-gap filtering relative to the strongest match."""
 

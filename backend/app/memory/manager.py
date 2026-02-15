@@ -326,6 +326,7 @@ class MemoryManager:
         include_score_context: bool = False,
         unique_content: bool = False,
         offset: Optional[int] = None,
+        max_results_per_session: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search long-term memory.
@@ -351,6 +352,8 @@ class MemoryManager:
             include_score_context: Include per-result ranking/threshold context.
             unique_content: Drop duplicate memories using normalized content.
             offset: Zero-based pagination offset applied before final ``k`` limit.
+            max_results_per_session: Optional per-session cap for result
+                diversification based on ``metadata.session_id``.
 
         Returns:
             List of matching memories
@@ -384,6 +387,7 @@ class MemoryManager:
                 include_score_context=include_score_context,
                 unique_content=unique_content,
                 offset=offset,
+                max_results_per_session=max_results_per_session,
             )
         except Exception as e:
             logger.error(f"Memory search failed: {e}")

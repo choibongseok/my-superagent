@@ -423,6 +423,7 @@ class VectorStoreMemory:
         include_score_context: bool = False,
         unique_content: bool = False,
         offset: Optional[int] = None,
+        max_results_per_session: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search memories with similarity scores.
@@ -466,6 +467,10 @@ class VectorStoreMemory:
             offset: Optional zero-based pagination offset applied after filtering
                 and ordering but before the final ``k`` limit. Must be >= 0 when
                 provided.
+            max_results_per_session: Optional per-session cap used to diversify
+                ranked results. When set, at most this many memories are retained
+                for each distinct ``metadata.session_id`` while preserving rank
+                order. Messages without ``session_id`` are not capped.
 
         Returns:
             List of memories with scores and enhanced relevance metadata
@@ -473,7 +478,8 @@ class VectorStoreMemory:
         Raises:
             ValueError: If thresholds/parameters are invalid, including unsupported
                 ``min_confidence``/``min_relevance`` values, invalid
-                ``max_score_gap``/``min_score_margin``/``offset`` values,
+                ``max_score_gap``/``min_score_margin``/``offset``/
+                ``max_results_per_session`` values,
                 or non-boolean ``include_score_context``/``unique_content``.
         """
         # Input validation
@@ -503,6 +509,14 @@ class VectorStoreMemory:
                 raise ValueError("offset must be an integer")
             if offset < 0:
                 raise ValueError("offset cannot be negative")
+
+        if max_results_per_session is not None:
+            if isinstance(max_results_per_session, bool) or not isinstance(
+                max_results_per_session, int
+            ):
+                raise ValueError("max_results_per_session must be an integer")
+            if max_results_per_session <= 0:
+                raise ValueError("max_results_per_session must be greater than 0")
 
         if max_score_gap is not None:
             if isinstance(max_score_gap, bool) or not isinstance(
@@ -739,6 +753,34 @@ class VectorStoreMemory:
                 original_count,
                 len(results),
             )
+
+        if max_results_per_session is not None and results:
+            diversified_results: List[Tuple[Document, float]] = []
+            per_session_counts: Dict[str, int] = {}
+
+            for doc, score in results:
+                metadata = doc.metadata if isinstance(doc.metadata, dict) else {}
+                session_identifier = metadata.get("session_id")
+
+                if session_identifier is None:
+                    diversified_results.append((doc, score))
+                    continue
+
+                session_key = str(session_identifier)
+                session_count = per_session_counts.get(session_key, 0)
+                if session_count >= max_results_per_session:
+                    continue
+
+                per_session_counts[session_key] = session_count + 1
+                diversified_results.append((doc, score))
+
+            logger.debug(
+                "Applied max_results_per_session filtering: limit=%d, before=%d, after=%d",
+                max_results_per_session,
+                len(results),
+                len(diversified_results),
+            )
+            results = diversified_results
 
         if normalized_offset:
             results = results[normalized_offset:]

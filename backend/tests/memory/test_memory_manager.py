@@ -219,6 +219,7 @@ class TestMemoryManagerContext:
             "include_score_context": False,
             "unique_content": False,
             "offset": None,
+            "max_results_per_session": None,
         }
 
     def test_search_memory_supports_session_scoping_and_score_sorting(self):
@@ -258,6 +259,7 @@ class TestMemoryManagerContext:
             "include_score_context": False,
             "unique_content": False,
             "offset": None,
+            "max_results_per_session": None,
         }
 
     def test_search_memory_exposes_advanced_vector_scoring_controls(self):
@@ -299,4 +301,25 @@ class TestMemoryManagerContext:
             "include_score_context": True,
             "unique_content": True,
             "offset": 2,
+            "max_results_per_session": None,
         }
+
+    def test_search_memory_supports_per_session_result_cap(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="session-99",
+            use_vector_memory=False,
+        )
+        manager.vector_memory = RecordingVectorMemory()
+
+        manager.search_memory(
+            query="release readiness",
+            max_results_per_session=1,
+        )
+
+        assert (
+            manager.vector_memory.last_search_with_scores_kwargs[
+                "max_results_per_session"
+            ]
+            == 1
+        )
