@@ -31,6 +31,8 @@ from app.core.async_runner import (
     run_async_retry,
     run_async_starmap,
     run_async_starmap_batched,
+    run_async_sort,
+    run_async_sort_batched,
 )
 
 
@@ -1245,6 +1247,100 @@ def test_run_async_group_by_batched_timeout_applies_to_entire_run():
         run_async_group_by_batched(_slow, [1, 2], batch_size=1, timeout=0.01)
 
 
+def test_run_async_sort_orders_items_using_async_keys():
+    async def _sort_key(task: dict[str, int]) -> int:
+        await asyncio.sleep(0.01)
+        return task["priority"]
+
+    tasks = [
+        {"id": 1, "priority": 3},
+        {"id": 2, "priority": 1},
+        {"id": 3, "priority": 2},
+    ]
+
+    sorted_tasks = run_async_sort(_sort_key, tasks)
+
+    assert [task["id"] for task in sorted_tasks] == [2, 3, 1]
+
+
+def test_run_async_sort_preserves_input_order_for_equal_keys():
+    async def _sort_key(task: dict[str, int]) -> int:
+        return task["priority"]
+
+    tasks = [
+        {"id": 1, "priority": 2},
+        {"id": 2, "priority": 2},
+        {"id": 3, "priority": 1},
+    ]
+
+    sorted_tasks = run_async_sort(_sort_key, tasks)
+
+    assert [task["id"] for task in sorted_tasks] == [3, 1, 2]
+
+
+def test_run_async_sort_supports_reverse_sorting():
+    async def _sort_key(value: int) -> int:
+        await asyncio.sleep(0.01)
+        return value
+
+    assert run_async_sort(_sort_key, [1, 3, 2], reverse=True) == [3, 2, 1]
+
+
+def test_run_async_sort_validates_reverse_flag():
+    async def _sort_key(value: int) -> int:
+        return value
+
+    with pytest.raises(ValueError, match="reverse must be a boolean"):
+        run_async_sort(_sort_key, [1, 2, 3], reverse="yes")  # type: ignore[arg-type]
+
+
+def test_run_async_sort_rejects_non_comparable_keys():
+    async def _invalid_key(value: int) -> dict[str, int]:
+        return {"value": value}
+
+    with pytest.raises(TypeError, match="must return mutually comparable values"):
+        run_async_sort(_invalid_key, [1, 2, 3])
+
+
+def test_run_async_sort_batched_orders_items_across_batches():
+    async def _sort_key(value: int) -> int:
+        await asyncio.sleep(0.01)
+        return abs(value)
+
+    sorted_values = run_async_sort_batched(_sort_key, [3, -1, 2, -4], batch_size=2)
+
+    assert sorted_values == [-1, 2, 3, -4]
+
+
+def test_run_async_sort_batched_validates_reverse_flag():
+    async def _sort_key(value: int) -> int:
+        return value
+
+    with pytest.raises(ValueError, match="reverse must be a boolean"):
+        run_async_sort_batched(
+            _sort_key,
+            [1, 2, 3],
+            batch_size=2,
+            reverse=1,  # type: ignore[arg-type]
+        )
+
+
+def test_run_async_sort_batched_rejects_non_positive_batch_size_for_empty_items():
+    async def _sort_key(value: int) -> int:
+        return value
+
+    with pytest.raises(ValueError, match="batch_size must be greater than 0"):
+        run_async_sort_batched(_sort_key, [], batch_size=0)
+
+
+def test_run_async_sort_batched_rejects_non_comparable_keys():
+    async def _invalid_key(value: int) -> dict[str, int]:
+        return {"value": value}
+
+    with pytest.raises(TypeError, match="must return mutually comparable values"):
+        run_async_sort_batched(_invalid_key, [1, 2], batch_size=1)
+
+
 def test_run_async_reduce_without_initial_uses_first_item_as_accumulator():
     async def _add(accumulator: int, value: int) -> int:
         await asyncio.sleep(0.01)
@@ -1259,10 +1355,7 @@ async def test_run_async_reduce_with_existing_event_loop_returns_value():
         await asyncio.sleep(0.01)
         return f"{accumulator}-{value}"
 
-    assert (
-        run_async_reduce(_concat, ["a", "b", "c"], initial="start")
-        == "start-a-b-c"
-    )
+    assert run_async_reduce(_concat, ["a", "b", "c"], initial="start") == "start-a-b-c"
 
 
 def test_run_async_reduce_supports_initial_value_for_empty_iterables():

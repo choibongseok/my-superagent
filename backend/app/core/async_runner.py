@@ -16,6 +16,7 @@ I = TypeVar("I")
 D = TypeVar("D")
 K = TypeVar("K", bound=Hashable)
 A = TypeVar("A")
+S = TypeVar("S")
 
 _MISSING = object()
 
@@ -913,6 +914,107 @@ def run_async_group_by_batched(
         grouped.setdefault(group_key, []).append(item)
 
     return grouped
+
+
+def run_async_sort(
+    coro_key_selector: Callable[[I], Awaitable[S]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    reverse: bool = False,
+    max_concurrency: int | None = None,
+) -> list[I]:
+    """Sort items using keys produced by an async selector.
+
+    Args:
+        coro_key_selector: Async callable returning a sort key for each item.
+        items: Iterable of values to sort.
+        timeout: Optional timeout in seconds for key selection.
+        reverse: Mirror of ``sorted(..., reverse=...)``.
+        max_concurrency: Optional cap on selector concurrency.
+
+    Returns:
+        Sorted list preserving original order when keys are equal.
+
+    Raises:
+        TypeError: If selector is not callable, returns non-awaitables, or
+            yields non-comparable keys.
+        ValueError: If ``timeout``/``max_concurrency`` are invalid or
+            ``reverse`` is not a boolean.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    if not callable(coro_key_selector):
+        raise TypeError("run_async_sort expects a callable coro_key_selector")
+
+    if not isinstance(reverse, bool):
+        raise ValueError("reverse must be a boolean")
+
+    materialized_items = list(items)
+    if not materialized_items:
+        return []
+
+    selected_keys = run_async_map(
+        coro_key_selector,
+        materialized_items,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    sortable_pairs = list(zip(materialized_items, selected_keys, strict=True))
+
+    try:
+        sortable_pairs.sort(key=lambda pair: pair[1], reverse=reverse)
+    except TypeError as exc:
+        raise TypeError(
+            "run_async_sort key selector must return mutually comparable values"
+        ) from exc
+
+    return [item for item, _ in sortable_pairs]
+
+
+def run_async_sort_batched(
+    coro_key_selector: Callable[[I], Awaitable[S]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    reverse: bool = False,
+    max_concurrency: int | None = None,
+) -> list[I]:
+    """Batch-oriented variant of :func:`run_async_sort`.
+
+    This helper bounds awaitable creation while still sorting the full result
+    set once all keys are resolved.
+    """
+    if not callable(coro_key_selector):
+        raise TypeError("run_async_sort_batched expects a callable coro_key_selector")
+
+    if not isinstance(reverse, bool):
+        raise ValueError("reverse must be a boolean")
+
+    materialized_items = list(items)
+    if not materialized_items:
+        _validate_batch_size(batch_size)
+        return []
+
+    selected_keys = run_async_map_batched(
+        coro_key_selector,
+        materialized_items,
+        batch_size=batch_size,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    sortable_pairs = list(zip(materialized_items, selected_keys, strict=True))
+
+    try:
+        sortable_pairs.sort(key=lambda pair: pair[1], reverse=reverse)
+    except TypeError as exc:
+        raise TypeError(
+            "run_async_sort_batched key selector must return mutually comparable values"
+        ) from exc
+
+    return [item for item, _ in sortable_pairs]
 
 
 def run_async_reduce(
