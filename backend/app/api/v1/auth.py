@@ -3,6 +3,7 @@
 import json
 import secrets
 from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
@@ -47,26 +48,48 @@ def get_google_oauth_flow():
     )
 
 
+def resolve_post_message_target_origin(target_origin: str | None) -> str:
+    """Resolve and validate optional postMessage target origin values."""
+    if target_origin is None:
+        return "*"
+
+    normalized_target_origin = target_origin.strip()
+    if not normalized_target_origin:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="target_origin cannot be empty",
+        )
+
+    parsed = urlparse(normalized_target_origin)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="target_origin must be an absolute http(s) origin",
+        )
+
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
 @router.get("/google", response_model=GoogleAuthURL)
 async def google_auth():
     """
     Initiate Google OAuth flow.
-    
+
     Returns:
         GoogleAuthURL: Authorization URL for user to visit
     """
     flow = get_google_oauth_flow()
-    
+
     # Generate state token for CSRF protection
     state = secrets.token_urlsafe(32)
-    
+
     authorization_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         state=state,
         prompt="consent",
     )
-    
+
     return GoogleAuthURL(auth_url=authorization_url)
 
 
@@ -76,6 +99,14 @@ async def google_callback_redirect(
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
+    target_origin: str
+    | None = Query(
+        default=None,
+        description=(
+            "Optional postMessage target origin for opener communication "
+            "(e.g., https://app.agenthq.ai)"
+        ),
+    ),
 ):
     """
     OAuth redirect landing page for browser-based login flows.
@@ -83,6 +114,8 @@ async def google_callback_redirect(
     Google redirects to this endpoint via GET. The page forwards callback
     parameters to the opener window using postMessage so desktop/web clients
     can complete authentication without manual code copy/paste.
+
+    ``target_origin`` can be provided to avoid wildcard postMessage delivery.
     """
     payload = {
         "type": "agenthq:oauth:callback",
@@ -92,6 +125,8 @@ async def google_callback_redirect(
         "error_description": error_description,
     }
     payload_json = json.dumps(payload)
+    resolved_target_origin = resolve_post_message_target_origin(target_origin)
+    target_origin_json = json.dumps(resolved_target_origin)
 
     html = f"""
 <!doctype html>
@@ -134,10 +169,11 @@ async def google_callback_redirect(
 
     <script>
       const payload = {payload_json};
+      const targetOrigin = {target_origin_json};
       const statusEl = document.getElementById('status');
 
       if (window.opener && !window.opener.closed) {{
-        window.opener.postMessage(payload, '*');
+        window.opener.postMessage(payload, targetOrigin);
         statusEl.textContent = payload.error
           ? 'Authentication was cancelled or failed. Returning to app…'
           : 'Authentication successful. Returning to app…';
@@ -162,11 +198,11 @@ async def google_callback(
 ):
     """
     Handle Google OAuth callback.
-    
+
     Args:
         callback_data: OAuth callback data
         db: Database session
-        
+
     Returns:
         Token: Access and refresh tokens
     """
@@ -174,33 +210,31 @@ async def google_callback(
         # Exchange authorization code for tokens
         flow = get_google_oauth_flow()
         flow.fetch_token(code=callback_data.code)
-        
+
         credentials = flow.credentials
-        
+
         # Verify ID token
         idinfo = id_token.verify_oauth2_token(
             credentials.id_token,
             requests.Request(),
             settings.GOOGLE_CLIENT_ID,
         )
-        
+
         # Extract user info
         google_id = idinfo["sub"]
         email = idinfo.get("email")
         full_name = idinfo.get("name")
-        
+
         if not email:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email not provided by Google",
             )
-        
+
         # Find or create user
-        result = await db.execute(
-            select(User).where(User.google_id == google_id)
-        )
+        result = await db.execute(select(User).where(User.google_id == google_id))
         user = result.scalar_one_or_none()
-        
+
         if not user:
             # Create new user
             user = User(
@@ -216,10 +250,10 @@ async def google_callback(
             user.google_access_token = credentials.token
             if credentials.refresh_token:
                 user.google_refresh_token = credentials.refresh_token
-        
+
         await db.commit()
         await db.refresh(user)
-        
+
         # Create JWT tokens
         access_token = create_access_token(data={"sub": str(user.id)})
         refresh_token = create_refresh_token(data={"sub": str(user.id)})
@@ -229,7 +263,7 @@ async def google_callback(
             refresh_token=refresh_token,
             user=UserInfo.model_validate(user),
         )
-        
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -245,11 +279,11 @@ async def google_mobile_auth(
     """
     Handle Google OAuth for mobile apps.
     Mobile apps send id_token and access_token directly from Google Sign-In SDK.
-    
+
     Args:
         mobile_auth: Google tokens from mobile SDK
         db: Database session
-        
+
     Returns:
         Token: Access and refresh tokens
     """
@@ -260,24 +294,22 @@ async def google_mobile_auth(
             requests.Request(),
             settings.GOOGLE_CLIENT_ID,
         )
-        
+
         # Extract user info
         google_id = idinfo["sub"]
         email = idinfo.get("email")
         full_name = idinfo.get("name")
-        
+
         if not email:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email not provided by Google",
             )
-        
+
         # Find or create user
-        result = await db.execute(
-            select(User).where(User.google_id == google_id)
-        )
+        result = await db.execute(select(User).where(User.google_id == google_id))
         user = result.scalar_one_or_none()
-        
+
         if not user:
             # Create new user
             user = User(
@@ -285,17 +317,17 @@ async def google_mobile_auth(
                 full_name=full_name,
                 google_id=google_id,
                 google_access_token=mobile_auth.access_token,
-                # Mobile flow doesn't provide refresh token, 
+                # Mobile flow doesn't provide refresh token,
                 # but we can use the access token
             )
             db.add(user)
         else:
             # Update existing user tokens
             user.google_access_token = mobile_auth.access_token
-        
+
         await db.commit()
         await db.refresh(user)
-        
+
         # Create JWT tokens for our backend
         access_token = create_access_token(data={"sub": str(user.id)})
         refresh_token = create_refresh_token(data={"sub": str(user.id)})
@@ -305,7 +337,7 @@ async def google_mobile_auth(
             refresh_token=refresh_token,
             user=UserInfo.model_validate(user),
         )
-        
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -320,32 +352,30 @@ async def guest_auth(
 ):
     """
     Create a guest session for mobile users without Google account.
-    
+
     Args:
         guest_data: Guest device info (device_id, name)
         db: Database session
-        
+
     Returns:
         Token: Access and refresh tokens for guest session
     """
     try:
         device_id = guest_data.device_id
         guest_name = guest_data.name or "Guest User"
-        
+
         if not device_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Device ID required for guest mode",
             )
-        
+
         # Check if guest user already exists for this device
         result = await db.execute(
-            select(User).where(
-                User.email == f"guest_{device_id}@agenthq.local"
-            )
+            select(User).where(User.email == f"guest_{device_id}@agenthq.local")
         )
         user = result.scalar_one_or_none()
-        
+
         if not user:
             # Create new guest user
             user = User(
@@ -355,7 +385,7 @@ async def guest_auth(
             db.add(user)
             await db.commit()
             await db.refresh(user)
-        
+
         # Create JWT tokens
         access_token = create_access_token(data={"sub": str(user.id)})
         refresh_token = create_refresh_token(data={"sub": str(user.id)})
@@ -365,7 +395,7 @@ async def guest_auth(
             refresh_token=refresh_token,
             user=UserInfo.model_validate(user),
         )
-        
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -379,10 +409,10 @@ async def get_current_user_info(
 ):
     """
     Get current authenticated user information.
-    
+
     Args:
         current_user: Current user from JWT token
-        
+
     Returns:
         UserInfo: Current user information
     """
@@ -396,10 +426,10 @@ async def logout(
     """
     Logout endpoint (client should clear tokens).
     Backend doesn't maintain session state, so this is mainly for logging/cleanup.
-    
+
     Args:
         current_user: Current user from JWT token
-        
+
     Returns:
         Success message
     """
@@ -422,7 +452,7 @@ async def refresh_token(
         Token: New access and refresh tokens
     """
     from app.core.security import decode_token
-    
+
     payload = decode_token(
         token_data.refresh_token,
         expected_type="refresh",
@@ -433,27 +463,25 @@ async def refresh_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
         )
-    
+
     user_id = payload.get("sub")
-    
+
     if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload",
         )
-    
+
     # Verify user exists
-    result = await db.execute(
-        select(User).where(User.id == user_id)
-    )
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    
+
     if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
         )
-    
+
     # Create new tokens
     access_token = create_access_token(data={"sub": user_id})
     new_refresh_token = create_refresh_token(data={"sub": user_id})

@@ -94,3 +94,44 @@ def test_oauth_callback_get_includes_error_payload(client):
     assert response.status_code == 200
     assert "agenthq:oauth:callback" in response.text
     assert '"error": "access_denied"' in response.text
+
+
+def test_oauth_callback_get_defaults_to_wildcard_post_message_target_origin(client):
+    """Callback bridge should default to wildcard origin for legacy clients."""
+    response = client.get(
+        "/api/v1/auth/callback",
+        params={"code": "abc123"},
+    )
+
+    assert response.status_code == 200
+    assert 'const targetOrigin = "*";' in response.text
+
+
+def test_oauth_callback_get_accepts_and_normalizes_target_origin(client):
+    """Callback bridge should accept explicit target_origin and strip path/query."""
+    response = client.get(
+        "/api/v1/auth/callback",
+        params={
+            "code": "abc123",
+            "target_origin": "https://desktop.agenthq.ai/oauth?tab=auth",
+        },
+    )
+
+    assert response.status_code == 200
+    assert 'const targetOrigin = "https://desktop.agenthq.ai";' in response.text
+
+
+def test_oauth_callback_get_rejects_invalid_target_origin(client):
+    """Callback bridge should reject non-http(s) target origins."""
+    response = client.get(
+        "/api/v1/auth/callback",
+        params={
+            "code": "abc123",
+            "target_origin": "javascript:alert(1)",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        response.json()["detail"] == "target_origin must be an absolute http(s) origin"
+    )
