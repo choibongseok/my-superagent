@@ -3,6 +3,7 @@
 import asyncio
 from dataclasses import asdict, is_dataclass
 from functools import wraps
+import hashlib
 import inspect
 import json
 from collections.abc import Awaitable, Iterable, Mapping
@@ -260,6 +261,7 @@ def cached(
     coalesce_inflight: bool = True,
     ignored_kwargs: Optional[Iterable[str]] = None,
     cache_none: bool = False,
+    max_key_length: Optional[int] = None,
 ):
     """
     Decorator for caching function results.
@@ -285,6 +287,9 @@ def cached(
             key generation while still being passed to the wrapped function.
         cache_none: When ``True``, cache and replay ``None`` results by
             storing an internal envelope payload.
+        max_key_length: Optional maximum cache-key length. Keys longer than
+            this threshold are deterministically hashed while preserving the
+            configured prefix.
 
     Example:
         @cached(prefix="user", ttl=300)
@@ -324,13 +329,22 @@ def cached(
     if not isinstance(cache_none, bool):
         raise ValueError("cache_none must be a boolean")
 
+    if max_key_length is not None:
+        if isinstance(max_key_length, bool) or not isinstance(max_key_length, int):
+            raise ValueError("max_key_length must be an integer when provided")
+
+        minimum_hashed_key_length = len(prefix) + 3 + 16
+        if max_key_length < minimum_hashed_key_length:
+            raise ValueError(
+                "max_key_length is too small for hashed keys; "
+                f"must be at least {minimum_hashed_key_length} for prefix '{prefix}'"
+            )
+
     normalized_ignored_kwargs: frozenset[str]
     if ignored_kwargs is None:
         normalized_ignored_kwargs = frozenset()
     elif isinstance(ignored_kwargs, str):
-        raise ValueError(
-            "ignored_kwargs must be an iterable of non-empty strings"
-        )
+        raise ValueError("ignored_kwargs must be an iterable of non-empty strings")
     else:
         normalized_values: set[str] = set()
         for name in ignored_kwargs:
@@ -375,6 +389,15 @@ def cached(
 
             return flag_value
 
+        def _shorten_cache_key_if_needed(key: str) -> str:
+            if max_key_length is None or len(key) <= max_key_length:
+                return key
+
+            hashed_prefix = f"{prefix}:h:"
+            digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+            available_digest_chars = max_key_length - len(hashed_prefix)
+            return f"{hashed_prefix}{digest[:available_digest_chars]}"
+
         async def _build_cache_key(
             key_args: tuple[Any, ...],
             runtime_kwargs: dict[str, Any],
@@ -383,9 +406,11 @@ def cached(
                 built_key = key_builder(*key_args, **runtime_kwargs)
                 if inspect.isawaitable(built_key):
                     built_key = await built_key
-                return f"{prefix}:{built_key}"
+                return _shorten_cache_key_if_needed(f"{prefix}:{built_key}")
 
-            return f"{prefix}:{cache_key(*key_args, **runtime_kwargs)}"
+            return _shorten_cache_key_if_needed(
+                f"{prefix}:{cache_key(*key_args, **runtime_kwargs)}"
+            )
 
         async def _should_cache_result(result: Any) -> bool:
             if cache_condition is None:

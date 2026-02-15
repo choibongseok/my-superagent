@@ -634,3 +634,74 @@ async def test_cached_can_disable_inflight_coalescing(monkeypatch):
 
     assert (first, second) == (42, 42)
     assert calls["count"] == 2
+
+
+def test_cached_rejects_invalid_max_key_length_configuration():
+    with pytest.raises(ValueError, match="max_key_length must be an integer"):
+        cached(prefix="example", max_key_length="64")
+
+    with pytest.raises(ValueError, match="max_key_length is too small for hashed keys"):
+        cached(prefix="example", max_key_length=20)
+
+
+@pytest.mark.asyncio
+async def test_cached_hashes_keys_that_exceed_max_length(monkeypatch):
+    cached_values: dict[str, str] = {}
+    observed_keys: list[str] = []
+
+    async def fake_get(key: str):
+        observed_keys.append(key)
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: str, ttl=None):
+        observed_keys.append(key)
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    calls = {"count": 0}
+
+    @cached(prefix="example", max_key_length=36)
+    async def compute(payload: str) -> str:
+        calls["count"] += 1
+        return f"{payload}:{calls['count']}"
+
+    long_payload = "x" * 200
+
+    first = await compute(long_payload)
+    second = await compute(long_payload)
+
+    assert first == second
+    assert calls["count"] == 1
+    assert len(cached_values) == 1
+
+    key = next(iter(cached_values))
+    assert key.startswith("example:h:")
+    assert len(key) <= 36
+    assert all(observed_key == key for observed_key in observed_keys)
+
+
+@pytest.mark.asyncio
+async def test_cached_keeps_short_keys_when_max_key_length_is_configured(monkeypatch):
+    cached_values: dict[str, int] = {}
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    @cached(prefix="example", max_key_length=64)
+    async def compute(value: int) -> int:
+        return value * 2
+
+    assert await compute(21) == 42
+    assert await compute(21) == 42
+
+    assert cached_values == {"example:21": 42}
