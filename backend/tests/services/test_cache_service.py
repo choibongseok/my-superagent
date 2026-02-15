@@ -2177,6 +2177,25 @@ def test_local_cache_tag_where_supports_match_all_tag_filtering():
     assert cache.list_tags("gamma") == ["group:a"]
 
 
+def test_local_cache_tag_where_supports_namespace_filter_with_custom_separator():
+    cache = LocalCacheService()
+    cache.set_tagged("team/alpha", 1, tags=["status:open"])
+    cache.set_tagged("team/beta", 2, tags=["status:open"])
+    cache.set_tagged("user/alpha", 3, tags=["status:open"])
+
+    tagged = cache.tag_where(
+        ["reviewed"],
+        tags=["status:open"],
+        namespace="team",
+        namespace_separator="/",
+    )
+
+    assert tagged == 2
+    assert cache.list_tags("team/alpha") == ["reviewed", "status:open"]
+    assert cache.list_tags("team/beta") == ["reviewed", "status:open"]
+    assert cache.list_tags("user/alpha") == ["status:open"]
+
+
 def test_local_cache_tag_where_requires_filters_and_non_empty_add_tags():
     cache = LocalCacheService()
     cache.set_tagged("session:alpha", 1, tags=["active"])
@@ -2286,6 +2305,35 @@ def test_local_cache_clear_where_requires_at_least_one_filter():
 
     with pytest.raises(ValueError, match="at least one filter must be provided"):
         cache.clear_where()
+
+
+def test_local_cache_clear_where_accepts_namespace_as_only_filter():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "session:alpha": 1,
+            "session:beta": 2,
+            "user:alpha": 3,
+        }
+    )
+
+    removed = cache.clear_where(namespace="session")
+
+    assert removed == 2
+    assert cache.get("session:alpha") is None
+    assert cache.get("session:beta") is None
+    assert cache.get("user:alpha") == 3
+
+
+def test_local_cache_clear_where_validates_namespace_inputs():
+    cache = LocalCacheService()
+    cache.set("session:alpha", 1)
+
+    with pytest.raises(ValueError, match="separator cannot be empty"):
+        cache.clear_where(namespace="session", namespace_separator=" ")
+
+    with pytest.raises(ValueError, match="namespace cannot contain separator"):
+        cache.clear_where(namespace="session:alpha")
 
 
 @pytest.mark.asyncio
@@ -2680,6 +2728,22 @@ def test_local_cache_get_where_supports_match_all_tag_filtering():
 
     assert cache.get_where(tags=["group:a", "shared"], match_all_tags=True) == {
         "alpha": 1
+    }
+
+
+def test_local_cache_get_where_supports_namespace_filter_with_custom_separator():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "team/alpha": {"v": 1},
+            "team/beta": {"v": 2},
+            "user/alpha": {"v": 3},
+        }
+    )
+
+    assert cache.get_where(namespace="team", namespace_separator="/") == {
+        "team/alpha": {"v": 1},
+        "team/beta": {"v": 2},
     }
 
 

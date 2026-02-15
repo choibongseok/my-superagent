@@ -1932,6 +1932,8 @@ class LocalCacheService:
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
         include_inflight: bool = False,
+        namespace: str | None = None,
+        namespace_separator: str = ":",
     ) -> set[str]:
         """Resolve keys matching combined prefix/glob/tag filters.
 
@@ -1941,6 +1943,9 @@ class LocalCacheService:
             tags: Optional tag filter with any/all matching semantics.
             match_all_tags: Require all tags when ``True``.
             include_inflight: Include in-flight population keys when ``True``.
+            namespace: Optional exact namespace filter.
+            namespace_separator: Namespace delimiter used when
+                ``namespace`` filtering is enabled.
 
         Returns:
             Set of matching key names.
@@ -1959,11 +1964,33 @@ class LocalCacheService:
                 match_all_tags=match_all_tags,
             )
 
+        normalized_namespace: str | None = None
+        normalized_namespace_separator: str | None = None
+        if namespace is not None:
+            normalized_namespace_separator = self._normalize_namespace_separator(
+                namespace_separator
+            )
+            normalized_namespace = self._normalize_namespace(
+                namespace,
+                separator=normalized_namespace_separator,
+            )
+
         return {
             key
             for key in candidate_keys
             if (prefix is None or key.startswith(prefix))
             and (pattern is None or fnmatchcase(key, pattern))
+            and (
+                normalized_namespace is None
+                or (
+                    normalized_namespace_separator is not None
+                    and self._extract_namespace(
+                        key,
+                        separator=normalized_namespace_separator,
+                    )
+                    == normalized_namespace
+                )
+            )
         }
 
     def tag_where(
@@ -1974,6 +2001,8 @@ class LocalCacheService:
         pattern: str | None = None,
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
+        namespace: str | None = None,
+        namespace_separator: str = ":",
     ) -> int:
         """Attach ``add_tags`` to keys matching combined filters.
 
@@ -1987,6 +2016,9 @@ class LocalCacheService:
             match_all_tags: Tag matching mode when ``tags`` are provided.
                 ``False`` (default) matches keys with any provided tag, while
                 ``True`` requires keys to contain every provided tag.
+            namespace: Optional exact namespace filter.
+            namespace_separator: Namespace delimiter used when
+                ``namespace`` filtering is enabled.
 
         Returns:
             Number of keys whose tag sets changed.
@@ -1994,7 +2026,7 @@ class LocalCacheService:
         if not isinstance(match_all_tags, bool):
             raise ValueError("match_all_tags must be a boolean")
 
-        if prefix is None and pattern is None and tags is None:
+        if prefix is None and pattern is None and tags is None and namespace is None:
             raise ValueError("at least one filter must be provided")
 
         normalized_add_tags = self._normalize_tags(add_tags)
@@ -2008,6 +2040,8 @@ class LocalCacheService:
                 pattern=pattern,
                 tags=tags,
                 match_all_tags=match_all_tags,
+                namespace=namespace,
+                namespace_separator=namespace_separator,
             )
         )
 
@@ -2031,6 +2065,8 @@ class LocalCacheService:
         pattern: str | None = None,
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
+        namespace: str | None = None,
+        namespace_separator: str = ":",
     ) -> int:
         """Remove tags from keys matching combined filters.
 
@@ -2045,6 +2081,9 @@ class LocalCacheService:
             match_all_tags: Tag matching mode when ``tags`` are provided.
                 ``False`` (default) matches keys with any provided tag, while
                 ``True`` requires keys to contain every provided tag.
+            namespace: Optional exact namespace filter.
+            namespace_separator: Namespace delimiter used when
+                ``namespace`` filtering is enabled.
 
         Returns:
             Number of keys whose tag sets changed.
@@ -2052,7 +2091,7 @@ class LocalCacheService:
         if not isinstance(match_all_tags, bool):
             raise ValueError("match_all_tags must be a boolean")
 
-        if prefix is None and pattern is None and tags is None:
+        if prefix is None and pattern is None and tags is None and namespace is None:
             raise ValueError("at least one filter must be provided")
 
         normalized_remove_tags: set[str] | None = None
@@ -2068,6 +2107,8 @@ class LocalCacheService:
                 pattern=pattern,
                 tags=tags,
                 match_all_tags=match_all_tags,
+                namespace=namespace,
+                namespace_separator=namespace_separator,
             )
         )
 
@@ -2098,6 +2139,8 @@ class LocalCacheService:
         pattern: str | None = None,
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
+        namespace: str | None = None,
+        namespace_separator: str = ":",
     ) -> int:
         """Delete keys matching combined prefix/glob/tag filters.
 
@@ -2112,6 +2155,9 @@ class LocalCacheService:
             match_all_tags: Tag matching mode when ``tags`` are provided.
                 ``False`` (default) matches keys with any provided tag, while
                 ``True`` requires keys to contain every provided tag.
+            namespace: Optional exact namespace filter.
+            namespace_separator: Namespace delimiter used when
+                ``namespace`` filtering is enabled.
 
         Returns:
             Number of removed keys.
@@ -2119,7 +2165,7 @@ class LocalCacheService:
         if not isinstance(match_all_tags, bool):
             raise ValueError("match_all_tags must be a boolean")
 
-        if prefix is None and pattern is None and tags is None:
+        if prefix is None and pattern is None and tags is None and namespace is None:
             raise ValueError("at least one filter must be provided")
 
         self._purge_expired_entries()
@@ -2130,6 +2176,8 @@ class LocalCacheService:
             tags=tags,
             match_all_tags=match_all_tags,
             include_inflight=True,
+            namespace=namespace,
+            namespace_separator=namespace_separator,
         )
 
         return self.delete_many(matching_keys)
@@ -2141,6 +2189,8 @@ class LocalCacheService:
         pattern: str | None = None,
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
+        namespace: str | None = None,
+        namespace_separator: str = ":",
     ) -> dict[str, Any]:
         """Pop values for keys matching combined prefix/glob/tag filters.
 
@@ -2156,6 +2206,9 @@ class LocalCacheService:
             match_all_tags: Tag matching mode when ``tags`` are provided.
                 ``False`` (default) matches keys with any provided tag, while
                 ``True`` requires keys to contain every provided tag.
+            namespace: Optional exact namespace filter.
+            namespace_separator: Namespace delimiter used when
+                ``namespace`` filtering is enabled.
 
         Returns:
             Mapping of removed key/value pairs for matching stored entries.
@@ -2167,7 +2220,7 @@ class LocalCacheService:
         if not isinstance(match_all_tags, bool):
             raise ValueError("match_all_tags must be a boolean")
 
-        if prefix is None and pattern is None and tags is None:
+        if prefix is None and pattern is None and tags is None and namespace is None:
             raise ValueError("at least one filter must be provided")
 
         self._purge_expired_entries()
@@ -2178,6 +2231,8 @@ class LocalCacheService:
             tags=tags,
             match_all_tags=match_all_tags,
             include_inflight=True,
+            namespace=namespace,
+            namespace_separator=namespace_separator,
         )
 
         popped_values = self.pop_many(sorted(matching_keys))
@@ -2196,6 +2251,8 @@ class LocalCacheService:
         pattern: str | None = None,
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
+        namespace: str | None = None,
+        namespace_separator: str = ":",
     ) -> int:
         """Refresh TTL for keys matching combined prefix/glob/tag filters.
 
@@ -2211,6 +2268,9 @@ class LocalCacheService:
             match_all_tags: Tag matching mode when ``tags`` are provided.
                 ``False`` (default) matches keys with any provided tag, while
                 ``True`` requires keys to contain every provided tag.
+            namespace: Optional exact namespace filter.
+            namespace_separator: Namespace delimiter used when
+                ``namespace`` filtering is enabled.
 
         Returns:
             Number of matching active keys whose TTL was refreshed.
@@ -2222,7 +2282,7 @@ class LocalCacheService:
         if not isinstance(match_all_tags, bool):
             raise ValueError("match_all_tags must be a boolean")
 
-        if prefix is None and pattern is None and tags is None:
+        if prefix is None and pattern is None and tags is None and namespace is None:
             raise ValueError("at least one filter must be provided")
 
         self._purge_expired_entries()
@@ -2232,6 +2292,8 @@ class LocalCacheService:
             pattern=pattern,
             tags=tags,
             match_all_tags=match_all_tags,
+            namespace=namespace,
+            namespace_separator=namespace_separator,
         )
 
         return self.touch_many(sorted(matching_keys), ttl_seconds=ttl_seconds)
@@ -2244,6 +2306,8 @@ class LocalCacheService:
         pattern: str | None = None,
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
+        namespace: str | None = None,
+        namespace_separator: str = ":",
         ttl_seconds: int | None = None,
         keep_ttl: bool = True,
     ) -> dict[str, Any]:
@@ -2261,6 +2325,9 @@ class LocalCacheService:
             match_all_tags: Tag matching mode when ``tags`` are provided.
                 ``False`` (default) matches keys with any provided tag, while
                 ``True`` requires keys to contain every provided tag.
+            namespace: Optional exact namespace filter.
+            namespace_separator: Namespace delimiter used when
+                ``namespace`` filtering is enabled.
             ttl_seconds: TTL override used when ``keep_ttl`` is ``False``.
             keep_ttl: Preserve each key's existing absolute expiration by
                 default.
@@ -2282,7 +2349,7 @@ class LocalCacheService:
         if not isinstance(keep_ttl, bool):
             raise ValueError("keep_ttl must be a boolean")
 
-        if prefix is None and pattern is None and tags is None:
+        if prefix is None and pattern is None and tags is None and namespace is None:
             raise ValueError("at least one filter must be provided")
 
         self._purge_expired_entries()
@@ -2293,6 +2360,8 @@ class LocalCacheService:
                 pattern=pattern,
                 tags=tags,
                 match_all_tags=match_all_tags,
+                namespace=namespace,
+                namespace_separator=namespace_separator,
             )
         )
 
@@ -2314,6 +2383,8 @@ class LocalCacheService:
         pattern: str | None = None,
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
+        namespace: str | None = None,
+        namespace_separator: str = ":",
     ) -> int:
         """Count active keys matching combined prefix/glob/tag filters.
 
@@ -2325,6 +2396,9 @@ class LocalCacheService:
             match_all_tags: Tag matching mode when ``tags`` are provided.
                 ``False`` (default) counts keys matching any provided tag,
                 while ``True`` requires keys to contain every provided tag.
+            namespace: Optional exact namespace filter.
+            namespace_separator: Namespace delimiter used when
+                ``namespace`` filtering is enabled.
 
         Returns:
             Number of matching active cache entries.
@@ -2339,6 +2413,8 @@ class LocalCacheService:
                 pattern=pattern,
                 tags=tags,
                 match_all_tags=match_all_tags,
+                namespace=namespace,
+                namespace_separator=namespace_separator,
             )
         )
 
@@ -2349,6 +2425,8 @@ class LocalCacheService:
         pattern: str | None = None,
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
+        namespace: str | None = None,
+        namespace_separator: str = ":",
         offset: int | None = None,
         limit: int | None = None,
         descending: bool = False,
@@ -2367,6 +2445,9 @@ class LocalCacheService:
             match_all_tags: Tag matching mode when ``tags`` are provided.
                 ``False`` (default) returns keys matching any tag, while
                 ``True`` requires keys to contain every provided tag.
+            namespace: Optional exact namespace filter.
+            namespace_separator: Namespace delimiter used when
+                ``namespace`` filtering is enabled.
             offset: Optional number of sorted matching keys to skip.
             limit: Optional maximum number of keys to return.
             descending: Return keys in descending lexicographic order when
@@ -2384,6 +2465,8 @@ class LocalCacheService:
             pattern=pattern,
             tags=tags,
             match_all_tags=match_all_tags,
+            namespace=namespace,
+            namespace_separator=namespace_separator,
             offset=offset,
             limit=limit,
             descending=descending,
