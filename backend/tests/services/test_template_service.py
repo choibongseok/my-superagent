@@ -2193,6 +2193,67 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_distinct_count_transform_for_iterables(
+        self, service_with_mock_db
+    ):
+        """distinct_count should return the number of unique iterable values."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "Unique owners: {owners->distinct_count}, "
+                "unique lanes: {lanes->distinct_count}"
+            ),
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {
+                    "owners": ["Mina", "Jin", "Mina", "Alex"],
+                    "lanes": ("backend", "frontend", "backend"),
+                },
+                user_id,
+            )
+
+        assert result["prompt"] == "Unique owners: 3, unique lanes: 2"
+        assert template.usage_count == 3
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_distinct_count_transform_for_string_values(
+        self, service_with_mock_db
+    ):
+        """distinct_count should reject plain strings to avoid char-level counting."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Unique letters: {word->distinct_count}",
+            category="docs",
+            usage_count=4,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match="Failed to apply template transform 'distinct_count'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"word": "AAB"},
+                    user_id,
+                )
+
+        assert template.usage_count == 4
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_first_and_last_transforms(
         self, service_with_mock_db
     ):

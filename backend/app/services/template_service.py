@@ -470,6 +470,11 @@ def _length_of(value: object) -> int:
         raise ValueError("length expects a sized or iterable value") from exc
 
 
+def _distinct_count(value: object) -> int:
+    """Count unique iterable values while preserving unique() validation semantics."""
+    return len(_unique_values(value))
+
+
 def _round_numeric(value: object, argument_spec: str) -> int | float:
     """Round numeric values with optional decimal precision."""
     args: list[str] = []
@@ -873,6 +878,7 @@ class TemplateService:
         - ``{path->strip_prefix("/tmp/")->strip_suffix(".txt")}``
         - ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``
         - ``{items->length}``
+        - ``{owners->distinct_count}``
         - ``{backlog->first}``, ``{backlog->last}``
         - ``{steps->reverse->join(" | ")}``
         - ``{milestones->slice(0,2)->join(", ")}``
@@ -936,6 +942,7 @@ class TemplateService:
             "unique": _unique_values,
             "sort": lambda raw: _sort_values(raw, ""),
             "length": _length_of,
+            "distinct_count": _distinct_count,
             "first": lambda raw: _select_boundary_item(raw, "first"),
             "last": lambda raw: _select_boundary_item(raw, "last"),
             "reverse": _reverse_value,
@@ -962,6 +969,7 @@ class TemplateService:
                 "join([separator])",
                 "split([separator[,maxsplit]])",
                 "sort([asc|desc])",
+                "distinct_count",
                 "slice(<start>[,<end>[,<step>]])",
                 "fallback(<value>)",
                 "indent([prefix])",
@@ -1129,7 +1137,8 @@ class TemplateService:
         ``{title->replace_regex("agent","assistant","i")}``,
         ``{path->strip_prefix("/tmp/")->strip_suffix(".txt")}``,
         ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``, ``{items->length}``,
-        ``{queue->first}``, ``{queue->last}``, ``{tasks->reverse}``,
+        ``{owners->distinct_count}``, ``{queue->first}``, ``{queue->last}``,
+        ``{tasks->reverse}``,
         ``{milestones->slice(0,2)}``, ``{items->slice(0,10,2)}``,
         ``{notes->dedent->indent("> ")->strip}``,
         ``{payload->json}``, ``{payload->json_pretty}``,
