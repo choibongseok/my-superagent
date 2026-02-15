@@ -1029,6 +1029,29 @@ def test_run_async_find_batched_returns_first_match_across_batches():
     assert run_async_find_batched(_is_even, [1, 3, 5, 8], batch_size=2) == 8
 
 
+def test_run_async_find_batched_short_circuits_after_first_match():
+    evaluated: list[int] = []
+
+    async def _is_even(value: int) -> bool:
+        evaluated.append(value)
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_find_batched(_is_even, [1, 2, 3, 4, 5], batch_size=2) == 2
+    assert evaluated == [1, 2]
+
+
+def test_run_async_find_batched_avoids_later_batch_errors_after_match():
+    async def _predicate(value: int) -> bool:
+        if value == 4:
+            raise RuntimeError("should not evaluate later batches")
+
+        await asyncio.sleep(0.01)
+        return value == 2
+
+    assert run_async_find_batched(_predicate, [1, 2, 3, 4], batch_size=2) == 2
+
+
 def test_run_async_find_batched_returns_default_when_no_items_match():
     async def _is_even(value: int) -> bool:
         await asyncio.sleep(0.01)

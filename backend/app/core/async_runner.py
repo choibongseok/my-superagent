@@ -1345,7 +1345,11 @@ def run_async_find_batched(
     max_concurrency: int | None = None,
     default: Any = _MISSING,
 ) -> I | D:
-    """Batch-oriented variant of :func:`run_async_find`."""
+    """Batch-oriented variant of :func:`run_async_find`.
+
+    This implementation short-circuits batch processing once the first
+    matching item is found, avoiding unnecessary predicate calls.
+    """
     if not callable(coro_predicate):
         raise TypeError("run_async_find_batched expects a callable coro_predicate")
 
@@ -1356,17 +1360,62 @@ def run_async_find_batched(
             raise LookupError("run_async_find_batched did not match any items")
         return cast(D, default)
 
-    predicate_results = run_async_map_batched(
-        coro_predicate,
-        materialized_items,
-        batch_size=batch_size,
-        timeout=timeout,
-        max_concurrency=max_concurrency,
+    _validate_batch_size(batch_size)
+    _validate_timeout(timeout)
+    _validate_max_concurrency(max_concurrency)
+
+    async def _run_find_batches() -> tuple[bool, object]:
+        for batch_start in range(0, len(materialized_items), batch_size):
+            current_batch = materialized_items[batch_start : batch_start + batch_size]
+
+            awaitables: list[Awaitable[bool]] = []
+            try:
+                for item in current_batch:
+                    awaitable = coro_predicate(item)
+                    if not inspect.isawaitable(awaitable):
+                        raise TypeError(
+                            "coro_predicate must return an awaitable for each item"
+                        )
+                    awaitables.append(cast(Awaitable[bool], awaitable))
+            except Exception:
+                for candidate in awaitables:
+                    close = getattr(candidate, "close", None)
+                    if callable(close):
+                        close()
+                raise
+
+            batch_results = await _gather_with_optional_limit(
+                awaitables,
+                max_concurrency=max_concurrency,
+                return_exceptions=False,
+            )
+
+            for item, include in zip(current_batch, batch_results, strict=True):
+                if _coerce_filter_result(
+                    include,
+                    function_name="run_async_find_batched",
+                ):
+                    return True, item
+
+        return False, _MISSING
+
+    async def _run_with_timeout() -> tuple[bool, object]:
+        find_runner = _run_find_batches()
+        if timeout is None:
+            return await find_runner
+        return await asyncio.wait_for(find_runner, timeout=timeout)
+
+    def _timeout_error() -> TimeoutError:
+        # Keep timeout wording aligned with previous implementation semantics.
+        return TimeoutError(f"run_async_map_batched timed out after {timeout} seconds")
+
+    matched, matched_item = _run_with_event_loop_bridge(
+        _run_with_timeout,
+        timeout_error_factory=_timeout_error,
     )
 
-    for item, include in zip(materialized_items, predicate_results, strict=True):
-        if _coerce_filter_result(include, function_name="run_async_find_batched"):
-            return item
+    if matched:
+        return cast(I, matched_item)
 
     if default is _MISSING:
         raise LookupError("run_async_find_batched did not match any items")
