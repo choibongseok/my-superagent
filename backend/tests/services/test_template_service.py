@@ -1048,6 +1048,93 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_percentile_numeric_transform(
+        self, service_with_mock_db
+    ):
+        """percentile/pctl should interpolate numeric percentiles for iterables."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "P95 latency: {latencies->percentile(95)->round(2)}, "
+                "P50 latency: {latencies->pctl(50)}"
+            ),
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"latencies": [10, 20, 30, 40]},
+                user_id,
+            )
+
+        assert result["prompt"] == "P95 latency: 38.5, P50 latency: 25"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_percentile_transform_with_invalid_bounds(
+        self, service_with_mock_db
+    ):
+        """percentile should require bounds between 0 and 100 inclusive."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="P95 latency: {latencies->percentile(110)}",
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'percentile\(110\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": [10, 20, 30, 40]},
+                    user_id,
+                )
+
+        assert template.usage_count == 3
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_percentile_transform_without_argument(
+        self, service_with_mock_db
+    ):
+        """percentile should require exactly one percentile argument."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="P95 latency: {latencies->percentile()}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'percentile\(\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": [10, 20, 30, 40]},
+                    user_id,
+                )
+
+        assert template.usage_count == 2
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_stddev_numeric_transform(
         self, service_with_mock_db
     ):

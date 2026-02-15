@@ -685,6 +685,46 @@ def _median_numeric_value(value: object, argument_spec: str) -> int | float:
     return int(median) if float(median).is_integer() else median
 
 
+def _percentile_numeric_value(
+    value: object,
+    argument_spec: str,
+    *,
+    transform_name: str = "percentile",
+) -> int | float:
+    """Return an interpolated percentile for non-empty numeric iterables."""
+    args = _parse_transform_args(argument_spec)
+    if len(args) != 1:
+        raise ValueError(
+            f"{transform_name} expects exactly one argument: percentile"
+        )
+
+    try:
+        percentile = float(args[0].strip())
+    except ValueError as exc:
+        raise ValueError(f"{transform_name} percentile must be numeric") from exc
+
+    if not 0 <= percentile <= 100:
+        raise ValueError(f"{transform_name} percentile must be between 0 and 100")
+
+    numeric_values = sorted(_iter_numeric_values(value, transform_name=transform_name))
+    if not numeric_values:
+        raise ValueError(f"{transform_name} expects a non-empty iterable value")
+
+    if len(numeric_values) == 1:
+        result = numeric_values[0]
+    else:
+        rank = (percentile / 100) * (len(numeric_values) - 1)
+        lower_index = math.floor(rank)
+        upper_index = math.ceil(rank)
+
+        lower_value = numeric_values[lower_index]
+        upper_value = numeric_values[upper_index]
+        interpolation_ratio = rank - lower_index
+        result = lower_value + (upper_value - lower_value) * interpolation_ratio
+
+    return int(result) if float(result).is_integer() else result
+
+
 def _variance_numeric_value(
     value: object,
     argument_spec: str,
@@ -1068,6 +1108,7 @@ class TemplateService:
         - ``{durations->product}``, ``{durations->product(0.5)}``
         - ``{durations->avg}``
         - ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``
+        - ``{latencies->percentile(95)}``, ``{latencies->pctl(90)}``
         - ``{latencies->variance}``, ``{latencies->var}``
         - ``{latencies->stddev}``, ``{latencies->stdev}``
         - ``{latencies->range}``
@@ -1175,6 +1216,8 @@ class TemplateService:
                 "min",
                 "max",
                 "median",
+                "percentile(<p>)",
+                "pctl(<p>)",
                 "variance",
                 "var",
                 "stddev",
@@ -1289,6 +1332,12 @@ class TemplateService:
                         raw,
                         spec,
                     )
+                elif transform_name in {"percentile", "pctl"}:
+                    operation = lambda raw, spec=argument_spec, name=transform_name: _percentile_numeric_value(
+                        raw,
+                        spec,
+                        transform_name=name,
+                    )
                 elif transform_name in {"variance", "var"}:
                     operation = lambda raw, spec=argument_spec, name=transform_name: _variance_numeric_value(
                         raw,
@@ -1393,7 +1442,8 @@ class TemplateService:
         ``{durations->sum}``, ``{durations->sum(10)}``,
         ``{durations->product}``, ``{durations->product(0.5)}``,
         ``{durations->avg}``, ``{latencies->min}``, ``{latencies->max}``,
-        ``{latencies->median}``,
+        ``{latencies->median}``, ``{latencies->percentile(95)}``,
+        ``{latencies->pctl(90)}``,
         ``{latencies->variance}``, ``{latencies->var}``,
         ``{latencies->stddev}``, ``{latencies->stdev}``,
         ``{labels->mode}``, or ``{nickname->strip->fallback("friend")}``).
