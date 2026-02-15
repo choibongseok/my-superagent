@@ -172,6 +172,43 @@ def test_local_cache_bulk_set_and_get_many():
     assert cache.get_many(["a", "missing", "c"]) == {"a": 1, "c": 3}
 
 
+def test_local_cache_get_many_can_include_missing_keys_with_default_value():
+    cache = LocalCacheService()
+    cache.set("active", 7)
+
+    results = cache.get_many(
+        ["missing", "active", "unknown"],
+        include_missing=True,
+        default="n/a",
+    )
+
+    assert results == {
+        "missing": "n/a",
+        "active": 7,
+        "unknown": "n/a",
+    }
+
+
+def test_local_cache_get_many_tracks_stats_once_per_unique_key():
+    cache = LocalCacheService()
+    cache.set("active", 7)
+
+    results = cache.get_many(["active", "missing", "active", "missing"])
+
+    assert results == {"active": 7}
+
+    stats = cache.stats()
+    assert stats["hits"] == 1
+    assert stats["misses"] == 1
+
+
+def test_local_cache_get_many_validates_include_missing_flag():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="include_missing must be a boolean"):
+        cache.get_many(["key"], include_missing="yes")  # type: ignore[arg-type]
+
+
 def test_local_cache_replace_updates_existing_key_and_preserves_ttl_by_default():
     cache = LocalCacheService()
     cache.set("session", "v1", ttl_seconds=1)
@@ -443,6 +480,35 @@ def test_local_cache_peek_many_reads_values_without_mutating_stats():
 
     after_stats = cache.stats()
     assert after_stats == before_stats
+
+
+def test_local_cache_peek_many_can_include_missing_keys_with_default_value():
+    cache = LocalCacheService()
+    cache.set("active", "ok")
+
+    before_stats = cache.stats().copy()
+
+    results = cache.peek_many(
+        ["missing", "active", "unknown", "missing"],
+        include_missing=True,
+        default=None,
+    )
+
+    assert results == {
+        "missing": None,
+        "active": "ok",
+        "unknown": None,
+    }
+
+    after_stats = cache.stats()
+    assert after_stats == before_stats
+
+
+def test_local_cache_peek_many_validates_include_missing_flag():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="include_missing must be a boolean"):
+        cache.peek_many(["key"], include_missing=1)  # type: ignore[arg-type]
 
 
 def test_local_cache_get_or_set_many_populates_missing_keys_once():

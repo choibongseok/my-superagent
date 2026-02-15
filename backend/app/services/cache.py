@@ -736,25 +736,69 @@ class LocalCacheService:
         value, _ = item
         return value
 
-    def get_many(self, keys: Iterable[str]) -> dict[str, Any]:
-        """Return available values for the requested keys."""
+    def get_many(
+        self,
+        keys: Iterable[str],
+        *,
+        include_missing: bool = False,
+        default: Any | None = None,
+    ) -> dict[str, Any]:
+        """Return cached values for ``keys`` with optional missing-key placeholders.
+
+        Duplicate keys are resolved only once and results preserve first-seen
+        request order.
+        """
+        if not isinstance(include_missing, bool):
+            raise ValueError("include_missing must be a boolean")
+
         results: dict[str, Any] = {}
+        lookup_cache: dict[str, tuple[Any, float | None] | None] = {}
         for key in keys:
-            item = self._get_entry(key)
-            self._record_lookup(hit=item is not None)
+            if key in lookup_cache:
+                item = lookup_cache[key]
+            else:
+                item = self._get_entry(key)
+                lookup_cache[key] = item
+                self._record_lookup(hit=item is not None)
+
             if item is not None:
                 value, _ = item
                 results[key] = value
+            elif include_missing:
+                results[key] = default
+
         return results
 
-    def peek_many(self, keys: Iterable[str]) -> dict[str, Any]:
-        """Read multiple cached values without affecting stats or LRU order."""
+    def peek_many(
+        self,
+        keys: Iterable[str],
+        *,
+        include_missing: bool = False,
+        default: Any | None = None,
+    ) -> dict[str, Any]:
+        """Read multiple values without touching stats or LRU order.
+
+        Duplicate keys are resolved once and results preserve first-seen
+        request order.
+        """
+        if not isinstance(include_missing, bool):
+            raise ValueError("include_missing must be a boolean")
+
         results: dict[str, Any] = {}
+        lookup_cache: dict[str, tuple[Any, float | None] | None] = {}
         for key in keys:
-            item = self._get_entry(key, mark_access=False)
+            if key in lookup_cache:
+                item = lookup_cache[key]
+            else:
+                item = self._get_entry(key, mark_access=False)
+                lookup_cache[key] = item
+
             if item is not None:
                 value, _ = item
                 results[key] = value
+            elif include_missing:
+                results[key] = default
+
         return results
 
     def _resolve_missing_values(
