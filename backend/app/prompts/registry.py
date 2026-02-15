@@ -428,6 +428,8 @@ class PromptRegistry:
         descending: bool = False,
         include_version_count: bool = False,
         include_latest_version: bool = False,
+        min_version_count: int | None = None,
+        max_version_count: int | None = None,
     ) -> List[str] | List[Dict[str, Any]]:
         """List known prompt names from both cache and persisted storage.
 
@@ -439,6 +441,8 @@ class PromptRegistry:
             descending: Return names in descending lexicographic order.
             include_version_count: Include per-prompt version counts.
             include_latest_version: Include latest version labels.
+            min_version_count: Optional inclusive lower bound for version count.
+            max_version_count: Optional inclusive upper bound for version count.
 
         Returns:
             Sorted prompt names, or metadata rows when include_* options are used.
@@ -464,6 +468,29 @@ class PromptRegistry:
         if not isinstance(include_latest_version, bool):
             raise ValueError("include_latest_version must be a boolean")
 
+        if min_version_count is not None:
+            if isinstance(min_version_count, bool) or not isinstance(
+                min_version_count, int
+            ):
+                raise ValueError("min_version_count must be an integer")
+            if min_version_count <= 0:
+                raise ValueError("min_version_count must be greater than 0")
+
+        if max_version_count is not None:
+            if isinstance(max_version_count, bool) or not isinstance(
+                max_version_count, int
+            ):
+                raise ValueError("max_version_count must be an integer")
+            if max_version_count <= 0:
+                raise ValueError("max_version_count must be greater than 0")
+
+        if (
+            min_version_count is not None
+            and max_version_count is not None
+            and min_version_count > max_version_count
+        ):
+            raise ValueError("min_version_count cannot be greater than max_version_count")
+
         names = set(self._cache.keys())
         names.update(path.stem for path in self.storage_path.glob("*.json"))
 
@@ -473,6 +500,31 @@ class PromptRegistry:
         if pattern:
             names = {name for name in names if fnmatchcase(name, pattern)}
 
+        include_metadata = include_version_count or include_latest_version
+        needs_version_lookups = (
+            include_metadata
+            or min_version_count is not None
+            or max_version_count is not None
+        )
+
+        versions_by_name: Dict[str, List[PromptVersion]] = {}
+        if needs_version_lookups:
+            filtered_names = set()
+            for name in names:
+                versions = self.list_versions(name)
+                version_count = len(versions)
+
+                if min_version_count is not None and version_count < min_version_count:
+                    continue
+
+                if max_version_count is not None and version_count > max_version_count:
+                    continue
+
+                filtered_names.add(name)
+                versions_by_name[name] = versions
+
+            names = filtered_names
+
         sorted_names = sorted(names, reverse=descending)
 
         if offset:
@@ -481,13 +533,15 @@ class PromptRegistry:
         if limit is not None:
             sorted_names = sorted_names[:limit]
 
-        include_metadata = include_version_count or include_latest_version
         if not include_metadata:
             return sorted_names
 
         rows: List[Dict[str, Any]] = []
         for name in sorted_names:
-            versions = self.list_versions(name)
+            versions = versions_by_name.get(name)
+            if versions is None:
+                versions = self.list_versions(name)
+
             row: Dict[str, Any] = {"name": name}
 
             if include_version_count:

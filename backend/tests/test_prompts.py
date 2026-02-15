@@ -712,6 +712,91 @@ def test_list_prompt_names_can_include_version_metadata(temp_registry):
     ]
 
 
+def test_list_prompt_names_supports_version_count_filters(temp_registry):
+    """Version count bounds should filter prompt discovery deterministically."""
+    temp_registry.register(
+        name="agent_alpha",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+    temp_registry.register(
+        name="agent_alpha",
+        template="v2",
+        variables=[],
+        version="v2",
+    )
+    temp_registry.register(
+        name="agent_beta",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+    temp_registry.register(
+        name="agent_gamma",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+    temp_registry.register(
+        name="agent_gamma",
+        template="v2",
+        variables=[],
+        version="v2",
+    )
+    temp_registry.register(
+        name="agent_gamma",
+        template="v3",
+        variables=[],
+        version="v3",
+    )
+
+    assert temp_registry.list_prompt_names(min_version_count=2) == [
+        "agent_alpha",
+        "agent_gamma",
+    ]
+    assert temp_registry.list_prompt_names(max_version_count=1) == ["agent_beta"]
+    assert temp_registry.list_prompt_names(min_version_count=2, max_version_count=2) == [
+        "agent_alpha"
+    ]
+
+
+def test_list_prompt_names_version_count_filters_work_with_metadata_rows(temp_registry):
+    """Version count filtering should be compatible with metadata listing mode."""
+    temp_registry.register(
+        name="incident_primary",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+    temp_registry.register(
+        name="incident_primary",
+        template="v2",
+        variables=[],
+        version="v2",
+    )
+    temp_registry.register(
+        name="incident_secondary",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+
+    rows = temp_registry.list_prompt_names(
+        include_version_count=True,
+        include_latest_version=True,
+        min_version_count=2,
+    )
+
+    assert rows == [
+        {
+            "name": "incident_primary",
+            "version_count": 2,
+            "latest_version": "v2",
+        }
+    ]
+
+
 def test_list_prompt_names_validates_arguments(temp_registry):
     """Name listing should reject invalid filter and pagination arguments."""
     with pytest.raises(ValueError, match="offset must be greater than or equal to 0"):
@@ -738,6 +823,34 @@ def test_list_prompt_names_validates_arguments(temp_registry):
         temp_registry.list_prompt_names(
             include_latest_version=1  # type: ignore[arg-type]
         )
+
+    with pytest.raises(ValueError, match="min_version_count must be an integer"):
+        temp_registry.list_prompt_names(
+            min_version_count=1.5  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="min_version_count must be greater than 0",
+    ):
+        temp_registry.list_prompt_names(min_version_count=0)
+
+    with pytest.raises(ValueError, match="max_version_count must be an integer"):
+        temp_registry.list_prompt_names(
+            max_version_count="2"  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="max_version_count must be greater than 0",
+    ):
+        temp_registry.list_prompt_names(max_version_count=0)
+
+    with pytest.raises(
+        ValueError,
+        match="min_version_count cannot be greater than max_version_count",
+    ):
+        temp_registry.list_prompt_names(min_version_count=3, max_version_count=2)
 
 
 def test_builtin_templates_are_bootstrapped():
