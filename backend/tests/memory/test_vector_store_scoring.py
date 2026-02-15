@@ -1042,6 +1042,92 @@ class TestOffsetPagination:
         )
 
 
+class TestCandidatePoolMultiplier:
+    """Test configurable candidate over-fetch behavior for scored search."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_candidate_pool_multiplier_validation(self):
+        """candidate_pool_multiplier must be an integer greater than zero."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(
+            ValueError,
+            match="candidate_pool_multiplier must be an integer",
+        ):
+            memory.search_with_scores(query="test", candidate_pool_multiplier=1.5)
+
+        with pytest.raises(
+            ValueError,
+            match="candidate_pool_multiplier must be an integer",
+        ):
+            memory.search_with_scores(query="test", candidate_pool_multiplier=True)
+
+        with pytest.raises(
+            ValueError,
+            match="candidate_pool_multiplier must be greater than 0",
+        ):
+            memory.search_with_scores(query="test", candidate_pool_multiplier=0)
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_candidate_pool_multiplier_overrides_default_fetch_count(self):
+        """Explicit multiplier should control vector-store candidate fetch size."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        doc = Document(page_content="only", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[(doc, 0.8)]
+        )
+
+        memory.search_with_scores(
+            query="test",
+            k=3,
+            offset=2,
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            candidate_pool_multiplier=4,
+        )
+
+        memory.vector_store.similarity_search_with_relevance_scores.assert_called_once_with(
+            "test",
+            k=20,
+            score_threshold=0.0,
+            filter={"user_id": "test_user"},
+        )
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_candidate_pool_multiplier_keeps_adaptive_default_when_omitted(self):
+        """Adaptive mode should continue doubling fetch size when no override is set."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        doc = Document(page_content="only", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[(doc, 0.8)]
+        )
+
+        memory.search_with_scores(
+            query="test",
+            k=3,
+            offset=1,
+            adaptive_threshold=True,
+            score_threshold=None,
+        )
+
+        memory.vector_store.similarity_search_with_relevance_scores.assert_called_once_with(
+            "test",
+            k=8,
+            score_threshold=0.0,
+            filter={"user_id": "test_user"},
+        )
+
+
 class TestUniqueContentDeduplication:
     """Test optional duplicate collapsing based on memory content."""
 

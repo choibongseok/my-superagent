@@ -673,6 +673,7 @@ class VectorStoreMemory:
         max_content_length: Optional[int] = None,
         offset: Optional[int] = None,
         max_results_per_session: Optional[int] = None,
+        candidate_pool_multiplier: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search memories with similarity scores.
@@ -770,6 +771,11 @@ class VectorStoreMemory:
                 ranked results. When set, at most this many memories are retained
                 for each distinct ``metadata.session_id`` while preserving rank
                 order. Messages without ``session_id`` are not capped.
+            candidate_pool_multiplier: Optional candidate-fetch multiplier used
+                before post-retrieval filtering. When provided, vector search
+                requests ``(k + offset) * candidate_pool_multiplier`` candidates.
+                Must be an integer greater than 0. When omitted, defaults to
+                ``2`` for adaptive threshold mode and ``1`` otherwise.
 
         Returns:
             List of memories with scores and enhanced relevance metadata
@@ -779,7 +785,8 @@ class VectorStoreMemory:
                 ``min_confidence``/``min_relevance`` values, invalid
                 ``max_score_gap``/``min_score_margin``/
                 ``min_relative_score``/``min_top_score``/
-                ``offset``/``max_results_per_session`` values, invalid
+                ``offset``/``max_results_per_session``/
+                ``candidate_pool_multiplier`` values, invalid
                 ``created_after``/``created_before``/``max_age_hours``/
                 ``min_content_length``/``max_content_length`` boundaries,
                 invalid ``required_terms``/``required_terms_mode``/
@@ -850,6 +857,16 @@ class VectorStoreMemory:
                 raise ValueError("max_results_per_session must be an integer")
             if max_results_per_session <= 0:
                 raise ValueError("max_results_per_session must be greater than 0")
+
+        if candidate_pool_multiplier is not None:
+            if isinstance(candidate_pool_multiplier, bool) or not isinstance(
+                candidate_pool_multiplier, int
+            ):
+                raise ValueError("candidate_pool_multiplier must be an integer")
+            if candidate_pool_multiplier <= 0:
+                raise ValueError(
+                    "candidate_pool_multiplier must be greater than 0"
+                )
 
         if max_score_gap is not None:
             if isinstance(max_score_gap, bool) or not isinstance(
@@ -974,14 +991,24 @@ class VectorStoreMemory:
         # Request enough candidates to support post-filter pagination.
         requested_result_count = k + normalized_offset
 
+        # Allow callers to over-fetch candidates before post-processing.
+        # Defaults preserve existing behavior: adaptive-mode queries fetch
+        # twice as many candidates, while explicit-threshold flows fetch ``k``.
+        default_candidate_pool_multiplier = (
+            2 if adaptive_threshold and score_threshold is None else 1
+        )
+        effective_candidate_pool_multiplier = (
+            candidate_pool_multiplier
+            if candidate_pool_multiplier is not None
+            else default_candidate_pool_multiplier
+        )
+
         # Use a low initial threshold or None to get all candidates
         initial_threshold = score_threshold if score_threshold is not None else 0.0
 
         results = self.vector_store.similarity_search_with_relevance_scores(
             query,
-            k=(requested_result_count * 2)
-            if adaptive_threshold and score_threshold is None
-            else requested_result_count,
+            k=requested_result_count * effective_candidate_pool_multiplier,
             score_threshold=initial_threshold,
             filter=search_filter,
         )
