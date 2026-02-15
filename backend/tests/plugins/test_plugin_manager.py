@@ -1303,6 +1303,28 @@ async def test_list_plugins_query_supports_custom_fields_and_match_modes(
     )
     assert [item["name"] for item in any_match] == ["slack-plugin"]
 
+    regex_match = manager.list_plugins(
+        query=r"^weather-.*$",
+        query_fields=["name"],
+        query_match_mode="regex",
+    )
+    assert [item["name"] for item in regex_match] == ["weather-plugin"]
+
+    regex_case_insensitive_match = manager.list_plugins(
+        query=r"NETWORK\.HTTP",
+        query_fields=["permissions"],
+        query_match_mode="regex",
+    )
+    assert [item["name"] for item in regex_case_insensitive_match] == ["weather-plugin"]
+
+    regex_case_sensitive_miss = manager.list_plugins(
+        query=r"NETWORK\.HTTP",
+        query_fields=["permissions"],
+        query_match_mode="regex",
+        query_case_sensitive=True,
+    )
+    assert regex_case_sensitive_miss == []
+
 
 @pytest.mark.asyncio
 async def test_list_plugins_query_supports_runtime_config_field(
@@ -1565,6 +1587,9 @@ def test_list_plugins_validates_query_options(tmp_path):
 
     with pytest.raises(ValueError, match="query_case_sensitive must be a boolean"):
         manager.list_plugins(query="weather", query_case_sensitive="yes")
+
+    with pytest.raises(ValueError, match="query contains invalid regex pattern"):
+        manager.list_plugins(query="[weather", query_match_mode="regex")
 
     with pytest.raises(
         ValueError,

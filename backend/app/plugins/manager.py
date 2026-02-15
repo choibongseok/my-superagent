@@ -3,6 +3,7 @@
 import importlib
 import json
 import logging
+import re
 import shlex
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -499,6 +500,7 @@ class PluginManager:
         query_fields: set[str],
         query_match_mode: str,
         query_case_sensitive: bool,
+        query_regex: Optional[re.Pattern[str]],
     ) -> bool:
         """Return whether a manifest matches free-text list query filters."""
         field_values: list[str] = []
@@ -530,7 +532,11 @@ class PluginManager:
         if "config" in query_fields and plugin is not None:
             field_values.append(json.dumps(plugin.config, sort_keys=True, default=str))
 
-        if query_case_sensitive:
+        if query_match_mode == "regex":
+            searchable_text = " ".join(
+                str(value) for value in field_values if value is not None
+            )
+        elif query_case_sensitive:
             searchable_text = " ".join(
                 str(value) for value in field_values if value is not None
             )
@@ -541,6 +547,11 @@ class PluginManager:
 
         if not searchable_text:
             return False
+
+        if query_match_mode == "regex":
+            if query_regex is None:
+                return False
+            return query_regex.search(searchable_text) is not None
 
         if query_match_mode == "phrase":
             return query in searchable_text
@@ -606,8 +617,9 @@ class PluginManager:
                 ``config`` values.
             query_match_mode: Query matching strategy. ``"all"`` (default)
                 requires all query tokens to appear, ``"any"`` requires at
-                least one token, and ``"phrase"`` requires the normalized
-                query phrase to appear contiguously. In ``"all"`` and
+                least one token, ``"phrase"`` requires the normalized query
+                phrase to appear contiguously, and ``"regex"`` treats
+                ``query`` as a regular expression pattern. In ``"all"`` and
                 ``"any"`` modes, wrap terms in quotes to keep phrase tokens
                 together (for example, ``'"weather team" plugin'``). Prefix
                 tokens with ``-`` (for example, ``"weather -slack"``) to
@@ -658,31 +670,41 @@ class PluginManager:
             raise ValueError("query_case_sensitive must be a boolean")
 
         if not isinstance(query_match_mode, str) or not query_match_mode.strip():
-            raise ValueError("query_match_mode must be one of: all, any, phrase")
+            raise ValueError("query_match_mode must be one of: all, any, phrase, regex")
 
         normalized_query_match_mode = query_match_mode.strip().lower()
-        if normalized_query_match_mode not in {"all", "any", "phrase"}:
-            raise ValueError("query_match_mode must be one of: all, any, phrase")
+        if normalized_query_match_mode not in {"all", "any", "phrase", "regex"}:
+            raise ValueError("query_match_mode must be one of: all, any, phrase, regex")
 
         normalized_query = None
         query_tokens: list[str] = []
         exclude_query_tokens: list[str] = []
+        query_regex: Optional[re.Pattern[str]] = None
         if query is not None:
             normalized_query = " ".join(query.split())
             if not normalized_query:
                 raise ValueError("query cannot be blank when provided")
 
-            if normalized_query_match_mode != "phrase":
-                tokenized_query = self._tokenize_query(normalized_query)
+            if normalized_query_match_mode == "regex":
+                regex_flags = 0 if query_case_sensitive else re.IGNORECASE
+                try:
+                    query_regex = re.compile(normalized_query, flags=regex_flags)
+                except re.error as exc:
+                    raise ValueError("query contains invalid regex pattern") from exc
+            else:
+                if normalized_query_match_mode != "phrase":
+                    tokenized_query = self._tokenize_query(normalized_query)
+                    if not query_case_sensitive:
+                        tokenized_query = [
+                            token.casefold() for token in tokenized_query
+                        ]
+
+                    query_tokens, exclude_query_tokens = self._split_query_tokens(
+                        tokenized_query
+                    )
+
                 if not query_case_sensitive:
-                    tokenized_query = [token.casefold() for token in tokenized_query]
-
-                query_tokens, exclude_query_tokens = self._split_query_tokens(
-                    tokenized_query
-                )
-
-            if not query_case_sensitive:
-                normalized_query = normalized_query.casefold()
+                    normalized_query = normalized_query.casefold()
 
         normalized_query_fields = self._normalize_query_fields(query_fields)
 
@@ -794,6 +816,7 @@ class PluginManager:
                     query_fields=normalized_query_fields,
                     query_match_mode=normalized_query_match_mode,
                     query_case_sensitive=query_case_sensitive,
+                    query_regex=query_regex,
                 )
             ]
 
