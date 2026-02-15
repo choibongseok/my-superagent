@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.testclient import TestClient
 
@@ -102,3 +102,85 @@ def test_cache_middleware_respects_no_store_and_pragma_no_cache_headers(
         assert cached.headers["X-Cache"] == "HIT"
 
     assert calls["count"] == 3
+
+
+def test_cache_middleware_varies_cache_key_by_accept_language_header(
+    fake_cache: InMemoryAsyncCache,
+) -> None:
+    del fake_cache
+
+    app = FastAPI()
+    calls = {"count": 0}
+
+    @app.get("/localized")
+    async def localized(request: Request) -> dict[str, Any]:
+        calls["count"] += 1
+        locale = request.headers.get("Accept-Language", "default").split(",", 1)[0]
+        return {
+            "locale": locale,
+            "build": calls["count"],
+        }
+
+    app.add_middleware(CacheMiddleware, cache_ttl=30)
+
+    with TestClient(app) as client:
+        first_korean = client.get("/localized", headers={"Accept-Language": "ko-KR"})
+        assert first_korean.status_code == 200
+        assert first_korean.json() == {"locale": "ko-KR", "build": 1}
+        assert first_korean.headers["X-Cache"] == "MISS"
+
+        second_korean = client.get(
+            "/localized",
+            headers={"Accept-Language": "ko-KR"},
+        )
+        assert second_korean.status_code == 200
+        assert second_korean.json() == {"locale": "ko-KR", "build": 1}
+        assert second_korean.headers["X-Cache"] == "HIT"
+
+        first_english = client.get("/localized", headers={"Accept-Language": "en-US"})
+        assert first_english.status_code == 200
+        assert first_english.json() == {"locale": "en-US", "build": 2}
+        assert first_english.headers["X-Cache"] == "MISS"
+
+        second_english = client.get(
+            "/localized",
+            headers={"Accept-Language": "en-US"},
+        )
+        assert second_english.status_code == 200
+        assert second_english.json() == {"locale": "en-US", "build": 2}
+        assert second_english.headers["X-Cache"] == "HIT"
+
+    assert calls["count"] == 2
+
+
+def test_cache_middleware_supports_disabling_vary_headers(
+    fake_cache: InMemoryAsyncCache,
+) -> None:
+    del fake_cache
+
+    app = FastAPI()
+    calls = {"count": 0}
+
+    @app.get("/localized")
+    async def localized(request: Request) -> dict[str, Any]:
+        calls["count"] += 1
+        locale = request.headers.get("Accept-Language", "default").split(",", 1)[0]
+        return {
+            "locale": locale,
+            "build": calls["count"],
+        }
+
+    app.add_middleware(CacheMiddleware, cache_ttl=30, vary_headers=())
+
+    with TestClient(app) as client:
+        first_korean = client.get("/localized", headers={"Accept-Language": "ko-KR"})
+        assert first_korean.status_code == 200
+        assert first_korean.json() == {"locale": "ko-KR", "build": 1}
+        assert first_korean.headers["X-Cache"] == "MISS"
+
+        english_request = client.get("/localized", headers={"Accept-Language": "en-US"})
+        assert english_request.status_code == 200
+        assert english_request.json() == {"locale": "ko-KR", "build": 1}
+        assert english_request.headers["X-Cache"] == "HIT"
+
+    assert calls["count"] == 1

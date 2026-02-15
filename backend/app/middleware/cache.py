@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+from collections.abc import Iterable
 from typing import Any, Callable
 
 from fastapi import Request, Response
@@ -13,16 +14,27 @@ from app.core.cache import cache
 class CacheMiddleware(BaseHTTPMiddleware):
     """Middleware for caching API responses."""
 
-    def __init__(self, app, cache_ttl: int = 300):
+    DEFAULT_VARY_HEADERS = ("accept", "accept-language")
+
+    def __init__(
+        self,
+        app,
+        cache_ttl: int = 300,
+        vary_headers: Iterable[str] | None = None,
+    ):
         """
         Initialize cache middleware.
 
         Args:
             app: FastAPI application
             cache_ttl: Default cache TTL in seconds (default 5 minutes)
+            vary_headers: Optional iterable of request header names used to
+                segment cache entries (case-insensitive). Defaults to
+                ``("accept", "accept-language")``.
         """
         super().__init__(app)
         self.cache_ttl = cache_ttl
+        self.cache_vary_headers = self._normalize_vary_headers(vary_headers)
         self.cacheable_methods = {"GET"}
         self.cache_exclude_paths = {
             "/docs",
@@ -32,6 +44,36 @@ class CacheMiddleware(BaseHTTPMiddleware):
             "/api/v1/auth",  # Exclude auth endpoints
             "/api/v1/messages/ws",  # Exclude WebSocket
         }
+
+    @classmethod
+    def _normalize_vary_headers(
+        cls,
+        vary_headers: Iterable[str] | None,
+    ) -> tuple[str, ...]:
+        """Normalize optional vary-header names used by cache key generation."""
+        if vary_headers is None:
+            return cls.DEFAULT_VARY_HEADERS
+
+        if isinstance(vary_headers, str):
+            raise ValueError("vary_headers must be an iterable of header names")
+
+        normalized_headers: list[str] = []
+        seen: set[str] = set()
+        for header_name in vary_headers:
+            if not isinstance(header_name, str):
+                raise ValueError("vary_headers must contain only string header names")
+
+            normalized_header_name = header_name.strip().lower()
+            if not normalized_header_name:
+                raise ValueError("vary_headers cannot contain empty header names")
+
+            if normalized_header_name in seen:
+                continue
+
+            seen.add(normalized_header_name)
+            normalized_headers.append(normalized_header_name)
+
+        return tuple(normalized_headers)
 
     @staticmethod
     def _cache_control_disables_caching(request: Request) -> bool:
@@ -96,6 +138,11 @@ class CacheMiddleware(BaseHTTPMiddleware):
         auth_header = request.headers.get("Authorization")
         if auth_header:
             key_parts.append(auth_header)
+
+        # Segment cache entries by configured vary headers.
+        for header_name in self.cache_vary_headers:
+            header_value = request.headers.get(header_name, "")
+            key_parts.append(f"header:{header_name}={header_value}")
 
         # Create hash of key parts
         key_string = ":".join(key_parts)
