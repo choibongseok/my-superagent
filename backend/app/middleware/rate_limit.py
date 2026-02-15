@@ -498,6 +498,35 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         return self.request_costs.get(method, 1)
 
+    def _build_rate_limit_headers(
+        self,
+        *,
+        remaining: int,
+        request_cost: int,
+        reset_after: int,
+        retry_after: Optional[int] = None,
+    ) -> dict[str, str]:
+        """Build legacy and RFC 9333-style rate-limit response headers."""
+        safe_remaining = max(0, remaining)
+        safe_reset_after = max(0, reset_after)
+
+        headers = {
+            "X-RateLimit-Limit": str(self.burst_size),
+            "X-RateLimit-Remaining": str(safe_remaining),
+            "X-RateLimit-Reset": str(int(time.time()) + safe_reset_after),
+            "X-RateLimit-Reset-After": str(safe_reset_after),
+            "X-RateLimit-Request-Cost": str(request_cost),
+            "RateLimit-Limit": str(self.burst_size),
+            "RateLimit-Remaining": str(safe_remaining),
+            "RateLimit-Reset": str(safe_reset_after),
+            "RateLimit-Policy": f"{self.burst_size};w=60",
+        }
+
+        if retry_after is not None:
+            headers["Retry-After"] = str(max(0, retry_after))
+
+        return headers
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """
         Process request with rate limiting.
@@ -538,13 +567,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     "detail": "Too many requests. Please try again later.",
                     "retry_after": retry_after,
                 },
-                headers={
-                    "Retry-After": str(retry_after),
-                    "X-RateLimit-Limit": str(self.burst_size),
-                    "X-RateLimit-Remaining": "0",
-                    "X-RateLimit-Reset": str(int(time.time()) + retry_after),
-                    "X-RateLimit-Request-Cost": str(request_cost),
-                },
+                headers=self._build_rate_limit_headers(
+                    remaining=0,
+                    request_cost=request_cost,
+                    reset_after=retry_after,
+                    retry_after=retry_after,
+                ),
             )
 
         # Process request
@@ -559,10 +587,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             else 3600
         )
 
-        response.headers["X-RateLimit-Limit"] = str(self.burst_size)
-        response.headers["X-RateLimit-Remaining"] = str(int(remaining))
-        response.headers["X-RateLimit-Reset"] = str(int(time.time()) + reset_after)
-        response.headers["X-RateLimit-Request-Cost"] = str(request_cost)
+        for header_name, header_value in self._build_rate_limit_headers(
+            remaining=int(remaining),
+            request_cost=request_cost,
+            reset_after=reset_after,
+        ).items():
+            response.headers[header_name] = header_value
 
         return response
 

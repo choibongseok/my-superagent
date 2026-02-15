@@ -115,6 +115,67 @@ def test_rate_limit_middleware_applies_method_specific_request_costs(
         assert limited_response.headers["X-RateLimit-Request-Cost"] == "1"
 
 
+def test_rate_limit_middleware_emits_rfc9333_headers_on_success(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=2,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/limited")
+
+    assert response.status_code == 200
+    assert response.headers["RateLimit-Policy"] == "2;w=60"
+    assert response.headers["RateLimit-Limit"] == "2"
+    assert response.headers["RateLimit-Remaining"] == "1"
+    assert response.headers["RateLimit-Reset"] == "0"
+    assert response.headers["X-RateLimit-Reset-After"] == "0"
+
+
+def test_rate_limit_middleware_emits_rfc9333_headers_on_429(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+    )
+
+    with TestClient(app) as client:
+        first = client.get("/limited")
+        second = client.get("/limited")
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert second.headers["Retry-After"] == "1"
+    assert second.headers["RateLimit-Policy"] == "1;w=60"
+    assert second.headers["RateLimit-Limit"] == "1"
+    assert second.headers["RateLimit-Remaining"] == "0"
+    assert second.headers["RateLimit-Reset"] == "1"
+    assert second.headers["X-RateLimit-Reset-After"] == "1"
+
+
 def test_rate_limit_middleware_rejects_invalid_request_costs() -> None:
     app = FastAPI()
 
