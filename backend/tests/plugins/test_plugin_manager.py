@@ -726,6 +726,104 @@ async def test_reload_plugins_validates_selector_overlap_and_config_payload(tmp_
 
 
 @pytest.mark.asyncio
+async def test_unload_plugins_unloads_all_loaded_plugins(tmp_path, monkeypatch):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+
+    alpha_lifecycle: dict[str, int] = {}
+    beta_lifecycle: dict[str, int] = {}
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"], alpha_lifecycle),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class("beta-plugin", ["filesystem.read"], beta_lifecycle),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    unloaded = await manager.unload_plugins()
+
+    assert unloaded == ["alpha-plugin", "beta-plugin"]
+    assert alpha_lifecycle == {"initialized": 1, "cleaned": 1}
+    assert beta_lifecycle == {"initialized": 1, "cleaned": 1}
+    assert manager.list_plugins() == []
+
+
+@pytest.mark.asyncio
+async def test_unload_plugins_supports_selectors(tmp_path, monkeypatch):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+    (tmp_path / "slack_notifier.py").write_text("# slack", encoding="utf-8")
+
+    weather_lifecycle: dict[str, int] = {}
+    slack_lifecycle: dict[str, int] = {}
+
+    modules = {
+        "app.plugins.weather_tool": _plugin_module(
+            "app.plugins.weather_tool",
+            _build_plugin_class(
+                "weather-plugin",
+                ["network.http"],
+                weather_lifecycle,
+            ),
+        ),
+        "app.plugins.slack_notifier": _plugin_module(
+            "app.plugins.slack_notifier",
+            _build_plugin_class(
+                "slack-plugin",
+                ["messaging.send"],
+                slack_lifecycle,
+            ),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    unloaded = await manager.unload_plugins(include_plugins=["weather*"])
+
+    assert unloaded == ["weather-plugin"]
+    assert weather_lifecycle == {"initialized": 1, "cleaned": 1}
+    assert slack_lifecycle == {"initialized": 1}
+
+    remaining = manager.list_plugins(sort_by="name")
+    assert [item["name"] for item in remaining] == ["slack-plugin"]
+
+
+@pytest.mark.asyncio
+async def test_unload_plugins_validates_selector_overlap(tmp_path):
+    manager = PluginManager(plugin_dir=str(tmp_path))
+
+    with pytest.raises(
+        ValueError,
+        match="Plugins cannot be both included and excluded: weather_tool",
+    ):
+        await manager.unload_plugins(
+            include_plugins=["weather_tool"],
+            exclude_plugins=["weather_tool.py"],
+        )
+
+
+@pytest.mark.asyncio
 async def test_validate_permissions_supports_glob_patterns(tmp_path, monkeypatch):
     (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
 

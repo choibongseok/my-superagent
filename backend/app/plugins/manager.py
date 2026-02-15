@@ -1083,6 +1083,81 @@ class PluginManager:
         )
         return reloaded_plugins
 
+    async def unload_plugins(
+        self,
+        *,
+        include_plugins: Optional[Sequence[str]] = None,
+        exclude_plugins: Optional[Sequence[str]] = None,
+        stop_on_error: bool = False,
+    ) -> List[str]:
+        """Unload loaded plugins in bulk with optional selectors.
+
+        Args:
+            include_plugins: Optional allowlist of selectors (manifest name,
+                module stem/path, filename, or glob pattern).
+            exclude_plugins: Optional denylist of selectors in the same format
+                as ``include_plugins``.
+            stop_on_error: If ``True``, re-raise the first unload failure.
+
+        Returns:
+            List of successfully unloaded plugin names.
+        """
+        include_selectors = (
+            {self._normalize_module_selector(selector) for selector in include_plugins}
+            if include_plugins is not None
+            else None
+        )
+        exclude_selectors = {
+            self._normalize_module_selector(selector)
+            for selector in (exclude_plugins or [])
+        }
+
+        if include_selectors is not None:
+            overlap = include_selectors & exclude_selectors
+            if overlap:
+                conflicting = ", ".join(sorted(overlap))
+                raise ValueError(
+                    f"Plugins cannot be both included and excluded: {conflicting}"
+                )
+
+        unloaded_plugins: List[str] = []
+        for manifest in sorted(self.manifests.values(), key=lambda item: item.name):
+            plugin = self.plugins.get(manifest.name)
+            if plugin is None:
+                continue
+
+            module_path = plugin.__class__.__module__
+            if include_selectors is not None and not self._manifest_matches_selectors(
+                manifest.name,
+                module_path,
+                include_selectors,
+            ):
+                continue
+
+            if exclude_selectors and self._manifest_matches_selectors(
+                manifest.name,
+                module_path,
+                exclude_selectors,
+            ):
+                continue
+
+            try:
+                if await self.unload_plugin(manifest.name):
+                    unloaded_plugins.append(manifest.name)
+            except Exception:
+                logger.error(
+                    "Failed to unload plugin: %s",
+                    manifest.name,
+                    exc_info=True,
+                )
+                if stop_on_error:
+                    raise
+
+        logger.info(
+            "Unloaded %d plugin(s): %s", len(unloaded_plugins), unloaded_plugins
+        )
+        return unloaded_plugins
+
     async def unload_plugin(self, plugin_name: str) -> bool:
         """
         Unload a plugin.
@@ -1116,13 +1191,7 @@ class PluginManager:
 
     async def unload_all(self) -> None:
         """Unload all plugins."""
-        plugin_names = list(self.plugins.keys())
-
-        for plugin_name in plugin_names:
-            try:
-                await self.unload_plugin(plugin_name)
-            except Exception as e:
-                logger.error(f"Failed to unload plugin {plugin_name}: {e}")
+        await self.unload_plugins()
 
         logger.info("All plugins unloaded")
 
