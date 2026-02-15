@@ -847,6 +847,7 @@ class CitationTracker:
         exclude_authors: Optional[str | Iterable[str]] = None,
         min_citations: Optional[int] = None,
         max_citations: Optional[int] = None,
+        citation_status: Literal["any", "cited", "uncited"] = "any",
         min_authority_score: Optional[float] = None,
         max_authority_score: Optional[float] = None,
         authority_weights: Optional[Mapping[SourceType | str, float]] = None,
@@ -930,6 +931,10 @@ class CitationTracker:
                 source.
             max_citations: Optional inclusive upper bound for citation count per
                 source.
+            citation_status: Citation-presence scope. ``"any"`` (default)
+                keeps all sources, ``"cited"`` keeps only sources with at
+                least one citation, and ``"uncited"`` keeps only sources
+                with zero citations.
             min_authority_score: Optional inclusive lower bound for source
                 authority score, using ``SOURCE_AUTHORITY_WEIGHTS`` values in
                 the ``0.0`` to ``1.0`` range.
@@ -1046,6 +1051,12 @@ class CitationTracker:
             and min_citations > max_citations
         ):
             raise ValueError("min_citations cannot be greater than max_citations")
+
+        normalized_citation_status = self._normalize_text(citation_status)
+        if normalized_citation_status not in {"any", "cited", "uncited"}:
+            raise ValueError(
+                "citation_status must be one of: any, cited, uncited"
+            )
 
         if min_authority_score is not None and not 0 <= min_authority_score <= 1:
             raise ValueError("min_authority_score must be between 0 and 1")
@@ -1243,6 +1254,10 @@ class CitationTracker:
             if min_citations is not None and citation_count < min_citations:
                 continue
             if max_citations is not None and citation_count > max_citations:
+                continue
+            if normalized_citation_status == "cited" and citation_count == 0:
+                continue
+            if normalized_citation_status == "uncited" and citation_count > 0:
                 continue
 
             source_type_value = self._normalize_source_type_value(source.type)
@@ -1602,6 +1617,7 @@ class CitationTracker:
         exclude_authors: Optional[str | Iterable[str]] = None,
         min_citations: Optional[int] = None,
         max_citations: Optional[int] = None,
+        citation_status: Literal["any", "cited", "uncited"] = "any",
         min_authority_score: Optional[float] = None,
         max_authority_score: Optional[float] = None,
         authority_weights: Optional[Mapping[SourceType | str, float]] = None,
@@ -1655,6 +1671,7 @@ class CitationTracker:
             exclude_authors=exclude_authors,
             min_citations=min_citations,
             max_citations=max_citations,
+            citation_status=citation_status,
             min_authority_score=min_authority_score,
             max_authority_score=max_authority_score,
             authority_weights=authority_weights,

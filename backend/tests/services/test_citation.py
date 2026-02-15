@@ -1348,6 +1348,47 @@ class TestCitationTracker:
         ):
             tracker.search_sources("ai", min_citations=2, max_citations=1)
 
+    def test_search_sources_supports_citation_status_filter(self):
+        """citation_status should scope results to cited/uncited/all sources."""
+        tracker = CitationTracker()
+
+        cited_id = tracker.add_source(title="Cited Guide")
+        uncited_id = tracker.add_source(title="Uncited Guide")
+        tracker.cite(cited_id, quoted_text="Evidence")
+
+        cited_matches = tracker.search_sources("guide", citation_status="cited")
+        uncited_matches = tracker.search_sources("guide", citation_status="uncited")
+        all_matches = tracker.search_sources("guide", citation_status="any")
+
+        assert [source.id for source in cited_matches] == [cited_id]
+        assert [source.id for source in uncited_matches] == [uncited_id]
+        assert {source.id for source in all_matches} == {cited_id, uncited_id}
+
+    def test_search_sources_with_details_supports_citation_status_filter(self):
+        """Detailed search should pass citation_status filtering through."""
+        tracker = CitationTracker()
+
+        cited_id = tracker.add_source(title="Cited Workflow")
+        tracker.add_source(title="Uncited Workflow")
+        tracker.cite(cited_id, quoted_text="Proof")
+
+        detailed = tracker.search_sources_with_details(
+            "workflow",
+            citation_status="cited",
+        )
+
+        assert [item["source"].id for item in detailed] == [cited_id]
+
+    def test_search_sources_rejects_invalid_citation_status_filter(self):
+        """citation_status should enforce supported filter values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="citation_status must be one of: any, cited, uncited",
+        ):
+            tracker.search_sources("ai", citation_status="partial")
+
     def test_search_sources_supports_min_and_max_authority_score_filters(self):
         """Authority score bounds should filter by trusted source type weights."""
         tracker = CitationTracker()
