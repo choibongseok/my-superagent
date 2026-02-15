@@ -15,6 +15,13 @@ def test_resolve_task_type_trims_and_normalizes_case():
     assert templates._resolve_task_type("  DoCuMeNt  ") == "docs"
 
 
+def test_resolve_task_type_supports_workspace_aliases_and_separators():
+    assert templates._resolve_task_type("Google-Docs") == "docs"
+    assert templates._resolve_task_type("google_sheets") == "sheets"
+    assert templates._resolve_task_type("Slide Deck") == "slides"
+    assert templates._resolve_task_type("analysis") == "research"
+
+
 def test_build_task_kwargs_uses_task_metadata_for_real_task_model():
     kwargs = templates._build_task_kwargs(
         user_id=uuid4(),
@@ -88,3 +95,33 @@ def test_queue_task_docs_falls_back_for_blank_title_values():
         )
 
         assert mock_apply.call_args.kwargs["args"][-1] == "Template Document"
+
+
+def test_queue_task_docs_uses_nested_document_title_alias():
+    with patch.object(templates.process_docs_task, "apply_async") as mock_apply:
+        mock_apply.return_value = MagicMock(id="celery-5")
+
+        templates._queue_task(
+            task_type="docs",
+            task_id="task-5",
+            prompt="write report",
+            user_id="user-1",
+            inputs={"document": {"title": "Architecture Overview"}},
+        )
+
+        assert mock_apply.call_args.kwargs["args"][-1] == "Architecture Overview"
+
+
+def test_queue_task_slides_uses_deck_title_alias():
+    with patch.object(templates.process_slides_task, "apply_async") as mock_apply:
+        mock_apply.return_value = MagicMock(id="celery-6")
+
+        templates._queue_task(
+            task_type="slides",
+            task_id="task-6",
+            prompt="build deck",
+            user_id="user-1",
+            inputs={"deck_title": "Roadmap Review"},
+        )
+
+        assert mock_apply.call_args.kwargs["args"][-1] == "Roadmap Review"

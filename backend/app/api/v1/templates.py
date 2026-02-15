@@ -1,6 +1,7 @@
 """API endpoints for template marketplace."""
 
 import logging
+import re
 from typing import Annotated
 from uuid import UUID
 
@@ -35,14 +36,37 @@ from app.services.template_service import TemplateService
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+OUTPUT_TYPE_NORMALIZER = re.compile(r"[^a-z0-9]+")
+
 CATEGORY_TO_TASK_TYPE = {
     "research": "research",
+    "analysis": "research",
     "document": "docs",
+    "documents": "docs",
+    "doc": "docs",
     "docs": "docs",
+    "google doc": "docs",
+    "google docs": "docs",
+    "gdoc": "docs",
+    "gdocs": "docs",
     "spreadsheet": "sheets",
+    "spreadsheets": "sheets",
+    "sheet": "sheets",
     "sheets": "sheets",
+    "google sheet": "sheets",
+    "google sheets": "sheets",
+    "gsheet": "sheets",
+    "gsheets": "sheets",
     "presentation": "slides",
+    "presentations": "slides",
+    "slide": "slides",
     "slides": "slides",
+    "deck": "slides",
+    "slide deck": "slides",
+    "google slide": "slides",
+    "google slides": "slides",
+    "gslide": "slides",
+    "gslides": "slides",
 }
 
 TASK_TITLE_DEFAULTS = {
@@ -52,10 +76,53 @@ TASK_TITLE_DEFAULTS = {
 }
 
 TASK_TITLE_INPUT_KEYS = {
-    "docs": ("title", "document_title"),
-    "sheets": ("title", "spreadsheet_title"),
-    "slides": ("title", "presentation_title"),
+    "docs": (
+        "title",
+        "name",
+        "document_title",
+        "doc_title",
+        "document.title",
+        "document.name",
+    ),
+    "sheets": (
+        "title",
+        "name",
+        "spreadsheet_title",
+        "sheet_title",
+        "spreadsheet.title",
+        "spreadsheet.name",
+    ),
+    "slides": (
+        "title",
+        "name",
+        "presentation_title",
+        "slide_title",
+        "deck_title",
+        "presentation.title",
+        "presentation.name",
+        "deck.title",
+    ),
 }
+
+
+def _normalize_output_type(output_type: str) -> str:
+    """Normalize category-like strings for resilient task-type mapping."""
+    normalized_output_type = OUTPUT_TYPE_NORMALIZER.sub(
+        " ",
+        output_type.strip().lower(),
+    ).strip()
+    return normalized_output_type
+
+
+def _resolve_input_value(inputs: dict, key_path: str):
+    """Resolve dotted input keys (e.g., ``document.title``) from payloads."""
+    current_value = inputs
+    for key in key_path.split("."):
+        if not isinstance(current_value, dict):
+            return None
+        current_value = current_value.get(key)
+
+    return current_value
 
 
 def _resolve_task_type(output_type: str | None) -> str:
@@ -63,7 +130,7 @@ def _resolve_task_type(output_type: str | None) -> str:
     if not isinstance(output_type, str):
         return "research"
 
-    normalized_output_type = output_type.strip().lower()
+    normalized_output_type = _normalize_output_type(output_type)
     if not normalized_output_type:
         return "research"
 
@@ -77,7 +144,7 @@ def _resolve_task_title(task_type: str, inputs: dict) -> str:
         raise ValueError(f"No default title configured for task type: {task_type}")
 
     for key in TASK_TITLE_INPUT_KEYS.get(task_type, ("title",)):
-        value = inputs.get(key)
+        value = _resolve_input_value(inputs, key)
         if isinstance(value, str):
             normalized_value = value.strip()
             if normalized_value:
