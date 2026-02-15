@@ -1558,6 +1558,9 @@ class LocalCacheService:
         self,
         *,
         prefix: str | None = None,
+        pattern: str | None = None,
+        tags: Iterable[str] | None = None,
+        match_all_tags: bool = False,
         separator: str = ":",
         offset: int | None = None,
         limit: int | None = None,
@@ -1571,6 +1574,9 @@ class LocalCacheService:
 
         Args:
             prefix: Optional namespace prefix filter.
+            pattern: Optional key glob filter matched with :func:`fnmatchcase`.
+            tags: Optional key-tag filters.
+            match_all_tags: Tag matching mode when ``tags`` are provided.
             separator: Namespace delimiter used to split keys.
             offset: Optional number of sorted namespaces to skip.
             limit: Optional maximum number of namespaces to return.
@@ -1580,6 +1586,12 @@ class LocalCacheService:
         """
         if prefix is not None and not isinstance(prefix, str):
             raise ValueError("prefix must be a string")
+
+        if pattern is not None and not isinstance(pattern, str):
+            raise ValueError("pattern must be a string")
+
+        if not isinstance(match_all_tags, bool):
+            raise ValueError("match_all_tags must be a boolean")
 
         if offset is not None and offset < 0:
             raise ValueError("offset must be greater than or equal to 0")
@@ -1597,8 +1609,14 @@ class LocalCacheService:
 
         self._purge_expired_entries()
 
+        matching_keys = self._find_matching_keys(
+            pattern=pattern,
+            tags=tags,
+            match_all_tags=match_all_tags,
+        )
+
         namespace_counts: Counter[str] = Counter()
-        for key in self._store:
+        for key in matching_keys:
             namespace = self._extract_namespace(key, separator=normalized_separator)
             if prefix is not None and not namespace.startswith(prefix):
                 continue

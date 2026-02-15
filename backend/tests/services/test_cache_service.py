@@ -1563,11 +1563,41 @@ def test_local_cache_list_namespaces_supports_custom_separator_and_pagination():
     ]
 
 
+def test_local_cache_list_namespaces_supports_key_pattern_and_tag_filters():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["active", "scope:session"])
+    cache.set_tagged("session:beta", 2, tags=["scope:session"])
+    cache.set_tagged("user:alpha", 3, tags=["active", "scope:user"])
+    cache.set("audit:entry", 4)
+
+    assert cache.list_namespaces(pattern="*:alpha") == ["session", "user"]
+
+    assert cache.list_namespaces(tags=["active"]) == ["session", "user"]
+
+    assert cache.list_namespaces(
+        tags=["active", "scope:session"],
+        match_all_tags=True,
+        include_counts=True,
+    ) == [{"namespace": "session", "count": 1}]
+
+    assert cache.list_namespaces(
+        prefix="s",
+        tags=["scope:session"],
+        include_counts=True,
+    ) == [{"namespace": "session", "count": 2}]
+
+
 def test_local_cache_list_namespaces_rejects_invalid_inputs():
     cache = LocalCacheService()
 
     with pytest.raises(ValueError, match="prefix must be a string"):
         cache.list_namespaces(prefix=123)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="pattern must be a string"):
+        cache.list_namespaces(pattern=123)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
+        cache.list_namespaces(match_all_tags="yes")  # type: ignore[arg-type]
 
     with pytest.raises(ValueError, match="separator cannot be empty"):
         cache.list_namespaces(separator="   ")
