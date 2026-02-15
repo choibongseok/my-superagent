@@ -34,6 +34,7 @@ class TestWeatherTool:
         assert result["wind_chill"] is None
         assert result["wind_chill_unit"] is None
         assert result["feels_like"] == 21.3
+        assert result["thermal_comfort"] == "comfortable"
         assert result["condition"] == "Partly Cloudy"
         assert result["humidity"] == 65
         assert result["humidity_level"] == "humid"
@@ -111,6 +112,51 @@ class TestWeatherTool:
         assert plugin._classify_humidity_level(None) is None
         assert plugin._classify_humidity_level(True) is None
         assert plugin._classify_humidity_level("not-a-number") is None
+
+    def test_thermal_comfort_classification_ranges(self):
+        """Thermal comfort labels should map to sensible feels-like bands."""
+        plugin = WeatherPlugin(config={})
+
+        assert (
+            plugin._classify_thermal_comfort(feels_like=-18, units="metric")
+            == "dangerously cold"
+        )
+        assert (
+            plugin._classify_thermal_comfort(feels_like=-1, units="metric")
+            == "freezing"
+        )
+        assert (
+            plugin._classify_thermal_comfort(feels_like=8, units="metric")
+            == "cold"
+        )
+        assert (
+            plugin._classify_thermal_comfort(feels_like=15, units="metric")
+            == "cool"
+        )
+        assert (
+            plugin._classify_thermal_comfort(feels_like=23, units="metric")
+            == "comfortable"
+        )
+        assert (
+            plugin._classify_thermal_comfort(feels_like=31, units="metric")
+            == "warm"
+        )
+        assert (
+            plugin._classify_thermal_comfort(feels_like=35, units="metric")
+            == "hot"
+        )
+        assert (
+            plugin._classify_thermal_comfort(feels_like=110, units="imperial")
+            == "extreme heat"
+        )
+        assert (
+            plugin._classify_thermal_comfort(feels_like=True, units="metric")
+            is None
+        )
+        assert (
+            plugin._classify_thermal_comfort(feels_like="unknown", units="metric")
+            is None
+        )
 
     def test_cache_config_validation(self):
         """Cache settings should validate numeric and range constraints."""
@@ -343,6 +389,7 @@ class TestWeatherTool:
         assert "Temperature:" in result
         assert "22.5°C" in result
         assert "Feels Like:" in result
+        assert "Thermal Comfort: Comfortable" in result
         assert "Dew Point: 15.6°C" in result
         assert "Condition:" in result
         assert "Humidity:" in result
@@ -638,6 +685,7 @@ class TestWeatherTool:
             assert result["wind_chill"] is None
             assert result["wind_chill_unit"] is None
             assert result["feels_like"] == 14.7
+            assert result["thermal_comfort"] == "cool"
             assert result["condition"] == "Light Rain"
             assert result["humidity"] == 72
             assert result["humidity_level"] == "humid"
@@ -683,6 +731,7 @@ class TestWeatherTool:
             assert result["temperature_unit"] == "°C"
             assert result["heat_index"] == 45.1
             assert result["heat_index_unit"] == "°C"
+            assert result["thermal_comfort"] == "hot"
 
     @pytest.mark.asyncio
     async def test_real_api_call_includes_wind_chill_for_cold_windy_conditions(
@@ -1553,7 +1602,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.26.0"
+        assert manifest.version == "1.27.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
@@ -1572,6 +1621,7 @@ class TestWeatherTool:
         assert "lang" in manifest.inputs
         assert "refresh_cache" in manifest.inputs
         assert "feels_like" in manifest.outputs
+        assert "thermal_comfort" in manifest.outputs
         assert "temperature_unit" in manifest.outputs
         assert "humidity_level" in manifest.outputs
         assert "heat_index" in manifest.outputs
@@ -1611,6 +1661,7 @@ class TestWeatherTool:
         assert "pressure_unit" in description
         assert "feels-like temperature" in description
         assert "heat-index temperature" in description
+        assert "thermal-comfort" in description
         assert "comfort-level" in description
         assert "pressure" in description
         assert "Beaufort" in description

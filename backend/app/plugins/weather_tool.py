@@ -582,6 +582,44 @@ class Plugin(ToolPlugin):
         heat_index = cls._convert_celsius_to_units(heat_index_celsius, units)
         return round(heat_index, 1)
 
+    @classmethod
+    def _classify_thermal_comfort(
+        cls,
+        *,
+        feels_like: Any,
+        units: str,
+    ) -> str | None:
+        """Classify perceived temperature into practical comfort bands."""
+        if isinstance(feels_like, bool):
+            return None
+
+        try:
+            feels_like_value = float(feels_like)
+        except (TypeError, ValueError):
+            return None
+
+        feels_like_celsius = cls._convert_temperature_to_celsius(
+            feels_like_value,
+            units,
+        )
+
+        if feels_like_celsius <= -10:
+            return "dangerously cold"
+        if feels_like_celsius <= 0:
+            return "freezing"
+        if feels_like_celsius <= 10:
+            return "cold"
+        if feels_like_celsius <= 18:
+            return "cool"
+        if feels_like_celsius <= 26:
+            return "comfortable"
+        if feels_like_celsius <= 32:
+            return "warm"
+        if feels_like_celsius <= 40:
+            return "hot"
+
+        return "extreme heat"
+
     @staticmethod
     def _extract_precipitation_amount(
         data: Dict[str, Any], period: str
@@ -792,6 +830,10 @@ class Plugin(ToolPlugin):
             wind_speed=wind_speed,
             units=units,
         )
+        thermal_comfort = self._classify_thermal_comfort(
+            feels_like=feels_like,
+            units=units,
+        )
 
         return {
             "location": location,
@@ -804,6 +846,7 @@ class Plugin(ToolPlugin):
             "wind_chill": wind_chill,
             "wind_chill_unit": temperature_unit if wind_chill is not None else None,
             "feels_like": feels_like,
+            "thermal_comfort": thermal_comfort,
             "condition": "Partly Cloudy",
             "humidity": 65,
             "humidity_level": self._classify_humidity_level(65),
@@ -1066,6 +1109,7 @@ class Plugin(ToolPlugin):
                 "wind_chill": float | None,
                 "wind_chill_unit": str | None,
                 "feels_like": float,
+                "thermal_comfort": str | None,
                 "condition": str,
                 "humidity": int,
                 "humidity_level": str | None,
@@ -1167,6 +1211,10 @@ class Plugin(ToolPlugin):
                 main = data["main"]
                 temperature = round(main["temp"], 1)
                 feels_like = round(main.get("feels_like", main["temp"]), 1)
+                thermal_comfort = self._classify_thermal_comfort(
+                    feels_like=feels_like,
+                    units=resolved_units,
+                )
                 humidity = main["humidity"]
                 humidity_level = self._classify_humidity_level(humidity)
                 dew_point = self._calculate_dew_point(
@@ -1258,6 +1306,7 @@ class Plugin(ToolPlugin):
                     if wind_chill is not None
                     else None,
                     "feels_like": feels_like,
+                    "thermal_comfort": thermal_comfort,
                     "condition": data["weather"][0]["description"].title(),
                     "humidity": humidity,
                     "humidity_level": humidity_level,
@@ -1367,6 +1416,12 @@ class Plugin(ToolPlugin):
         wind_chill = result.get("wind_chill")
         wind_chill_unit = str(result.get("wind_chill_unit") or temperature_unit)
         feels_like = result.get("feels_like", result["temperature"])
+        thermal_comfort = result.get("thermal_comfort")
+        if not isinstance(thermal_comfort, str) or not thermal_comfort.strip():
+            thermal_comfort = self._classify_thermal_comfort(
+                feels_like=feels_like,
+                units=resolved_units,
+            )
         pressure = result.get("pressure")
         pressure_unit = result.get("pressure_unit")
         visibility = result.get("visibility")
@@ -1391,10 +1446,18 @@ class Plugin(ToolPlugin):
             f"Weather in {result['location']}:",
             f"Temperature: {result['temperature']}{temperature_unit}",
             f"Feels Like: {feels_like}{temperature_unit}",
-            f"Condition: {result['condition']}",
-            f"Humidity: {result['humidity']}%{humidity_suffix}",
-            f"Wind Speed: {result['wind_speed']} {wind_unit}",
         ]
+
+        if isinstance(thermal_comfort, str) and thermal_comfort.strip():
+            lines.append(f"Thermal Comfort: {thermal_comfort.strip().title()}")
+
+        lines.extend(
+            [
+                f"Condition: {result['condition']}",
+                f"Humidity: {result['humidity']}%{humidity_suffix}",
+                f"Wind Speed: {result['wind_speed']} {wind_unit}",
+            ]
+        )
 
         if wind_gust is not None:
             lines.append(f"Wind Gust: {wind_gust} {wind_gust_unit}")
@@ -1454,7 +1517,7 @@ class Plugin(ToolPlugin):
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
             "Set refresh_cache=true to bypass cached responses and force a fresh API fetch. "
-            "Returns temperature, dew-point temperature, heat-index temperature, wind-chill temperature, feels-like temperature, weather condition, humidity with comfort-level classification, cloud coverage, daylight status, pressure, wind speed, optional wind gust, Beaufort wind-force details, wind direction, visibility, and precipitation summaries when available. "
+            "Returns temperature, dew-point temperature, heat-index temperature, wind-chill temperature, feels-like temperature, perceived thermal-comfort classification, weather condition, humidity with comfort-level classification, cloud coverage, daylight status, pressure, wind speed, optional wind gust, Beaufort wind-force details, wind direction, visibility, and precipitation summaries when available. "
             "Requires OpenWeatherMap API key in plugin config."
         )
 
@@ -1462,8 +1525,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.26.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point/heat-index/wind-chill insights, humidity comfort-level insights, wind speed and gust details, Beaufort wind-force details, wind direction details, visibility details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
+            version="1.27.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point/heat-index/wind-chill insights, thermal-comfort insights, humidity comfort-level insights, wind speed and gust details, Beaufort wind-force details, wind direction details, visibility details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -1498,6 +1561,7 @@ class Plugin(ToolPlugin):
                 "wind_chill": "float | null",
                 "wind_chill_unit": "string | null (°C, °F, or K)",
                 "feels_like": "float",
+                "thermal_comfort": "string | null (dangerously cold, freezing, cold, cool, comfortable, warm, hot, or extreme heat)",
                 "condition": "string",
                 "humidity": "integer",
                 "humidity_level": "string | null (dry, comfortable, humid, or very humid)",
