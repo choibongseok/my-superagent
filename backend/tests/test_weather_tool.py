@@ -47,6 +47,7 @@ class TestWeatherTool:
         assert result["wind_gust_unit"] == "km/h"
         assert result["wind_beaufort"] == 3
         assert result["wind_beaufort_label"] == "Gentle Breeze"
+        assert result["wind_severity"] == "moderate"
         assert result["wind_direction_degrees"] == 225.0
         assert result["wind_direction_cardinal"] == "SW"
         assert result["visibility"] == 10.0
@@ -157,6 +158,32 @@ class TestWeatherTool:
         assert (
             plugin._classify_thermal_comfort(feels_like="unknown", units="metric")
             is None
+        )
+
+    def test_wind_severity_classification_ranges(self):
+        """Wind severity should map to practical Beaufort-based buckets."""
+        plugin = WeatherPlugin(config={})
+
+        assert plugin._classify_wind_severity(wind_beaufort=0) == "light"
+        assert plugin._classify_wind_severity(wind_beaufort=3) == "moderate"
+        assert plugin._classify_wind_severity(wind_beaufort=6) == "strong"
+        assert plugin._classify_wind_severity(wind_beaufort=8) == "gale"
+        assert plugin._classify_wind_severity(wind_beaufort=11) == "storm"
+        assert (
+            plugin._classify_wind_severity(
+                wind_beaufort=True,
+                wind_speed=None,
+                units="metric",
+            )
+            is None
+        )
+        assert (
+            plugin._classify_wind_severity(
+                wind_beaufort=None,
+                wind_speed=30,
+                units="metric",
+            )
+            == "strong"
         )
 
     def test_visibility_level_classification_ranges(self):
@@ -666,6 +693,35 @@ class TestWeatherTool:
         assert "Wind Force: Beaufort 5 (Fresh Breeze)" in result
 
     @pytest.mark.asyncio
+    async def test_run_tool_formats_wind_severity_when_available(self):
+        """run_tool should render qualitative wind severity when execute provides it."""
+        plugin = WeatherPlugin(config={"units": "metric"})
+
+        with patch.object(
+            plugin,
+            "execute",
+            AsyncMock(
+                return_value={
+                    "location": "Wellington",
+                    "temperature": 14.0,
+                    "feels_like": 12.7,
+                    "condition": "Windy",
+                    "humidity": 68,
+                    "wind_speed": 31.0,
+                    "wind_speed_unit": "km/h",
+                    "wind_beaufort": 6,
+                    "wind_beaufort_label": "Strong Breeze",
+                    "wind_severity": "strong",
+                    "units": "metric",
+                }
+            ),
+        ):
+            result = await plugin.run_tool("Wellington")
+
+        assert "Wind Force: Beaufort 6 (Strong Breeze)" in result
+        assert "Wind Severity: Strong" in result
+
+    @pytest.mark.asyncio
     async def test_run_tool_formats_wind_direction_when_available(self):
         """run_tool should render wind direction degrees with cardinal direction."""
         plugin = WeatherPlugin(config={"units": "metric"})
@@ -743,6 +799,7 @@ class TestWeatherTool:
             assert result["wind_gust_unit"] == "km/h"
             assert result["wind_beaufort"] == 3
             assert result["wind_beaufort_label"] == "Gentle Breeze"
+            assert result["wind_severity"] == "moderate"
             assert result["wind_direction_degrees"] == 219.0
             assert result["wind_direction_cardinal"] == "SW"
             assert result["visibility"] == 7.5
@@ -1652,7 +1709,7 @@ class TestWeatherTool:
     def test_manifest_version(self, api_plugin):
         """Test that manifest version is updated."""
         manifest = api_plugin.get_manifest()
-        assert manifest.version == "1.28.0"
+        assert manifest.version == "1.29.0"
         assert "OpenWeatherMap" in manifest.description
         assert "units" in manifest.config_schema
         assert "standard/kelvin" in manifest.config_schema["units"]
@@ -1683,6 +1740,7 @@ class TestWeatherTool:
         assert "wind_gust_unit" in manifest.outputs
         assert "wind_beaufort" in manifest.outputs
         assert "wind_beaufort_label" in manifest.outputs
+        assert "wind_severity" in manifest.outputs
         assert "wind_direction_degrees" in manifest.outputs
         assert "wind_direction_cardinal" in manifest.outputs
         assert "cloudiness" in manifest.outputs

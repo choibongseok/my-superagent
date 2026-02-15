@@ -489,6 +489,47 @@ class Plugin(ToolPlugin):
         return labels.get(force)
 
     @classmethod
+    def _classify_wind_severity(
+        cls,
+        *,
+        wind_beaufort: Any,
+        wind_speed: Any | None = None,
+        units: str = "metric",
+    ) -> str | None:
+        """Classify wind conditions into practical severity buckets."""
+        force: int | None
+
+        if isinstance(wind_beaufort, bool):
+            force = None
+        elif wind_beaufort is None:
+            force = None
+        else:
+            try:
+                force = int(round(float(wind_beaufort)))
+            except (TypeError, ValueError):
+                force = None
+
+        if force is None and wind_speed is not None:
+            force = cls._calculate_wind_beaufort(
+                wind_speed=wind_speed,
+                units=units,
+            )
+
+        if force is None:
+            return None
+
+        if force <= 2:
+            return "light"
+        if force <= 4:
+            return "moderate"
+        if force <= 6:
+            return "strong"
+        if force <= 8:
+            return "gale"
+
+        return "storm"
+
+    @classmethod
     def _calculate_wind_chill(
         cls,
         *,
@@ -867,6 +908,11 @@ class Plugin(ToolPlugin):
             wind_speed=wind_speed,
             units=units,
         )
+        wind_severity = self._classify_wind_severity(
+            wind_beaufort=wind_beaufort,
+            wind_speed=wind_speed,
+            units=units,
+        )
         thermal_comfort = self._classify_thermal_comfort(
             feels_like=feels_like,
             units=units,
@@ -897,6 +943,7 @@ class Plugin(ToolPlugin):
             "wind_gust_unit": wind_speed_unit,
             "wind_beaufort": wind_beaufort,
             "wind_beaufort_label": self._wind_beaufort_label(wind_beaufort),
+            "wind_severity": wind_severity,
             "wind_direction_degrees": 225.0,
             "wind_direction_cardinal": "SW",
             "visibility": visibility,
@@ -1161,6 +1208,7 @@ class Plugin(ToolPlugin):
                 "wind_gust_unit": str | None,
                 "wind_beaufort": int | None,
                 "wind_beaufort_label": str | None,
+                "wind_severity": str | None,
                 "wind_direction_degrees": float | None,
                 "wind_direction_cardinal": str | None,
                 "visibility": float | None,
@@ -1324,6 +1372,11 @@ class Plugin(ToolPlugin):
                     wind_speed=wind_speed,
                     units=resolved_units,
                 )
+                wind_severity = self._classify_wind_severity(
+                    wind_beaufort=wind_beaufort,
+                    wind_speed=wind_speed,
+                    units=resolved_units,
+                )
                 wind_direction_degrees = self._normalize_wind_direction_degrees(
                     wind_payload.get("deg")
                 )
@@ -1366,6 +1419,7 @@ class Plugin(ToolPlugin):
                     "wind_gust_unit": wind_speed_unit if wind_gust is not None else None,
                     "wind_beaufort": wind_beaufort,
                     "wind_beaufort_label": self._wind_beaufort_label(wind_beaufort),
+                    "wind_severity": wind_severity,
                     "wind_direction_degrees": wind_direction_degrees,
                     "wind_direction_cardinal": wind_direction_cardinal,
                     "visibility": visibility,
@@ -1453,6 +1507,13 @@ class Plugin(ToolPlugin):
         wind_beaufort_label = result.get("wind_beaufort_label") or self._wind_beaufort_label(
             wind_beaufort
         )
+        wind_severity = result.get("wind_severity")
+        if not isinstance(wind_severity, str) or not wind_severity.strip():
+            wind_severity = self._classify_wind_severity(
+                wind_beaufort=wind_beaufort,
+                wind_speed=result.get("wind_speed"),
+                units=resolved_units,
+            )
 
         dew_point = result.get("dew_point")
         dew_point_unit = str(result.get("dew_point_unit") or temperature_unit)
@@ -1519,6 +1580,8 @@ class Plugin(ToolPlugin):
                 else ""
             )
             lines.append(f"Wind Force: Beaufort {wind_beaufort}{beaufort_suffix}")
+        if isinstance(wind_severity, str) and wind_severity.strip():
+            lines.append(f"Wind Severity: {wind_severity.strip().title()}")
         if dew_point is not None:
             lines.append(f"Dew Point: {dew_point}{dew_point_unit}")
         if heat_index is not None:
@@ -1572,7 +1635,7 @@ class Plugin(ToolPlugin):
             "Localized conditions are supported via optional lang='en', 'ko', 'pt_br', etc. "
             "Optional response caching can be enabled with cache_ttl_seconds to reduce repeated API calls. "
             "Set refresh_cache=true to bypass cached responses and force a fresh API fetch. "
-            "Returns temperature, dew-point temperature, heat-index temperature, wind-chill temperature, feels-like temperature, perceived thermal-comfort classification, weather condition, humidity with comfort-level classification, cloud coverage, daylight status, pressure, wind speed, optional wind gust, Beaufort wind-force details, wind direction, visibility with a qualitative visibility-level classification, and precipitation summaries when available. "
+            "Returns temperature, dew-point temperature, heat-index temperature, wind-chill temperature, feels-like temperature, perceived thermal-comfort classification, weather condition, humidity with comfort-level classification, cloud coverage, daylight status, pressure, wind speed, optional wind gust, Beaufort wind-force details, a qualitative wind-severity summary, wind direction, visibility with a qualitative visibility-level classification, and precipitation summaries when available. "
             "Requires OpenWeatherMap API key in plugin config."
         )
 
@@ -1580,8 +1643,8 @@ class Plugin(ToolPlugin):
         """Get plugin manifest."""
         return PluginManifest(
             name="WeatherTool",
-            version="1.28.0",
-            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point/heat-index/wind-chill insights, thermal-comfort insights, humidity comfort-level insights, wind speed and gust details, Beaufort wind-force details, wind direction details, visibility and visibility-level details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
+            version="1.29.0",
+            description="Get real-time weather information using OpenWeatherMap API with optional response caching, state-aware city lookup, explicit unit labels, configurable pressure units, dew-point/heat-index/wind-chill insights, thermal-comfort insights, humidity comfort-level insights, wind speed and gust details, Beaufort wind-force details, qualitative wind-severity insights, wind direction details, visibility and visibility-level details, cloud coverage, daylight status, precipitation insights, and JSON payload support for tool-style input",
             author="AgentHQ",
             permissions=["network.http"],
             config_schema={
@@ -1630,6 +1693,7 @@ class Plugin(ToolPlugin):
                 "wind_gust_unit": "string | null (km/h, mph, or m/s)",
                 "wind_beaufort": "integer | null (0-12 Beaufort wind-force scale)",
                 "wind_beaufort_label": "string | null (Calm through Hurricane)",
+                "wind_severity": "string | null (light, moderate, strong, gale, or storm)",
                 "wind_direction_degrees": "float | null (0-360 degrees)",
                 "wind_direction_cardinal": "string | null (16-point compass direction)",
                 "visibility": "float | null",
