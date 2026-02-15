@@ -445,6 +445,7 @@ class PluginManager:
         query_tokens: list[str],
         query_fields: set[str],
         query_match_mode: str,
+        query_case_sensitive: bool,
     ) -> bool:
         """Return whether a manifest matches free-text list query filters."""
         field_values: list[str] = []
@@ -462,9 +463,15 @@ class PluginManager:
         if "module_path" in query_fields and plugin is not None:
             field_values.append(plugin.__class__.__module__)
 
-        searchable_text = " ".join(
-            str(value).casefold() for value in field_values if value is not None
-        )
+        if query_case_sensitive:
+            searchable_text = " ".join(
+                str(value) for value in field_values if value is not None
+            )
+        else:
+            searchable_text = " ".join(
+                str(value).casefold() for value in field_values if value is not None
+            )
+
         if not searchable_text:
             return False
 
@@ -487,6 +494,7 @@ class PluginManager:
         query: Optional[str] = None,
         query_fields: Optional[Sequence[str]] = None,
         query_match_mode: str = "all",
+        query_case_sensitive: bool = False,
         sort_by: Optional[str] = None,
         sort_order: str = "asc",
         offset: int = 0,
@@ -515,8 +523,8 @@ class PluginManager:
             initialized: Optional runtime initialization filter. ``True``
                 returns only initialized plugins, ``False`` returns only
                 non-initialized plugins, and ``None`` disables filtering.
-            query: Optional case-insensitive free-text search filter applied
-                across ``query_fields``. Blank strings are rejected.
+            query: Optional free-text search filter applied across
+                ``query_fields``. Blank strings are rejected.
             query_fields: Optional fields used for free-text filtering.
                 Defaults to ``name``, ``description``, and ``author``.
                 Additional supported fields: ``version``, ``permissions``,
@@ -525,6 +533,9 @@ class PluginManager:
                 requires all query tokens to appear, ``"any"`` requires at
                 least one token, and ``"phrase"`` requires the normalized
                 query phrase to appear contiguously.
+            query_case_sensitive: When ``True``, preserve case when matching
+                query text. Defaults to ``False`` for case-insensitive
+                matching.
             sort_by: Optional manifest field used for sorting output. Supports
                 ``"name"``, ``"version"``, and ``"author"``.
             sort_order: Sorting direction used when ``sort_by`` is provided.
@@ -562,12 +573,18 @@ class PluginManager:
         if query is not None and not isinstance(query, str):
             raise ValueError("query must be a string when provided")
 
+        if not isinstance(query_case_sensitive, bool):
+            raise ValueError("query_case_sensitive must be a boolean")
+
         normalized_query = None
         query_tokens: list[str] = []
         if query is not None:
-            normalized_query = " ".join(query.casefold().split())
+            normalized_query = " ".join(query.split())
             if not normalized_query:
                 raise ValueError("query cannot be blank when provided")
+
+            if not query_case_sensitive:
+                normalized_query = normalized_query.casefold()
 
             query_tokens = normalized_query.split(" ")
 
@@ -673,6 +690,7 @@ class PluginManager:
                     query_tokens=query_tokens,
                     query_fields=normalized_query_fields,
                     query_match_mode=normalized_query_match_mode,
+                    query_case_sensitive=query_case_sensitive,
                 )
             ]
 

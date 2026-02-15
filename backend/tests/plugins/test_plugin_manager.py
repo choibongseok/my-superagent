@@ -1172,6 +1172,50 @@ async def test_list_plugins_query_supports_custom_fields_and_match_modes(
     assert [item["name"] for item in any_match] == ["slack-plugin"]
 
 
+@pytest.mark.asyncio
+async def test_list_plugins_query_supports_case_sensitive_matching(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "weather_alert.py").write_text("# weather", encoding="utf-8")
+
+    modules = {
+        "app.plugins.weather_alert": _plugin_module(
+            "app.plugins.weather_alert",
+            _build_plugin_class(
+                "weather-alert",
+                ["network.http"],
+                author="Weather Team",
+            ),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    default_case_insensitive = manager.list_plugins(query="weather team")
+    assert [item["name"] for item in default_case_insensitive] == ["weather-alert"]
+
+    case_sensitive_miss = manager.list_plugins(
+        query="weather team",
+        query_case_sensitive=True,
+    )
+    assert case_sensitive_miss == []
+
+    case_sensitive_match = manager.list_plugins(
+        query="Weather Team",
+        query_case_sensitive=True,
+    )
+    assert [item["name"] for item in case_sensitive_match] == ["weather-alert"]
+
+
 def test_list_plugins_validates_query_options(tmp_path):
     manager = PluginManager(plugin_dir=str(tmp_path))
 
@@ -1180,6 +1224,9 @@ def test_list_plugins_validates_query_options(tmp_path):
 
     with pytest.raises(ValueError, match="query_match_mode must be one of"):
         manager.list_plugins(query="weather", query_match_mode="contains")
+
+    with pytest.raises(ValueError, match="query_case_sensitive must be a boolean"):
+        manager.list_plugins(query="weather", query_case_sensitive="yes")
 
     with pytest.raises(
         ValueError,
