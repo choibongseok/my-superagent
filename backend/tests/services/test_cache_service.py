@@ -2396,6 +2396,58 @@ def test_local_cache_count_where_rejects_invalid_match_all_tags_flag():
         cache.count_where(match_all_tags="yes")  # type: ignore[arg-type]
 
 
+def test_local_cache_get_where_supports_combined_filters_sorting_and_pagination():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", {"v": 1}, tags=["session", "active"])
+    cache.set_tagged("session:beta", {"v": 2}, tags=["session"])
+    cache.set_tagged("session:gamma", {"v": 3}, tags=["session", "active"])
+    cache.set_tagged("user:alpha", {"v": 4}, tags=["active"])
+
+    assert cache.get_where(prefix="session:", pattern="*:alpha", tags=["active"]) == {
+        "session:alpha": {"v": 1}
+    }
+
+    assert cache.get_where(prefix="session:", descending=True, offset=1, limit=2) == {
+        "session:beta": {"v": 2},
+        "session:alpha": {"v": 1},
+    }
+
+
+def test_local_cache_get_where_supports_match_all_tag_filtering():
+    cache = LocalCacheService()
+    cache.set_tagged("alpha", 1, tags=["group:a", "shared"])
+    cache.set_tagged("beta", 2, tags=["group:b", "shared"])
+    cache.set_tagged("gamma", 3, tags=["group:a"])
+
+    assert cache.get_where(tags=["group:a", "shared"], match_all_tags=True) == {
+        "alpha": 1
+    }
+
+
+def test_local_cache_get_where_ignores_expired_entries_and_tracks_hits_only_for_matches():
+    cache = LocalCacheService()
+    cache.set_tagged("short", "x", tags=["volatile"], ttl_seconds=1)
+    cache.set_tagged("stable", "y", tags=["volatile"])
+
+    time.sleep(1.05)
+
+    assert cache.get_where(tags=["volatile"]) == {"stable": "y"}
+
+    stats = cache.stats()
+    assert stats["hits"] == 1
+    assert stats["misses"] == 0
+
+
+def test_local_cache_get_where_rejects_invalid_filter_flags():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
+        cache.get_where(match_all_tags="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="descending must be a boolean"):
+        cache.get_where(descending="yes")  # type: ignore[arg-type]
+
+
 def test_local_cache_list_keys_supports_prefix_pattern_and_limit():
     cache = LocalCacheService()
     cache.set_many(

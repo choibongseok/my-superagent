@@ -2108,6 +2108,55 @@ class LocalCacheService:
             )
         )
 
+    def get_where(
+        self,
+        *,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        tags: Iterable[str] | None = None,
+        match_all_tags: bool = False,
+        offset: int | None = None,
+        limit: int | None = None,
+        descending: bool = False,
+    ) -> dict[str, Any]:
+        """Return key/value pairs for active entries matching filters.
+
+        This is a value-centric companion to :meth:`list_keys`, preserving the
+        deterministic key ordering semantics from that helper while returning
+        cached values.
+
+        Args:
+            prefix: Optional key prefix to match.
+            pattern: Optional glob pattern matched with :func:`fnmatchcase`.
+            tags: Optional tag filter. When provided, only keys associated with
+                matching tags are returned.
+            match_all_tags: Tag matching mode when ``tags`` are provided.
+                ``False`` (default) returns keys matching any tag, while
+                ``True`` requires keys to contain every provided tag.
+            offset: Optional number of sorted matching keys to skip.
+            limit: Optional maximum number of keys to return.
+            descending: Return keys in descending lexicographic order when
+                ``True``.
+
+        Returns:
+            Ordered mapping of ``key -> value`` for matching active entries.
+
+        Notes:
+            Unlike :meth:`list_keys`, this helper performs value lookups and
+            therefore updates hit/miss counters and LRU access order.
+        """
+        matching_keys = self.list_keys(
+            prefix=prefix,
+            pattern=pattern,
+            tags=tags,
+            match_all_tags=match_all_tags,
+            offset=offset,
+            limit=limit,
+            descending=descending,
+        )
+
+        return self.get_many(matching_keys)
+
     def list_keys(
         self,
         *,
