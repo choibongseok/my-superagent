@@ -2231,6 +2231,8 @@ class LocalCacheService:
         include_values: bool = False,
         include_entry_tags: bool = False,
         include_expires_at: bool = False,
+        include_namespace: bool = False,
+        namespace_separator: str = ":",
     ) -> list[dict[str, Any]]:
         """List active cache entries with optional filters and metadata.
 
@@ -2240,7 +2242,20 @@ class LocalCacheService:
             include_values: Include cached values in each entry payload.
             include_entry_tags: Include sorted tags associated with each key.
             include_expires_at: Include absolute unix expiration timestamps.
+            include_namespace: Include key namespace extracted via
+                ``namespace_separator``.
+            namespace_separator: Namespace delimiter used when
+                ``include_namespace`` is ``True``.
         """
+        if not isinstance(include_namespace, bool):
+            raise ValueError("include_namespace must be a boolean")
+
+        normalized_namespace_separator: str | None = None
+        if include_namespace:
+            normalized_namespace_separator = self._normalize_namespace_separator(
+                namespace_separator
+            )
+
         entries: list[dict[str, Any]] = []
         for key in self.list_keys(
             prefix=prefix,
@@ -2264,6 +2279,11 @@ class LocalCacheService:
                 entry["tags"] = sorted(self._tags_by_key.get(key, set()))
             if include_expires_at:
                 entry["expires_at"] = expires_at
+            if include_namespace and normalized_namespace_separator is not None:
+                entry["namespace"] = self._extract_namespace(
+                    key,
+                    separator=normalized_namespace_separator,
+                )
             entries.append(entry)
 
         return entries

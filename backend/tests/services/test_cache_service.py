@@ -2679,6 +2679,52 @@ def test_local_cache_list_entries_supports_tag_filters():
     assert [entry["key"] for entry in all_tagged] == ["session:alpha"]
 
 
+def test_local_cache_list_entries_can_include_namespace_metadata():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "orphan": {"v": 0},
+            "session:alpha": {"v": 1},
+            "session:beta": {"v": 2},
+        }
+    )
+
+    entries = cache.list_entries(include_namespace=True)
+
+    assert entries == [
+        {"key": "orphan", "ttl_seconds": None, "namespace": "orphan"},
+        {"key": "session:alpha", "ttl_seconds": None, "namespace": "session"},
+        {"key": "session:beta", "ttl_seconds": None, "namespace": "session"},
+    ]
+
+
+def test_local_cache_list_entries_supports_custom_namespace_separator():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "project/alpha": {"v": 1},
+            "team/beta": {"v": 2},
+        }
+    )
+
+    entries = cache.list_entries(include_namespace=True, namespace_separator="/")
+
+    assert entries == [
+        {"key": "project/alpha", "ttl_seconds": None, "namespace": "project"},
+        {"key": "team/beta", "ttl_seconds": None, "namespace": "team"},
+    ]
+
+
+def test_local_cache_list_entries_rejects_invalid_namespace_flags():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="include_namespace must be a boolean"):
+        cache.list_entries(include_namespace="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="separator cannot be empty"):
+        cache.list_entries(include_namespace=True, namespace_separator="  ")
+
+
 def test_local_cache_list_entries_rejects_negative_offset():
     cache = LocalCacheService()
 
