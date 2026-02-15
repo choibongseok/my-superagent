@@ -540,6 +540,115 @@ def test_delete_prompt_clears_all_versions_and_returns_count(temp_registry):
     assert not (temp_registry.storage_path / "archive_prompt.json").exists()
 
 
+def test_list_prompt_names_includes_cache_and_persisted_prompts(temp_registry):
+    """Name listing should merge cache-only and persisted prompt sources."""
+    temp_registry.register(
+        name="cache_only",
+        template="draft",
+        variables=[],
+        version="v1",
+        persist=False,
+    )
+
+    disk_registry = PromptRegistry(storage_path=str(temp_registry.storage_path))
+    disk_registry.register(
+        name="disk_only",
+        template="stable",
+        variables=[],
+        version="v1",
+    )
+
+    assert temp_registry.list_prompt_names() == ["cache_only", "disk_only"]
+
+
+def test_list_prompt_names_supports_filtering_and_pagination(temp_registry):
+    """Name listing should support prefix/pattern filters and slicing controls."""
+    temp_registry.register(
+        name="agent_alpha",
+        template="A",
+        variables=[],
+        version="v1",
+    )
+    temp_registry.register(
+        name="agent_beta",
+        template="B",
+        variables=[],
+        version="v1",
+    )
+    temp_registry.register(
+        name="ops_gamma",
+        template="C",
+        variables=[],
+        version="v1",
+    )
+
+    assert temp_registry.list_prompt_names(prefix="agent") == [
+        "agent_alpha",
+        "agent_beta",
+    ]
+    assert temp_registry.list_prompt_names(pattern="*beta") == ["agent_beta"]
+    assert temp_registry.list_prompt_names(descending=True, offset=1, limit=1) == [
+        "agent_beta"
+    ]
+
+
+def test_list_prompt_names_can_include_version_metadata(temp_registry):
+    """Metadata mode should expose version counts and latest version labels."""
+    temp_registry.register(
+        name="incident_prompt",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+    temp_registry.register(
+        name="incident_prompt",
+        template="v2",
+        variables=[],
+        version="v2",
+    )
+
+    rows = temp_registry.list_prompt_names(
+        include_version_count=True,
+        include_latest_version=True,
+    )
+
+    assert rows == [
+        {
+            "name": "incident_prompt",
+            "version_count": 2,
+            "latest_version": "v2",
+        }
+    ]
+
+
+def test_list_prompt_names_validates_arguments(temp_registry):
+    """Name listing should reject invalid filter and pagination arguments."""
+    with pytest.raises(ValueError, match="offset must be greater than or equal to 0"):
+        temp_registry.list_prompt_names(offset=-1)
+
+    with pytest.raises(ValueError, match="limit must be greater than 0"):
+        temp_registry.list_prompt_names(limit=0)
+
+    with pytest.raises(ValueError, match="descending must be a boolean"):
+        temp_registry.list_prompt_names(descending="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="include_version_count must be a boolean",
+    ):
+        temp_registry.list_prompt_names(
+            include_version_count="yes"  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="include_latest_version must be a boolean",
+    ):
+        temp_registry.list_prompt_names(
+            include_latest_version=1  # type: ignore[arg-type]
+        )
+
+
 def test_builtin_templates_are_bootstrapped():
     """Test global prompt registry auto-loads built-in templates."""
     prompt = prompt_registry.get("research_agent", version="v1")

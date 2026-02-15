@@ -6,6 +6,7 @@ import logging
 import pkgutil
 import re
 from datetime import datetime
+from fnmatch import fnmatchcase
 from pathlib import Path
 from string import Formatter
 from typing import Any, Dict, Iterable, List, Mapping, Optional
@@ -390,7 +391,89 @@ class PromptRegistry:
         self._cache[name] = versions
 
         return list(versions)
-    
+
+    def list_prompt_names(
+        self,
+        *,
+        prefix: str | None = None,
+        pattern: str | None = None,
+        offset: int | None = None,
+        limit: int | None = None,
+        descending: bool = False,
+        include_version_count: bool = False,
+        include_latest_version: bool = False,
+    ) -> List[str] | List[Dict[str, Any]]:
+        """List known prompt names from both cache and persisted storage.
+
+        Args:
+            prefix: Optional prompt-name prefix filter.
+            pattern: Optional glob filter applied via :func:`fnmatchcase`.
+            offset: Optional number of sorted names to skip.
+            limit: Optional maximum number of names to return.
+            descending: Return names in descending lexicographic order.
+            include_version_count: Include per-prompt version counts.
+            include_latest_version: Include latest version labels.
+
+        Returns:
+            Sorted prompt names, or metadata rows when include_* options are used.
+        """
+        if prefix is not None and not isinstance(prefix, str):
+            raise ValueError("prefix must be a string")
+
+        if pattern is not None and not isinstance(pattern, str):
+            raise ValueError("pattern must be a string")
+
+        if offset is not None and offset < 0:
+            raise ValueError("offset must be greater than or equal to 0")
+
+        if limit is not None and limit <= 0:
+            raise ValueError("limit must be greater than 0")
+
+        if not isinstance(descending, bool):
+            raise ValueError("descending must be a boolean")
+
+        if not isinstance(include_version_count, bool):
+            raise ValueError("include_version_count must be a boolean")
+
+        if not isinstance(include_latest_version, bool):
+            raise ValueError("include_latest_version must be a boolean")
+
+        names = set(self._cache.keys())
+        names.update(path.stem for path in self.storage_path.glob("*.json"))
+
+        if prefix:
+            names = {name for name in names if name.startswith(prefix)}
+
+        if pattern:
+            names = {name for name in names if fnmatchcase(name, pattern)}
+
+        sorted_names = sorted(names, reverse=descending)
+
+        if offset:
+            sorted_names = sorted_names[offset:]
+
+        if limit is not None:
+            sorted_names = sorted_names[:limit]
+
+        include_metadata = include_version_count or include_latest_version
+        if not include_metadata:
+            return sorted_names
+
+        rows: List[Dict[str, Any]] = []
+        for name in sorted_names:
+            versions = self.list_versions(name)
+            row: Dict[str, Any] = {"name": name}
+
+            if include_version_count:
+                row["version_count"] = len(versions)
+
+            if include_latest_version:
+                row["latest_version"] = versions[-1].version if versions else None
+
+            rows.append(row)
+
+        return rows
+
     def update_performance_score(
         self,
         name: str,
