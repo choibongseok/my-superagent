@@ -298,3 +298,89 @@ async def test_cached_cache_condition_must_return_boolean(monkeypatch):
 
     with pytest.raises(ValueError, match="cache_condition must return a boolean"):
         await compute(1)
+
+
+@pytest.mark.asyncio
+async def test_cached_supports_async_key_builder(monkeypatch):
+    cached_values: dict[str, int] = {}
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    calls = {"count": 0}
+
+    async def build_key(value: int) -> str:
+        return f"value:{value}"
+
+    @cached(prefix="example", key_builder=build_key)
+    async def compute(value: int) -> int:
+        calls["count"] += 1
+        return value * 2
+
+    assert await compute(21) == 42
+    assert await compute(21) == 42
+
+    assert calls["count"] == 1
+    assert cached_values == {"example:value:21": 42}
+
+
+@pytest.mark.asyncio
+async def test_cached_supports_async_cache_condition(monkeypatch):
+    cached_values: dict[str, int] = {}
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    calls = {"count": 0}
+
+    async def should_cache(value: int) -> bool:
+        return value % 2 == 0
+
+    @cached(prefix="example", cache_condition=should_cache)
+    async def compute(value: int) -> int:
+        calls["count"] += 1
+        return value
+
+    assert await compute(1) == 1
+    assert await compute(1) == 1
+    assert await compute(2) == 2
+    assert await compute(2) == 2
+
+    assert calls["count"] == 3
+    assert cached_values == {"example:2": 2}
+
+
+@pytest.mark.asyncio
+async def test_cached_async_cache_condition_must_return_boolean(monkeypatch):
+    async def fake_get(_: str):
+        return None
+
+    async def fake_set(_: str, __: int, ttl=None):
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    async def invalid_condition(_: int) -> str:
+        return "yes"
+
+    @cached(prefix="example", cache_condition=invalid_condition)
+    async def compute(value: int) -> int:
+        return value
+
+    with pytest.raises(ValueError, match="cache_condition must return a boolean"):
+        await compute(1)

@@ -1,8 +1,9 @@
 """Redis cache configuration and utilities."""
 
 from functools import wraps
+import inspect
 import json
-from collections.abc import Mapping
+from collections.abc import Awaitable, Mapping
 from datetime import date, datetime
 from enum import Enum
 from typing import Any, Callable, Optional
@@ -220,7 +221,7 @@ def cached(
     skip_first_arg: Optional[bool] = None,
     refresh_flag: Optional[str] = "refresh_cache",
     disable_flag: Optional[str] = "disable_cache",
-    cache_condition: Optional[Callable[[Any], bool]] = None,
+    cache_condition: Optional[Callable[[Any], bool | Awaitable[bool]]] = None,
 ):
     """
     Decorator for caching function results.
@@ -228,7 +229,7 @@ def cached(
     Args:
         prefix: Cache key prefix
         ttl: Time to live in seconds
-        key_builder: Custom key builder function
+        key_builder: Custom key builder function. May be sync or async.
         skip_first_arg: Whether to omit the first positional argument when
             building cache keys. ``None`` auto-detects bound methods when
             ``key_builder`` is not provided.
@@ -238,6 +239,7 @@ def cached(
             for a single call.
         cache_condition: Optional predicate that receives the computed result
             and returns ``True`` when the value should be written to cache.
+            The predicate may be synchronous or asynchronous.
 
     Example:
         @cached(prefix="user", ttl=300)
@@ -304,11 +306,26 @@ def cached(
 
             return flag_value
 
-        def _should_cache_result(result: Any) -> bool:
+        async def _build_cache_key(
+            key_args: tuple[Any, ...],
+            runtime_kwargs: dict[str, Any],
+        ) -> str:
+            if key_builder:
+                built_key = key_builder(*key_args, **runtime_kwargs)
+                if inspect.isawaitable(built_key):
+                    built_key = await built_key
+                return f"{prefix}:{built_key}"
+
+            return f"{prefix}:{cache_key(*key_args, **runtime_kwargs)}"
+
+        async def _should_cache_result(result: Any) -> bool:
             if cache_condition is None:
                 return True
 
             decision = cache_condition(result)
+            if inspect.isawaitable(decision):
+                decision = await decision
+
             if not isinstance(decision, bool):
                 raise ValueError("cache_condition must return a boolean")
 
@@ -324,12 +341,7 @@ def cached(
                 return await func(*args, **runtime_kwargs)
 
             key_args = _resolve_key_args(args)
-
-            # Build cache key
-            if key_builder:
-                key = f"{prefix}:{key_builder(*key_args, **runtime_kwargs)}"
-            else:
-                key = f"{prefix}:{cache_key(*key_args, **runtime_kwargs)}"
+            key = await _build_cache_key(key_args, runtime_kwargs)
 
             # Try to get from cache
             if not refresh_cache:
@@ -341,7 +353,7 @@ def cached(
             result = await func(*args, **runtime_kwargs)
 
             # Cache result
-            if _should_cache_result(result):
+            if await _should_cache_result(result):
                 await cache.set(key, result, ttl)
 
             return result
