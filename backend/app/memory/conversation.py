@@ -7,6 +7,7 @@ context across multiple turns in agent conversations.
 import logging
 import re
 from difflib import SequenceMatcher
+from fnmatch import fnmatchcase
 from typing import Any, Dict, Iterable, List, Literal, Optional
 from datetime import datetime
 
@@ -242,6 +243,7 @@ class ConversationMemory:
             "phrase",
             "starts_with",
             "ends_with",
+            "wildcard",
             "word",
             "regex",
             "fuzzy",
@@ -268,6 +270,8 @@ class ConversationMemory:
                   ignoring punctuation boundaries
                 - "starts_with": content begins with query text
                 - "ends_with": content ends with query text
+                - "wildcard": query uses shell-style wildcard syntax
+                  (``*``, ``?``, ``[]``) against full message text
                 - "word": query matches whole-word boundaries
                 - "regex": query is treated as a regular expression
                 - "fuzzy": typo-tolerant matching using similarity ratio
@@ -297,6 +301,7 @@ class ConversationMemory:
             "phrase",
             "starts_with",
             "ends_with",
+            "wildcard",
             "word",
             "regex",
             "fuzzy",
@@ -305,7 +310,7 @@ class ConversationMemory:
         }:
             raise ValueError(
                 "match_mode must be one of: "
-                "substring, exact, phrase, starts_with, ends_with, "
+                "substring, exact, phrase, starts_with, ends_with, wildcard, "
                 "word, regex, fuzzy, all_terms, any_terms"
             )
 
@@ -351,6 +356,10 @@ class ConversationMemory:
                 is_match = searchable_content.startswith(target_query)
             elif normalized_match_mode == "ends_with":
                 is_match = searchable_content.endswith(target_query)
+            elif normalized_match_mode == "wildcard":
+                wildcard_pattern = target_query
+                wildcard_candidate = searchable_content
+                is_match = fnmatchcase(wildcard_candidate, wildcard_pattern)
             elif normalized_match_mode in {"word", "regex"}:
                 # regex_pattern is guaranteed for "word" and "regex" modes.
                 is_match = bool(regex_pattern and regex_pattern.search(content))

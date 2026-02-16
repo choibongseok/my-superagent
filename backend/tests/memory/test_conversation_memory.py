@@ -256,6 +256,52 @@ class TestConversationMemory:
             "Checklist done",
         ]
 
+    def test_search_messages_supports_wildcard_matching(self):
+        """wildcard mode should apply shell-style patterns to full message text."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("Release status: green")
+        memory.add_ai_message("release status: amber")
+        memory.add_system_message("Status release: red")
+
+        matches = memory.search_messages("release *: *", match_mode="wildcard")
+
+        assert [message.content for message in matches] == [
+            "Release status: green",
+            "release status: amber",
+        ]
+
+    def test_search_messages_wildcard_mode_respects_case_sensitive_option(self):
+        """wildcard mode should optionally enforce case-sensitive matching."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("Deploy PROD now")
+        memory.add_ai_message("deploy prod now")
+
+        case_insensitive_matches = memory.search_messages(
+            "deploy * now",
+            match_mode="wildcard",
+        )
+        case_sensitive_matches = memory.search_messages(
+            "deploy * now",
+            match_mode="wildcard",
+            case_sensitive=True,
+        )
+
+        assert [message.content for message in case_insensitive_matches] == [
+            "Deploy PROD now",
+            "deploy prod now",
+        ]
+        assert [message.content for message in case_sensitive_matches] == [
+            "deploy prod now",
+        ]
+
     def test_search_messages_supports_multiple_role_filters(self):
         """Search role filters should accept iterables and comma-separated strings."""
         memory = ConversationMemory(
