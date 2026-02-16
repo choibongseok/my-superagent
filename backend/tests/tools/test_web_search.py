@@ -1560,6 +1560,57 @@ def test_search_with_diagnostics_reports_error_details(monkeypatch):
     assert fake_backend.queries == []
 
 
+def test_search_many_returns_ordered_results(monkeypatch):
+    """Batch search helper should return one result payload per input query."""
+    fake_backend = _SequencedSearchBackend(
+        ["alpha-result", "beta-result", "gamma-result"]
+    )
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=None)
+
+    results = tool.search_many(["alpha", "beta", "gamma"])
+
+    assert results == ["alpha-result", "beta-result", "gamma-result"]
+    assert fake_backend.queries == ["alpha", "beta", "gamma"]
+
+
+def test_search_many_can_deduplicate_normalized_queries(monkeypatch):
+    """deduplicate=True should avoid duplicate backend work in one batch."""
+    fake_backend = _SequencedSearchBackend(["alpha-result", "beta-result"])
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=None)
+
+    results = tool.search_many(
+        [" alpha\none ", "alpha\tone", "beta"],
+        deduplicate=True,
+    )
+
+    assert results == ["alpha-result", "alpha-result", "beta-result"]
+    assert fake_backend.queries == ["alpha one", "beta"]
+
+
+def test_search_many_rejects_invalid_deduplicate_option(monkeypatch):
+    """deduplicate option should accept only boolean values."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool()
+
+    with pytest.raises(ValueError, match="deduplicate must be a boolean value"):
+        tool.search_many(["alpha"], deduplicate="true")  # type: ignore[arg-type]
+
+
 def test_search_many_with_diagnostics_reports_per_query_rows_and_summary(monkeypatch):
     """Batch diagnostics should include ordered rows and aggregate counters."""
     fake_backend = _FakeSearchBackend(response="payload")

@@ -1127,6 +1127,56 @@ class DuckDuckGoSearchTool(BaseTool):
 
         return normalized_queries
 
+    def search_many(
+        self,
+        queries: Iterable[str],
+        *,
+        deduplicate: bool = False,
+    ) -> list[str]:
+        """Run multiple searches and return result payloads in input order.
+
+        Args:
+            queries: Iterable of query strings processed in order.
+            deduplicate: When ``True``, normalize each query and reuse the
+                first result for subsequent duplicates within the same batch.
+                This optimization works even when cache is disabled.
+
+        Returns:
+            Ordered list of result payload strings, one per input query.
+
+        Raises:
+            ValueError: If ``queries`` is invalid per
+                ``_normalize_query_batch`` validation or if ``deduplicate`` is
+                not a boolean value.
+        """
+        if not isinstance(deduplicate, bool):
+            raise ValueError("deduplicate must be a boolean value")
+
+        normalized_queries = self._normalize_query_batch(queries)
+
+        if not deduplicate:
+            return [self._run(query) for query in normalized_queries]
+
+        results: list[str] = []
+        seen_results: dict[str, str] = {}
+
+        for query in normalized_queries:
+            try:
+                normalized_query = self._normalize_query(query)
+            except ValueError:
+                normalized_query = None
+
+            if normalized_query is not None and normalized_query in seen_results:
+                results.append(seen_results[normalized_query])
+                continue
+
+            search_result = self._run(query)
+            if normalized_query is not None:
+                seen_results[normalized_query] = search_result
+            results.append(search_result)
+
+        return results
+
     def search_many_with_diagnostics(self, queries: Iterable[str]) -> dict[str, Any]:
         """Run multiple searches and return per-query + aggregate diagnostics.
 
