@@ -1306,6 +1306,64 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_mad_numeric_transforms(
+        self, service_with_mock_db
+    ):
+        """mad/median_absolute_deviation should return robust dispersion values."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "MAD: {latencies->mad}, "
+                "Alias: {latencies->median_absolute_deviation()}"
+            ),
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"latencies": [10, 12, 14, 100]},
+                user_id,
+            )
+
+        assert result["prompt"] == "MAD: 2, Alias: 2"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_mad_transform_with_arguments(
+        self, service_with_mock_db
+    ):
+        """mad should reject arguments to preserve deterministic semantics."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="MAD: {latencies->mad(1)}",
+            category="docs",
+            usage_count=4,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'mad\(1\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"latencies": [10, 12, 14, 100]},
+                    user_id,
+                )
+
+        assert template.usage_count == 4
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_percentile_numeric_transform(
         self, service_with_mock_db
     ):

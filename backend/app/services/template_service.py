@@ -869,6 +869,27 @@ def _median_numeric_value(value: object, argument_spec: str) -> int | float:
     return int(median) if float(median).is_integer() else median
 
 
+def _median_absolute_deviation_numeric_value(
+    value: object,
+    argument_spec: str,
+    *,
+    transform_name: str = "mad",
+) -> int | float:
+    """Return median absolute deviation (MAD) for non-empty numeric iterables."""
+    if argument_spec.strip():
+        raise ValueError(f"{transform_name} expects no arguments")
+
+    numeric_values = _iter_numeric_values(value, transform_name=transform_name)
+    if not numeric_values:
+        raise ValueError(f"{transform_name} expects a non-empty iterable value")
+
+    median_value = float(_median_numeric_value(numeric_values, ""))
+    absolute_deviations = [abs(item - median_value) for item in numeric_values]
+    mad = float(_median_numeric_value(absolute_deviations, ""))
+
+    return int(mad) if mad.is_integer() else mad
+
+
 def _percentile_numeric_value(
     value: object,
     argument_spec: str,
@@ -1370,6 +1391,7 @@ class TemplateService:
         - ``{durations->geomean}``, ``{durations->gmean}``
         - ``{durations->harmmean}``, ``{durations->hmean}``, ``{durations->harmonic_mean}``
         - ``{latencies->min}``, ``{latencies->max}``, ``{latencies->median}``
+        - ``{latencies->mad}``, ``{latencies->median_absolute_deviation}``
         - ``{latencies->percentile(95)}``, ``{latencies->pctl(90)}``
         - ``{latencies->variance}``, ``{latencies->var}``
         - ``{latencies->stddev}``, ``{latencies->stdev}``
@@ -1467,6 +1489,12 @@ class TemplateService:
             "min": lambda raw: _min_numeric_value(raw, ""),
             "max": lambda raw: _max_numeric_value(raw, ""),
             "median": lambda raw: _median_numeric_value(raw, ""),
+            "mad": lambda raw: _median_absolute_deviation_numeric_value(raw, ""),
+            "median_absolute_deviation": lambda raw: _median_absolute_deviation_numeric_value(
+                raw,
+                "",
+                transform_name="median_absolute_deviation",
+            ),
             "variance": lambda raw: _variance_numeric_value(raw, ""),
             "var": lambda raw: _variance_numeric_value(raw, "", transform_name="var"),
             "stddev": lambda raw: _standard_deviation_numeric_value(raw, ""),
@@ -1533,6 +1561,8 @@ class TemplateService:
                 "min",
                 "max",
                 "median",
+                "mad",
+                "median_absolute_deviation",
                 "percentile(<p>)",
                 "pctl(<p>)",
                 "variance",
@@ -1684,6 +1714,12 @@ class TemplateService:
                         raw,
                         spec,
                     )
+                elif transform_name in {"mad", "median_absolute_deviation"}:
+                    operation = lambda raw, spec=argument_spec, name=transform_name: _median_absolute_deviation_numeric_value(
+                        raw,
+                        spec,
+                        transform_name=name,
+                    )
                 elif transform_name in {"percentile", "pctl"}:
                     operation = lambda raw, spec=argument_spec, name=transform_name: _percentile_numeric_value(
                         raw,
@@ -1819,7 +1855,9 @@ class TemplateService:
         ``{durations->weighted_avg(0.2,0.3,0.5)}``, ``{durations->wavg(0.2,0.3,0.5)}``,
         ``{durations->geomean}``, ``{durations->gmean}``,
         ``{latencies->min}``, ``{latencies->max}``,
-        ``{latencies->median}``, ``{latencies->percentile(95)}``,
+        ``{latencies->median}``, ``{latencies->mad}``,
+        ``{latencies->median_absolute_deviation}``,
+        ``{latencies->percentile(95)}``,
         ``{latencies->pctl(90)}``,
         ``{latencies->variance}``, ``{latencies->var}``,
         ``{latencies->stddev}``, ``{latencies->stdev}``,
