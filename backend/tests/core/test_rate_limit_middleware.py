@@ -9,7 +9,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.middleware import rate_limit as rate_limit_module
-from app.middleware.rate_limit import RateLimitMiddleware, TokenBucket
+from app.middleware.rate_limit import (
+    RateLimitMiddleware,
+    TokenBucket,
+    get_rate_limit_middleware,
+)
 
 
 class InMemoryAsyncCache:
@@ -896,3 +900,35 @@ def test_rate_limit_middleware_rejects_invalid_exclude_methods() -> None:
         match="exclude_methods must contain alphabetic HTTP method strings",
     ):
         RateLimitMiddleware(app, exclude_methods=["P0ST"])
+
+
+def test_get_rate_limit_middleware_forwards_custom_burst_size() -> None:
+    app = FastAPI()
+
+    middleware_factory = get_rate_limit_middleware(
+        requests_per_minute=30,
+        burst_size=7,
+        request_costs={"POST": 2},
+    )
+
+    middleware = middleware_factory(app)
+
+    assert isinstance(middleware, RateLimitMiddleware)
+    assert middleware.requests_per_minute == 30
+    assert middleware.burst_size == 7
+    assert middleware.bucket.capacity == 7
+    assert middleware.bucket.refill_rate == pytest.approx(0.5)
+    assert middleware.request_costs == {"POST": 2}
+
+
+def test_get_rate_limit_middleware_uses_default_burst_size_when_unset() -> None:
+    app = FastAPI()
+
+    middleware_factory = get_rate_limit_middleware(requests_per_minute=15)
+    middleware = middleware_factory(app)
+
+    assert isinstance(middleware, RateLimitMiddleware)
+    assert middleware.requests_per_minute == 15
+    assert middleware.burst_size == 30
+    assert middleware.bucket.capacity == 30
+    assert middleware.bucket.refill_rate == pytest.approx(0.25)

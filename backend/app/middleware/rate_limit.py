@@ -695,6 +695,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 def get_rate_limit_middleware(
     requests_per_minute: Optional[int] = None,
+    burst_size: Optional[int] = None,
     request_costs: Optional[Mapping[str, int]] = None,
     path_request_costs: Optional[Mapping[str, int]] = None,
     exclude_paths: Optional[Iterable[str]] = None,
@@ -706,6 +707,8 @@ def get_rate_limit_middleware(
 
     Args:
         requests_per_minute: Request rate limit (defaults to settings)
+        burst_size: Optional token bucket capacity override. When ``None``,
+            ``RateLimitMiddleware`` defaults to ``requests_per_minute * 2``.
         request_costs: Optional per-method token costs (supports "*" wildcard fallback)
         path_request_costs: Optional exact/prefix path token costs
         exclude_paths: Optional exact/prefix/method-scoped exclusion rules
@@ -721,6 +724,7 @@ def get_rate_limit_middleware(
     return lambda app: RateLimitMiddleware(
         app,
         requests_per_minute=rpm,
+        burst_size=burst_size,
         request_costs=request_costs,
         path_request_costs=path_request_costs,
         exclude_paths=exclude_paths,
