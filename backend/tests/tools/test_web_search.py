@@ -33,6 +33,18 @@ class _SequencedSearchBackend:
         return self.responses.pop(0)
 
 
+class _FailingSearchBackend:
+    """Raises deterministic errors to test failure handling paths."""
+
+    def __init__(self, message: str = "backend offline") -> None:
+        self.message = message
+        self.queries: list[str] = []
+
+    def run(self, query: str) -> object:
+        self.queries.append(query)
+        raise RuntimeError(self.message)
+
+
 def test_init_rejects_invalid_max_result_chars():
     """Result-length guard should only allow positive integers or None."""
     with pytest.raises(
@@ -79,6 +91,18 @@ def test_init_rejects_invalid_cache_options():
         match="cache_max_entries must be a positive integer",
     ):
         DuckDuckGoSearchTool(cache_max_entries=10.5)  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="stale_cache_ttl_seconds must be a positive number or None",
+    ):
+        DuckDuckGoSearchTool(stale_cache_ttl_seconds=0)
+
+    with pytest.raises(
+        ValueError,
+        match="stale_cache_ttl_seconds must be a positive number or None",
+    ):
+        DuckDuckGoSearchTool(stale_cache_ttl_seconds=True)  # type: ignore[arg-type]
 
 
 def test_run_normalizes_query_and_returns_backend_results(monkeypatch):
@@ -138,6 +162,61 @@ def test_run_cache_entry_expires_after_ttl(monkeypatch):
     assert second == "v1"
     assert third == "v2"
     assert fake_backend.queries == ["agent", "agent"]
+
+
+def test_run_returns_stale_cache_when_backend_fails(monkeypatch):
+    """Expired entries can be reused when backend lookup fails within stale window."""
+    priming_backend = _FakeSearchBackend(response="fresh snapshot")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: priming_backend,
+    )
+
+    now = {"value": 50.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=5,
+        cache_max_entries=16,
+        stale_cache_ttl_seconds=60,
+    )
+
+    assert tool._run("agent") == "fresh snapshot"
+
+    now["value"] = 60.0
+    tool._search = _FailingSearchBackend(message="upstream timeout")
+
+    result = tool._run("agent")
+
+    assert result.startswith("fresh snapshot")
+    assert "[stale cache fallback due to search error: upstream timeout]" in result
+
+
+def test_run_stale_cache_window_expiry_returns_error(monkeypatch):
+    """Stale fallback should be skipped once the stale window has elapsed."""
+    priming_backend = _FakeSearchBackend(response="fresh snapshot")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: priming_backend,
+    )
+
+    now = {"value": 10.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=5,
+        cache_max_entries=16,
+        stale_cache_ttl_seconds=20,
+    )
+
+    assert tool._run("agent") == "fresh snapshot"
+
+    now["value"] = 40.0
+    tool._search = _FailingSearchBackend(message="service unavailable")
+
+    result = tool._run("agent")
+
+    assert result == "Search failed: service unavailable"
 
 
 def test_run_cache_evicts_oldest_entry_when_capacity_exceeded(monkeypatch):

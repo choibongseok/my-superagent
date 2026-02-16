@@ -35,6 +35,7 @@ class DuckDuckGoSearchTool(BaseTool):
         max_result_chars: Optional[int] = 4000,
         cache_ttl_seconds: Optional[float] = 300.0,
         cache_max_entries: int = 128,
+        stale_cache_ttl_seconds: Optional[float] = None,
     ):
         """Initialize DuckDuckGo search tool.
 
@@ -46,11 +47,18 @@ class DuckDuckGoSearchTool(BaseTool):
                 Set to ``None`` to disable caching.
             cache_max_entries: Maximum number of cached query results.
                 Oldest entries are evicted first once this limit is exceeded.
+            stale_cache_ttl_seconds: Optional stale-cache fallback window in
+                seconds. When configured, expired cache entries can still be
+                returned if a fresh backend lookup fails and the stale entry
+                age is within this window. Set to ``None`` to disable fallback.
         """
         super().__init__()
         self._max_result_chars = self._normalize_max_result_chars(max_result_chars)
         self._cache_ttl_seconds = self._normalize_cache_ttl(cache_ttl_seconds)
         self._cache_max_entries = self._normalize_cache_max_entries(cache_max_entries)
+        self._stale_cache_ttl_seconds = self._normalize_stale_cache_ttl(
+            stale_cache_ttl_seconds
+        )
         self._cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
         self._search = DuckDuckGoSearchRun()
 
@@ -95,6 +103,25 @@ class DuckDuckGoSearchTool(BaseTool):
         return value
 
     @staticmethod
+    def _normalize_stale_cache_ttl(value: Optional[float]) -> Optional[float]:
+        """Validate optional stale-cache fallback windows."""
+        if value is None:
+            return None
+
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(
+                "stale_cache_ttl_seconds must be a positive number or None"
+            )
+
+        normalized_value = float(value)
+        if normalized_value <= 0:
+            raise ValueError(
+                "stale_cache_ttl_seconds must be a positive number or None"
+            )
+
+        return normalized_value
+
+    @staticmethod
     def _normalize_query(query: str) -> str:
         """Normalize and validate incoming search queries."""
         if not isinstance(query, str):
@@ -128,6 +155,26 @@ class DuckDuckGoSearchTool(BaseTool):
 
         cached_at, payload = cached_entry
         if time.monotonic() - cached_at > self._cache_ttl_seconds:
+            if self._stale_cache_ttl_seconds is None:
+                self._cache.pop(query, None)
+            return None
+
+        self._cache.move_to_end(query)
+        return payload
+
+    def _get_stale_cached_results(self, query: str) -> str | None:
+        """Fetch stale cache payloads that are eligible for error fallback."""
+        if self._stale_cache_ttl_seconds is None:
+            return None
+
+        cached_entry = self._cache.get(query)
+        if cached_entry is None:
+            return None
+
+        cached_at, payload = cached_entry
+        cache_age = time.monotonic() - cached_at
+
+        if cache_age > self._stale_cache_ttl_seconds:
             self._cache.pop(query, None)
             return None
 
@@ -159,6 +206,8 @@ class DuckDuckGoSearchTool(BaseTool):
         Returns:
             Formatted search results
         """
+        normalized_query: str | None = None
+
         try:
             normalized_query = self._normalize_query(query)
 
@@ -177,6 +226,19 @@ class DuckDuckGoSearchTool(BaseTool):
             return normalized_results
 
         except Exception as error:
+            if normalized_query is not None:
+                stale_results = self._get_stale_cached_results(normalized_query)
+                if stale_results is not None:
+                    logger.warning(
+                        "Search failed for '%s'; returning stale cached response: %s",
+                        normalized_query,
+                        error,
+                    )
+                    return (
+                        f"{stale_results}\n\n"
+                        f"[stale cache fallback due to search error: {error}]"
+                    )
+
             logger.error("Search failed: %s", error, exc_info=True)
             return f"Search failed: {error}"
 
