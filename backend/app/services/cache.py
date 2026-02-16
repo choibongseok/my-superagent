@@ -3005,6 +3005,7 @@ class LocalCacheService:
         *,
         include_ttl_summary: bool = False,
         include_tag_summary: bool = False,
+        include_capacity_summary: bool = False,
     ) -> dict[str, Any]:
         """Return cache operational counters and runtime metadata.
 
@@ -3032,12 +3033,25 @@ class LocalCacheService:
                 - ``tagged_entries``: Active entries with at least one tag.
                 - ``untagged_entries``: Active entries without tags.
                 - ``unique_tags``: Number of active unique tags.
+            include_capacity_summary: When ``True``, include cache capacity
+                metadata:
+
+                - ``has_capacity_limit``: Whether ``max_entries`` is enforced.
+                - ``capacity_remaining``: Available slots before eviction, or
+                  ``None`` when unbounded.
+                - ``capacity_utilization``: ``entries / max_entries`` ratio,
+                  or ``None`` when unbounded.
+                - ``is_near_capacity``: ``True`` when utilization is at least
+                  ``0.9`` for bounded caches.
         """
         if not isinstance(include_ttl_summary, bool):
             raise ValueError("include_ttl_summary must be a boolean")
 
         if not isinstance(include_tag_summary, bool):
             raise ValueError("include_tag_summary must be a boolean")
+
+        if not isinstance(include_capacity_summary, bool):
+            raise ValueError("include_capacity_summary must be a boolean")
 
         self._purge_expired_entries()
         active_entries = len(self._store)
@@ -3087,12 +3101,8 @@ class LocalCacheService:
             )
 
         if include_tag_summary:
-            active_tags = {
-                tag for tag, keys in self._keys_by_tag.items() if keys
-            }
-            tagged_entries = sum(
-                1 for key in self._store if self._tags_by_key.get(key)
-            )
+            active_tags = {tag for tag, keys in self._keys_by_tag.items() if keys}
+            tagged_entries = sum(1 for key in self._store if self._tags_by_key.get(key))
 
             snapshot.update(
                 {
@@ -3101,6 +3111,29 @@ class LocalCacheService:
                     "unique_tags": len(active_tags),
                 }
             )
+
+        if include_capacity_summary:
+            if self._max_entries is None:
+                snapshot.update(
+                    {
+                        "has_capacity_limit": False,
+                        "capacity_remaining": None,
+                        "capacity_utilization": None,
+                        "is_near_capacity": False,
+                    }
+                )
+            else:
+                capacity_remaining = max(self._max_entries - active_entries, 0)
+                capacity_utilization = active_entries / self._max_entries
+
+                snapshot.update(
+                    {
+                        "has_capacity_limit": True,
+                        "capacity_remaining": capacity_remaining,
+                        "capacity_utilization": round(capacity_utilization, 4),
+                        "is_near_capacity": capacity_utilization >= 0.9,
+                    }
+                )
 
         if reset:
             for key in self._stats:

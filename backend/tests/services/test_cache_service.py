@@ -3490,6 +3490,46 @@ def test_local_cache_stats_tag_summary_handles_untagged_entries_only():
     assert stats["unique_tags"] == 0
 
 
+def test_local_cache_stats_can_include_capacity_summary_for_bounded_cache():
+    cache = LocalCacheService(max_entries=4)
+    cache.set_many({"alpha": 1, "beta": 2, "gamma": 3})
+
+    stats = cache.stats(include_capacity_summary=True)
+
+    assert stats["entries"] == 3
+    assert stats["max_entries"] == 4
+    assert stats["has_capacity_limit"] is True
+    assert stats["capacity_remaining"] == 1
+    assert stats["capacity_utilization"] == pytest.approx(0.75)
+    assert stats["is_near_capacity"] is False
+
+
+def test_local_cache_stats_capacity_summary_marks_near_capacity_threshold():
+    cache = LocalCacheService(max_entries=10)
+    cache.set_many({f"key:{index}": index for index in range(9)})
+
+    stats = cache.stats(include_capacity_summary=True)
+
+    assert stats["entries"] == 9
+    assert stats["capacity_remaining"] == 1
+    assert stats["capacity_utilization"] == pytest.approx(0.9)
+    assert stats["is_near_capacity"] is True
+
+
+def test_local_cache_stats_capacity_summary_handles_unbounded_cache():
+    cache = LocalCacheService()
+    cache.set_many({"alpha": 1, "beta": 2})
+
+    stats = cache.stats(include_capacity_summary=True)
+
+    assert stats["entries"] == 2
+    assert stats["max_entries"] is None
+    assert stats["has_capacity_limit"] is False
+    assert stats["capacity_remaining"] is None
+    assert stats["capacity_utilization"] is None
+    assert stats["is_near_capacity"] is False
+
+
 def test_local_cache_stats_ttl_summary_flag_must_be_boolean():
     cache = LocalCacheService()
 
@@ -3502,6 +3542,16 @@ def test_local_cache_stats_tag_summary_flag_must_be_boolean():
 
     with pytest.raises(ValueError, match="include_tag_summary must be a boolean"):
         cache.stats(include_tag_summary="yes")  # type: ignore[arg-type]
+
+
+def test_local_cache_stats_capacity_summary_flag_must_be_boolean():
+    cache = LocalCacheService()
+
+    with pytest.raises(
+        ValueError,
+        match="include_capacity_summary must be a boolean",
+    ):
+        cache.stats(include_capacity_summary="yes")  # type: ignore[arg-type]
 
 
 def test_local_cache_stats_include_set_if_absent_and_pop_lookups():
