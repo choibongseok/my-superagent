@@ -2,9 +2,13 @@
 
 from abc import ABC, abstractmethod
 import copy
+from datetime import date, datetime, time
+import ipaddress
 import math
 import re
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
+import uuid
 
 _TRUE_VALUES = {"true", "1", "yes", "on"}
 _FALSE_VALUES = {"false", "0", "no", "off"}
@@ -525,6 +529,12 @@ class BasePlugin(ABC):
             schema=schema,
             expected_type=expected_type,
         )
+        cls._validate_format_constraint(
+            key=key,
+            value=value,
+            schema=schema,
+            expected_type=expected_type,
+        )
 
     @staticmethod
     def _coerce_numeric_constraint(
@@ -931,6 +941,127 @@ class BasePlugin(ABC):
             raise ValueError(
                 f"Invalid value for input '{key}': must match pattern {raw_pattern!r}"
             )
+
+    @classmethod
+    def _validate_format_constraint(
+        cls,
+        *,
+        key: str,
+        value: Any,
+        schema: Dict[str, Any],
+        expected_type: Optional[str],
+    ) -> None:
+        """Validate JSON-schema style ``format`` constraints for strings."""
+        if "format" not in schema:
+            return
+
+        raw_format = schema["format"]
+        if not isinstance(raw_format, str) or not raw_format.strip():
+            raise ValueError(
+                f"Invalid schema for input '{key}': format must be a non-empty string"
+            )
+
+        if expected_type not in {None, "string"}:
+            return
+
+        if not isinstance(value, str):
+            raise ValueError(
+                f"Invalid value for input '{key}': format constraints require a string"
+            )
+
+        normalized_format = raw_format.strip().lower()
+        format_validators = {
+            "email": cls._is_valid_email,
+            "uri": cls._is_valid_uri,
+            "url": cls._is_valid_uri,
+            "uuid": cls._is_valid_uuid,
+            "date-time": cls._is_valid_datetime,
+            "datetime": cls._is_valid_datetime,
+            "date": cls._is_valid_date,
+            "time": cls._is_valid_time,
+            "ipv4": cls._is_valid_ipv4,
+            "ipv6": cls._is_valid_ipv6,
+        }
+
+        validator = format_validators.get(normalized_format)
+        if validator is None:
+            return
+
+        if not validator(value):
+            raise ValueError(
+                f"Invalid value for input '{key}': must be a valid {normalized_format}"
+            )
+
+    @staticmethod
+    def _is_valid_email(value: str) -> bool:
+        """Return whether a value is a syntactically valid e-mail address."""
+        return re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value.strip()) is not None
+
+    @staticmethod
+    def _is_valid_uri(value: str) -> bool:
+        """Return whether a value is a syntactically valid URI."""
+        parsed = urlparse(value.strip())
+        if not parsed.scheme:
+            return False
+        return bool(parsed.netloc or parsed.path)
+
+    @staticmethod
+    def _is_valid_uuid(value: str) -> bool:
+        """Return whether a value is a syntactically valid UUID."""
+        try:
+            uuid.UUID(value.strip())
+        except (ValueError, TypeError, AttributeError):
+            return False
+        return True
+
+    @staticmethod
+    def _is_valid_datetime(value: str) -> bool:
+        """Return whether a value is a valid ISO-8601 date-time string."""
+        normalized = value.strip()
+        if normalized.endswith("Z"):
+            normalized = f"{normalized[:-1]}+00:00"
+
+        try:
+            datetime.fromisoformat(normalized)
+        except ValueError:
+            return False
+        return True
+
+    @staticmethod
+    def _is_valid_date(value: str) -> bool:
+        """Return whether a value is a valid ISO date string."""
+        try:
+            date.fromisoformat(value.strip())
+        except ValueError:
+            return False
+        return True
+
+    @staticmethod
+    def _is_valid_time(value: str) -> bool:
+        """Return whether a value is a valid ISO time string."""
+        try:
+            time.fromisoformat(value.strip())
+        except ValueError:
+            return False
+        return True
+
+    @staticmethod
+    def _is_valid_ipv4(value: str) -> bool:
+        """Return whether a value is a valid IPv4 address string."""
+        try:
+            ipaddress.IPv4Address(value.strip())
+        except ipaddress.AddressValueError:
+            return False
+        return True
+
+    @staticmethod
+    def _is_valid_ipv6(value: str) -> bool:
+        """Return whether a value is a valid IPv6 address string."""
+        try:
+            ipaddress.IPv6Address(value.strip())
+        except ipaddress.AddressValueError:
+            return False
+        return True
 
     async def cleanup(self) -> None:
         """

@@ -316,6 +316,75 @@ class InvalidUniqueItemsSchemaPlugin(BasePlugin):
         )
 
 
+class FormatSchemaPlugin(BasePlugin):
+    """Plugin using format constraints for string inputs."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="format-schema",
+            version="1.0.0",
+            description="Format constraints plugin",
+            author="tests",
+            permissions=[],
+            inputs={
+                "email": {
+                    "type": "string",
+                    "required": True,
+                    "format": "email",
+                },
+                "callback_url": {
+                    "type": "string",
+                    "required": False,
+                    "format": "uri",
+                },
+                "request_id": {
+                    "type": "string",
+                    "required": False,
+                    "format": "uuid",
+                },
+                "started_at": {
+                    "type": "string",
+                    "required": False,
+                    "format": "date-time",
+                },
+            },
+            outputs={"ok": "boolean"},
+        )
+
+
+class InvalidFormatSchemaPlugin(BasePlugin):
+    """Plugin exposing invalid format schema metadata."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="invalid-format-schema",
+            version="1.0.0",
+            description="Invalid format constraints plugin",
+            author="tests",
+            permissions=[],
+            inputs={
+                "email": {
+                    "type": "string",
+                    "required": True,
+                    "format": [],
+                },
+            },
+            outputs={"ok": "boolean"},
+        )
+
+
 class FlatConfigSchemaPlugin(BasePlugin):
     """Plugin with legacy flat config schema entries."""
 
@@ -412,6 +481,39 @@ class ConfigLengthConstraintPlugin(BasePlugin):
                     "type": "object",
                     "min_properties": 1,
                     "max_properties": 2,
+                },
+            },
+        )
+
+
+class ConfigFormatConstraintPlugin(BasePlugin):
+    """Plugin with format constraints in config schema."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="config-format-constraints",
+            version="1.0.0",
+            description="Config format constraints plugin",
+            author="tests",
+            permissions=[],
+            inputs={"query": "string (required)"},
+            outputs={"ok": "boolean"},
+            config_schema={
+                "owner_email": {
+                    "type": "string",
+                    "required": True,
+                    "format": "email",
+                },
+                "webhook_url": {
+                    "type": "string",
+                    "required": True,
+                    "format": "uri",
                 },
             },
         )
@@ -823,6 +925,56 @@ async def test_validate_inputs_rejects_invalid_unique_items_schema_values():
         await plugin.validate_inputs({"tag_ids": ["ops"]})
 
 
+@pytest.mark.asyncio
+async def test_validate_inputs_accepts_supported_format_constraints():
+    plugin = FormatSchemaPlugin()
+
+    assert (
+        await plugin.validate_inputs(
+            {
+                "email": "owner@example.com",
+                "callback_url": "https://example.com/hooks/agenthq",
+                "request_id": "3f84b64a-872a-4604-b577-f8000e4939b7",
+                "started_at": "2026-02-16T20:00:00Z",
+            }
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_invalid_format_values():
+    plugin = FormatSchemaPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'email': must be a valid email",
+    ):
+        await plugin.validate_inputs({"email": "owner-at-example.com"})
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'request_id': must be a valid uuid",
+    ):
+        await plugin.validate_inputs(
+            {
+                "email": "owner@example.com",
+                "request_id": "not-a-uuid",
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_invalid_format_schema_values():
+    plugin = InvalidFormatSchemaPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid schema for input 'email': format must be a non-empty string",
+    ):
+        await plugin.validate_inputs({"email": "owner@example.com"})
+
+
 def test_manifest_to_dict_includes_config_schema():
     plugin = StructuredSchemaPlugin()
     manifest_dict = plugin.get_manifest().to_dict()
@@ -928,6 +1080,48 @@ def test_validate_config_supports_array_and_object_size_constraints():
         "labels": ["release"],
         "limits": {"max": 5},
     }
+
+
+def test_validate_config_supports_format_constraints():
+    plugin = ConfigFormatConstraintPlugin()
+
+    validated_config = plugin.validate_config(
+        {
+            "owner_email": "ops@example.com",
+            "webhook_url": "https://example.com/webhooks/release",
+        }
+    )
+
+    assert validated_config == {
+        "owner_email": "ops@example.com",
+        "webhook_url": "https://example.com/webhooks/release",
+    }
+
+
+def test_validate_config_rejects_format_constraint_violations():
+    plugin = ConfigFormatConstraintPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'owner_email': must be a valid email",
+    ):
+        plugin.validate_config(
+            {
+                "owner_email": "ops-at-example.com",
+                "webhook_url": "https://example.com/webhooks/release",
+            }
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'webhook_url': must be a valid uri",
+    ):
+        plugin.validate_config(
+            {
+                "owner_email": "ops@example.com",
+                "webhook_url": "example.com/webhooks/release",
+            }
+        )
 
 
 def test_validate_config_rejects_array_and_object_size_constraint_violations():
