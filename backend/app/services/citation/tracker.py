@@ -922,6 +922,7 @@ class CitationTracker:
             "hybrid",
             "title",
             "author",
+            "source_type",
             "published_date",
             "citation_count",
             "authority",
@@ -1051,6 +1052,7 @@ class CitationTracker:
                 citation traction, and recency quality signals, ``"title"``
                 sorts alphabetically by title, ``"author"`` sorts by
                 normalized author (placing unknown authors last),
+                ``"source_type"`` groups by normalized source type value,
                 ``"published_date"`` sorts newest-first with undated sources
                 last, ``"citation_count"`` prioritizes frequently cited
                 sources, and ``"authority"`` ranks by source reliability
@@ -1239,13 +1241,14 @@ class CitationTracker:
             "hybrid",
             "title",
             "author",
+            "source_type",
             "published_date",
             "citation_count",
             "authority",
             "recency",
         }:
             raise ValueError(
-                "sort_by must be one of: relevance, hybrid, title, author, published_date, citation_count, authority, recency"
+                "sort_by must be one of: relevance, hybrid, title, author, source_type, published_date, citation_count, authority, recency"
             )
 
         normalized_query = self._normalize_text(query)
@@ -1518,6 +1521,15 @@ class CitationTracker:
                     -item[1],
                 )
             )
+        elif normalized_sort_by == "source_type":
+            ranked_matches.sort(
+                key=lambda item: (
+                    self._normalize_source_type_value(item[5].type),
+                    self._normalize_text(item[5].title),
+                    -item[0],
+                    -item[1],
+                )
+            )
         elif normalized_sort_by == "title":
             ranked_matches.sort(
                 key=lambda item: (
@@ -1744,6 +1756,7 @@ class CitationTracker:
             "hybrid",
             "title",
             "author",
+            "source_type",
             "published_date",
             "citation_count",
             "authority",

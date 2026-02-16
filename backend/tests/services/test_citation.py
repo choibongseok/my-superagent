@@ -1074,13 +1074,49 @@ class TestCitationTracker:
             "Untitled Guide",
         ]
 
+    def test_search_sources_supports_sort_by_source_type(self):
+        """sort_by='source_type' should group by source type then title."""
+        tracker = CitationTracker()
+
+        tracker.add_source(title="API Runbook", type=SourceType.API)
+        tracker.add_source(title="Article Primer", type=SourceType.ARTICLE)
+        tracker.add_source(title="Web Notes", type=SourceType.WEB)
+        tracker.add_source(title="Article Playbook", type=SourceType.ARTICLE)
+
+        matches = tracker.search_sources("", sort_by="source_type")
+
+        assert [source.title for source in matches] == [
+            "API Runbook",
+            "Article Playbook",
+            "Article Primer",
+            "Web Notes",
+        ]
+
+    def test_search_sources_with_details_supports_sort_by_source_type(self):
+        """Detailed search should pass sort_by='source_type' through consistently."""
+        tracker = CitationTracker()
+
+        tracker.add_source(title="API Runbook", type=SourceType.API)
+        tracker.add_source(title="Article Primer", type=SourceType.ARTICLE)
+        tracker.add_source(title="Web Notes", type=SourceType.WEB)
+        tracker.add_source(title="Article Playbook", type=SourceType.ARTICLE)
+
+        detailed = tracker.search_sources_with_details("", sort_by="source_type")
+
+        assert [item["source"].title for item in detailed] == [
+            "API Runbook",
+            "Article Playbook",
+            "Article Primer",
+            "Web Notes",
+        ]
+
     def test_search_sources_rejects_invalid_sort_by(self):
         """Search should validate supported sort_by values."""
         tracker = CitationTracker()
 
         with pytest.raises(
             ValueError,
-            match="sort_by must be one of: relevance, hybrid, title, author, published_date, citation_count, authority, recency",
+            match="sort_by must be one of: relevance, hybrid, title, author, source_type, published_date, citation_count, authority, recency",
         ):
             tracker.search_sources("agent", sort_by="custom")
 
