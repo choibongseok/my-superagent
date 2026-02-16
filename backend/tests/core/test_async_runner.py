@@ -226,6 +226,15 @@ def test_run_async_retry_rejects_invalid_retry_configuration():
     ):
         run_async_retry(_value, retry_exceptions=())
 
+    with pytest.raises(ValueError, match="jitter_ratio must be a number in \[0, 1\]"):
+        run_async_retry(_value, jitter_ratio=-0.1)
+
+    with pytest.raises(ValueError, match="jitter_ratio must be a number in \[0, 1\]"):
+        run_async_retry(_value, jitter_ratio=1.1)
+
+    with pytest.raises(ValueError, match="jitter_ratio must be a number in \[0, 1\]"):
+        run_async_retry(_value, jitter_ratio=True)
+
 
 def test_run_async_retry_supports_should_retry_predicate_control():
     attempts = {"count": 0}
@@ -279,6 +288,77 @@ def test_run_async_retry_rejects_non_boolean_should_retry_results():
         )
 
     assert attempts["count"] == 1
+
+
+def test_run_async_retry_applies_jitter_to_retry_delays(monkeypatch):
+    attempts = {"count": 0}
+    sleep_calls: list[float] = []
+    jitter_bounds: list[tuple[float, float]] = []
+
+    async def _flaky() -> str:
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise RuntimeError("temporary")
+        return "ok"
+
+    async def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    jitter_values = iter([0.15, 0.5])
+
+    def _fake_uniform(lower: float, upper: float) -> float:
+        jitter_bounds.append((lower, upper))
+        return next(jitter_values)
+
+    monkeypatch.setattr("app.core.async_runner.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr("app.core.async_runner.random.uniform", _fake_uniform)
+
+    result = run_async_retry(
+        _flaky,
+        max_attempts=3,
+        initial_delay=0.2,
+        backoff_factor=2.0,
+        jitter_ratio=0.5,
+    )
+
+    assert result == "ok"
+    assert attempts["count"] == 3
+    assert len(jitter_bounds) == 2
+    assert jitter_bounds[0] == pytest.approx((0.1, 0.3))
+    assert jitter_bounds[1] == pytest.approx((0.2, 0.6))
+    assert sleep_calls == pytest.approx([0.15, 0.5])
+
+
+def test_run_async_retry_with_zero_jitter_uses_base_delay(monkeypatch):
+    attempts = {"count": 0}
+    sleep_calls: list[float] = []
+
+    async def _flaky() -> str:
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise RuntimeError("temporary")
+        return "ok"
+
+    async def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    def _unexpected_uniform(_lower: float, _upper: float) -> float:
+        raise AssertionError("random.uniform should not be called when jitter_ratio=0")
+
+    monkeypatch.setattr("app.core.async_runner.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr("app.core.async_runner.random.uniform", _unexpected_uniform)
+
+    result = run_async_retry(
+        _flaky,
+        max_attempts=3,
+        initial_delay=0.2,
+        backoff_factor=2.0,
+        jitter_ratio=0.0,
+    )
+
+    assert result == "ok"
+    assert attempts["count"] == 3
+    assert sleep_calls == [0.2, 0.4]
 
 
 def test_run_async_retry_timeout_applies_to_entire_retry_lifecycle():

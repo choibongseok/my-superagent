@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import queue
+import random
 import threading
 from collections.abc import Awaitable, Callable, Hashable, Iterable, Mapping
 from typing import Any, ParamSpec, TypeVar, cast, overload
@@ -208,6 +209,7 @@ def run_async_retry(
     initial_delay: float = 0.0,
     backoff_factor: float = 1.0,
     max_delay: float | None = None,
+    jitter_ratio: float = 0.0,
     should_retry: Callable[[BaseException, int], bool] | None = None,
     **kwargs: P.kwargs,
 ) -> T:
@@ -225,6 +227,9 @@ def run_async_retry(
         initial_delay: Delay in seconds before the first retry.
         backoff_factor: Multiplier applied to delay after each retry.
         max_delay: Optional upper bound for retry delay.
+        jitter_ratio: Optional jitter factor applied to each retry delay.
+            Uses symmetric jitter in the ``[delay * (1 - jitter_ratio), delay * (1 + jitter_ratio)]``
+            range (clamped to ``>= 0``). Use ``0`` (default) to disable jitter.
         should_retry: Optional predicate receiving ``(exception, attempt)``.
             Return ``True`` to continue retrying or ``False`` to raise
             immediately. ``attempt`` is 1-based and reflects the failed
@@ -234,7 +239,7 @@ def run_async_retry(
         The successful result from ``coro_factory``.
 
     Raises:
-        ValueError: If timeout/attempt/delay options are invalid.
+        ValueError: If timeout/attempt/delay/jitter options are invalid.
         TypeError: If ``coro_factory`` is not callable, retry exception tuple is
             invalid, ``should_retry`` is invalid, or the callable returns a
             non-awaitable value.
@@ -259,6 +264,13 @@ def run_async_retry(
 
     if max_delay is not None and max_delay <= 0:
         raise ValueError("max_delay must be greater than 0")
+
+    if isinstance(jitter_ratio, bool) or not isinstance(jitter_ratio, (int, float)):
+        raise ValueError("jitter_ratio must be a number in [0, 1]")
+
+    jitter_ratio = float(jitter_ratio)
+    if not 0 <= jitter_ratio <= 1:
+        raise ValueError("jitter_ratio must be a number in [0, 1]")
 
     def _should_retry_exception(exception: BaseException, attempt: int) -> bool:
         if should_retry is None:
@@ -296,7 +308,14 @@ def run_async_retry(
                         raise
 
             if delay > 0:
-                await asyncio.sleep(delay)
+                retry_delay = delay
+                if jitter_ratio > 0:
+                    jitter_window = delay * jitter_ratio
+                    retry_delay = random.uniform(
+                        max(0.0, delay - jitter_window),
+                        delay + jitter_window,
+                    )
+                await asyncio.sleep(retry_delay)
 
             next_delay = delay * backoff_factor
             if max_delay is not None:
