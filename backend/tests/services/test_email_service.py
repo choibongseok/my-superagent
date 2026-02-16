@@ -117,6 +117,55 @@ class TestEmailService:
         assert len(html_parts) == 1
 
     @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_supports_text_only_messages(self, mock_smtp, email_service):
+        """Text-only emails should send without requiring an HTML payload."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Text only",
+            text_body="Plain content only",
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        payload_parts = [
+            part
+            for part in sent_message.walk()
+            if part.get_content_maintype() == "text"
+        ]
+
+        plain_parts = [
+            part for part in payload_parts if part.get_content_subtype() == "plain"
+        ]
+        html_parts = [
+            part for part in payload_parts if part.get_content_subtype() == "html"
+        ]
+
+        assert len(plain_parts) == 1
+        assert html_parts == []
+        assert "Plain content only" in plain_parts[0].get_payload(decode=True).decode()
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_rejects_missing_html_and_text_bodies(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """send_email should fail when both html_body and text_body are missing."""
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Missing body",
+            html_body=None,
+            text_body=None,
+        )
+
+        assert result is False
+        mock_smtp.assert_not_called()
+
+    @patch("app.services.email_service.smtplib.SMTP")
     def test_send_email_validates_auto_text_body_flag(self, mock_smtp, email_service):
         """auto_text_body must be a boolean flag."""
         result = email_service.send_email(

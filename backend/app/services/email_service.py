@@ -435,7 +435,7 @@ class EmailService:
         self,
         to_emails: Sequence[str],
         subject: str,
-        html_body: str,
+        html_body: str | None,
         text_body: Optional[str] = None,
         cc_emails: Optional[Sequence[str]] = None,
         reply_to_email: str | None = None,
@@ -444,7 +444,10 @@ class EmailService:
         priority: str | None = None,
         auto_text_body: bool = True,
     ) -> MIMEMultipart:
-        """Create an email message with optional CC, Reply-To, attachments, headers, and priority."""
+        """Create an email message with optional text-only or HTML content."""
+        if html_body is None and text_body is None:
+            raise ValueError("Either html_body or text_body must be provided")
+
         normalized_attachments = list(attachments or [])
         msg = MIMEMultipart("mixed" if normalized_attachments else "alternative")
         msg["Subject"] = subject
@@ -470,15 +473,16 @@ class EmailService:
         target_container = content_container or msg
 
         effective_text_body = text_body
-        if effective_text_body is None and auto_text_body:
+        if effective_text_body is None and auto_text_body and html_body is not None:
             effective_text_body = self._build_fallback_text_body(html_body)
 
         # Add plain text version if provided or auto-generated
         if effective_text_body:
             target_container.attach(MIMEText(effective_text_body, "plain"))
 
-        # Add HTML version
-        target_container.attach(MIMEText(html_body, "html"))
+        # Add HTML version when available
+        if html_body is not None:
+            target_container.attach(MIMEText(html_body, "html"))
 
         for attachment in normalized_attachments:
             msg.attach(self._build_attachment_part(attachment))
@@ -489,7 +493,7 @@ class EmailService:
         self,
         to_email: str | Sequence[str],
         subject: str,
-        html_body: str,
+        html_body: str | None = None,
         text_body: Optional[str] = None,
         cc_emails: Optional[Sequence[str]] = None,
         bcc_emails: Optional[Sequence[str]] = None,
@@ -505,7 +509,7 @@ class EmailService:
         Args:
             to_email: Recipient email address (single) or list of addresses
             subject: Email subject
-            html_body: HTML content
+            html_body: HTML content (optional when ``text_body`` is provided)
             text_body: Plain text content (optional)
             cc_emails: Carbon-copy recipients shown in email headers
             bcc_emails: Blind carbon-copy recipients hidden from headers
@@ -529,6 +533,7 @@ class EmailService:
             auto_text_body: When ``True`` and ``text_body`` is omitted,
                 generate a plain-text fallback from ``html_body`` for improved
                 client compatibility.
+                At least one of ``html_body`` or ``text_body`` must be provided.
 
         Returns:
             True if sent successfully, False otherwise
@@ -540,6 +545,13 @@ class EmailService:
         try:
             if not isinstance(auto_text_body, bool):
                 raise TypeError("auto_text_body must be a boolean")
+
+            if html_body is not None and not isinstance(html_body, str):
+                raise TypeError("html_body must be a string when provided")
+            if text_body is not None and not isinstance(text_body, str):
+                raise TypeError("text_body must be a string when provided")
+            if html_body is None and text_body is None:
+                raise ValueError("Either html_body or text_body must be provided")
 
             normalized_subject = self._sanitize_header_value(
                 subject,
