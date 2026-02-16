@@ -2251,6 +2251,26 @@ def test_run_async_starmap_supports_keyword_argument_mappings():
     assert result == ["item:1", "item:2"]
 
 
+def test_run_async_starmap_supports_start_and_stop_offsets():
+    async def _add(left: int, right: int) -> int:
+        await asyncio.sleep(0.01)
+        return left + right
+
+    assert run_async_starmap(_add, [(1, 1), (2, 2), (3, 3)], start=1) == [4, 6]
+    assert run_async_starmap(_add, [(1, 1), (2, 2), (3, 3)], stop=2) == [2, 4]
+
+
+def test_run_async_starmap_rejects_invalid_offsets():
+    async def _add(left: int, right: int) -> int:
+        return left + right
+
+    with pytest.raises(ValueError, match="start must be an integer"):
+        run_async_starmap(_add, [(1, 1)], start=True)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="stop cannot be negative"):
+        run_async_starmap(_add, [(1, 1)], stop=-1)
+
+
 def test_run_async_starmap_honors_max_concurrency_limit():
     active = 0
     max_active = 0
@@ -2319,6 +2339,52 @@ async def test_run_async_starmap_batched_with_existing_event_loop_returns_result
     )
 
     assert result == ["task-1", "task-2"]
+
+
+def test_run_async_starmap_batched_supports_start_and_stop_offsets():
+    async def _add(left: int, right: int) -> int:
+        await asyncio.sleep(0.01)
+        return left + right
+
+    assert (
+        run_async_starmap_batched(
+            _add,
+            [(1, 1), (2, 2), (3, 3)],
+            batch_size=2,
+            start=1,
+        )
+        == [4, 6]
+    )
+    assert (
+        run_async_starmap_batched(
+            _add,
+            [(1, 1), (2, 2), (3, 3)],
+            batch_size=2,
+            stop=2,
+        )
+        == [2, 4]
+    )
+
+
+def test_run_async_starmap_batched_rejects_invalid_offsets():
+    async def _add(left: int, right: int) -> int:
+        return left + right
+
+    with pytest.raises(ValueError, match="start must be an integer"):
+        run_async_starmap_batched(
+            _add,
+            [(1, 1)],
+            batch_size=1,
+            start=True,  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(ValueError, match="stop cannot be negative"):
+        run_async_starmap_batched(
+            _add,
+            [(1, 1)],
+            batch_size=1,
+            stop=-1,
+        )
 
 
 def test_run_async_starmap_batched_can_return_exceptions_when_requested():

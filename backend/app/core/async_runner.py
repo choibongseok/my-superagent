@@ -1216,6 +1216,8 @@ def run_async_starmap(
     timeout: float | None = None,
     return_exceptions: bool = False,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> list[T] | list[T | BaseException]:
     """Map an async callable over iterable arg-tuples or kwarg mappings.
 
@@ -1232,12 +1234,15 @@ def run_async_starmap(
         timeout: Optional timeout in seconds for the entire mapped batch.
         return_exceptions: Mirror of ``asyncio.gather(return_exceptions=...)``.
         max_concurrency: Optional cap on how many mapped tasks run at once.
+        start: Optional zero-based index to begin mapping from.
+        stop: Optional zero-based index where mapping stops (exclusive).
 
     Returns:
         List of results preserving input order.
 
     Raises:
-        ValueError: If ``timeout`` or ``max_concurrency`` are not positive.
+        ValueError: If ``timeout``, ``max_concurrency``, ``start``, or ``stop``
+            are invalid.
         TypeError: If ``coro_factory`` is not callable, an item cannot be unpacked,
             or factory calls do not return awaitables.
         TimeoutError: If execution exceeds ``timeout``.
@@ -1245,10 +1250,14 @@ def run_async_starmap(
     if not callable(coro_factory):
         raise TypeError("run_async_starmap expects a callable coro_factory")
 
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
+        return []
+
     built_awaitables: list[Awaitable[T]] = []
 
     try:
-        for item in items:
+        for item in searchable_items:
             built_awaitables.append(
                 _build_starmap_awaitable(
                     coro_factory,
@@ -1279,6 +1288,8 @@ def run_async_starmap_batched(
     timeout: float | None = None,
     return_exceptions: bool = False,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> list[T] | list[T | BaseException]:
     """Map an async callable over unpacked items in bounded batches.
 
@@ -1292,12 +1303,15 @@ def run_async_starmap_batched(
         timeout: Optional timeout in seconds for the entire batched execution.
         return_exceptions: Mirror of ``asyncio.gather(return_exceptions=...)``.
         max_concurrency: Optional cap on concurrent tasks inside each batch.
+        start: Optional zero-based index to begin mapping from.
+        stop: Optional zero-based index where mapping stops (exclusive).
 
     Returns:
         List of results preserving input order.
 
     Raises:
-        ValueError: If ``batch_size``, ``timeout``, or ``max_concurrency`` are invalid.
+        ValueError: If ``batch_size``, ``timeout``, ``max_concurrency``,
+            ``start``, or ``stop`` are invalid.
         TypeError: If ``coro_factory`` is not callable, an item cannot be unpacked,
             or factory calls do not return awaitables.
         TimeoutError: If execution exceeds ``timeout``.
@@ -1306,6 +1320,10 @@ def run_async_starmap_batched(
         raise TypeError("run_async_starmap_batched expects a callable coro_factory")
 
     _validate_batch_size(batch_size)
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
+        return []
+
     _validate_timeout(timeout)
     _validate_max_concurrency(max_concurrency)
 
@@ -1339,7 +1357,7 @@ def run_async_starmap_batched(
                 return_exceptions=return_exceptions,
             )
 
-        for item in items:
+        for item in searchable_items:
             batch.append(item)
             if len(batch) < batch_size:
                 continue
