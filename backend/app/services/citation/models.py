@@ -45,21 +45,25 @@ class Source(BaseModel):
         Format source as citation string.
 
         Args:
-            style: Citation style (apa, mla, chicago, harvard, vancouver)
+            style: Citation style (apa, mla, chicago, harvard, vancouver, ieee)
 
         Returns:
             Formatted citation string
         """
-        if style == "apa":
+        normalized_style = style.strip().lower()
+
+        if normalized_style == "apa":
             return self._format_apa()
-        elif style == "mla":
+        elif normalized_style == "mla":
             return self._format_mla()
-        elif style == "chicago":
+        elif normalized_style == "chicago":
             return self._format_chicago()
-        elif style == "harvard":
+        elif normalized_style == "harvard":
             return self._format_harvard()
-        elif style == "vancouver":
+        elif normalized_style == "vancouver":
             return self._format_vancouver()
+        elif normalized_style == "ieee":
+            return self._format_ieee()
         else:
             return self._format_simple()
 
@@ -163,6 +167,25 @@ class Source(BaseModel):
 
         return " ".join(parts)
 
+    def _format_ieee(self) -> str:
+        """Format in IEEE style for online/web references."""
+        parts = []
+
+        if self.author:
+            parts.append(f"{self.author},")
+
+        parts.append(f'"{self.title},"')
+
+        if self.published_date:
+            parts.append(f"{self.published_date.year}.")
+
+        if self.url:
+            parts.append(f"[Online]. Available: {self.url}.")
+            accessed = self.accessed_date.strftime("%b %d, %Y")
+            parts.append(f"[Accessed: {accessed}].")
+
+        return " ".join(parts)
+
     def _format_simple(self) -> str:
         """Simple format with basic info."""
         parts = [self.title]
@@ -206,12 +229,14 @@ class Citation(BaseModel):
         Format as inline citation.
 
         Args:
-            style: Citation style (apa, mla, harvard, vancouver)
+            style: Citation style (apa, mla, harvard, vancouver, ieee)
 
         Returns:
             Inline citation string
         """
-        if style == "apa":
+        normalized_style = style.strip().lower()
+
+        if normalized_style == "apa":
             if self.source.author and self.source.published_date:
                 year = self.source.published_date.year
                 return f"({self.source.author}, {year})"
@@ -220,7 +245,7 @@ class Citation(BaseModel):
             else:
                 return f"({self.source.title})"
 
-        elif style == "mla":
+        elif normalized_style == "mla":
             if self.source.author:
                 if self.page_number:
                     return f"({self.source.author} {self.page_number})"
@@ -228,7 +253,7 @@ class Citation(BaseModel):
             else:
                 return f'("{self.source.title}")'
 
-        elif style == "harvard":
+        elif normalized_style == "harvard":
             year = (
                 str(self.source.published_date.year)
                 if self.source.published_date
@@ -238,7 +263,7 @@ class Citation(BaseModel):
                 return f"({self.source.author}, {year})"
             return f"({self.source.title}, {year})"
 
-        elif style == "vancouver":
+        elif normalized_style in {"vancouver", "ieee"}:
             return f"[{self._vancouver_label(self.id)}]"
 
         else:

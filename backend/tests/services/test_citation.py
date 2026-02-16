@@ -2392,6 +2392,28 @@ class TestCitationTracker:
         assert "Available at: https://example.com/ml." in bibliography[0]
         assert "Accessed 14 February 2026." in bibliography[0]
 
+    def test_get_bibliography_ieee(self):
+        """Test bibliography generation in IEEE style."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(
+            title="Machine Learning Basics",
+            url="https://example.com/ml",
+            author="Bob Johnson",
+            published_date=datetime(2023, 4, 15),
+            type=SourceType.WEB,
+        )
+        source = tracker.get_source(source_id)
+        assert source is not None
+        source.accessed_date = datetime(2026, 2, 14)
+
+        bibliography = tracker.get_bibliography(style="ieee")
+
+        assert len(bibliography) == 1
+        assert bibliography[0].startswith('Bob Johnson, "Machine Learning Basics," 2023.')
+        assert "[Online]. Available: https://example.com/ml." in bibliography[0]
+        assert "[Accessed: Feb 14, 2026]." in bibliography[0]
+
     def test_get_bibliography_sorted(self):
         """Test bibliography sorting."""
         tracker = CitationTracker()
@@ -2481,6 +2503,27 @@ class TestCitationTracker:
         rendered = tracker.get_inline_citations(
             f"Evidence is documented [[cite:{citation.id}]].",
             style="vancouver",
+        )
+
+        assert rendered == "Evidence is documented [2]."
+
+    def test_get_inline_citations_supports_ieee_style(self):
+        """Inline placeholder rendering should support IEEE numeric output."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(
+            title="AI Reliability Guide",
+            author="Jane Doe",
+            published_date=datetime(2025, 6, 1),
+            type=SourceType.DOCUMENT,
+        )
+        tracker.cite(source_id, quoted_text="Verify every claim")
+        citation = tracker.cite(source_id, quoted_text="Independent cross-check")
+        assert citation is not None
+
+        rendered = tracker.get_inline_citations(
+            f"Evidence is documented [[cite:{citation.id}]].",
+            style="ieee",
         )
 
         assert rendered == "Evidence is documented [2]."
@@ -3316,6 +3359,40 @@ class TestSource:
         assert "Available from: https://example.com/ai-reliability." in citation
         assert "[cited 2026 Feb 14]." in citation
 
+    def test_citation_format_ieee(self):
+        """IEEE format should include quoted title, online URL, and access date."""
+        source = Source(
+            id="test_id",
+            type=SourceType.ARTICLE,
+            title="AI Reliability in Production",
+            url="https://example.com/ai-reliability",
+            author="Jane Doe",
+            published_date=datetime(2024, 1, 1),
+            accessed_date=datetime(2026, 2, 14),
+        )
+
+        citation = source.to_citation_format(style="ieee")
+
+        assert citation.startswith('Jane Doe, "AI Reliability in Production," 2024.')
+        assert "[Online]. Available: https://example.com/ai-reliability." in citation
+        assert "[Accessed: Feb 14, 2026]." in citation
+
+    def test_citation_format_style_names_are_case_insensitive(self):
+        """Citation styles should accept case-insensitive style names."""
+        source = Source(
+            id="test_id",
+            type=SourceType.ARTICLE,
+            title="AI Reliability in Production",
+            url="https://example.com/ai-reliability",
+            author="Jane Doe",
+            published_date=datetime(2024, 1, 1),
+            accessed_date=datetime(2026, 2, 14),
+        )
+
+        citation = source.to_citation_format(style="IEEE")
+
+        assert citation.startswith('Jane Doe, "AI Reliability in Production," 2024.')
+
     def test_inline_citation_harvard(self):
         """Inline citation rendering should support Harvard style."""
         source = Source(
@@ -3360,6 +3437,21 @@ class TestSource:
         inline = citation.to_inline_citation(style="vancouver")
 
         assert inline == "[source_abc]"
+
+    def test_inline_citation_ieee_uses_numeric_suffix(self):
+        """IEEE inline citations should use numeric suffixes when available."""
+        source = Source(
+            id="source_id",
+            type=SourceType.ARTICLE,
+            title="Reliable Systems",
+            author="Alex Kim",
+            published_date=datetime(2023, 5, 1),
+        )
+        citation = Citation(id="cite_12", source=source)
+
+        inline = citation.to_inline_citation(style="ieee")
+
+        assert inline == "[12]"
 
 
 if __name__ == "__main__":

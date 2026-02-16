@@ -1885,7 +1885,7 @@ class CitationTracker:
         Generate bibliography from all sources.
 
         Args:
-            style: Citation style (apa, mla, chicago, harvard, vancouver)
+            style: Citation style (apa, mla, chicago, harvard, vancouver, ieee)
             sort_by: Sort method (author, title, date)
 
         Returns:
