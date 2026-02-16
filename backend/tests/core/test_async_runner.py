@@ -2214,6 +2214,34 @@ def test_run_async_reduce_timeout_applies_to_entire_reduction():
         run_async_reduce(_slow_add, [1, 2, 3], initial=0, timeout=0.05)
 
 
+def test_run_async_reduce_supports_start_and_stop_offsets():
+    async def _add(accumulator: int, value: int) -> int:
+        await asyncio.sleep(0.01)
+        return accumulator + value
+
+    assert run_async_reduce(_add, [1, 2, 3, 4], start=1) == 9
+    assert run_async_reduce(_add, [1, 2, 3, 4], stop=3) == 6
+    assert run_async_reduce(_add, [1, 2, 3, 4], start=1, stop=3, initial=10) == 15
+
+
+def test_run_async_reduce_rejects_invalid_offsets():
+    async def _add(accumulator: int, value: int) -> int:
+        return accumulator + value
+
+    with pytest.raises(ValueError, match="start must be an integer"):
+        run_async_reduce(_add, [1, 2], start=True)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="stop cannot be negative"):
+        run_async_reduce(_add, [1, 2], stop=-1)
+
+
+def test_run_async_reduce_with_empty_offset_window_and_initial_returns_initial():
+    async def _add(accumulator: int, value: int) -> int:
+        return accumulator + value
+
+    assert run_async_reduce(_add, [1, 2, 3], start=3, initial=99) == 99
+
+
 def test_run_async_starmap_supports_positional_argument_groups():
     async def _add(left: int, right: int) -> int:
         await asyncio.sleep(0.01)

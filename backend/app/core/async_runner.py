@@ -1116,6 +1116,8 @@ def run_async_reduce(
     *,
     timeout: float | None = None,
     initial: A | object = _MISSING,
+    start: int = 0,
+    stop: int | None = None,
 ) -> A:
     """Reduce ``items`` using an async reducer from synchronous code.
 
@@ -1125,22 +1127,24 @@ def run_async_reduce(
         timeout: Optional timeout in seconds for the full reduction.
         initial: Optional initial accumulator value. When omitted, the first
             item is used as the starting accumulator (matching ``functools.reduce``).
+        start: Optional zero-based index to begin reducing from.
+        stop: Optional zero-based index where reduction stops (exclusive).
 
     Returns:
         Final reduced accumulator value.
 
     Raises:
         TypeError: If ``coro_reducer`` is not callable or does not return an awaitable.
-        ValueError: If ``timeout`` is not positive.
-        LookupError: If ``items`` is empty and ``initial`` is not provided.
+        ValueError: If ``timeout``/offset values are invalid.
+        LookupError: If the selected reduction window is empty and ``initial``
+            is not provided.
         TimeoutError: If execution exceeds ``timeout``.
     """
     if not callable(coro_reducer):
         raise TypeError("run_async_reduce expects a callable coro_reducer")
 
     _validate_timeout(timeout)
-
-    materialized_items = list(items)
+    materialized_items = _slice_items_with_offsets(items, start=start, stop=stop)
 
     if initial is _MISSING:
         if not materialized_items:
