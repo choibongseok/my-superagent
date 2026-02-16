@@ -4,8 +4,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -13,7 +12,7 @@ from app.core.database import Base
 
 class MemberRole(str, Enum):
     """Member roles in workspace."""
-    
+
     OWNER = "owner"
     ADMIN = "admin"
     MEMBER = "member"
@@ -28,17 +27,25 @@ class WorkspaceMember(Base):
         UniqueConstraint("workspace_id", "user_id", name="unique_workspace_user"),
     )
 
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
     workspace_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
     )
     user_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    role: Mapped[str] = mapped_column(String(50), default=MemberRole.MEMBER.value, nullable=False)
-    
+    role: Mapped[str] = mapped_column(
+        String(50), default=MemberRole.MEMBER.value, nullable=False
+    )
+
     # Timestamps
-    joined_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    joined_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
@@ -58,8 +65,8 @@ class WorkspaceMember(Base):
             MemberRole.MEMBER: 2,
             MemberRole.VIEWER: 1,
         }
-        
+
         current_level = role_hierarchy.get(MemberRole(self.role), 0)
         required_level = role_hierarchy.get(required_role, 0)
-        
+
         return current_level >= required_level

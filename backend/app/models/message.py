@@ -4,8 +4,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 import enum
 
-from sqlalchemy import Text, ForeignKey, Enum as SQLEnum
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy import Enum as SQLEnum, ForeignKey, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -28,15 +27,19 @@ class Message(Base, TimestampMixin):
 
     __tablename__ = "messages"
 
-    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
     chat_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("chats.id"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("chats.id"), nullable=False, index=True
     )
     user_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
     )
     role: Mapped[MessageRole] = mapped_column(
-        SQLEnum(MessageRole, name="message_role"), nullable=False, default=MessageRole.USER
+        SQLEnum(MessageRole, name="message_role"),
+        nullable=False,
+        default=MessageRole.USER,
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
 

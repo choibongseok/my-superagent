@@ -1,7 +1,9 @@
 """Database configuration and session management."""
 
 from typing import AsyncGenerator
+from uuid import UUID
 
+from sqlalchemy import Uuid
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -35,13 +37,15 @@ AsyncSessionLocal = async_sessionmaker(
 class Base(DeclarativeBase):
     """Base class for SQLAlchemy models."""
 
-    pass
+    type_annotation_map = {
+        UUID: Uuid(as_uuid=True),
+    }
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency for getting async database session.
-    
+
     Yields:
         AsyncSession: Database session
     """
