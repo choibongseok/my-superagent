@@ -1414,6 +1414,61 @@ def test_search_with_diagnostics_reports_error_details(monkeypatch):
     assert fake_backend.queries == []
 
 
+def test_search_many_with_diagnostics_reports_per_query_rows_and_summary(monkeypatch):
+    """Batch diagnostics should include ordered rows and aggregate counters."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=60, cache_max_entries=16)
+
+    diagnostics = tool.search_many_with_diagnostics(["agent", "agent", "  "])
+
+    assert [row["source"] for row in diagnostics["results"]] == [
+        "fresh_search",
+        "cache_hit",
+        "error",
+    ]
+    assert diagnostics["summary"]["total_queries"] == 3
+    assert diagnostics["summary"]["successes"] == 2
+    assert diagnostics["summary"]["errors"] == 1
+    assert diagnostics["summary"]["fresh_searches"] == 1
+    assert diagnostics["summary"]["cache_hits"] == 1
+    assert diagnostics["summary"]["stale_fallbacks"] == 0
+    assert diagnostics["summary"]["average_latency_ms"] >= 0
+
+
+def test_search_many_with_diagnostics_rejects_invalid_query_batches(monkeypatch):
+    """Batch diagnostics should validate query payloads eagerly."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool()
+
+    with pytest.raises(
+        ValueError,
+        match="queries must be an iterable of query strings",
+    ):
+        tool.search_many_with_diagnostics("agent")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="queries must include at least one query",
+    ):
+        tool.search_many_with_diagnostics([])
+
+    with pytest.raises(
+        ValueError,
+        match="queries must contain only string values",
+    ):
+        tool.search_many_with_diagnostics(["agent", 1])  # type: ignore[list-item]
+
+
 def test_run_rejects_overly_long_queries_without_backend_calls(monkeypatch):
     """Configured query-length limits should fail fast before backend calls."""
     fake_backend = _FakeSearchBackend(response="should not be used")

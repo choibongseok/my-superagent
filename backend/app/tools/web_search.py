@@ -1000,6 +1000,67 @@ class DuckDuckGoSearchTool(BaseTool):
 
         return diagnostics
 
+    @staticmethod
+    def _normalize_query_batch(queries: Iterable[str]) -> list[str]:
+        """Validate and normalize query batches for bulk diagnostics helpers."""
+        if isinstance(queries, str):
+            raise ValueError("queries must be an iterable of query strings")
+
+        try:
+            normalized_queries = list(queries)
+        except TypeError as exc:
+            raise ValueError("queries must be an iterable of query strings") from exc
+
+        if not normalized_queries:
+            raise ValueError("queries must include at least one query")
+
+        if not all(isinstance(query, str) for query in normalized_queries):
+            raise ValueError("queries must contain only string values")
+
+        return normalized_queries
+
+    def search_many_with_diagnostics(self, queries: Iterable[str]) -> dict[str, Any]:
+        """Run multiple searches and return per-query + aggregate diagnostics.
+
+        Args:
+            queries: Iterable of query strings processed in order.
+
+        Returns:
+            Dictionary containing ``results`` (per-query diagnostics payloads)
+            and ``summary`` (aggregate success/cache/latency metrics).
+        """
+        normalized_queries = self._normalize_query_batch(queries)
+        diagnostics_rows = [
+            self.search_with_diagnostics(query) for query in normalized_queries
+        ]
+
+        total_queries = len(diagnostics_rows)
+        success_count = sum(1 for row in diagnostics_rows if row["success"])
+        cache_hit_count = sum(1 for row in diagnostics_rows if row["cache_hit"])
+        stale_fallback_count = sum(
+            1 for row in diagnostics_rows if row["stale_fallback"]
+        )
+        fresh_search_count = sum(
+            1 for row in diagnostics_rows if row["source"] == "fresh_search"
+        )
+        error_count = total_queries - success_count
+        average_latency_ms = (
+            sum(float(row["latency_ms"]) for row in diagnostics_rows) / total_queries
+        )
+
+        return {
+            "results": diagnostics_rows,
+            "summary": {
+                "total_queries": total_queries,
+                "successes": success_count,
+                "errors": error_count,
+                "fresh_searches": fresh_search_count,
+                "cache_hits": cache_hit_count,
+                "stale_fallbacks": stale_fallback_count,
+                "average_latency_ms": average_latency_ms,
+            },
+        }
+
     def _run(self, query: str) -> str:
         """
         Run web search synchronously.
