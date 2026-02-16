@@ -3432,6 +3432,41 @@ def test_local_cache_stats_lookup_rates_default_to_zero_without_lookups():
     assert stats["miss_rate"] == 0.0
 
 
+def test_local_cache_stats_can_include_ttl_summary_for_active_entries():
+    cache = LocalCacheService()
+
+    cache.set("persistent", "value")
+    cache.set("expiring:soon", "a", ttl_seconds=2)
+    cache.set("expiring:later", "b", ttl_seconds=5)
+
+    stats = cache.stats(include_ttl_summary=True)
+
+    assert stats["entries"] == 3
+    assert stats["persistent_entries"] == 1
+    assert stats["expiring_entries"] == 2
+    assert stats["next_expiration_in_seconds"] is not None
+    assert 0 < stats["next_expiration_in_seconds"] <= 2
+
+
+def test_local_cache_stats_ttl_summary_handles_persistent_only_entries():
+    cache = LocalCacheService()
+    cache.set_many({"alpha": 1, "beta": 2})
+
+    stats = cache.stats(include_ttl_summary=True)
+
+    assert stats["entries"] == 2
+    assert stats["persistent_entries"] == 2
+    assert stats["expiring_entries"] == 0
+    assert stats["next_expiration_in_seconds"] is None
+
+
+def test_local_cache_stats_ttl_summary_flag_must_be_boolean():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="include_ttl_summary must be a boolean"):
+        cache.stats(include_ttl_summary="yes")  # type: ignore[arg-type]
+
+
 def test_local_cache_stats_include_set_if_absent_and_pop_lookups():
     cache = LocalCacheService()
 

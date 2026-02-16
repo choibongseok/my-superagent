@@ -2999,7 +2999,12 @@ class LocalCacheService:
 
         return imported
 
-    def stats(self, reset: bool = False) -> dict[str, Any]:
+    def stats(
+        self,
+        reset: bool = False,
+        *,
+        include_ttl_summary: bool = False,
+    ) -> dict[str, Any]:
         """Return cache operational counters and runtime metadata.
 
         In addition to raw counters, this includes derived lookup metrics to
@@ -3012,7 +3017,21 @@ class LocalCacheService:
         Args:
             reset: When ``True``, reset accumulated counters after generating
                 the returned snapshot.
+            include_ttl_summary: When ``True``, include TTL-oriented entry
+                breakdown metadata:
+
+                - ``expiring_entries``: Active entries with expiration.
+                - ``persistent_entries``: Active entries without expiration.
+                - ``next_expiration_in_seconds``: Remaining lifetime (seconds)
+                  for the soonest-expiring key, or ``None`` if no expiring
+                  entries exist.
         """
+        if not isinstance(include_ttl_summary, bool):
+            raise ValueError("include_ttl_summary must be a boolean")
+
+        self._purge_expired_entries()
+        active_entries = len(self._store)
+
         hits = self._stats.get("hits", 0)
         misses = self._stats.get("misses", 0)
         lookups = hits + misses
@@ -3025,10 +3044,37 @@ class LocalCacheService:
             "lookups": lookups,
             "hit_rate": round(hit_rate, 4),
             "miss_rate": round(miss_rate, 4),
-            "entries": self.size(),
+            "entries": active_entries,
             "max_entries": self._max_entries,
             "inflight": len(self._inflight),
         }
+
+        if include_ttl_summary:
+            now = time.time()
+            expiring_entries = 0
+            persistent_entries = 0
+            next_expiration_in_seconds: float | None = None
+
+            for _, expires_at in self._store.values():
+                if expires_at is None:
+                    persistent_entries += 1
+                    continue
+
+                expiring_entries += 1
+                remaining_seconds = max(0.0, expires_at - now)
+                if (
+                    next_expiration_in_seconds is None
+                    or remaining_seconds < next_expiration_in_seconds
+                ):
+                    next_expiration_in_seconds = remaining_seconds
+
+            snapshot.update(
+                {
+                    "expiring_entries": expiring_entries,
+                    "persistent_entries": persistent_entries,
+                    "next_expiration_in_seconds": next_expiration_in_seconds,
+                }
+            )
 
         if reset:
             for key in self._stats:
