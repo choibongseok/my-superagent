@@ -412,6 +412,71 @@ class TestRelevanceFiltering:
         assert [result["relevance"] for result in results] == ["high", "medium"]
 
 
+class TestQualityFloorPagination:
+    """Test that quality floors are applied before pagination controls."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_confidence_filtering_happens_before_k_trimming(self):
+        """k-limited searches should still return top matches that satisfy confidence floors."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        weak_doc = Document(page_content="weak", metadata={})
+        strong_doc = Document(page_content="strong", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (weak_doc, 0.58),
+                (strong_doc, 0.91),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            k=1,
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            min_confidence="strong",
+        )
+
+        assert [result["content"] for result in results] == ["strong"]
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_min_relevance_filtering_happens_before_offset(self):
+        """offset should paginate within relevance-qualified results only."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 10
+
+        very_low_doc = Document(page_content="very-low", metadata={})
+        low_doc = Document(page_content="low", metadata={})
+        medium_doc = Document(page_content="medium", metadata={})
+        high_doc = Document(page_content="high", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (very_low_doc, 0.42),
+                (low_doc, 0.58),
+                (medium_doc, 0.74),
+                (high_doc, 0.9),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            k=1,
+            offset=1,
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            min_relevance="medium",
+        )
+
+        assert [result["content"] for result in results] == ["high"]
+
+
 class TestSelectivityFactorEdgeCases:
     """Test edge cases in selectivity factor calculation."""
 
@@ -959,9 +1024,7 @@ class TestContentLengthFiltering:
             max_content_length=25,
         )
 
-        assert [result["content"] for result in results] == [
-            "  release checklist v2  "
-        ]
+        assert [result["content"] for result in results] == ["  release checklist v2  "]
 
 
 class TestOffsetPagination:

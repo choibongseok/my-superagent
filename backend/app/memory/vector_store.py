@@ -864,9 +864,7 @@ class VectorStoreMemory:
             ):
                 raise ValueError("candidate_pool_multiplier must be an integer")
             if candidate_pool_multiplier <= 0:
-                raise ValueError(
-                    "candidate_pool_multiplier must be greater than 0"
-                )
+                raise ValueError("candidate_pool_multiplier must be greater than 0")
 
         if max_score_gap is not None:
             if isinstance(max_score_gap, bool) or not isinstance(
@@ -1410,15 +1408,9 @@ class VectorStoreMemory:
             )
             results = diversified_results
 
-        if normalized_offset:
-            results = results[normalized_offset:]
-
-        if len(results) > k:
-            results = results[:k]
-
-        top_score = max((score for _, score in results), default=None)
-        formatted_results = []
-        for rank, (doc, score) in enumerate(results, start=1):
+        pre_quality_floor_count = len(results)
+        quality_filtered_results: List[Tuple[Document, float, str, str]] = []
+        for doc, score in results:
             relevance, confidence = self._classify_relevance(score, applied_threshold)
 
             if (
@@ -1433,6 +1425,31 @@ class VectorStoreMemory:
             ):
                 continue
 
+            quality_filtered_results.append((doc, score, relevance, confidence))
+
+        if min_relevance_rank is not None or min_confidence_rank is not None:
+            logger.debug(
+                "Applied quality-floor filtering: min_relevance=%s, min_confidence=%s, before=%d, after=%d",
+                normalized_min_relevance,
+                normalized_min_confidence,
+                pre_quality_floor_count,
+                len(quality_filtered_results),
+            )
+
+        if normalized_offset:
+            quality_filtered_results = quality_filtered_results[normalized_offset:]
+
+        if len(quality_filtered_results) > k:
+            quality_filtered_results = quality_filtered_results[:k]
+
+        top_score = max(
+            (score for _, score, _, _ in quality_filtered_results), default=None
+        )
+        formatted_results = []
+        for rank, (doc, score, relevance, confidence) in enumerate(
+            quality_filtered_results,
+            start=1,
+        ):
             result_payload = {
                 "content": doc.page_content,
                 "metadata": doc.metadata,
