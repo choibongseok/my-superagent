@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from app.core.cache import cache, cache_key, cached, invalidate_cache
+from app.core.config import settings
 
 
 def test_cache_key_normalizes_nested_mappings_deterministically():
@@ -849,3 +850,97 @@ async def test_invalidate_cache_rejects_invalid_max_key_length_configuration():
 
     with pytest.raises(ValueError, match="max_key_length is too small for hashed keys"):
         await invalidate_cache("example", 1, max_key_length=20)
+
+
+def test_cached_rejects_invalid_refresh_ttl_configuration():
+    with pytest.raises(ValueError, match="refresh_ttl_on_hit must be a boolean"):
+        cached(prefix="example", refresh_ttl_on_hit="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="hit_ttl must be a positive integer when provided",
+    ):
+        cached(prefix="example", hit_ttl=0)
+
+
+@pytest.mark.asyncio
+async def test_cached_refreshes_ttl_for_cache_hits_using_default_ttl(monkeypatch):
+    cached_values = {"example:21": 42}
+    expire_events: list[tuple[str, int]] = []
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(_: str, __: int, ttl=None):
+        raise AssertionError("cache.set should not run on cache hits")
+
+    async def fake_expire(key: str, ttl: int):
+        expire_events.append((key, ttl))
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+    monkeypatch.setattr(cache, "expire", fake_expire)
+
+    @cached(prefix="example", ttl=30, refresh_ttl_on_hit=True)
+    async def compute(value: int) -> int:
+        raise AssertionError("wrapped function should not execute on cache hit")
+
+    assert await compute(21) == 42
+    assert expire_events == [("example:21", 30)]
+
+
+@pytest.mark.asyncio
+async def test_cached_refreshes_ttl_with_hit_ttl_override(monkeypatch):
+    cached_values = {"example:21": 42}
+    expire_events: list[tuple[str, int]] = []
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(_: str, __: int, ttl=None):
+        raise AssertionError("cache.set should not run on cache hits")
+
+    async def fake_expire(key: str, ttl: int):
+        expire_events.append((key, ttl))
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+    monkeypatch.setattr(cache, "expire", fake_expire)
+
+    @cached(prefix="example", ttl=120, refresh_ttl_on_hit=True, hit_ttl=10)
+    async def compute(value: int) -> int:
+        raise AssertionError("wrapped function should not execute on cache hit")
+
+    assert await compute(21) == 42
+    assert expire_events == [("example:21", 10)]
+
+
+@pytest.mark.asyncio
+async def test_cached_refreshes_ttl_for_hits_using_settings_default_when_ttl_omitted(
+    monkeypatch,
+):
+    cached_values = {"example:21": 42}
+    expire_events: list[tuple[str, int]] = []
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(_: str, __: int, ttl=None):
+        raise AssertionError("cache.set should not run on cache hits")
+
+    async def fake_expire(key: str, ttl: int):
+        expire_events.append((key, ttl))
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+    monkeypatch.setattr(cache, "expire", fake_expire)
+
+    @cached(prefix="example", refresh_ttl_on_hit=True)
+    async def compute(value: int) -> int:
+        raise AssertionError("wrapped function should not execute on cache hit")
+
+    assert await compute(21) == 42
+    assert expire_events == [("example:21", settings.REDIS_DEFAULT_TTL)]

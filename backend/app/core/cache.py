@@ -142,6 +142,21 @@ class RedisCache:
         except Exception:
             return False
 
+    async def expire(self, key: str, ttl: int) -> bool:
+        """Refresh a cache key expiry window.
+
+        Args:
+            key: Cache key
+            ttl: New time-to-live in seconds
+
+        Returns:
+            True if expiration was updated, False otherwise
+        """
+        try:
+            return await self.client.expire(key, ttl)
+        except Exception:
+            return False
+
 
 # Global cache instance
 cache = RedisCache()
@@ -330,6 +345,8 @@ def cached(
     cache_none: bool = False,
     max_key_length: Optional[int] = None,
     key_version: Optional[str | int] = None,
+    refresh_ttl_on_hit: bool = False,
+    hit_ttl: Optional[int] = None,
 ):
     """
     Decorator for caching function results.
@@ -363,6 +380,11 @@ def cached(
             configured prefix.
         key_version: Optional cache namespace version marker used to isolate
             keys during rollouts (e.g., ``v2``).
+        refresh_ttl_on_hit: When ``True``, successful cache hits will refresh
+            the key expiry window by calling Redis ``EXPIRE``.
+        hit_ttl: Optional TTL override (seconds) used only when
+            ``refresh_ttl_on_hit`` is enabled. Defaults to ``ttl`` or
+            ``settings.REDIS_DEFAULT_TTL``.
 
     Example:
         @cached(prefix="user", ttl=300)
@@ -401,6 +423,15 @@ def cached(
 
     if not isinstance(cache_none, bool):
         raise ValueError("cache_none must be a boolean")
+
+    if not isinstance(refresh_ttl_on_hit, bool):
+        raise ValueError("refresh_ttl_on_hit must be a boolean")
+
+    if hit_ttl is not None:
+        if isinstance(hit_ttl, bool) or not isinstance(hit_ttl, int):
+            raise ValueError("hit_ttl must be a positive integer when provided")
+        if hit_ttl <= 0:
+            raise ValueError("hit_ttl must be a positive integer when provided")
 
     key_namespace = _build_cache_namespace(prefix, key_version)
     _validate_max_key_length(max_key_length, key_namespace=key_namespace)
@@ -515,6 +546,16 @@ def cached(
             # Backward compatibility for values cached before envelope support.
             return True, payload
 
+        async def _refresh_ttl_for_cache_hit(key: str) -> None:
+            if not refresh_ttl_on_hit:
+                return
+
+            effective_hit_ttl = hit_ttl if hit_ttl is not None else ttl
+            if effective_hit_ttl is None:
+                effective_hit_ttl = settings.REDIS_DEFAULT_TTL
+
+            await cache.expire(key, effective_hit_ttl)
+
         inflight_tasks: dict[str, asyncio.Task[Any]] = {}
 
         async def _call_wrapped_function(
@@ -560,6 +601,7 @@ def cached(
                 cached_payload = await cache.get(key)
                 has_cached_value, cached_value = _decode_cached_payload(cached_payload)
                 if has_cached_value:
+                    await _refresh_ttl_for_cache_hit(key)
                     return cached_value
 
             if not coalesce_inflight:
