@@ -3006,6 +3006,9 @@ class LocalCacheService:
         include_ttl_summary: bool = False,
         include_tag_summary: bool = False,
         include_capacity_summary: bool = False,
+        include_namespace_summary: bool = False,
+        namespace_separator: str = ":",
+        namespace_limit: int = 5,
     ) -> dict[str, Any]:
         """Return cache operational counters and runtime metadata.
 
@@ -3043,6 +3046,19 @@ class LocalCacheService:
                   or ``None`` when unbounded.
                 - ``is_near_capacity``: ``True`` when utilization is at least
                   ``0.9`` for bounded caches.
+            include_namespace_summary: When ``True``, include namespace
+                distribution metadata for active keys:
+
+                - ``unique_namespaces``: Number of active namespaces.
+                - ``largest_namespace``: Namespace with most entries.
+                - ``largest_namespace_entries``: Entry count for
+                  ``largest_namespace``.
+                - ``top_namespaces``: Top namespace/count rows sorted by count
+                  descending then namespace name.
+            namespace_separator: Delimiter used to split key namespaces when
+                ``include_namespace_summary`` is enabled.
+            namespace_limit: Maximum number of entries included in
+                ``top_namespaces``.
         """
         if not isinstance(include_ttl_summary, bool):
             raise ValueError("include_ttl_summary must be a boolean")
@@ -3052,6 +3068,19 @@ class LocalCacheService:
 
         if not isinstance(include_capacity_summary, bool):
             raise ValueError("include_capacity_summary must be a boolean")
+
+        if not isinstance(include_namespace_summary, bool):
+            raise ValueError("include_namespace_summary must be a boolean")
+
+        if isinstance(namespace_limit, bool) or not isinstance(namespace_limit, int):
+            raise ValueError("namespace_limit must be an integer greater than 0")
+
+        if namespace_limit <= 0:
+            raise ValueError("namespace_limit must be an integer greater than 0")
+
+        normalized_namespace_separator = self._normalize_namespace_separator(
+            namespace_separator
+        )
 
         self._purge_expired_entries()
         active_entries = len(self._store)
@@ -3134,6 +3163,37 @@ class LocalCacheService:
                         "is_near_capacity": capacity_utilization >= 0.9,
                     }
                 )
+
+        if include_namespace_summary:
+            namespace_counts = Counter(
+                self._extract_namespace(
+                    key,
+                    separator=normalized_namespace_separator,
+                )
+                for key in self._store
+            )
+            sorted_namespace_rows = sorted(
+                namespace_counts.items(),
+                key=lambda row: (-row[1], row[0]),
+            )
+            top_namespace_rows = sorted_namespace_rows[:namespace_limit]
+
+            largest_namespace: str | None = None
+            largest_namespace_entries = 0
+            if sorted_namespace_rows:
+                largest_namespace, largest_namespace_entries = sorted_namespace_rows[0]
+
+            snapshot.update(
+                {
+                    "unique_namespaces": len(namespace_counts),
+                    "largest_namespace": largest_namespace,
+                    "largest_namespace_entries": largest_namespace_entries,
+                    "top_namespaces": [
+                        {"namespace": namespace, "count": count}
+                        for namespace, count in top_namespace_rows
+                    ],
+                }
+            )
 
         if reset:
             for key in self._stats:

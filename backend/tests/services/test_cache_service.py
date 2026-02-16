@@ -3530,6 +3530,62 @@ def test_local_cache_stats_capacity_summary_handles_unbounded_cache():
     assert stats["is_near_capacity"] is False
 
 
+def test_local_cache_stats_can_include_namespace_summary_for_active_entries():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "session:alpha": 1,
+            "session:beta": 2,
+            "user:alice": 3,
+            "orphan": 4,
+        }
+    )
+
+    stats = cache.stats(include_namespace_summary=True)
+
+    assert stats["unique_namespaces"] == 3
+    assert stats["largest_namespace"] == "session"
+    assert stats["largest_namespace_entries"] == 2
+    assert stats["top_namespaces"] == [
+        {"namespace": "session", "count": 2},
+        {"namespace": "orphan", "count": 1},
+        {"namespace": "user", "count": 1},
+    ]
+
+
+def test_local_cache_stats_namespace_summary_supports_custom_separator_and_limit():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "team/alpha": 1,
+            "team/beta": 2,
+            "project/alpha": 3,
+        }
+    )
+
+    stats = cache.stats(
+        include_namespace_summary=True,
+        namespace_separator="/",
+        namespace_limit=1,
+    )
+
+    assert stats["unique_namespaces"] == 2
+    assert stats["largest_namespace"] == "team"
+    assert stats["largest_namespace_entries"] == 2
+    assert stats["top_namespaces"] == [{"namespace": "team", "count": 2}]
+
+
+def test_local_cache_stats_namespace_summary_handles_empty_cache():
+    cache = LocalCacheService()
+
+    stats = cache.stats(include_namespace_summary=True)
+
+    assert stats["unique_namespaces"] == 0
+    assert stats["largest_namespace"] is None
+    assert stats["largest_namespace_entries"] == 0
+    assert stats["top_namespaces"] == []
+
+
 def test_local_cache_stats_ttl_summary_flag_must_be_boolean():
     cache = LocalCacheService()
 
@@ -3552,6 +3608,31 @@ def test_local_cache_stats_capacity_summary_flag_must_be_boolean():
         match="include_capacity_summary must be a boolean",
     ):
         cache.stats(include_capacity_summary="yes")  # type: ignore[arg-type]
+
+
+def test_local_cache_stats_namespace_summary_options_must_be_valid():
+    cache = LocalCacheService()
+
+    with pytest.raises(
+        ValueError,
+        match="include_namespace_summary must be a boolean",
+    ):
+        cache.stats(include_namespace_summary="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="namespace_limit must be an integer greater than 0",
+    ):
+        cache.stats(include_namespace_summary=True, namespace_limit=0)
+
+    with pytest.raises(
+        ValueError,
+        match="namespace_limit must be an integer greater than 0",
+    ):
+        cache.stats(include_namespace_summary=True, namespace_limit=True)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="separator cannot be empty"):
+        cache.stats(include_namespace_summary=True, namespace_separator="   ")
 
 
 def test_local_cache_stats_include_set_if_absent_and_pop_lookups():
