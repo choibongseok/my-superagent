@@ -153,6 +153,50 @@ def _normalize_required_claim_values(
     return normalized_claim_values
 
 
+def _normalize_required_claim_patterns(
+    required_claim_patterns: Mapping[str, str | re.Pattern[str]] | None,
+) -> dict[str, re.Pattern[str]]:
+    """Normalize regex-based claim requirements for ``decode_token``."""
+    if required_claim_patterns is None:
+        return {}
+
+    if not isinstance(required_claim_patterns, Mapping):
+        raise TypeError("required_claim_patterns must be a mapping")
+
+    normalized_patterns: dict[str, re.Pattern[str]] = {}
+    for claim_name, pattern_value in required_claim_patterns.items():
+        if not isinstance(claim_name, str):
+            raise TypeError("required_claim_patterns keys must be strings")
+
+        normalized_claim_name = claim_name.strip()
+        if not normalized_claim_name:
+            raise ValueError("required_claim_patterns cannot contain blank claim names")
+
+        if isinstance(pattern_value, re.Pattern):
+            compiled_pattern = pattern_value
+        elif isinstance(pattern_value, str):
+            normalized_pattern = pattern_value.strip()
+            if not normalized_pattern:
+                raise ValueError(
+                    "required_claim_patterns values cannot be blank patterns"
+                )
+
+            try:
+                compiled_pattern = re.compile(normalized_pattern)
+            except re.error as exc:
+                raise ValueError(
+                    "required_claim_patterns contains an invalid regex pattern"
+                ) from exc
+        else:
+            raise TypeError(
+                "required_claim_patterns values must be regex patterns or pattern strings"
+            )
+
+        normalized_patterns[normalized_claim_name] = compiled_pattern
+
+    return normalized_patterns
+
+
 def _claim_value_matches_expected_values(
     claim_value: Any,
     expected_values: tuple[Any, ...],
@@ -425,6 +469,7 @@ def decode_token(
     expected_audience: str | Iterable[str] | None = None,
     required_claims: Iterable[str] | None = None,
     required_claim_values: Mapping[str, Any] | None = None,
+    required_claim_patterns: Mapping[str, str | re.Pattern[str]] | None = None,
     required_scopes: str | Iterable[str] | None = None,
     scope_claim: str = "scope",
     match_any_scopes: bool = False,
@@ -450,6 +495,11 @@ def decode_token(
             be exact scalars or non-empty collections of allowed values.
             When the token claim itself is a collection, validation passes if
             any claim entry matches an allowed value.
+        required_claim_patterns: Optional regex requirements for string-based
+            claims. Values may be regex pattern strings or compiled
+            ``re.Pattern`` instances. String claims must satisfy
+            ``pattern.fullmatch(claim_value)``, and collection claims pass when
+            any contained string fully matches.
         required_scopes: Optional OAuth-style scope requirements. Accepts a
             scope string (space/comma-delimited) or iterable of scope strings.
         scope_claim: Token claim name containing scopes. Defaults to
@@ -482,6 +532,9 @@ def decode_token(
     normalized_required_claims = _normalize_required_claims(required_claims)
     normalized_required_claim_values = _normalize_required_claim_values(
         required_claim_values
+    )
+    normalized_required_claim_patterns = _normalize_required_claim_patterns(
+        required_claim_patterns
     )
     normalized_required_scopes = _normalize_required_scopes(required_scopes)
     normalized_scope_claim = _normalize_scope_claim_name(scope_claim)
@@ -551,6 +604,25 @@ def decode_token(
             return None
 
         if not _claim_value_matches_expected_values(claim_value, expected_values):
+            return None
+
+    for claim, pattern in normalized_required_claim_patterns.items():
+        claim_value = payload.get(claim)
+        if claim_value is None:
+            return None
+
+        if isinstance(claim_value, str):
+            candidate_values = [claim_value]
+        elif isinstance(claim_value, (list, tuple, set, frozenset)):
+            if not all(isinstance(item, str) for item in claim_value):
+                return None
+            candidate_values = list(claim_value)
+        else:
+            return None
+
+        if not any(
+            pattern.fullmatch(candidate_value) for candidate_value in candidate_values
+        ):
             return None
 
     if normalized_required_scopes:

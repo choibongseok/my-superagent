@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import re
 
 import pytest
 
@@ -242,6 +243,108 @@ def test_decode_token_validates_required_claim_values_input() -> None:
         match="cannot be an empty collection",
     ):
         decode_token(token, required_claim_values={"scope": []})
+
+
+def test_decode_token_accepts_required_claim_patterns_for_string_claims() -> None:
+    token = create_access_token({"sub": "user-123", "tenant": "team-alpha"})
+
+    payload = decode_token(
+        token,
+        required_claim_patterns={
+            "sub": r"user-\d+",
+            "tenant": re.compile(r"team-[a-z]+"),
+        },
+    )
+
+    assert payload is not None
+    assert payload["sub"] == "user-123"
+
+
+def test_decode_token_accepts_required_claim_patterns_for_collection_claims() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "roles": ["viewer", "project-admin"],
+        }
+    )
+
+    payload = decode_token(
+        token,
+        required_claim_patterns={"roles": r"[a-z-]+admin"},
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_rejects_missing_or_non_matching_required_claim_patterns() -> None:
+    token = create_access_token({"sub": "user-123", "tenant": "team-alpha"})
+
+    assert (
+        decode_token(
+            token,
+            required_claim_patterns={"tenant": r"team-[0-9]+"},
+        )
+        is None
+    )
+
+    assert (
+        decode_token(
+            create_access_token({"sub": "user-123", "roles": ["viewer", 1]}),
+            required_claim_patterns={"roles": r"viewer"},
+        )
+        is None
+    )
+
+    assert (
+        decode_token(
+            token,
+            required_claim_patterns={"missing": r".+"},
+        )
+        is None
+    )
+
+
+def test_decode_token_validates_required_claim_patterns_input() -> None:
+    token = create_access_token({"sub": "user-123"})
+
+    with pytest.raises(TypeError, match="required_claim_patterns must be a mapping"):
+        decode_token(
+            token,
+            required_claim_patterns=[("sub", r"user-\\d+")],  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(TypeError, match="required_claim_patterns keys must be strings"):
+        decode_token(
+            token,
+            required_claim_patterns={1: r"user-\\d+"},  # type: ignore[dict-item]
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="required_claim_patterns cannot contain blank claim names",
+    ):
+        decode_token(token, required_claim_patterns={"   ": r"user-\\d+"})
+
+    with pytest.raises(
+        ValueError,
+        match="required_claim_patterns values cannot be blank patterns",
+    ):
+        decode_token(token, required_claim_patterns={"sub": "   "})
+
+    with pytest.raises(
+        TypeError,
+        match="required_claim_patterns values must be regex patterns or pattern strings",
+    ):
+        decode_token(
+            token,
+            required_claim_patterns={"sub": 123},  # type: ignore[dict-item]
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="required_claim_patterns contains an invalid regex pattern",
+    ):
+        decode_token(token, required_claim_patterns={"sub": "("})
 
 
 def test_decode_token_accepts_expected_issuer() -> None:
