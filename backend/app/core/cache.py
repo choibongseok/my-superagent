@@ -415,6 +415,7 @@ def cached(
     prefix: str,
     ttl: Optional[int] = None,
     ttl_jitter: Optional[int] = None,
+    ttl_resolver: Optional[Callable[[Any], int | None | Awaitable[int | None]]] = None,
     key_builder: Optional[Callable] = None,
     skip_first_arg: Optional[bool] = None,
     refresh_flag: Optional[str] = "refresh_cache",
@@ -440,6 +441,10 @@ def cached(
         ttl: Time to live in seconds
         ttl_jitter: Optional random positive jitter window in seconds added
             to cache writes. Helps spread expirations to reduce herd effects.
+        ttl_resolver: Optional callable that receives the computed result and
+            returns a positive integer TTL override (seconds) or ``None`` to
+            keep the configured ``ttl`` behavior. The resolver may be
+            synchronous or asynchronous.
         key_builder: Custom key builder function. May be sync or async.
         skip_first_arg: Whether to omit the first positional argument when
             building cache keys. ``None`` auto-detects bound methods when
@@ -503,6 +508,9 @@ def cached(
 
     if cache_condition is not None and not callable(cache_condition):
         raise ValueError("cache_condition must be callable when provided")
+
+    if ttl_resolver is not None and not callable(ttl_resolver):
+        raise ValueError("ttl_resolver must be callable when provided")
 
     if not isinstance(coalesce_inflight, bool):
         raise ValueError("coalesce_inflight must be a boolean")
@@ -599,6 +607,25 @@ def cached(
 
             return decision
 
+        async def _resolve_ttl_for_write(result: Any) -> Optional[int]:
+            if ttl_resolver is None:
+                return ttl
+
+            resolved_ttl = ttl_resolver(result)
+            if inspect.isawaitable(resolved_ttl):
+                resolved_ttl = await resolved_ttl
+
+            if resolved_ttl is None:
+                return ttl
+
+            if isinstance(resolved_ttl, bool) or not isinstance(resolved_ttl, int):
+                raise ValueError("ttl_resolver must return a positive integer or None")
+
+            if resolved_ttl <= 0:
+                raise ValueError("ttl_resolver must return a positive integer or None")
+
+            return resolved_ttl
+
         def _encode_cached_payload(result: Any) -> Any:
             if not cache_none:
                 return result
@@ -657,9 +684,13 @@ def cached(
             result = await _call_wrapped_function(*call_args, **runtime_kwargs)
 
             if await _should_cache_result(result):
-                effective_ttl = ttl
+                effective_ttl = await _resolve_ttl_for_write(result)
                 if ttl_jitter is not None:
-                    base_ttl = ttl if ttl is not None else settings.REDIS_DEFAULT_TTL
+                    base_ttl = (
+                        effective_ttl
+                        if effective_ttl is not None
+                        else settings.REDIS_DEFAULT_TTL
+                    )
                     effective_ttl = base_ttl + random.randint(0, ttl_jitter)
 
                 await cache.set(key, _encode_cached_payload(result), effective_ttl)

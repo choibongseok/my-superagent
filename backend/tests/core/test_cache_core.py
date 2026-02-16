@@ -1133,6 +1133,12 @@ def test_cached_rejects_invalid_refresh_ttl_configuration():
     ):
         cached(prefix="example", ttl_jitter=-1)
 
+    with pytest.raises(
+        ValueError,
+        match="ttl_resolver must be callable when provided",
+    ):
+        cached(prefix="example", ttl_resolver="60")  # type: ignore[arg-type]
+
 
 @pytest.mark.asyncio
 async def test_cached_applies_ttl_jitter_to_cache_writes(monkeypatch):
@@ -1184,6 +1190,104 @@ async def test_cached_applies_ttl_jitter_using_settings_default_ttl(monkeypatch)
 
     assert await compute(21) == 42
     assert set_events == [("example:21", settings.REDIS_DEFAULT_TTL + 3)]
+
+
+@pytest.mark.asyncio
+async def test_cached_ttl_resolver_overrides_cache_write_ttl(monkeypatch):
+    cached_values: dict[str, int] = {}
+    set_events: list[tuple[str, int | None]] = []
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        set_events.append((key, ttl))
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    @cached(prefix="example", ttl=30, ttl_resolver=lambda result: result + 5)
+    async def compute(value: int) -> int:
+        return value
+
+    assert await compute(21) == 21
+    assert set_events == [("example:21", 26)]
+
+
+@pytest.mark.asyncio
+async def test_cached_ttl_resolver_supports_async_callables(monkeypatch):
+    cached_values: dict[str, int] = {}
+    set_events: list[tuple[str, int | None]] = []
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        set_events.append((key, ttl))
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    async def resolve_ttl(result: int) -> int:
+        return result * 2
+
+    @cached(prefix="example", ttl_resolver=resolve_ttl)
+    async def compute(value: int) -> int:
+        return value
+
+    assert await compute(7) == 7
+    assert set_events == [("example:7", 14)]
+
+
+@pytest.mark.asyncio
+async def test_cached_ttl_resolver_combines_with_ttl_jitter(monkeypatch):
+    cached_values: dict[str, int] = {}
+    set_events: list[tuple[str, int | None]] = []
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        set_events.append((key, ttl))
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+    monkeypatch.setattr("app.core.cache.random.randint", lambda _start, _end: 3)
+
+    @cached(prefix="example", ttl=30, ttl_jitter=10, ttl_resolver=lambda _result: 20)
+    async def compute(value: int) -> int:
+        return value
+
+    assert await compute(5) == 5
+    assert set_events == [("example:5", 23)]
+
+
+@pytest.mark.asyncio
+async def test_cached_ttl_resolver_rejects_invalid_resolved_values(monkeypatch):
+    async def fake_get(_: str):
+        return None
+
+    async def fake_set(_: str, __: int, ttl=None):
+        raise AssertionError("cache.set should not run for invalid ttl_resolver output")
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    @cached(prefix="example", ttl_resolver=lambda _result: 0)
+    async def compute(value: int) -> int:
+        return value
+
+    with pytest.raises(
+        ValueError,
+        match="ttl_resolver must return a positive integer or None",
+    ):
+        await compute(1)
 
 
 @pytest.mark.asyncio
