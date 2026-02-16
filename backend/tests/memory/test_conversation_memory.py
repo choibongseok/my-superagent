@@ -384,6 +384,28 @@ class TestConversationMemory:
         assert len(matches) == 1
         assert matches[0].content == "omega target"
 
+    def test_search_messages_supports_newest_first_ordering_with_limit(self):
+        """newest_first should search from recent messages before applying limits."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("target oldest")
+        memory.add_ai_message("target middle")
+        memory.add_system_message("target newest")
+
+        matches = memory.search_messages(
+            "target",
+            newest_first=True,
+            limit=2,
+        )
+
+        assert [message.content for message in matches] == [
+            "target newest",
+            "target middle",
+        ]
+
     def test_search_messages_supports_whole_word_matching(self):
         """Whole-word mode should not match partial words."""
         memory = ConversationMemory(
@@ -593,6 +615,9 @@ class TestConversationMemory:
 
         with pytest.raises(ValueError, match="limit must be greater than 0"):
             memory.search_messages("hello", limit=0)
+
+        with pytest.raises(ValueError, match="newest_first must be a boolean"):
+            memory.search_messages("hello", newest_first="yes")  # type: ignore[arg-type]
 
         with pytest.raises(ValueError, match="match_mode must be one of"):
             memory.search_messages("hello", match_mode="semantic")

@@ -109,6 +109,28 @@ class TestMemoryManagerContext:
         assert [message.content for message in user_matches] == ["project kickoff"]
         assert [message.content for message in assistant_matches] == ["project summary"]
 
+    def test_search_conversation_supports_newest_first_ordering(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="test_session",
+            use_vector_memory=False,
+        )
+
+        manager.add_user_message("target oldest")
+        manager.add_ai_message("target middle")
+        manager.add_system_message("target newest")
+
+        matches = manager.search_conversation(
+            "target",
+            newest_first=True,
+            limit=2,
+        )
+
+        assert [message.content for message in matches] == [
+            "target newest",
+            "target middle",
+        ]
+
     def test_add_system_message_is_included_in_context(self):
         manager = MemoryManager(
             user_id="test_user",

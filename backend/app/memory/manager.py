@@ -218,6 +218,7 @@ class MemoryManager:
         case_sensitive: bool = False,
         last_n: Optional[int] = None,
         limit: Optional[int] = None,
+        newest_first: bool = False,
         match_mode: str = "substring",
         regex_flags: str | None = None,
         fuzzy_threshold: float = 0.75,
@@ -234,6 +235,8 @@ class MemoryManager:
             case_sensitive: Whether search should be case-sensitive
             last_n: Restrict search to the last N messages
             limit: Maximum number of matched messages to return
+            newest_first: When ``True``, search from newest message to oldest
+                and return matches in that order.
             match_mode: Matching strategy (substring, exact, starts_with,
                 ends_with, word, regex, fuzzy, all_terms, any_terms)
             regex_flags: Optional regular-expression flags used only when
@@ -249,6 +252,7 @@ class MemoryManager:
             case_sensitive=case_sensitive,
             last_n=last_n,
             limit=limit,
+            newest_first=newest_first,
             match_mode=match_mode,
             regex_flags=regex_flags,
             fuzzy_threshold=fuzzy_threshold,
