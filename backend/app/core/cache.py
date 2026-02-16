@@ -336,6 +336,48 @@ def _normalize_ignored_kwargs(
     return frozenset(normalized_values)
 
 
+def _normalize_ignored_arg_positions(
+    ignored_arg_positions: Optional[Iterable[int]],
+) -> frozenset[int]:
+    """Normalize optional positional indexes excluded from cache-key generation."""
+    if ignored_arg_positions is None:
+        return frozenset()
+
+    if isinstance(ignored_arg_positions, (str, bytes)):
+        raise ValueError(
+            "ignored_arg_positions must be an iterable of non-negative integers"
+        )
+
+    normalized_positions: set[int] = set()
+    for raw_position in ignored_arg_positions:
+        if (
+            isinstance(raw_position, bool)
+            or not isinstance(raw_position, int)
+            or raw_position < 0
+        ):
+            raise ValueError(
+                "ignored_arg_positions must be an iterable of non-negative integers"
+            )
+        normalized_positions.add(raw_position)
+
+    return frozenset(normalized_positions)
+
+
+def _drop_ignored_arg_positions(
+    key_args: tuple[Any, ...],
+    ignored_arg_positions: frozenset[int],
+) -> tuple[Any, ...]:
+    """Return key args excluding configured positional indexes."""
+    if not ignored_arg_positions:
+        return key_args
+
+    return tuple(
+        value
+        for index, value in enumerate(key_args)
+        if index not in ignored_arg_positions
+    )
+
+
 def _shorten_cache_storage_key(
     key: str,
     *,
@@ -363,6 +405,7 @@ def cached(
     cache_condition: Optional[Callable[[Any], bool | Awaitable[bool]]] = None,
     coalesce_inflight: bool = True,
     ignored_kwargs: Optional[Iterable[str]] = None,
+    ignored_arg_positions: Optional[Iterable[int]] = None,
     cache_none: bool = False,
     max_key_length: Optional[int] = None,
     key_version: Optional[str | int] = None,
@@ -396,6 +439,9 @@ def cached(
             execution instead of triggering duplicate work.
         ignored_kwargs: Optional iterable of kwarg names excluded from cache
             key generation while still being passed to the wrapped function.
+        ignored_arg_positions: Optional iterable of zero-based positional
+            argument indexes excluded from cache key generation after
+            ``skip_first_arg`` processing.
         cache_none: When ``True``, cache and replay ``None`` results by
             storing an internal envelope payload.
         max_key_length: Optional maximum cache-key length. Keys longer than
@@ -466,6 +512,9 @@ def cached(
     _validate_max_key_length(max_key_length, key_namespace=key_namespace)
 
     normalized_ignored_kwargs = _normalize_ignored_kwargs(ignored_kwargs)
+    normalized_ignored_arg_positions = _normalize_ignored_arg_positions(
+        ignored_arg_positions
+    )
 
     def decorator(func: Callable):
         def _resolve_key_args(call_args: tuple[Any, ...]) -> tuple[Any, ...]:
@@ -613,7 +662,10 @@ def cached(
             for ignored_name in normalized_ignored_kwargs:
                 key_kwargs.pop(ignored_name, None)
 
-            key_args = _resolve_key_args(args)
+            key_args = _drop_ignored_arg_positions(
+                _resolve_key_args(args),
+                normalized_ignored_arg_positions,
+            )
             key = await _build_cache_key(key_args, key_kwargs)
 
             # Try to get from cache
@@ -654,6 +706,7 @@ async def invalidate_cache(
     max_key_length: Optional[int] = None,
     key_builder: Optional[Callable[..., str | Awaitable[str]]] = None,
     ignored_kwargs: Optional[Iterable[str]] = None,
+    ignored_arg_positions: Optional[Iterable[int]] = None,
     **kwargs: Any,
 ) -> None:
     """
@@ -666,6 +719,8 @@ async def invalidate_cache(
         max_key_length: Optional key hashing length used with ``cached``.
         key_builder: Optional key builder used by ``cached``.
         ignored_kwargs: Optional kwarg names excluded from key generation.
+        ignored_arg_positions: Optional zero-based positional indexes excluded
+            from key generation.
         **kwargs: Keyword arguments for key building
     """
     namespace = _build_cache_namespace(prefix, key_version)
@@ -675,20 +730,28 @@ async def invalidate_cache(
         raise ValueError("key_builder must be callable when provided")
 
     normalized_ignored_kwargs = _normalize_ignored_kwargs(ignored_kwargs)
+    normalized_ignored_arg_positions = _normalize_ignored_arg_positions(
+        ignored_arg_positions
+    )
 
     if args or kwargs:
+        filtered_args = _drop_ignored_arg_positions(
+            args,
+            normalized_ignored_arg_positions,
+        )
+
         key_kwargs = dict(kwargs)
         for ignored_name in normalized_ignored_kwargs:
             key_kwargs.pop(ignored_name, None)
 
         if key_builder is not None:
-            built_key = key_builder(*args, **key_kwargs)
+            built_key = key_builder(*filtered_args, **key_kwargs)
             if inspect.isawaitable(built_key):
                 built_key = await built_key
 
             full_key = f"{namespace}:{built_key}"
         else:
-            full_key = f"{namespace}:{cache_key(*args, **key_kwargs)}"
+            full_key = f"{namespace}:{cache_key(*filtered_args, **key_kwargs)}"
 
         key = _shorten_cache_storage_key(
             full_key,
