@@ -66,6 +66,52 @@ class StructuredSchemaPlugin(BasePlugin):
         )
 
 
+class NullableSchemaPlugin(BasePlugin):
+    """Plugin using nullable structured schema fields."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="nullable-schema",
+            version="1.0.0",
+            description="Nullable schema plugin",
+            author="tests",
+            permissions=[],
+            inputs={
+                "required_nullable": {
+                    "type": "string",
+                    "required": True,
+                    "nullable": True,
+                },
+                "required_nullable_union": {
+                    "type": ["string", "null"],
+                    "required": True,
+                },
+                "required_strict": {
+                    "type": "string",
+                    "required": True,
+                },
+            },
+            outputs={"ok": "boolean"},
+            config_schema={
+                "api_key": {
+                    "type": "string",
+                    "required": True,
+                    "nullable": True,
+                },
+                "fallback_model": {
+                    "type": ["string", "null"],
+                    "required": False,
+                },
+            },
+        )
+
+
 class ConstrainedSchemaPlugin(BasePlugin):
     """Plugin using structured schemas with additional bounds/pattern constraints."""
 
@@ -457,6 +503,48 @@ async def test_validate_inputs_rejects_missing_required_structured_field():
 
 
 @pytest.mark.asyncio
+async def test_validate_inputs_accepts_null_for_required_nullable_fields():
+    plugin = NullableSchemaPlugin()
+
+    assert (
+        await plugin.validate_inputs(
+            {
+                "required_nullable": None,
+                "required_nullable_union": None,
+                "required_strict": "ready",
+            }
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_still_requires_nullable_fields_to_be_present():
+    plugin = NullableSchemaPlugin()
+
+    with pytest.raises(ValueError, match="Missing required inputs"):
+        await plugin.validate_inputs(
+            {
+                "required_strict": "ready",
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_null_for_non_nullable_required_fields():
+    plugin = NullableSchemaPlugin()
+
+    with pytest.raises(ValueError, match="Input 'required_strict' cannot be null"):
+        await plugin.validate_inputs(
+            {
+                "required_nullable": "ok",
+                "required_nullable_union": "ok",
+                "required_strict": None,
+            }
+        )
+
+
+@pytest.mark.asyncio
 async def test_validate_inputs_rejects_invalid_structured_type():
     plugin = StructuredSchemaPlugin()
 
@@ -748,6 +836,34 @@ def test_validate_config_rejects_missing_required_fields_for_flat_schema():
 
     with pytest.raises(ValueError, match="Missing required config"):
         plugin.validate_config({"mode": "safe"})
+
+
+def test_validate_config_accepts_null_for_nullable_required_and_optional_fields():
+    plugin = NullableSchemaPlugin()
+
+    validated_config = plugin.validate_config(
+        {
+            "api_key": None,
+            "fallback_model": None,
+        }
+    )
+
+    assert validated_config == {
+        "api_key": None,
+        "fallback_model": None,
+    }
+
+
+def test_validate_config_rejects_null_for_non_nullable_required_fields():
+    plugin = FlatConfigSchemaPlugin()
+
+    with pytest.raises(ValueError, match="Config 'api_key' cannot be null"):
+        plugin.validate_config(
+            {
+                "api_key": None,
+                "mode": "safe",
+            }
+        )
 
 
 def test_validate_config_applies_defaults_and_preserves_unknown_keys():

@@ -131,6 +131,7 @@ class BasePlugin(ABC):
         2. Optional schema-driven type validation for declared fields
         3. Optional enum/choices validation for structured dict schemas
         4. Optional schema constraints (bounds, length, and regex patterns)
+        5. Optional nullable-field handling via ``nullable`` or ``type: [..., "null"]``
 
         Unknown input keys are ignored for backward compatibility.
         """
@@ -152,7 +153,9 @@ class BasePlugin(ABC):
                 continue
 
             if value is None:
-                if self._is_input_required(schema):
+                if self._is_input_required(schema) and not self._is_schema_nullable(
+                    schema
+                ):
                     raise ValueError(f"Input '{key}' cannot be null")
                 continue
 
@@ -187,6 +190,8 @@ class BasePlugin(ABC):
 
         Supports both legacy flat schema dictionaries and JSON-schema style
         payloads using top-level ``properties`` / ``required`` fields.
+        Nullable fields are supported via ``nullable`` or ``type`` values that
+        include ``"null"``.
         Unknown config keys are preserved for backward compatibility.
         """
         resolved_config = self.config if config is None else config
@@ -235,7 +240,9 @@ class BasePlugin(ABC):
 
             field_value = normalized_config[field_name]
             if field_value is None:
-                if field_name in required_fields:
+                if field_name in required_fields and not self._is_schema_nullable(
+                    field_schema
+                ):
                     raise ValueError(f"Config '{field_name}' cannot be null")
                 continue
 
@@ -332,6 +339,33 @@ class BasePlugin(ABC):
         return default_required
 
     @staticmethod
+    def _is_schema_nullable(schema: Any) -> bool:
+        """Return whether a schema explicitly allows ``null`` values."""
+        if isinstance(schema, dict):
+            nullable = schema.get("nullable")
+            if isinstance(nullable, bool):
+                return nullable
+
+            raw_type = schema.get("type")
+            if isinstance(raw_type, str):
+                return raw_type.strip().lower() == "null"
+
+            if isinstance(raw_type, (list, tuple, set)):
+                for type_candidate in raw_type:
+                    if (
+                        isinstance(type_candidate, str)
+                        and type_candidate.strip().lower() == "null"
+                    ):
+                        return True
+
+            return False
+
+        if isinstance(schema, str):
+            return "nullable" in schema.lower()
+
+        return False
+
+    @staticmethod
     def _get_schema_type(schema: Any) -> Optional[str]:
         """Extract a normalized type string from legacy or structured schema."""
         declared_type: Optional[str] = None
@@ -340,6 +374,16 @@ class BasePlugin(ABC):
             raw_type = schema.get("type")
             if isinstance(raw_type, str):
                 declared_type = raw_type.strip().lower()
+            elif isinstance(raw_type, (list, tuple, set)):
+                non_null_types = [
+                    type_candidate.strip().lower()
+                    for type_candidate in raw_type
+                    if isinstance(type_candidate, str)
+                    and type_candidate.strip()
+                    and type_candidate.strip().lower() != "null"
+                ]
+                if len(non_null_types) == 1:
+                    declared_type = non_null_types[0]
         elif isinstance(schema, str):
             token = schema.strip().split(" ", 1)[0]
             declared_type = token.strip("(),").lower()
