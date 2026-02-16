@@ -252,9 +252,102 @@ class DuckDuckGoSearchTool(BaseTool):
         while len(self._cache) > self._cache_max_entries:
             self._cache.popitem(last=False)
 
+    def _cache_retention_seconds(self) -> float | None:
+        """Return the max age at which cache entries can still be useful."""
+        if self._cache_ttl_seconds is None:
+            return None
+
+        retention_seconds = self._cache_ttl_seconds
+        if self._stale_cache_ttl_seconds is not None:
+            retention_seconds = max(retention_seconds, self._stale_cache_ttl_seconds)
+
+        return retention_seconds
+
+    def prune_cache(self) -> int:
+        """Remove cache entries older than configured retention windows.
+
+        Returns:
+            Number of entries removed from the in-memory cache.
+        """
+        retention_seconds = self._cache_retention_seconds()
+        if retention_seconds is None:
+            return 0
+
+        now = time.monotonic()
+        removable_queries = [
+            query
+            for query, (cached_at, _payload) in self._cache.items()
+            if now - cached_at > retention_seconds
+        ]
+
+        for query in removable_queries:
+            self._cache.pop(query, None)
+
+        return len(removable_queries)
+
+    def invalidate_cache(self, query: str | None = None) -> int:
+        """Invalidate one cache entry or clear the full in-memory cache.
+
+        Args:
+            query: Optional query string to invalidate after normalization.
+                When ``None``, the entire cache is cleared.
+
+        Returns:
+            Number of entries removed from cache.
+        """
+        if query is None:
+            removed_entries = len(self._cache)
+            self._cache.clear()
+            return removed_entries
+
+        normalized_query = self._normalize_query(query)
+        if normalized_query in self._cache:
+            self._cache.pop(normalized_query, None)
+            return 1
+
+        return 0
+
     def clear_cache(self) -> None:
         """Clear in-memory cached search results."""
-        self._cache.clear()
+        self.invalidate_cache()
+
+    def get_cache_stats(self) -> dict[str, Any]:
+        """Return cache health and retention metrics for diagnostics."""
+        retention_seconds = self._cache_retention_seconds()
+        now = time.monotonic()
+
+        active_entries = 0
+        expired_entries = 0
+        stale_eligible_entries = 0
+
+        for cached_at, _payload in self._cache.values():
+            age_seconds = now - cached_at
+
+            if (
+                self._cache_ttl_seconds is not None
+                and age_seconds <= self._cache_ttl_seconds
+            ):
+                active_entries += 1
+                continue
+
+            expired_entries += 1
+            if (
+                self._stale_cache_ttl_seconds is not None
+                and age_seconds <= self._stale_cache_ttl_seconds
+            ):
+                stale_eligible_entries += 1
+
+        return {
+            "enabled": self._cache_ttl_seconds is not None,
+            "entries": len(self._cache),
+            "max_entries": self._cache_max_entries,
+            "ttl_seconds": self._cache_ttl_seconds,
+            "stale_ttl_seconds": self._stale_cache_ttl_seconds,
+            "retention_seconds": retention_seconds,
+            "active_entries": active_entries,
+            "expired_entries": expired_entries,
+            "stale_eligible_entries": stale_eligible_entries,
+        }
 
     def _run_search_with_retries(self, query: str) -> Any:
         """Run backend search with optional retry/backoff semantics."""

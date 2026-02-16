@@ -363,6 +363,106 @@ def test_run_cache_evicts_oldest_entry_when_capacity_exceeded(monkeypatch):
     assert fake_backend.queries == ["alpha", "beta", "alpha"]
 
 
+def test_invalidate_cache_removes_normalized_query_entries(monkeypatch):
+    """invalidate_cache should target normalized query keys when provided."""
+    fake_backend = _SequencedSearchBackend(["alpha-1", "alpha-2"])
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("  alpha\nquery  ") == "alpha-1"
+    assert tool._run("alpha query") == "alpha-1"
+
+    assert tool.invalidate_cache(" alpha\tquery ") == 1
+    assert tool.invalidate_cache("alpha query") == 0
+
+    assert tool._run("alpha query") == "alpha-2"
+    assert fake_backend.queries == ["alpha query", "alpha query"]
+
+
+def test_invalidate_cache_clears_full_cache_and_returns_removed_count(monkeypatch):
+    """Calling invalidate_cache with no query should clear all entries."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("alpha") == "payload"
+    assert tool._run("beta") == "payload"
+
+    removed_entries = tool.invalidate_cache()
+
+    assert removed_entries == 2
+    assert tool.get_cache_stats()["entries"] == 0
+
+
+def test_prune_cache_removes_entries_outside_retention_window(monkeypatch):
+    """prune_cache should drop entries older than TTL/stale retention windows."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 100.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=5,
+        cache_max_entries=16,
+        stale_cache_ttl_seconds=20,
+    )
+
+    tool._cache["fresh"] = (98.0, "fresh")
+    tool._cache["stale"] = (90.0, "stale")
+    tool._cache["expired"] = (70.0, "expired")
+
+    assert tool.prune_cache() == 1
+    assert list(tool._cache.keys()) == ["fresh", "stale"]
+
+
+def test_get_cache_stats_reports_active_expired_and_stale_entries(monkeypatch):
+    """Cache stats should expose active, expired, and stale-eligible counts."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 200.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=10,
+        cache_max_entries=16,
+        stale_cache_ttl_seconds=30,
+    )
+
+    tool._cache["active"] = (195.0, "active")
+    tool._cache["stale-eligible"] = (180.0, "stale")
+    tool._cache["expired"] = (160.0, "expired")
+
+    stats = tool.get_cache_stats()
+
+    assert stats == {
+        "enabled": True,
+        "entries": 3,
+        "max_entries": 16,
+        "ttl_seconds": 10.0,
+        "stale_ttl_seconds": 30.0,
+        "retention_seconds": 30.0,
+        "active_entries": 1,
+        "expired_entries": 2,
+        "stale_eligible_entries": 1,
+    }
+
+
 def test_run_rejects_overly_long_queries_without_backend_calls(monkeypatch):
     """Configured query-length limits should fail fast before backend calls."""
     fake_backend = _FakeSearchBackend(response="should not be used")
