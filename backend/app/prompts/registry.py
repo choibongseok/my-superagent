@@ -1,9 +1,11 @@
 """Prompt Registry for version management."""
 
+import hashlib
 import importlib
 import json
 import logging
 import pkgutil
+import random
 import re
 from datetime import datetime
 from fnmatch import fnmatchcase
@@ -419,6 +421,114 @@ class PromptRegistry:
                 )
 
         return results
+
+    @staticmethod
+    def _stable_experiment_bucket(name: str, subject: str) -> float:
+        """Return a deterministic bucket in ``[0, 1)`` for sticky assignment."""
+        digest = hashlib.sha256(f"{name}:{subject}".encode("utf-8")).digest()
+        bucket_int = int.from_bytes(digest[:8], byteorder="big", signed=False)
+        return bucket_int / float(1 << 64)
+
+    @staticmethod
+    def _normalize_version_weight(value: Any) -> float:
+        """Validate one experiment weight value."""
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("version weights must be positive numbers")
+
+        normalized_weight = float(value)
+        if normalized_weight <= 0:
+            raise ValueError("version weights must be positive numbers")
+
+        return normalized_weight
+
+    def select_for_experiment(
+        self,
+        name: str,
+        *,
+        version_weights: Mapping[str, float] | None = None,
+        subject: str | None = None,
+        min_performance_score: float | None = None,
+    ) -> PromptVersion:
+        """Select a prompt version for A/B testing.
+
+        Args:
+            name: Prompt name.
+            version_weights: Optional version-to-weight mapping. Unspecified
+                versions default to weight ``1.0``.
+            subject: Optional sticky subject identifier. When provided, the
+                same ``name`` and ``subject`` always resolve to the same
+                version for deterministic rollout behavior.
+            min_performance_score: Optional threshold that filters out versions
+                with missing/low ``performance_score`` values.
+
+        Returns:
+            Selected prompt version.
+
+        Raises:
+            ValueError: When the prompt has no eligible versions, weight values
+                are invalid, unknown version labels are provided, or
+                ``min_performance_score``/``subject`` are invalid.
+            TypeError: When ``version_weights`` is not a mapping.
+        """
+        versions = self.list_versions(name)
+        if not versions:
+            raise ValueError(f"Prompt '{name}' has no registered versions")
+
+        if min_performance_score is not None:
+            if isinstance(min_performance_score, bool) or not isinstance(
+                min_performance_score,
+                (int, float),
+            ):
+                raise ValueError("min_performance_score must be a number")
+
+            normalized_min_score = float(min_performance_score)
+            versions = [
+                version
+                for version in versions
+                if version.performance_score is not None
+                and version.performance_score >= normalized_min_score
+            ]
+            if not versions:
+                raise ValueError(
+                    f"Prompt '{name}' has no versions meeting min_performance_score"
+                )
+
+        if version_weights is None:
+            normalized_weights = [1.0 for _ in versions]
+        else:
+            if not isinstance(version_weights, Mapping):
+                raise TypeError("version_weights must be a mapping")
+
+            known_versions = {version.version for version in self.list_versions(name)}
+            unknown_versions = sorted(set(version_weights.keys()) - known_versions)
+            if unknown_versions:
+                unknown_display = ", ".join(unknown_versions)
+                raise ValueError(
+                    f"Unknown version weights for '{name}': {unknown_display}"
+                )
+
+            normalized_weights = [
+                self._normalize_version_weight(version_weights.get(version.version, 1.0))
+                for version in versions
+            ]
+
+        if subject is None:
+            return random.choices(versions, weights=normalized_weights, k=1)[0]
+
+        if not isinstance(subject, str) or not subject.strip():
+            raise ValueError("subject must be a non-empty string when provided")
+
+        normalized_subject = subject.strip()
+        bucket = self._stable_experiment_bucket(name, normalized_subject)
+
+        total_weight = sum(normalized_weights)
+        cumulative_weight = 0.0
+        for version, weight in zip(versions, normalized_weights, strict=True):
+            cumulative_weight += weight / total_weight
+            if bucket < cumulative_weight:
+                return version
+
+        return versions[-1]
 
     def rollback(
         self,

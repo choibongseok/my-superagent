@@ -517,6 +517,150 @@ def test_render_many_safe_supports_non_strict_mode_and_default_variables(temp_re
     ]
 
 
+def test_select_for_experiment_uses_weighted_random_choice_without_subject(
+    temp_registry,
+    monkeypatch,
+):
+    """Non-sticky experiment selection should delegate to weighted random choice."""
+    temp_registry.register(
+        name="experiment_prompt",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+    temp_registry.register(
+        name="experiment_prompt",
+        template="v2",
+        variables=[],
+        version="v2",
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_choices(population, *, weights, k):
+        captured["population"] = [candidate.version for candidate in population]
+        captured["weights"] = list(weights)
+        captured["k"] = k
+        return [population[1]]
+
+    monkeypatch.setattr("app.prompts.registry.random.choices", _fake_choices)
+
+    selected = temp_registry.select_for_experiment(
+        "experiment_prompt",
+        version_weights={"v1": 0.2, "v2": 0.8},
+    )
+
+    assert selected.version == "v2"
+    assert captured == {
+        "population": ["v1", "v2"],
+        "weights": [0.2, 0.8],
+        "k": 1,
+    }
+
+
+def test_select_for_experiment_is_sticky_for_same_subject(temp_registry, monkeypatch):
+    """Sticky experiment selection should be deterministic per subject."""
+    temp_registry.register(
+        name="experiment_prompt",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+    temp_registry.register(
+        name="experiment_prompt",
+        template="v2",
+        variables=[],
+        version="v2",
+    )
+    temp_registry.register(
+        name="experiment_prompt",
+        template="v3",
+        variables=[],
+        version="v3",
+    )
+
+    def _should_not_be_called(*_args, **_kwargs):
+        raise AssertionError("random.choices must not be used for sticky selection")
+
+    monkeypatch.setattr(
+        "app.prompts.registry.random.choices",
+        _should_not_be_called,
+    )
+
+    first = temp_registry.select_for_experiment(
+        "experiment_prompt",
+        subject="user-42",
+        version_weights={"v1": 0.1, "v2": 0.2, "v3": 0.7},
+    )
+    second = temp_registry.select_for_experiment(
+        "experiment_prompt",
+        subject="user-42",
+        version_weights={"v1": 0.1, "v2": 0.2, "v3": 0.7},
+    )
+
+    assert first.version == second.version
+
+
+def test_select_for_experiment_validates_unknown_weight_versions(temp_registry):
+    """Experiment weights should reject unknown version labels."""
+    temp_registry.register(
+        name="experiment_prompt",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+
+    with pytest.raises(ValueError, match="Unknown version weights"):
+        temp_registry.select_for_experiment(
+            "experiment_prompt",
+            version_weights={"v9": 1.0},
+        )
+
+
+def test_select_for_experiment_supports_min_performance_score_filter(temp_registry):
+    """min_performance_score should keep only versions meeting quality bars."""
+    temp_registry.register(
+        name="experiment_prompt",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+    temp_registry.register(
+        name="experiment_prompt",
+        template="v2",
+        variables=[],
+        version="v2",
+    )
+
+    temp_registry.update_performance_score("experiment_prompt", "v1", 0.55)
+    temp_registry.update_performance_score("experiment_prompt", "v2", 0.9)
+
+    selected = temp_registry.select_for_experiment(
+        "experiment_prompt",
+        min_performance_score=0.8,
+        subject="quality-gate",
+    )
+
+    assert selected.version == "v2"
+
+
+def test_select_for_experiment_raises_when_no_versions_match_min_score(temp_registry):
+    """Quality filtering should fail clearly when no versions remain."""
+    temp_registry.register(
+        name="experiment_prompt",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+    temp_registry.update_performance_score("experiment_prompt", "v1", 0.6)
+
+    with pytest.raises(ValueError, match="no versions meeting min_performance_score"):
+        temp_registry.select_for_experiment(
+            "experiment_prompt",
+            min_performance_score=0.9,
+        )
+
+
 def test_list_versions(temp_registry):
     """Test listing all versions of a prompt."""
     # Register multiple versions
