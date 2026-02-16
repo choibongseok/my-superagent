@@ -30,6 +30,47 @@ class PromptVersion(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class _MissingTemplateValue:
+    """Placeholder proxy used for partial prompt rendering."""
+
+    def __init__(self, expression: str):
+        self._expression = expression
+
+    @staticmethod
+    def _format_index(index: Any) -> str:
+        """Format ``[]`` index segments back into format-string notation."""
+        if isinstance(index, str):
+            return index
+        return repr(index)
+
+    def __getattr__(self, name: str) -> "_MissingTemplateValue":
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return _MissingTemplateValue(f"{self._expression}.{name}")
+
+    def __getitem__(self, key: Any) -> "_MissingTemplateValue":
+        return _MissingTemplateValue(
+            f"{self._expression}[{self._format_index(key)}]"
+        )
+
+    def __str__(self) -> str:
+        return f"{{{self._expression}}}"
+
+    __repr__ = __str__
+
+    def __format__(self, format_spec: str) -> str:
+        if format_spec:
+            return f"{{{self._expression}:{format_spec}}}"
+        return str(self)
+
+
+class _PartialFormatDict(dict[str, Any]):
+    """Mapping that returns placeholder proxies for missing keys."""
+
+    def __missing__(self, key: str) -> _MissingTemplateValue:
+        return _MissingTemplateValue(key)
+
+
 class PromptRegistry:
     """
     Registry for managing prompt templates and versions.
@@ -155,6 +196,7 @@ class PromptRegistry:
         prompt_version: PromptVersion,
         provided_variables: Mapping[str, Any],
         strict: bool,
+        allow_partial: bool,
         default_variables: Mapping[str, Any] | None = None,
         error_context: str = "",
     ) -> str:
@@ -186,7 +228,7 @@ class PromptRegistry:
             for required in required_variables
             if required not in merged_variables
         ]
-        if missing_variables:
+        if missing_variables and not allow_partial:
             missing_display = ", ".join(missing_variables)
             raise ValueError(
                 f"Missing prompt variables for '{name}'{error_context}: {missing_display}"
@@ -204,9 +246,13 @@ class PromptRegistry:
         format_values = {
             variable_name: merged_variables[variable_name]
             for variable_name in required_variables
+            if variable_name in merged_variables
         }
 
         try:
+            if allow_partial:
+                return prompt_version.template.format_map(_PartialFormatDict(format_values))
+
             return prompt_version.template.format(**format_values)
         except KeyError as error:
             missing_variable = str(error).strip("'")
@@ -222,6 +268,7 @@ class PromptRegistry:
         *,
         version: str | None = None,
         strict: bool = True,
+        allow_partial: bool = False,
         default_variables: Mapping[str, Any] | None = None,
     ) -> str:
         """Render a prompt template with runtime variables.
@@ -232,6 +279,8 @@ class PromptRegistry:
             version: Optional version label; defaults to latest.
             strict: When ``True``, reject unexpected variables that are not
                 declared by the prompt version.
+            allow_partial: When ``True``, keep unresolved placeholders in the
+                rendered output instead of raising for missing variables.
             default_variables: Optional fallback values used when ``variables``
                 omits one or more required placeholders.
 
@@ -248,6 +297,7 @@ class PromptRegistry:
             prompt_version=prompt_version,
             provided_variables=dict(variables or {}),
             strict=strict,
+            allow_partial=allow_partial,
             default_variables=default_variables,
         )
 
@@ -258,6 +308,7 @@ class PromptRegistry:
         *,
         version: str | None = None,
         strict: bool = True,
+        allow_partial: bool = False,
         default_variables: Mapping[str, Any] | None = None,
     ) -> List[str]:
         """Render one prompt against multiple variable mappings.
@@ -267,6 +318,8 @@ class PromptRegistry:
             variable_sets: Sequence of variable mappings to render.
             version: Optional version label; defaults to latest.
             strict: When ``True``, reject unexpected variables in each mapping.
+            allow_partial: When ``True``, keep unresolved placeholders in each
+                rendered output instead of raising for missing variables.
             default_variables: Optional fallback values shared by each mapping.
 
         Returns:
@@ -292,6 +345,7 @@ class PromptRegistry:
                     prompt_version=prompt_version,
                     provided_variables=dict(values),
                     strict=strict,
+                    allow_partial=allow_partial,
                     default_variables=default_variables,
                     error_context=f" at index {index}",
                 )
@@ -306,13 +360,15 @@ class PromptRegistry:
         *,
         version: str | None = None,
         strict: bool = True,
+        allow_partial: bool = False,
         default_variables: Mapping[str, Any] | None = None,
     ) -> List[Dict[str, Any]]:
         """Render many variable sets while collecting per-item failures.
 
         Unlike :meth:`render_many`, this helper never raises for per-item
         rendering issues. Instead, each row includes ``ok`` and either
-        ``rendered`` output or an ``error`` message.
+        ``rendered`` output or an ``error`` message. ``allow_partial`` keeps
+        unresolved placeholders instead of failing missing-variable rows.
 
         Raises:
             ValueError: When the prompt/version is missing.
@@ -339,6 +395,7 @@ class PromptRegistry:
                     prompt_version=prompt_version,
                     provided_variables=dict(values),
                     strict=strict,
+                    allow_partial=allow_partial,
                     default_variables=default_variables,
                     error_context=f" at index {index}",
                 )

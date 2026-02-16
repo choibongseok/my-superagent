@@ -247,6 +247,68 @@ def test_render_prompt_rejects_non_mapping_default_variables(temp_registry):
         )
 
 
+def test_render_prompt_allow_partial_preserves_missing_placeholders(temp_registry):
+    """allow_partial should keep unresolved placeholders in rendered output."""
+    temp_registry.register(
+        name="partial_prompt",
+        template="Hello {name} from {team} ({role})",
+        variables=["name", "team", "role"],
+        version="v1",
+    )
+
+    rendered = temp_registry.render(
+        "partial_prompt",
+        variables={"name": "Codex"},
+        default_variables={"team": "AgentHQ"},
+        allow_partial=True,
+    )
+
+    assert rendered == "Hello Codex from AgentHQ ({role})"
+
+
+def test_render_prompt_allow_partial_preserves_nested_placeholders(temp_registry):
+    """allow_partial should preserve nested placeholders like {user.name}."""
+    temp_registry.register(
+        name="partial_nested_prompt",
+        template="Owner: {user.name} / Task: {task}",
+        variables=["user", "task"],
+        version="v1",
+    )
+
+    rendered = temp_registry.render(
+        "partial_nested_prompt",
+        variables={"task": "Review"},
+        allow_partial=True,
+    )
+
+    assert rendered == "Owner: {user.name} / Task: Review"
+
+
+def test_render_many_allow_partial_preserves_missing_placeholders(temp_registry):
+    """render_many should support allow_partial for batch rendering."""
+    temp_registry.register(
+        name="partial_bulk_prompt",
+        template="[{channel}] {title}: {body}",
+        variables=["channel", "title", "body"],
+        version="v1",
+    )
+
+    rendered = temp_registry.render_many(
+        "partial_bulk_prompt",
+        [
+            {"title": "Notice", "body": "Ready"},
+            {"channel": "ops", "title": "Alert", "body": "On-call"},
+        ],
+        default_variables={"channel": "general"},
+        allow_partial=True,
+    )
+
+    assert rendered == [
+        "[general] Notice: Ready",
+        "[ops] Alert: On-call",
+    ]
+
+
 def test_render_prompt_raises_for_unknown_prompt_name(temp_registry):
     """Rendering should fail when prompt name/version does not exist."""
     with pytest.raises(ValueError, match="was not found"):
