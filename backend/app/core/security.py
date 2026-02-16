@@ -455,6 +455,18 @@ def _extract_token_audiences(payload: Mapping[str, Any]) -> tuple[str, ...] | No
     return None
 
 
+def _audience_requirement_matches(required_audience: str, token_audience: str) -> bool:
+    """Return whether a token audience satisfies one audience requirement.
+
+    Required audience values support glob patterns (for example,
+    ``"api://agenthq-*"``).
+    """
+    if any(token in required_audience for token in "*?["):
+        return fnmatchcase(token_audience, required_audience)
+
+    return token_audience == required_audience
+
+
 def _normalize_expected_issuers(
     expected_issuer: str | Iterable[str] | None,
 ) -> tuple[str, ...]:
@@ -594,7 +606,8 @@ def decode_token(
             (for example, ``"agenthq-*"``).
         expected_audience: Optional token ``aud`` claim value(s) to enforce.
             Accepts either a single audience string or an iterable of allowed
-            audience values.
+            audience values. Audience requirements support glob patterns
+            (for example, ``"api://agenthq-*"``).
         required_claims: Optional claims that must be present and non-empty.
         required_claim_values: Optional claim value requirements. Values may
             be exact scalars or non-empty collections of allowed values.
@@ -712,7 +725,11 @@ def decode_token(
         if token_audiences is None:
             return None
 
-        if not set(token_audiences).intersection(normalized_expected_audiences):
+        if not any(
+            _audience_requirement_matches(required_audience, token_audience)
+            for required_audience in normalized_expected_audiences
+            for token_audience in token_audiences
+        ):
             return None
 
     for claim in normalized_required_claims:

@@ -489,6 +489,39 @@ def test_decode_token_accepts_expected_audience_allowlist_match() -> None:
     assert payload is not None
 
 
+def test_decode_token_accepts_expected_audience_glob_patterns() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "aud": ["api://agenthq/prod", "api://analytics"],
+        }
+    )
+
+    payload = decode_token(
+        token,
+        expected_audience=("api://other", "api://agenthq/*"),
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_rejects_non_matching_expected_audience_glob_patterns() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "aud": ["api://agenthq/prod", "api://analytics"],
+        }
+    )
+
+    assert (
+        decode_token(
+            token,
+            expected_audience=("api://agenthq/dev*", "api://billing/*"),
+        )
+        is None
+    )
+
+
 def test_decode_token_rejects_missing_or_mismatched_expected_audience() -> None:
     token = create_access_token({"sub": "user-123", "aud": "api://agenthq"})
 
