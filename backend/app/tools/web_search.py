@@ -1,6 +1,8 @@
 """Web search tool using DuckDuckGo."""
 
 import logging
+import time
+from collections import OrderedDict
 from typing import Any, Optional
 
 from langchain_community.tools import DuckDuckGoSearchRun
@@ -28,16 +30,28 @@ class DuckDuckGoSearchTool(BaseTool):
         "Returns search results with titles, URLs, and content snippets."
     )
 
-    def __init__(self, max_result_chars: Optional[int] = 4000):
+    def __init__(
+        self,
+        max_result_chars: Optional[int] = 4000,
+        cache_ttl_seconds: Optional[float] = 300.0,
+        cache_max_entries: int = 128,
+    ):
         """Initialize DuckDuckGo search tool.
 
         Args:
             max_result_chars: Optional max length for returned search text.
                 When configured, oversized results are truncated with a
                 deterministic suffix indicating omitted characters.
+            cache_ttl_seconds: Optional in-memory cache TTL in seconds.
+                Set to ``None`` to disable caching.
+            cache_max_entries: Maximum number of cached query results.
+                Oldest entries are evicted first once this limit is exceeded.
         """
         super().__init__()
         self._max_result_chars = self._normalize_max_result_chars(max_result_chars)
+        self._cache_ttl_seconds = self._normalize_cache_ttl(cache_ttl_seconds)
+        self._cache_max_entries = self._normalize_cache_max_entries(cache_max_entries)
+        self._cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
         self._search = DuckDuckGoSearchRun()
 
     @staticmethod
@@ -51,6 +65,32 @@ class DuckDuckGoSearchTool(BaseTool):
 
         if value <= 0:
             raise ValueError("max_result_chars must be a positive integer or None")
+
+        return value
+
+    @staticmethod
+    def _normalize_cache_ttl(value: Optional[float]) -> Optional[float]:
+        """Validate optional in-memory cache TTL values."""
+        if value is None:
+            return None
+
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("cache_ttl_seconds must be a positive number or None")
+
+        normalized_value = float(value)
+        if normalized_value <= 0:
+            raise ValueError("cache_ttl_seconds must be a positive number or None")
+
+        return normalized_value
+
+    @staticmethod
+    def _normalize_cache_max_entries(value: int) -> int:
+        """Validate cache capacity values."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("cache_max_entries must be a positive integer")
+
+        if value <= 0:
+            raise ValueError("cache_max_entries must be a positive integer")
 
         return value
 
@@ -77,6 +117,38 @@ class DuckDuckGoSearchTool(BaseTool):
         truncated_text = result_text[: self._max_result_chars].rstrip()
         return f"{truncated_text}\n\n[truncated {omitted_characters} characters]"
 
+    def _get_cached_results(self, query: str) -> str | None:
+        """Fetch cached results when available and not expired."""
+        if self._cache_ttl_seconds is None:
+            return None
+
+        cached_entry = self._cache.get(query)
+        if cached_entry is None:
+            return None
+
+        cached_at, payload = cached_entry
+        if time.monotonic() - cached_at > self._cache_ttl_seconds:
+            self._cache.pop(query, None)
+            return None
+
+        self._cache.move_to_end(query)
+        return payload
+
+    def _set_cached_results(self, query: str, results: str) -> None:
+        """Store results in cache and enforce LRU capacity constraints."""
+        if self._cache_ttl_seconds is None:
+            return
+
+        self._cache[query] = (time.monotonic(), results)
+        self._cache.move_to_end(query)
+
+        while len(self._cache) > self._cache_max_entries:
+            self._cache.popitem(last=False)
+
+    def clear_cache(self) -> None:
+        """Clear in-memory cached search results."""
+        self._cache.clear()
+
     def _run(self, query: str) -> str:
         """
         Run web search synchronously.
@@ -89,9 +161,18 @@ class DuckDuckGoSearchTool(BaseTool):
         """
         try:
             normalized_query = self._normalize_query(query)
+
+            cached_results = self._get_cached_results(normalized_query)
+            if cached_results is not None:
+                logger.debug(
+                    "Returning cached DuckDuckGo results: %s", normalized_query
+                )
+                return cached_results
+
             logger.debug("Running DuckDuckGo search: %s", normalized_query)
             results = self._search.run(normalized_query)
             normalized_results = self._truncate_results(results)
+            self._set_cached_results(normalized_query, normalized_results)
             logger.debug("Search completed: %d characters", len(normalized_results))
             return normalized_results
 

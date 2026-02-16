@@ -19,6 +19,20 @@ class _FakeSearchBackend:
         return self.response
 
 
+class _SequencedSearchBackend:
+    """Returns deterministic sequential responses for repeated calls."""
+
+    def __init__(self, responses: list[object]) -> None:
+        self.responses = list(responses)
+        self.queries: list[str] = []
+
+    def run(self, query: str) -> object:
+        self.queries.append(query)
+        if not self.responses:
+            raise AssertionError("No more fake responses configured")
+        return self.responses.pop(0)
+
+
 def test_init_rejects_invalid_max_result_chars():
     """Result-length guard should only allow positive integers or None."""
     with pytest.raises(
@@ -40,6 +54,33 @@ def test_init_rejects_invalid_max_result_chars():
         DuckDuckGoSearchTool(max_result_chars=12.5)  # type: ignore[arg-type]
 
 
+def test_init_rejects_invalid_cache_options():
+    """Cache guards should enforce positive TTL and positive entry caps."""
+    with pytest.raises(
+        ValueError,
+        match="cache_ttl_seconds must be a positive number or None",
+    ):
+        DuckDuckGoSearchTool(cache_ttl_seconds=0)
+
+    with pytest.raises(
+        ValueError,
+        match="cache_ttl_seconds must be a positive number or None",
+    ):
+        DuckDuckGoSearchTool(cache_ttl_seconds=True)  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="cache_max_entries must be a positive integer",
+    ):
+        DuckDuckGoSearchTool(cache_max_entries=0)
+
+    with pytest.raises(
+        ValueError,
+        match="cache_max_entries must be a positive integer",
+    ):
+        DuckDuckGoSearchTool(cache_max_entries=10.5)  # type: ignore[arg-type]
+
+
 def test_run_normalizes_query_and_returns_backend_results(monkeypatch):
     """_run should trim query whitespace before delegating to backend."""
     fake_backend = _FakeSearchBackend(response="result payload")
@@ -54,6 +95,71 @@ def test_run_normalizes_query_and_returns_backend_results(monkeypatch):
 
     assert result == "result payload"
     assert fake_backend.queries == ["agentic workflow"]
+
+
+def test_run_uses_cache_for_normalized_duplicate_queries(monkeypatch):
+    """Equivalent normalized queries should reuse cached responses."""
+    fake_backend = _SequencedSearchBackend(["first payload", "second payload"])
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=60, cache_max_entries=16)
+
+    first = tool._run("   agentic workflow")
+    second = tool._run("agentic workflow   ")
+
+    assert first == "first payload"
+    assert second == "first payload"
+    assert fake_backend.queries == ["agentic workflow"]
+
+
+def test_run_cache_entry_expires_after_ttl(monkeypatch):
+    """Expired cache entries should trigger a fresh backend search."""
+    fake_backend = _SequencedSearchBackend(["v1", "v2"])
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 100.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=5, cache_max_entries=16)
+
+    first = tool._run("agent")
+    now["value"] = 103.0
+    second = tool._run("agent")
+    now["value"] = 106.0
+    third = tool._run("agent")
+
+    assert first == "v1"
+    assert second == "v1"
+    assert third == "v2"
+    assert fake_backend.queries == ["agent", "agent"]
+
+
+def test_run_cache_evicts_oldest_entry_when_capacity_exceeded(monkeypatch):
+    """Cache should evict least-recently-used queries when full."""
+    fake_backend = _SequencedSearchBackend(["alpha-1", "beta-1", "alpha-2"])
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 10.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=1)
+
+    assert tool._run("alpha") == "alpha-1"
+    now["value"] = 11.0
+    assert tool._run("beta") == "beta-1"
+    now["value"] = 12.0
+    assert tool._run("alpha") == "alpha-2"
+
+    assert fake_backend.queries == ["alpha", "beta", "alpha"]
 
 
 def test_run_rejects_blank_queries_without_backend_calls(monkeypatch):
