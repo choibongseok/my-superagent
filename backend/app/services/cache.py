@@ -2673,6 +2673,8 @@ class LocalCacheService:
         namespace_separator: str = ":",
         expiration: str = "all",
         sort_by: str = "key",
+        min_ttl_seconds: Real | None = None,
+        max_ttl_seconds: Real | None = None,
     ) -> list[dict[str, Any]]:
         """List active cache entries with optional filters and metadata.
 
@@ -2694,6 +2696,12 @@ class LocalCacheService:
             sort_by: Entry sort strategy. ``"key"`` (default) sorts by key,
                 ``"ttl_seconds"`` sorts by remaining TTL, and
                 ``"expires_at"`` sorts by absolute expiration time.
+            min_ttl_seconds: Optional lower bound (inclusive) for entry TTL.
+                When provided, only expiring entries with remaining TTL at or
+                above this value are returned.
+            max_ttl_seconds: Optional upper bound (inclusive) for entry TTL.
+                When provided, only expiring entries with remaining TTL at or
+                below this value are returned.
         """
         if offset is not None and offset < 0:
             raise ValueError("offset must be greater than or equal to 0")
@@ -2720,6 +2728,35 @@ class LocalCacheService:
                 'sort_by must be one of: "key", "ttl_seconds", "expires_at"'
             )
 
+        normalized_min_ttl: float | None = None
+        if min_ttl_seconds is not None:
+            if isinstance(min_ttl_seconds, bool) or not isinstance(
+                min_ttl_seconds,
+                Real,
+            ):
+                raise ValueError("min_ttl_seconds must be a non-negative number")
+            if min_ttl_seconds < 0:
+                raise ValueError("min_ttl_seconds must be a non-negative number")
+            normalized_min_ttl = float(min_ttl_seconds)
+
+        normalized_max_ttl: float | None = None
+        if max_ttl_seconds is not None:
+            if isinstance(max_ttl_seconds, bool) or not isinstance(
+                max_ttl_seconds,
+                Real,
+            ):
+                raise ValueError("max_ttl_seconds must be a non-negative number")
+            if max_ttl_seconds < 0:
+                raise ValueError("max_ttl_seconds must be a non-negative number")
+            normalized_max_ttl = float(max_ttl_seconds)
+
+        if (
+            normalized_min_ttl is not None
+            and normalized_max_ttl is not None
+            and normalized_min_ttl > normalized_max_ttl
+        ):
+            raise ValueError("min_ttl_seconds cannot be greater than max_ttl_seconds")
+
         normalized_namespace_separator: str | None = None
         if include_namespace:
             normalized_namespace_separator = self._normalize_namespace_separator(
@@ -2744,6 +2781,14 @@ class LocalCacheService:
                 continue
             if expiration == "persistent" and expires_at is not None:
                 continue
+
+            if normalized_min_ttl is not None or normalized_max_ttl is not None:
+                if ttl_seconds is None:
+                    continue
+                if normalized_min_ttl is not None and ttl_seconds < normalized_min_ttl:
+                    continue
+                if normalized_max_ttl is not None and ttl_seconds > normalized_max_ttl:
+                    continue
 
             entry: dict[str, Any] = {
                 "key": key,

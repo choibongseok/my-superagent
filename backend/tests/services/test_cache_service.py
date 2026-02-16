@@ -3138,6 +3138,32 @@ def test_local_cache_list_entries_supports_expiration_filtering():
     assert [entry["key"] for entry in persistent_entries] == ["persistent"]
 
 
+def test_local_cache_list_entries_supports_ttl_window_filtering():
+    cache = LocalCacheService()
+    cache.set("ttl:fast", "x", ttl_seconds=1)
+    cache.set("ttl:medium", "y", ttl_seconds=3)
+    cache.set("ttl:slow", "z", ttl_seconds=6)
+    cache.set("ttl:persistent", "always")
+
+    entries = cache.list_entries(
+        min_ttl_seconds=2,
+        max_ttl_seconds=4,
+        sort_by="ttl_seconds",
+    )
+
+    assert [entry["key"] for entry in entries] == ["ttl:medium"]
+
+
+def test_local_cache_list_entries_ttl_window_filtering_excludes_persistent_entries():
+    cache = LocalCacheService()
+    cache.set("persistent", "always")
+    cache.set("temporary", "value", ttl_seconds=3)
+
+    entries = cache.list_entries(min_ttl_seconds=0)
+
+    assert [entry["key"] for entry in entries] == ["temporary"]
+
+
 def test_local_cache_list_entries_supports_ttl_and_expiration_sorting():
     cache = LocalCacheService()
     cache.set("ttl:fast", "x", ttl_seconds=1)
@@ -3309,6 +3335,26 @@ def test_local_cache_list_entries_rejects_invalid_expiration_and_sort_options():
         match='sort_by must be one of: "key", "ttl_seconds", "expires_at"',
     ):
         cache.list_entries(sort_by="recency")
+
+
+def test_local_cache_list_entries_rejects_invalid_ttl_window_filters():
+    cache = LocalCacheService()
+
+    with pytest.raises(
+        ValueError, match="min_ttl_seconds must be a non-negative number"
+    ):
+        cache.list_entries(min_ttl_seconds=-0.1)
+
+    with pytest.raises(
+        ValueError, match="max_ttl_seconds must be a non-negative number"
+    ):
+        cache.list_entries(max_ttl_seconds="soon")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="min_ttl_seconds cannot be greater than max_ttl_seconds",
+    ):
+        cache.list_entries(min_ttl_seconds=5, max_ttl_seconds=1)
 
 
 def test_local_cache_list_entries_rejects_negative_offset():
