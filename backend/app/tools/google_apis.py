@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -189,6 +189,19 @@ class GoogleDocsAPI:
 
         return normalized_separator
 
+    @staticmethod
+    def _normalize_value_serializer(
+        value: Any,
+    ) -> Callable[[Any], Any] | None:
+        """Normalize optional replacement-value serializer callbacks."""
+        if value is None:
+            return None
+
+        if not callable(value):
+            raise ValueError("value_serializer must be callable when provided")
+
+        return value
+
     @classmethod
     def _flatten_template_variables(
         cls,
@@ -260,6 +273,7 @@ class GoogleDocsAPI:
         flatten_nested_variables: bool = False,
         flatten_nested_sequences: bool = False,
         nested_key_separator: str = ".",
+        value_serializer: Callable[[Any], Any] | None = None,
     ) -> dict[str, Any]:
         """Replace template placeholders (e.g. ``{{name}}``) in a document.
 
@@ -291,6 +305,10 @@ class GoogleDocsAPI:
                 ``{{items.0}}`` and ``{{items.1}}``).
             nested_key_separator: Separator used when flattening nested
                 variable keys.
+            value_serializer: Optional callable used to transform non-``None``
+                replacement values before string coercion.
+                Serializer return values of ``None`` are treated as empty
+                replacement strings.
 
         Returns:
             API response dictionary from ``documents().batchUpdate``.
@@ -307,8 +325,8 @@ class GoogleDocsAPI:
         Raises:
             ValueError: If variables/prefix/suffix/match_case/batch size,
                 flattening options, duplicate flattened keys, or
-                ``dry_run``/``skip_none_values``/``skip_blank_values`` are
-                invalid.
+                ``dry_run``/``skip_none_values``/``skip_blank_values``/
+                ``value_serializer`` are invalid.
             HttpError: If Google Docs replacement request fails.
         """
         if not isinstance(variables, Mapping):
@@ -326,12 +344,13 @@ class GoogleDocsAPI:
         normalized_flatten_nested_variables = self._normalize_flatten_nested_variables(
             flatten_nested_variables
         )
-        normalized_flatten_nested_sequences = (
-            self._normalize_flatten_nested_sequences(flatten_nested_sequences)
+        normalized_flatten_nested_sequences = self._normalize_flatten_nested_sequences(
+            flatten_nested_sequences
         )
         normalized_nested_key_separator = self._normalize_nested_key_separator(
             nested_key_separator
         )
+        normalized_value_serializer = self._normalize_value_serializer(value_serializer)
         normalized_max_requests_per_batch = self._normalize_max_requests_per_batch(
             max_requests_per_batch
         )
@@ -341,8 +360,7 @@ class GoogleDocsAPI:
             and not normalized_flatten_nested_variables
         ):
             raise ValueError(
-                "flatten_nested_sequences requires "
-                "flatten_nested_variables=True"
+                "flatten_nested_sequences requires " "flatten_nested_variables=True"
             )
 
         normalized_prefix = self._normalize_placeholder_token(
@@ -394,6 +412,19 @@ class GoogleDocsAPI:
                 continue
 
             placeholder = f"{normalized_prefix}{normalized_name}{normalized_suffix}"
+
+            replacement_text: str
+            if replacement_value is None:
+                replacement_text = ""
+            else:
+                serialized_value = replacement_value
+                if normalized_value_serializer is not None:
+                    serialized_value = normalized_value_serializer(replacement_value)
+
+                replacement_text = (
+                    "" if serialized_value is None else str(serialized_value)
+                )
+
             requests.append(
                 {
                     "replaceAllText": {
@@ -401,9 +432,7 @@ class GoogleDocsAPI:
                             "text": placeholder,
                             "matchCase": match_case,
                         },
-                        "replaceText": ""
-                        if replacement_value is None
-                        else str(replacement_value),
+                        "replaceText": replacement_text,
                     }
                 }
             )

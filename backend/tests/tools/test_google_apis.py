@@ -98,6 +98,114 @@ def test_replace_template_variables_supports_custom_delimiters_and_value_coercio
     )
 
 
+def test_replace_template_variables_supports_custom_value_serializer(docs_api):
+    """Custom value serializers should transform non-None replacements."""
+    api, mocked_service = docs_api
+
+    serializer_inputs: list[object] = []
+
+    def serialize(value: object) -> object:
+        serializer_inputs.append(value)
+        if isinstance(value, bool):
+            return "YES" if value else "NO"
+        if isinstance(value, float):
+            return f"{value:.1%}"
+        return value
+
+    api.replace_template_variables(
+        "doc-serializer",
+        {
+            "enabled": True,
+            "ratio": 0.125,
+            "notes": None,
+        },
+        value_serializer=serialize,
+    )
+
+    assert serializer_inputs == [True, 0.125]
+    mocked_service.documents.return_value.batchUpdate.assert_called_once_with(
+        documentId="doc-serializer",
+        body={
+            "requests": [
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{enabled}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "YES",
+                    }
+                },
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{ratio}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "12.5%",
+                    }
+                },
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{notes}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "",
+                    }
+                },
+            ]
+        },
+    )
+
+
+def test_replace_template_variables_allows_serializer_to_return_none(docs_api):
+    """Serializer results of None should map to empty replacement strings."""
+    api, mocked_service = docs_api
+
+    api.replace_template_variables(
+        "doc-serializer-none",
+        {
+            "optional": "value",
+        },
+        value_serializer=lambda _: None,
+    )
+
+    mocked_service.documents.return_value.batchUpdate.assert_called_once_with(
+        documentId="doc-serializer-none",
+        body={
+            "requests": [
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{optional}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "",
+                    }
+                }
+            ]
+        },
+    )
+
+
+def test_replace_template_variables_rejects_invalid_value_serializer(docs_api):
+    """value_serializer should be optional but callable when provided."""
+    api, mocked_service = docs_api
+
+    with pytest.raises(
+        ValueError,
+        match="value_serializer must be callable when provided",
+    ):
+        api.replace_template_variables(
+            "doc-invalid-serializer",
+            {"name": "AgentHQ"},
+            value_serializer="serialize",  # type: ignore[arg-type]
+        )
+
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
 def test_replace_template_variables_can_flatten_nested_mappings(docs_api):
     """Nested mappings should be flattened into dotted placeholder names."""
     api, mocked_service = docs_api
