@@ -317,3 +317,115 @@ def test_credentials_have_scopes_supports_glob_scope_patterns():
 
     assert google_auth.credentials_have_scopes(creds, ["scope.*"])
     assert not google_auth.credentials_have_scopes(creds, ["admin.*"])
+
+
+def test_credentials_have_scopes_supports_match_any_mode():
+    creds = _FakeCreds(scopes=["scope.read", "scope.write"])
+
+    assert google_auth.credentials_have_scopes(
+        creds,
+        ["scope.admin", "scope.read"],
+        match_any=True,
+    )
+    assert not google_auth.credentials_have_scopes(
+        creds,
+        ["scope.admin", "scope.owner"],
+        match_any=True,
+    )
+
+
+def test_credentials_have_scopes_rejects_invalid_match_any_flag():
+    creds = _FakeCreds(scopes=["scope.read"])
+
+    with pytest.raises(ValueError, match="match_any must be a boolean"):
+        google_auth.credentials_have_scopes(
+            creds,
+            ["scope.read"],
+            match_any="yes",  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_user_credentials_allows_any_required_scope_match(monkeypatch):
+    user = SimpleNamespace(
+        id=uuid4(),
+        google_access_token="token",
+        google_refresh_token=None,
+    )
+
+    class _DB:
+        async def execute(self, _):
+            return _Result(user)
+
+    monkeypatch.setattr(google_auth, "Credentials", _FakeCreds)
+    monkeypatch.setattr(
+        google_auth.settings,
+        "GOOGLE_SCOPES",
+        "scope.read",
+    )
+
+    creds = await google_auth.get_user_credentials(
+        user.id,
+        db=_DB(),
+        required_scopes=["scope.admin", "scope.read"],
+        match_any_required_scope=True,
+    )
+
+    assert creds is not None
+
+
+@pytest.mark.asyncio
+async def test_get_user_credentials_rejects_any_scope_mode_when_none_match(monkeypatch):
+    user = SimpleNamespace(
+        id=uuid4(),
+        google_access_token="token",
+        google_refresh_token=None,
+    )
+
+    class _DB:
+        async def execute(self, _):
+            return _Result(user)
+
+    monkeypatch.setattr(google_auth, "Credentials", _FakeCreds)
+    monkeypatch.setattr(
+        google_auth.settings,
+        "GOOGLE_SCOPES",
+        "scope.read",
+    )
+
+    with pytest.raises(
+        ValueError, match="must include at least one of the required scopes"
+    ):
+        await google_auth.get_user_credentials(
+            user.id,
+            db=_DB(),
+            required_scopes=["scope.admin", "scope.owner"],
+            match_any_required_scope=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_user_credentials_rejects_invalid_match_any_required_scope_flag(
+    monkeypatch,
+):
+    user = SimpleNamespace(
+        id=uuid4(),
+        google_access_token="token",
+        google_refresh_token=None,
+    )
+
+    class _DB:
+        async def execute(self, _):
+            return _Result(user)
+
+    monkeypatch.setattr(google_auth, "Credentials", _FakeCreds)
+
+    with pytest.raises(
+        ValueError,
+        match="match_any_required_scope must be a boolean",
+    ):
+        await google_auth.get_user_credentials(
+            user.id,
+            db=_DB(),
+            match_any_required_scope="yes",  # type: ignore[arg-type]
+        )

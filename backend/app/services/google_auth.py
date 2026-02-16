@@ -104,6 +104,32 @@ def _scope_matches_requirement(
     )
 
 
+def _available_scopes_from_credentials(credentials: Credentials) -> set[str]:
+    """Extract normalized non-empty scopes from credentials."""
+    return {
+        scope.strip()
+        for scope in (credentials.scopes or [])
+        if isinstance(scope, str) and scope.strip()
+    }
+
+
+def _partition_scope_requirements(
+    available_scopes: set[str],
+    required_scopes: list[str],
+) -> tuple[list[str], list[str]]:
+    """Split required scopes into matched and missing lists."""
+    matched_scopes: list[str] = []
+    missing_scopes: list[str] = []
+
+    for required_scope in required_scopes:
+        if _scope_matches_requirement(available_scopes, required_scope):
+            matched_scopes.append(required_scope)
+        else:
+            missing_scopes.append(required_scope)
+
+    return matched_scopes, missing_scopes
+
+
 def get_missing_scopes(
     credentials: Credentials,
     required_scopes: str | Iterable[str] | None,
@@ -113,31 +139,50 @@ def get_missing_scopes(
     if not normalized_required_scopes:
         return []
 
-    available_scopes = {
-        scope.strip()
-        for scope in (credentials.scopes or [])
-        if isinstance(scope, str) and scope.strip()
-    }
-
-    return [
-        scope
-        for scope in normalized_required_scopes
-        if not _scope_matches_requirement(available_scopes, scope)
-    ]
+    available_scopes = _available_scopes_from_credentials(credentials)
+    _, missing_scopes = _partition_scope_requirements(
+        available_scopes,
+        normalized_required_scopes,
+    )
+    return missing_scopes
 
 
 def credentials_have_scopes(
     credentials: Credentials,
     required_scopes: str | Iterable[str] | None,
+    *,
+    match_any: bool = False,
 ) -> bool:
-    """Return whether credentials include all required scopes."""
-    return not get_missing_scopes(credentials, required_scopes)
+    """Return whether credentials satisfy required scopes.
+
+    By default, all required scopes must be present. When ``match_any`` is
+    ``True``, matching at least one required scope is sufficient.
+    """
+    if not isinstance(match_any, bool):
+        raise ValueError("match_any must be a boolean")
+
+    normalized_required_scopes = _normalize_required_scopes(required_scopes)
+    if not normalized_required_scopes:
+        return True
+
+    available_scopes = _available_scopes_from_credentials(credentials)
+    matched_scopes, missing_scopes = _partition_scope_requirements(
+        available_scopes,
+        normalized_required_scopes,
+    )
+
+    if match_any:
+        return bool(matched_scopes)
+
+    return not missing_scopes
 
 
 async def get_user_credentials(
     user_id: str | UUID,
     db: Optional[AsyncSession] = None,
     required_scopes: str | Iterable[str] | None = None,
+    *,
+    match_any_required_scope: bool = False,
 ) -> Optional[Credentials]:
     """
     Retrieve and refresh Google OAuth credentials for a user.
@@ -146,13 +191,17 @@ async def get_user_credentials(
         user_id: User UUID
         db: Optional database session (will create one if not provided)
         required_scopes: Optional scope or scopes that must be present
+        match_any_required_scope: When ``True``, credentials pass validation
+            if they match at least one required scope. Defaults to ``False``
+            (all required scopes must be present).
 
     Returns:
         Google Credentials object, or None if user has no stored credentials
 
     Raises:
         ValueError: If user not found, user_id is invalid, credentials are invalid,
-            or required scopes are missing.
+            scope requirements are unsatisfied, or ``match_any_required_scope``
+            is not a boolean.
         TypeError: If ``required_scopes`` is invalid.
     """
     # Ensure user_id is UUID
@@ -161,6 +210,9 @@ async def get_user_credentials(
             user_id = UUID(user_id)
         except ValueError as error:
             raise ValueError("user_id must be a valid UUID") from error
+
+    if not isinstance(match_any_required_scope, bool):
+        raise ValueError("match_any_required_scope must be a boolean")
 
     # Get database session
     should_close_db = False
@@ -210,13 +262,27 @@ async def get_user_credentials(
                 # Don't raise - return stale credentials and let Google API fail
                 # This allows better error handling downstream
 
-        missing_scopes = get_missing_scopes(credentials, required_scopes)
-        if missing_scopes:
-            missing_scopes_text = ", ".join(missing_scopes)
-            raise ValueError(
-                f"User {user_id} credentials are missing required scopes: "
-                f"{missing_scopes_text}"
+        normalized_required_scopes = _normalize_required_scopes(required_scopes)
+        if normalized_required_scopes:
+            available_scopes = _available_scopes_from_credentials(credentials)
+            matched_scopes, missing_scopes = _partition_scope_requirements(
+                available_scopes,
+                normalized_required_scopes,
             )
+
+            if match_any_required_scope:
+                if not matched_scopes:
+                    required_scopes_text = ", ".join(normalized_required_scopes)
+                    raise ValueError(
+                        f"User {user_id} credentials must include at least one of "
+                        f"the required scopes: {required_scopes_text}"
+                    )
+            elif missing_scopes:
+                missing_scopes_text = ", ".join(missing_scopes)
+                raise ValueError(
+                    f"User {user_id} credentials are missing required scopes: "
+                    f"{missing_scopes_text}"
+                )
 
         return credentials
 
