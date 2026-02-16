@@ -313,6 +313,93 @@ def test_get_execution_summary_validates_include_agent_workload_flag(planner_stu
         )
 
 
+def test_get_execution_timeline_reports_dependency_aware_step_times(planner_stub):
+    """Timeline helper should expose deterministic start/finish times per step."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Collect metrics", "research", 30, 0.02, 2000),
+        PlanStep("step_3", "Draft summary", "docs", 20, 0.03, 3000, ["step_1"]),
+        PlanStep("step_4", "Build table", "sheets", 15, 0.02, 1500, ["step_2"]),
+        PlanStep(
+            "step_5", "Finalize report", "docs", 20, 0.03, 3000, ["step_3", "step_4"]
+        ),
+    ]
+
+    timeline = planner_stub.get_execution_timeline(_build_plan(steps))
+
+    assert [entry["step_id"] for entry in timeline] == [
+        "step_1",
+        "step_2",
+        "step_3",
+        "step_4",
+        "step_5",
+    ]
+    assert timeline[0]["start_time"] == 0
+    assert timeline[0]["finish_time"] == 30
+    assert timeline[2]["dependency_ready_time"] == 30
+    assert timeline[2]["start_time"] == 30
+    assert timeline[4]["dependency_ready_time"] == 50
+    assert timeline[4]["finish_time"] == 70
+    assert all(entry["queue_delay_seconds"] == 0 for entry in timeline)
+
+
+def test_get_execution_timeline_accounts_for_parallelism_limits(planner_stub):
+    """Timeline should report queue delay when worker capacity is constrained."""
+    steps = [
+        PlanStep("step_1", "Collect A", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Collect B", "research", 20, 0.02, 2000),
+        PlanStep("step_3", "Collect C", "research", 10, 0.02, 2000),
+    ]
+
+    timeline = planner_stub.get_execution_timeline(
+        _build_plan(steps),
+        max_parallel_steps=2,
+    )
+
+    assert [entry["step_id"] for entry in timeline] == ["step_1", "step_2", "step_3"]
+    assert timeline[2]["dependency_ready_time"] == 0
+    assert timeline[2]["start_time"] == 20
+    assert timeline[2]["finish_time"] == 30
+    assert timeline[2]["queue_delay_seconds"] == 20
+
+
+def test_get_execution_summary_can_include_execution_timeline(planner_stub):
+    """Execution summary should optionally include per-step timing details."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Draft", "docs", 20, 0.03, 3000, ["step_1"]),
+    ]
+
+    summary = planner_stub.get_execution_summary(
+        _build_plan(steps),
+        include_execution_timeline=True,
+    )
+
+    assert "execution_timeline" in summary
+    assert [entry["step_id"] for entry in summary["execution_timeline"]] == [
+        "step_1",
+        "step_2",
+    ]
+    assert summary["execution_timeline"][1]["dependency_ready_time"] == 30
+    assert summary["execution_timeline"][1]["queue_delay_seconds"] == 0
+
+
+def test_get_execution_summary_validates_include_execution_timeline_flag(planner_stub):
+    """include_execution_timeline should require a strict boolean value."""
+    with pytest.raises(
+        ValueError,
+        match="include_execution_timeline must be a boolean",
+    ):
+        planner_stub.get_execution_summary(
+            _build_plan(
+                [
+                    PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+                ]
+            ),
+            include_execution_timeline="yes",  # type: ignore[arg-type]
+        )
+
+
 def test_get_ready_steps_returns_only_dependency_satisfied_planned_steps(planner_stub):
     """Ready-queue helper should skip steps with unmet or terminally failed dependencies."""
     steps = [

@@ -314,17 +314,53 @@ class TaskPlanner:
 
         return max_parallel_steps
 
-    def _estimate_makespan_with_parallelism_limit(
+    def _build_unconstrained_step_schedule(
+        self,
+        plan: ExecutionPlan,
+    ) -> Dict[str, tuple[int, int]]:
+        """Return dependency-only schedule as ``{step_id: (start, finish)}``."""
+        self._validate_step_dependencies(plan.steps)
+
+        if not plan.steps:
+            return {}
+
+        batches = self.get_execution_batches(plan)
+        finish_times: Dict[str, int] = {}
+        schedule: Dict[str, tuple[int, int]] = {}
+
+        for batch in batches:
+            for step in batch:
+                start_time = (
+                    max(
+                        finish_times[dependency_id]
+                        for dependency_id in step.dependencies
+                    )
+                    if step.dependencies
+                    else 0
+                )
+                finish_time = start_time + step.estimated_time
+                finish_times[step.step_id] = finish_time
+                schedule[step.step_id] = (start_time, finish_time)
+
+        return schedule
+
+    def _build_parallelism_limited_step_schedule(
         self,
         plan: ExecutionPlan,
         *,
         max_parallel_steps: int,
-    ) -> int:
-        """Estimate makespan with dependency and worker-capacity constraints."""
+    ) -> tuple[Dict[str, tuple[int, int]], Dict[str, int]]:
+        """Simulate a worker-capacity-constrained schedule.
+
+        Returns:
+            Tuple of ``(schedule, ready_times)`` where:
+            - ``schedule`` maps ``step_id`` to ``(start_time, finish_time)``
+            - ``ready_times`` maps ``step_id`` to dependency-satisfied time
+        """
         self._validate_step_dependencies(plan.steps)
 
         if not plan.steps:
-            return 0
+            return {}, {}
 
         step_by_id = {step.step_id: step for step in plan.steps}
         order_index = {step.step_id: index for index, step in enumerate(plan.steps)}
@@ -342,10 +378,13 @@ class TaskPlanner:
             for step in plan.steps
             if unresolved_dependency_counts[step.step_id] == 0
         ]
+        ready_times: Dict[str, int] = {step_id: 0 for step_id in ready_queue}
 
         running_steps: list[tuple[int, int, str]] = []
         completed: set[str] = set()
         current_time = 0
+
+        schedule: Dict[str, tuple[int, int]] = {}
 
         while len(completed) < len(plan.steps):
             ready_queue.sort(key=lambda step_id: order_index[step_id])
@@ -353,7 +392,9 @@ class TaskPlanner:
             while ready_queue and len(running_steps) < max_parallel_steps:
                 step_id = ready_queue.pop(0)
                 step = step_by_id[step_id]
-                finish_time = current_time + step.estimated_time
+                start_time = current_time
+                finish_time = start_time + step.estimated_time
+                schedule[step_id] = (start_time, finish_time)
                 heapq.heappush(
                     running_steps, (finish_time, order_index[step_id], step_id)
                 )
@@ -378,8 +419,22 @@ class TaskPlanner:
                     unresolved_dependency_counts[dependent_id] -= 1
                     if unresolved_dependency_counts[dependent_id] == 0:
                         ready_queue.append(dependent_id)
+                        ready_times[dependent_id] = current_time
 
-        return current_time
+        return schedule, ready_times
+
+    def _estimate_makespan_with_parallelism_limit(
+        self,
+        plan: ExecutionPlan,
+        *,
+        max_parallel_steps: int,
+    ) -> int:
+        """Estimate makespan with dependency and worker-capacity constraints."""
+        schedule, _ = self._build_parallelism_limited_step_schedule(
+            plan,
+            max_parallel_steps=max_parallel_steps,
+        )
+        return max((finish for _, finish in schedule.values()), default=0)
 
     def estimate_makespan(
         self,
@@ -396,13 +451,75 @@ class TaskPlanner:
         """
         validated_limit = self._validate_parallelism_limit(max_parallel_steps)
         if validated_limit is None:
-            finish_times, _ = self._build_dependency_timeline(plan)
-            return max(finish_times.values(), default=0)
+            schedule = self._build_unconstrained_step_schedule(plan)
+            return max((finish for _, finish in schedule.values()), default=0)
 
         return self._estimate_makespan_with_parallelism_limit(
             plan,
             max_parallel_steps=validated_limit,
         )
+
+    def get_execution_timeline(
+        self,
+        plan: ExecutionPlan,
+        *,
+        max_parallel_steps: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return detailed execution timing for each step.
+
+        The timeline is sorted by ``start_time`` and original step order and
+        includes both dependency-ready and queued-delay metrics.
+        """
+        validated_limit = self._validate_parallelism_limit(max_parallel_steps)
+        if validated_limit is None:
+            schedule = self._build_unconstrained_step_schedule(plan)
+            dependency_ready_times = {
+                step.step_id: (
+                    max(
+                        schedule[dependency_id][1]
+                        for dependency_id in step.dependencies
+                    )
+                    if step.dependencies
+                    else 0
+                )
+                for step in plan.steps
+            }
+        else:
+            (
+                schedule,
+                dependency_ready_times,
+            ) = self._build_parallelism_limited_step_schedule(
+                plan,
+                max_parallel_steps=validated_limit,
+            )
+
+        order_index = {step.step_id: index for index, step in enumerate(plan.steps)}
+
+        timeline: List[Dict[str, Any]] = []
+        for step in plan.steps:
+            start_time, finish_time = schedule[step.step_id]
+            dependency_ready_time = dependency_ready_times.get(step.step_id, 0)
+            timeline.append(
+                {
+                    "step_id": step.step_id,
+                    "description": step.description,
+                    "agent_type": step.agent_type,
+                    "dependencies": list(step.dependencies),
+                    "dependency_ready_time": dependency_ready_time,
+                    "start_time": start_time,
+                    "finish_time": finish_time,
+                    "duration_seconds": step.estimated_time,
+                    "queue_delay_seconds": start_time - dependency_ready_time,
+                }
+            )
+
+        timeline.sort(
+            key=lambda item: (
+                item["start_time"],
+                order_index[item["step_id"]],
+            )
+        )
+        return timeline
 
     def get_critical_path(self, plan: ExecutionPlan) -> List[str]:
         """Return the critical path (longest dependency chain) for a plan."""
@@ -432,6 +549,7 @@ class TaskPlanner:
         *,
         max_parallel_steps: Optional[int] = None,
         include_agent_workload: bool = False,
+        include_execution_timeline: bool = False,
     ) -> Dict[str, Any]:
         """Return dependency-aware schedule metrics for execution planning.
 
@@ -441,9 +559,13 @@ class TaskPlanner:
                 makespan and parallelism-gain estimation.
             include_agent_workload: When ``True``, include per-agent workload
                 totals (steps, time, cost, tokens, and share metrics).
+            include_execution_timeline: When ``True``, include per-step timing
+                details (start/finish, dependency-ready time, and queue delay).
         """
         if not isinstance(include_agent_workload, bool):
             raise ValueError("include_agent_workload must be a boolean")
+        if not isinstance(include_execution_timeline, bool):
+            raise ValueError("include_execution_timeline must be a boolean")
 
         batches = self.get_execution_batches(plan)
         makespan = self.estimate_makespan(
@@ -469,6 +591,12 @@ class TaskPlanner:
 
         if include_agent_workload:
             summary["agent_workload"] = self.get_agent_workload_breakdown(plan)
+
+        if include_execution_timeline:
+            summary["execution_timeline"] = self.get_execution_timeline(
+                plan,
+                max_parallel_steps=max_parallel_steps,
+            )
 
         return summary
 
