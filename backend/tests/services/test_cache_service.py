@@ -3823,6 +3823,58 @@ def test_local_cache_stats_namespace_summary_handles_empty_cache():
     assert stats["top_namespaces"] == []
 
 
+def test_local_cache_stats_can_include_value_type_summary_for_active_entries():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "count:a": 1,
+            "count:b": 2,
+            "profile": {"name": "Agent"},
+            "title": "Codex",
+            "optional": None,
+        }
+    )
+
+    stats = cache.stats(include_value_type_summary=True, value_type_limit=2)
+
+    assert stats["unique_value_types"] == 4
+    assert stats["dominant_value_type"] == "int"
+    assert stats["dominant_value_type_entries"] == 2
+    assert stats["top_value_types"] == [
+        {"value_type": "int", "count": 2},
+        {"value_type": "NoneType", "count": 1},
+    ]
+
+
+def test_local_cache_stats_value_type_summary_uses_module_qualified_labels_for_custom_types():
+    class _CustomPayload:
+        pass
+
+    cache = LocalCacheService()
+    cache.set("payload", _CustomPayload())
+
+    stats = cache.stats(include_value_type_summary=True)
+    expected_type_name = f"{_CustomPayload.__module__}.{_CustomPayload.__qualname__}"
+
+    assert stats["unique_value_types"] == 1
+    assert stats["dominant_value_type"] == expected_type_name
+    assert stats["dominant_value_type_entries"] == 1
+    assert stats["top_value_types"] == [
+        {"value_type": expected_type_name, "count": 1}
+    ]
+
+
+def test_local_cache_stats_value_type_summary_handles_empty_cache():
+    cache = LocalCacheService()
+
+    stats = cache.stats(include_value_type_summary=True)
+
+    assert stats["unique_value_types"] == 0
+    assert stats["dominant_value_type"] is None
+    assert stats["dominant_value_type_entries"] == 0
+    assert stats["top_value_types"] == []
+
+
 def test_local_cache_stats_ttl_summary_flag_must_be_boolean():
     cache = LocalCacheService()
 
@@ -3870,6 +3922,28 @@ def test_local_cache_stats_namespace_summary_options_must_be_valid():
 
     with pytest.raises(ValueError, match="separator cannot be empty"):
         cache.stats(include_namespace_summary=True, namespace_separator="   ")
+
+
+def test_local_cache_stats_value_type_summary_options_must_be_valid():
+    cache = LocalCacheService()
+
+    with pytest.raises(
+        ValueError,
+        match="include_value_type_summary must be a boolean",
+    ):
+        cache.stats(include_value_type_summary="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="value_type_limit must be an integer greater than 0",
+    ):
+        cache.stats(include_value_type_summary=True, value_type_limit=0)
+
+    with pytest.raises(
+        ValueError,
+        match="value_type_limit must be an integer greater than 0",
+    ):
+        cache.stats(include_value_type_summary=True, value_type_limit=True)  # type: ignore[arg-type]
 
 
 def test_local_cache_stats_include_set_if_absent_and_pop_lookups():

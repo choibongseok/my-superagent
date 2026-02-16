@@ -1664,6 +1664,15 @@ class LocalCacheService:
         namespace, _, _ = key.partition(separator)
         return namespace
 
+    @staticmethod
+    def _describe_value_type(value: Any) -> str:
+        """Return a stable display label for a cached value type."""
+        value_type = type(value)
+        if value_type.__module__ == "builtins":
+            return value_type.__qualname__
+
+        return f"{value_type.__module__}.{value_type.__qualname__}"
+
     @classmethod
     def _normalize_namespace(cls, namespace: str, *, separator: str) -> str:
         """Validate namespace values used by namespace-aware operations."""
@@ -3137,8 +3146,10 @@ class LocalCacheService:
         include_tag_summary: bool = False,
         include_capacity_summary: bool = False,
         include_namespace_summary: bool = False,
+        include_value_type_summary: bool = False,
         namespace_separator: str = ":",
         namespace_limit: int = 5,
+        value_type_limit: int = 5,
     ) -> dict[str, Any]:
         """Return cache operational counters and runtime metadata.
 
@@ -3185,10 +3196,21 @@ class LocalCacheService:
                   ``largest_namespace``.
                 - ``top_namespaces``: Top namespace/count rows sorted by count
                   descending then namespace name.
+            include_value_type_summary: When ``True``, include cached value-type
+                distribution metadata for active entries:
+
+                - ``unique_value_types``: Number of distinct active value types.
+                - ``dominant_value_type``: Most frequent value type label.
+                - ``dominant_value_type_entries``: Entry count for
+                  ``dominant_value_type``.
+                - ``top_value_types``: Top value-type/count rows sorted by
+                  count descending then type label.
             namespace_separator: Delimiter used to split key namespaces when
                 ``include_namespace_summary`` is enabled.
             namespace_limit: Maximum number of entries included in
                 ``top_namespaces``.
+            value_type_limit: Maximum number of entries included in
+                ``top_value_types``.
         """
         if not isinstance(include_ttl_summary, bool):
             raise ValueError("include_ttl_summary must be a boolean")
@@ -3202,11 +3224,20 @@ class LocalCacheService:
         if not isinstance(include_namespace_summary, bool):
             raise ValueError("include_namespace_summary must be a boolean")
 
+        if not isinstance(include_value_type_summary, bool):
+            raise ValueError("include_value_type_summary must be a boolean")
+
         if isinstance(namespace_limit, bool) or not isinstance(namespace_limit, int):
             raise ValueError("namespace_limit must be an integer greater than 0")
 
         if namespace_limit <= 0:
             raise ValueError("namespace_limit must be an integer greater than 0")
+
+        if isinstance(value_type_limit, bool) or not isinstance(value_type_limit, int):
+            raise ValueError("value_type_limit must be an integer greater than 0")
+
+        if value_type_limit <= 0:
+            raise ValueError("value_type_limit must be an integer greater than 0")
 
         normalized_namespace_separator = self._normalize_namespace_separator(
             namespace_separator
@@ -3321,6 +3352,36 @@ class LocalCacheService:
                     "top_namespaces": [
                         {"namespace": namespace, "count": count}
                         for namespace, count in top_namespace_rows
+                    ],
+                }
+            )
+
+        if include_value_type_summary:
+            value_type_counts = Counter(
+                self._describe_value_type(value)
+                for value, _ in self._store.values()
+            )
+            sorted_value_type_rows = sorted(
+                value_type_counts.items(),
+                key=lambda row: (-row[1], row[0]),
+            )
+            top_value_type_rows = sorted_value_type_rows[:value_type_limit]
+
+            dominant_value_type: str | None = None
+            dominant_value_type_entries = 0
+            if sorted_value_type_rows:
+                dominant_value_type, dominant_value_type_entries = (
+                    sorted_value_type_rows[0]
+                )
+
+            snapshot.update(
+                {
+                    "unique_value_types": len(value_type_counts),
+                    "dominant_value_type": dominant_value_type,
+                    "dominant_value_type_entries": dominant_value_type_entries,
+                    "top_value_types": [
+                        {"value_type": value_type, "count": count}
+                        for value_type, count in top_value_type_rows
                     ],
                 }
             )
