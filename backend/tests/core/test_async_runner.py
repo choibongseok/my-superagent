@@ -221,6 +221,60 @@ def test_run_async_retry_rejects_invalid_retry_configuration():
         run_async_retry(_value, retry_exceptions=())
 
 
+def test_run_async_retry_supports_should_retry_predicate_control():
+    attempts = {"count": 0}
+    retry_decisions: list[tuple[str, int]] = []
+
+    async def _always_fail() -> str:
+        attempts["count"] += 1
+        raise RuntimeError("retryable boom")
+
+    def _should_retry(exception: BaseException, attempt: int) -> bool:
+        retry_decisions.append((str(exception), attempt))
+        return attempt < 2
+
+    with pytest.raises(RuntimeError, match="retryable boom"):
+        run_async_retry(
+            _always_fail,
+            max_attempts=5,
+            should_retry=_should_retry,
+        )
+
+    assert attempts["count"] == 2
+    assert retry_decisions == [
+        ("retryable boom", 1),
+        ("retryable boom", 2),
+    ]
+
+
+def test_run_async_retry_rejects_invalid_should_retry_configuration():
+    async def _value() -> int:
+        return 1
+
+    with pytest.raises(TypeError, match="should_retry must be callable"):
+        run_async_retry(_value, should_retry="yes")  # type: ignore[arg-type]
+
+
+def test_run_async_retry_rejects_non_boolean_should_retry_results():
+    attempts = {"count": 0}
+
+    async def _always_fail() -> str:
+        attempts["count"] += 1
+        raise RuntimeError("bad")
+
+    def _invalid_should_retry(_: BaseException, __: int) -> str:
+        return "yes"
+
+    with pytest.raises(TypeError, match="should_retry must return a boolean"):
+        run_async_retry(
+            _always_fail,
+            max_attempts=3,
+            should_retry=_invalid_should_retry,
+        )
+
+    assert attempts["count"] == 1
+
+
 def test_run_async_retry_timeout_applies_to_entire_retry_lifecycle():
     async def _slow_fail() -> int:
         await asyncio.sleep(0.05)

@@ -187,6 +187,7 @@ def run_async_retry(
     initial_delay: float = 0.0,
     backoff_factor: float = 1.0,
     max_delay: float | None = None,
+    should_retry: Callable[[BaseException, int], bool] | None = None,
     **kwargs: P.kwargs,
 ) -> T:
     """Run an async callable with retry/backoff support from sync code.
@@ -203,6 +204,10 @@ def run_async_retry(
         initial_delay: Delay in seconds before the first retry.
         backoff_factor: Multiplier applied to delay after each retry.
         max_delay: Optional upper bound for retry delay.
+        should_retry: Optional predicate receiving ``(exception, attempt)``.
+            Return ``True`` to continue retrying or ``False`` to raise
+            immediately. ``attempt`` is 1-based and reflects the failed
+            attempt index.
 
     Returns:
         The successful result from ``coro_factory``.
@@ -210,12 +215,16 @@ def run_async_retry(
     Raises:
         ValueError: If timeout/attempt/delay options are invalid.
         TypeError: If ``coro_factory`` is not callable, retry exception tuple is
-            invalid, or the callable returns a non-awaitable value.
+            invalid, ``should_retry`` is invalid, or the callable returns a
+            non-awaitable value.
         TimeoutError: If execution exceeds ``timeout``.
         BaseException: Re-raises the final matching retry exception.
     """
     if not callable(coro_factory):
         raise TypeError("run_async_retry expects a callable coro_factory")
+
+    if should_retry is not None and not callable(should_retry):
+        raise TypeError("should_retry must be callable when provided")
 
     _validate_timeout(timeout)
     _validate_max_attempts(max_attempts)
@@ -230,14 +239,27 @@ def run_async_retry(
     if max_delay is not None and max_delay <= 0:
         raise ValueError("max_delay must be greater than 0")
 
+    def _should_retry_exception(exception: BaseException, attempt: int) -> bool:
+        if should_retry is None:
+            return True
+
+        decision = should_retry(exception, attempt)
+        if not isinstance(decision, bool):
+            raise TypeError("should_retry must return a boolean")
+
+        return decision
+
     async def _run_with_retries() -> T:
         delay = initial_delay
 
         for attempt in range(1, max_attempts + 1):
             try:
                 produced = coro_factory(*args, **kwargs)
-            except normalized_retry_exceptions:
-                if attempt >= max_attempts:
+            except normalized_retry_exceptions as exception:
+                if attempt >= max_attempts or not _should_retry_exception(
+                    exception,
+                    attempt,
+                ):
                     raise
             else:
                 if not inspect.isawaitable(produced):
@@ -245,8 +267,11 @@ def run_async_retry(
 
                 try:
                     return await cast(Awaitable[T], produced)
-                except normalized_retry_exceptions:
-                    if attempt >= max_attempts:
+                except normalized_retry_exceptions as exception:
+                    if attempt >= max_attempts or not _should_retry_exception(
+                        exception,
+                        attempt,
+                    ):
                         raise
 
             if delay > 0:
