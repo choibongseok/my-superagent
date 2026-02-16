@@ -602,6 +602,56 @@ class TaskPlanner:
 
         return step_slack
 
+    def get_dependency_diagnostics(self, plan: ExecutionPlan) -> List[Dict[str, Any]]:
+        """Return per-step dependency graph diagnostics.
+
+        Metrics are calculated from the directed acyclic graph implied by
+        ``step.dependencies``:
+
+        - ``dependency_depth``: longest distance from an entrypoint step
+        - ``dependency_count``: direct prerequisites (fan-in)
+        - ``dependent_count``: direct downstream dependents (fan-out)
+        - ``is_entrypoint``: ``True`` when no prerequisites are declared
+        - ``is_terminal``: ``True`` when no other step depends on this step
+        """
+        self._validate_step_dependencies(plan.steps)
+
+        if not plan.steps:
+            return []
+
+        dependents: Dict[str, List[str]] = {step.step_id: [] for step in plan.steps}
+        for step in plan.steps:
+            for dependency_id in step.dependencies:
+                dependents[dependency_id].append(step.step_id)
+
+        dependency_depth: Dict[str, int] = {}
+        for batch in self.get_execution_batches(plan):
+            for step in batch:
+                depth = (
+                    max(
+                        dependency_depth[dependency_id]
+                        for dependency_id in step.dependencies
+                    )
+                    + 1
+                    if step.dependencies
+                    else 0
+                )
+                dependency_depth[step.step_id] = depth
+
+        return [
+            {
+                "step_id": step.step_id,
+                "description": step.description,
+                "dependencies": list(step.dependencies),
+                "dependency_depth": dependency_depth[step.step_id],
+                "dependency_count": len(step.dependencies),
+                "dependent_count": len(dependents[step.step_id]),
+                "is_entrypoint": len(step.dependencies) == 0,
+                "is_terminal": len(dependents[step.step_id]) == 0,
+            }
+            for step in plan.steps
+        ]
+
     def get_execution_summary(
         self,
         plan: ExecutionPlan,
@@ -610,6 +660,7 @@ class TaskPlanner:
         include_agent_workload: bool = False,
         include_execution_timeline: bool = False,
         include_step_slack: bool = False,
+        include_dependency_diagnostics: bool = False,
     ) -> Dict[str, Any]:
         """Return dependency-aware schedule metrics for execution planning.
 
@@ -623,6 +674,8 @@ class TaskPlanner:
                 details (start/finish, dependency-ready time, and queue delay).
             include_step_slack: When ``True``, include CPM-style earliest/latest
                 timing windows and per-step float values.
+            include_dependency_diagnostics: When ``True``, include per-step DAG
+                diagnostics such as dependency depth and fan-in/fan-out counts.
         """
         if not isinstance(include_agent_workload, bool):
             raise ValueError("include_agent_workload must be a boolean")
@@ -630,6 +683,8 @@ class TaskPlanner:
             raise ValueError("include_execution_timeline must be a boolean")
         if not isinstance(include_step_slack, bool):
             raise ValueError("include_step_slack must be a boolean")
+        if not isinstance(include_dependency_diagnostics, bool):
+            raise ValueError("include_dependency_diagnostics must be a boolean")
 
         batches = self.get_execution_batches(plan)
         makespan = self.estimate_makespan(
@@ -669,6 +724,27 @@ class TaskPlanner:
                 step_metrics["step_id"]
                 for step_metrics in step_slack
                 if step_metrics["is_critical"]
+            ]
+
+        if include_dependency_diagnostics:
+            dependency_diagnostics = self.get_dependency_diagnostics(plan)
+            summary["dependency_diagnostics"] = dependency_diagnostics
+            summary["max_dependency_depth"] = max(
+                (
+                    step_metrics["dependency_depth"]
+                    for step_metrics in dependency_diagnostics
+                ),
+                default=0,
+            )
+            summary["entrypoint_step_ids"] = [
+                step_metrics["step_id"]
+                for step_metrics in dependency_diagnostics
+                if step_metrics["is_entrypoint"]
+            ]
+            summary["terminal_step_ids"] = [
+                step_metrics["step_id"]
+                for step_metrics in dependency_diagnostics
+                if step_metrics["is_terminal"]
             ]
 
         return summary

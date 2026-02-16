@@ -496,6 +496,115 @@ def test_get_execution_summary_validates_include_step_slack_flag(planner_stub):
         )
 
 
+def test_get_dependency_diagnostics_reports_depth_and_fan_metrics(planner_stub):
+    """Dependency diagnostics should expose depth and fan-in/fan-out metrics."""
+    steps = [
+        PlanStep("step_1", "Collect baseline data", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Collect user interview notes", "research", 20, 0.02, 2000),
+        PlanStep("step_3", "Draft findings", "docs", 15, 0.03, 3000, ["step_1"]),
+        PlanStep("step_4", "Build appendix", "docs", 10, 0.03, 3000, ["step_2"]),
+        PlanStep(
+            "step_5", "Publish report", "docs", 10, 0.03, 3000, ["step_3", "step_4"]
+        ),
+    ]
+
+    diagnostics = planner_stub.get_dependency_diagnostics(_build_plan(steps))
+
+    assert diagnostics == [
+        {
+            "step_id": "step_1",
+            "description": "Collect baseline data",
+            "dependencies": [],
+            "dependency_depth": 0,
+            "dependency_count": 0,
+            "dependent_count": 1,
+            "is_entrypoint": True,
+            "is_terminal": False,
+        },
+        {
+            "step_id": "step_2",
+            "description": "Collect user interview notes",
+            "dependencies": [],
+            "dependency_depth": 0,
+            "dependency_count": 0,
+            "dependent_count": 1,
+            "is_entrypoint": True,
+            "is_terminal": False,
+        },
+        {
+            "step_id": "step_3",
+            "description": "Draft findings",
+            "dependencies": ["step_1"],
+            "dependency_depth": 1,
+            "dependency_count": 1,
+            "dependent_count": 1,
+            "is_entrypoint": False,
+            "is_terminal": False,
+        },
+        {
+            "step_id": "step_4",
+            "description": "Build appendix",
+            "dependencies": ["step_2"],
+            "dependency_depth": 1,
+            "dependency_count": 1,
+            "dependent_count": 1,
+            "is_entrypoint": False,
+            "is_terminal": False,
+        },
+        {
+            "step_id": "step_5",
+            "description": "Publish report",
+            "dependencies": ["step_3", "step_4"],
+            "dependency_depth": 2,
+            "dependency_count": 2,
+            "dependent_count": 0,
+            "is_entrypoint": False,
+            "is_terminal": True,
+        },
+    ]
+
+
+def test_get_execution_summary_can_include_dependency_diagnostics(planner_stub):
+    """Execution summary should optionally include dependency diagnostics."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Draft", "docs", 20, 0.03, 3000, ["step_1"]),
+        PlanStep("step_3", "Review", "docs", 15, 0.03, 3000, ["step_2"]),
+    ]
+
+    summary = planner_stub.get_execution_summary(
+        _build_plan(steps),
+        include_dependency_diagnostics=True,
+    )
+
+    assert summary["max_dependency_depth"] == 2
+    assert summary["entrypoint_step_ids"] == ["step_1"]
+    assert summary["terminal_step_ids"] == ["step_3"]
+    assert [item["step_id"] for item in summary["dependency_diagnostics"]] == [
+        "step_1",
+        "step_2",
+        "step_3",
+    ]
+
+
+def test_get_execution_summary_validates_include_dependency_diagnostics_flag(
+    planner_stub,
+):
+    """include_dependency_diagnostics should require a strict boolean value."""
+    with pytest.raises(
+        ValueError,
+        match="include_dependency_diagnostics must be a boolean",
+    ):
+        planner_stub.get_execution_summary(
+            _build_plan(
+                [
+                    PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+                ]
+            ),
+            include_dependency_diagnostics="yes",  # type: ignore[arg-type]
+        )
+
+
 def test_get_ready_steps_returns_only_dependency_satisfied_planned_steps(planner_stub):
     """Ready-queue helper should skip steps with unmet or terminally failed dependencies."""
     steps = [
