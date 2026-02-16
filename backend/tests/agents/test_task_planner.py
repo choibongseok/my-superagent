@@ -400,6 +400,102 @@ def test_get_execution_summary_validates_include_execution_timeline_flag(planner
         )
 
 
+def test_get_step_slack_reports_earliest_latest_and_float_metrics(planner_stub):
+    """Step slack helper should report CPM timing windows per step."""
+    steps = [
+        PlanStep("step_1", "Primary research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Secondary research", "research", 10, 0.02, 2000),
+        PlanStep("step_3", "Draft report", "docs", 20, 0.03, 3000, ["step_1"]),
+        PlanStep("step_4", "Quick appendix", "docs", 5, 0.03, 3000, ["step_2"]),
+    ]
+
+    step_slack = planner_stub.get_step_slack(_build_plan(steps))
+
+    assert step_slack == [
+        {
+            "step_id": "step_1",
+            "description": "Primary research",
+            "dependencies": [],
+            "earliest_start": 0,
+            "earliest_finish": 30,
+            "latest_start": 0,
+            "latest_finish": 30,
+            "total_float_seconds": 0,
+            "is_critical": True,
+        },
+        {
+            "step_id": "step_2",
+            "description": "Secondary research",
+            "dependencies": [],
+            "earliest_start": 0,
+            "earliest_finish": 10,
+            "latest_start": 35,
+            "latest_finish": 45,
+            "total_float_seconds": 35,
+            "is_critical": False,
+        },
+        {
+            "step_id": "step_3",
+            "description": "Draft report",
+            "dependencies": ["step_1"],
+            "earliest_start": 30,
+            "earliest_finish": 50,
+            "latest_start": 30,
+            "latest_finish": 50,
+            "total_float_seconds": 0,
+            "is_critical": True,
+        },
+        {
+            "step_id": "step_4",
+            "description": "Quick appendix",
+            "dependencies": ["step_2"],
+            "earliest_start": 10,
+            "earliest_finish": 15,
+            "latest_start": 45,
+            "latest_finish": 50,
+            "total_float_seconds": 35,
+            "is_critical": False,
+        },
+    ]
+
+
+def test_get_execution_summary_can_include_step_slack(planner_stub):
+    """Execution summary should optionally expose step-slack diagnostics."""
+    steps = [
+        PlanStep("step_1", "Primary research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Secondary research", "research", 10, 0.02, 2000),
+        PlanStep("step_3", "Draft report", "docs", 20, 0.03, 3000, ["step_1"]),
+        PlanStep("step_4", "Quick appendix", "docs", 5, 0.03, 3000, ["step_2"]),
+    ]
+
+    summary = planner_stub.get_execution_summary(
+        _build_plan(steps),
+        include_step_slack=True,
+    )
+
+    assert summary["critical_step_ids"] == ["step_1", "step_3"]
+    assert [item["step_id"] for item in summary["step_slack"]] == [
+        "step_1",
+        "step_2",
+        "step_3",
+        "step_4",
+    ]
+    assert summary["step_slack"][1]["total_float_seconds"] == 35
+
+
+def test_get_execution_summary_validates_include_step_slack_flag(planner_stub):
+    """include_step_slack should require a strict boolean value."""
+    with pytest.raises(ValueError, match="include_step_slack must be a boolean"):
+        planner_stub.get_execution_summary(
+            _build_plan(
+                [
+                    PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+                ]
+            ),
+            include_step_slack=1,  # type: ignore[arg-type]
+        )
+
+
 def test_get_ready_steps_returns_only_dependency_satisfied_planned_steps(planner_stub):
     """Ready-queue helper should skip steps with unmet or terminally failed dependencies."""
     steps = [

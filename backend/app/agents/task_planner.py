@@ -543,6 +543,65 @@ class TaskPlanner:
         critical_path.reverse()
         return critical_path
 
+    def get_step_slack(self, plan: ExecutionPlan) -> List[Dict[str, Any]]:
+        """Return CPM-style slack metrics for each step.
+
+        Slack is calculated against dependency-only scheduling (unlimited
+        parallel workers). ``total_float_seconds`` indicates how long each
+        step may be delayed without changing the plan makespan.
+        """
+        self._validate_step_dependencies(plan.steps)
+
+        if not plan.steps:
+            return []
+
+        schedule = self._build_unconstrained_step_schedule(plan)
+        makespan = max((finish for _, finish in schedule.values()), default=0)
+
+        dependents: Dict[str, List[str]] = {step.step_id: [] for step in plan.steps}
+        for step in plan.steps:
+            for dependency_id in step.dependencies:
+                dependents[dependency_id].append(step.step_id)
+
+        latest_start: Dict[str, int] = {}
+        latest_finish: Dict[str, int] = {}
+
+        for batch in reversed(self.get_execution_batches(plan)):
+            for step in batch:
+                if not dependents[step.step_id]:
+                    step_latest_finish = makespan
+                else:
+                    step_latest_finish = min(
+                        latest_start[dependent_id]
+                        for dependent_id in dependents[step.step_id]
+                    )
+
+                latest_finish[step.step_id] = step_latest_finish
+                latest_start[step.step_id] = step_latest_finish - step.estimated_time
+
+        step_slack: List[Dict[str, Any]] = []
+        for step in plan.steps:
+            earliest_start, earliest_finish = schedule[step.step_id]
+            step_latest_start = latest_start[step.step_id]
+            step_latest_finish = latest_finish[step.step_id]
+            total_float_seconds = step_latest_start - earliest_start
+
+            step_slack.append(
+                {
+                    "step_id": step.step_id,
+                    "description": step.description,
+                    "dependencies": list(step.dependencies),
+                    "earliest_start": earliest_start,
+                    "earliest_finish": earliest_finish,
+                    "latest_start": step_latest_start,
+                    "latest_finish": step_latest_finish,
+                    "total_float_seconds": total_float_seconds,
+                    "is_critical": total_float_seconds == 0,
+                }
+            )
+
+        return step_slack
+
     def get_execution_summary(
         self,
         plan: ExecutionPlan,
@@ -550,6 +609,7 @@ class TaskPlanner:
         max_parallel_steps: Optional[int] = None,
         include_agent_workload: bool = False,
         include_execution_timeline: bool = False,
+        include_step_slack: bool = False,
     ) -> Dict[str, Any]:
         """Return dependency-aware schedule metrics for execution planning.
 
@@ -561,11 +621,15 @@ class TaskPlanner:
                 totals (steps, time, cost, tokens, and share metrics).
             include_execution_timeline: When ``True``, include per-step timing
                 details (start/finish, dependency-ready time, and queue delay).
+            include_step_slack: When ``True``, include CPM-style earliest/latest
+                timing windows and per-step float values.
         """
         if not isinstance(include_agent_workload, bool):
             raise ValueError("include_agent_workload must be a boolean")
         if not isinstance(include_execution_timeline, bool):
             raise ValueError("include_execution_timeline must be a boolean")
+        if not isinstance(include_step_slack, bool):
+            raise ValueError("include_step_slack must be a boolean")
 
         batches = self.get_execution_batches(plan)
         makespan = self.estimate_makespan(
@@ -597,6 +661,15 @@ class TaskPlanner:
                 plan,
                 max_parallel_steps=max_parallel_steps,
             )
+
+        if include_step_slack:
+            step_slack = self.get_step_slack(plan)
+            summary["step_slack"] = step_slack
+            summary["critical_step_ids"] = [
+                step_metrics["step_id"]
+                for step_metrics in step_slack
+                if step_metrics["is_critical"]
+            ]
 
         return summary
 
