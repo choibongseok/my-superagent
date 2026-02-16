@@ -133,6 +133,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         request_costs: Optional[Mapping[str, int]] = None,
         path_request_costs: Optional[Mapping[str, int]] = None,
         exclude_paths: Optional[Iterable[str]] = None,
+        exclude_methods: Optional[Iterable[str]] = None,
         client_id_header: Optional[str] = None,
     ):
         """
@@ -151,6 +152,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             exclude_paths: Optional custom path exclusion rules. Supports
                 exact paths, prefix rules, glob patterns, and method-scoped
                 rules such as ``"POST /admin/*"``.
+            exclude_methods: Optional HTTP methods that should bypass
+                rate limiting entirely (for example ``["OPTIONS"]`` for
+                CORS preflight requests).
             client_id_header: Optional HTTP header name used to identify
                 clients for bucket isolation (e.g. ``"X-API-Key"``). When
                 provided and present on a request, it takes precedence over
@@ -169,6 +173,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.burst_size = resolved_burst_size
         self.request_costs = self._normalize_request_costs(request_costs)
         self.path_request_costs = self._normalize_path_request_costs(path_request_costs)
+        self.exclude_methods = self._normalize_exclude_methods(exclude_methods)
         self.client_id_header = self._normalize_client_id_header(client_id_header)
 
         # Token bucket: refills at requests_per_minute rate
@@ -197,6 +202,31 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             raise ValueError("client_id_header must be a non-empty string")
 
         return client_id_header.strip()
+
+    @staticmethod
+    def _normalize_exclude_methods(
+        exclude_methods: Optional[Iterable[str]],
+    ) -> set[str]:
+        """Normalize optional HTTP methods that bypass rate limiting."""
+        if exclude_methods is None:
+            return set()
+
+        normalized_methods: set[str] = set()
+        for raw_method in exclude_methods:
+            if not isinstance(raw_method, str) or not raw_method.strip():
+                raise ValueError(
+                    "exclude_methods must contain non-empty HTTP method strings"
+                )
+
+            normalized_method = raw_method.strip().upper()
+            if not re.fullmatch(r"[A-Z]+", normalized_method):
+                raise ValueError(
+                    "exclude_methods must contain alphabetic HTTP method strings"
+                )
+
+            normalized_methods.add(normalized_method)
+
+        return normalized_methods
 
     def _normalize_request_costs(
         self,
@@ -349,11 +379,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     def _is_excluded_path(self, request: Request) -> bool:
         """Return whether current request should bypass rate limiting."""
+        method = request.method.upper()
+        if method in self.exclude_methods:
+            return True
+
         path = request.url.path
         if path in self.exclude_paths:
             return True
-
-        method = request.method.upper()
 
         for rule_method, pattern in self.exclude_path_rules:
             if rule_method not in (None, method):
@@ -602,6 +634,7 @@ def get_rate_limit_middleware(
     request_costs: Optional[Mapping[str, int]] = None,
     path_request_costs: Optional[Mapping[str, int]] = None,
     exclude_paths: Optional[Iterable[str]] = None,
+    exclude_methods: Optional[Iterable[str]] = None,
     client_id_header: Optional[str] = None,
 ):
     """
@@ -612,6 +645,7 @@ def get_rate_limit_middleware(
         request_costs: Optional per-method token costs
         path_request_costs: Optional exact/prefix path token costs
         exclude_paths: Optional exact/prefix/method-scoped exclusion rules
+        exclude_methods: Optional HTTP methods that bypass rate limiting
         client_id_header: Optional HTTP header name used for client identity
 
     Returns:
@@ -625,5 +659,6 @@ def get_rate_limit_middleware(
         request_costs=request_costs,
         path_request_costs=path_request_costs,
         exclude_paths=exclude_paths,
+        exclude_methods=exclude_methods,
         client_id_header=client_id_header,
     )

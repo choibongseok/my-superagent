@@ -697,3 +697,59 @@ def test_rate_limit_middleware_rejects_invalid_exclude_paths() -> None:
         match="exclude_paths must contain non-empty path pattern strings",
     ):
         RateLimitMiddleware(app, exclude_paths=[""])
+
+
+def test_rate_limit_middleware_excludes_configured_methods(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.api_route("/limited", methods=["GET", "OPTIONS"])
+    async def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+        exclude_methods=[" options "],
+    )
+
+    with TestClient(app) as client:
+        preflight_one = client.options("/limited")
+        preflight_two = client.options("/limited")
+        first_get = client.get("/limited")
+        second_get = client.get("/limited")
+
+        assert preflight_one.status_code == 200
+        assert preflight_two.status_code == 200
+        assert "X-RateLimit-Remaining" not in preflight_one.headers
+
+        assert first_get.status_code == 200
+        assert first_get.headers["X-RateLimit-Remaining"] == "0"
+        assert second_get.status_code == 429
+
+
+def test_rate_limit_middleware_rejects_invalid_exclude_methods() -> None:
+    app = FastAPI()
+
+    with pytest.raises(
+        ValueError,
+        match="exclude_methods must contain non-empty HTTP method strings",
+    ):
+        RateLimitMiddleware(app, exclude_methods=[""])
+
+    with pytest.raises(
+        ValueError,
+        match="exclude_methods must contain non-empty HTTP method strings",
+    ):
+        RateLimitMiddleware(app, exclude_methods=[123])  # type: ignore[list-item]
+
+    with pytest.raises(
+        ValueError,
+        match="exclude_methods must contain alphabetic HTTP method strings",
+    ):
+        RateLimitMiddleware(app, exclude_methods=["P0ST"])
