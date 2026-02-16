@@ -1504,6 +1504,20 @@ def test_search_many_with_diagnostics_reports_per_query_rows_and_summary(monkeyp
     assert diagnostics["summary"]["cache_hits"] == 1
     assert diagnostics["summary"]["stale_fallbacks"] == 0
     assert diagnostics["summary"]["average_latency_ms"] >= 0
+    assert diagnostics["summary"]["min_latency_ms"] >= 0
+    assert diagnostics["summary"]["max_latency_ms"] >= 0
+    assert (
+        diagnostics["summary"]["min_latency_ms"]
+        <= diagnostics["summary"]["median_latency_ms"]
+        <= diagnostics["summary"]["max_latency_ms"]
+    )
+    assert diagnostics["summary"]["success_rate"] == pytest.approx(2 / 3)
+    assert diagnostics["summary"]["source_counts"] == {
+        "fresh_search": 1,
+        "cache_hit": 1,
+        "stale_cache_fallback": 0,
+        "error": 1,
+    }
 
 
 def test_search_many_with_diagnostics_rejects_invalid_query_batches(monkeypatch):

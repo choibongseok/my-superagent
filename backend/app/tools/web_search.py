@@ -3,7 +3,7 @@
 import logging
 import re
 import time
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from fnmatch import fnmatchcase
 from typing import Any, Iterable, Optional
 
@@ -1102,7 +1102,8 @@ class DuckDuckGoSearchTool(BaseTool):
 
         Returns:
             Dictionary containing ``results`` (per-query diagnostics payloads)
-            and ``summary`` (aggregate success/cache/latency metrics).
+            and ``summary`` (aggregate success/cache/latency metrics,
+            source distribution, and latency extrema).
         """
         normalized_queries = self._normalize_query_batch(queries)
         diagnostics_rows = [
@@ -1119,9 +1120,23 @@ class DuckDuckGoSearchTool(BaseTool):
             1 for row in diagnostics_rows if row["source"] == "fresh_search"
         )
         error_count = total_queries - success_count
-        average_latency_ms = (
-            sum(float(row["latency_ms"]) for row in diagnostics_rows) / total_queries
-        )
+
+        latency_values = [float(row["latency_ms"]) for row in diagnostics_rows]
+        average_latency_ms = sum(latency_values) / total_queries
+        min_latency_ms = min(latency_values)
+        max_latency_ms = max(latency_values)
+
+        sorted_latency_values = sorted(latency_values)
+        median_index = total_queries // 2
+        if total_queries % 2 == 1:
+            median_latency_ms = sorted_latency_values[median_index]
+        else:
+            median_latency_ms = (
+                sorted_latency_values[median_index - 1]
+                + sorted_latency_values[median_index]
+            ) / 2
+
+        source_counts = Counter(str(row["source"]) for row in diagnostics_rows)
 
         return {
             "results": diagnostics_rows,
@@ -1133,6 +1148,19 @@ class DuckDuckGoSearchTool(BaseTool):
                 "cache_hits": cache_hit_count,
                 "stale_fallbacks": stale_fallback_count,
                 "average_latency_ms": average_latency_ms,
+                "min_latency_ms": min_latency_ms,
+                "max_latency_ms": max_latency_ms,
+                "median_latency_ms": median_latency_ms,
+                "success_rate": success_count / total_queries,
+                "source_counts": {
+                    "fresh_search": source_counts.get("fresh_search", 0),
+                    "cache_hit": source_counts.get("cache_hit", 0),
+                    "stale_cache_fallback": source_counts.get(
+                        "stale_cache_fallback",
+                        0,
+                    ),
+                    "error": source_counts.get("error", 0),
+                },
             },
         }
 
