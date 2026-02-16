@@ -16,6 +16,7 @@ def _build_plugin_class(
     permissions: list[str],
     lifecycle: dict[str, int] | None = None,
     *,
+    version: str = "1.0.0",
     author: str = "tests",
     description: str | None = None,
     inputs: dict[str, Any] | None = None,
@@ -38,7 +39,7 @@ def _build_plugin_class(
     def get_manifest(self) -> PluginManifest:
         return PluginManifest(
             name=manifest_name,
-            version="1.0.0",
+            version=version,
             description=description or f"{manifest_name} plugin",
             author=author,
             permissions=permissions,
@@ -1184,6 +1185,78 @@ async def test_list_plugins_supports_sorting_by_manifest_fields(tmp_path, monkey
     sorted_plugins = manager.list_plugins(sort_by="author", sort_order="DESC")
 
     assert [item["name"] for item in sorted_plugins] == [
+        "beta-plugin",
+        "gamma-plugin",
+        "alpha-plugin",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_sorts_versions_using_semver_order(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+    (tmp_path / "gamma.py").write_text("# gamma", encoding="utf-8")
+    (tmp_path / "delta.py").write_text("# delta", encoding="utf-8")
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class(
+                "alpha-plugin",
+                ["network.http"],
+                version="1.2.0",
+            ),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class(
+                "beta-plugin",
+                ["network.http"],
+                version="1.10.0",
+            ),
+        ),
+        "app.plugins.gamma": _plugin_module(
+            "app.plugins.gamma",
+            _build_plugin_class(
+                "gamma-plugin",
+                ["network.http"],
+                version="1.10.0-beta.1",
+            ),
+        ),
+        "app.plugins.delta": _plugin_module(
+            "app.plugins.delta",
+            _build_plugin_class(
+                "delta-plugin",
+                ["network.http"],
+                version="2.0.0",
+            ),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    ascending = manager.list_plugins(sort_by="version", sort_order="asc")
+    assert [item["name"] for item in ascending] == [
+        "alpha-plugin",
+        "gamma-plugin",
+        "beta-plugin",
+        "delta-plugin",
+    ]
+
+    descending = manager.list_plugins(sort_by="version", sort_order="desc")
+    assert [item["name"] for item in descending] == [
+        "delta-plugin",
         "beta-plugin",
         "gamma-plugin",
         "alpha-plugin",

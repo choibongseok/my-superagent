@@ -26,6 +26,14 @@ class PluginManager:
         - Plugin dependency management
     """
 
+    SEMVER_PATTERN = re.compile(
+        r"^[vV]?(?P<major>0|[1-9]\d*)"
+        r"\.(?P<minor>0|[1-9]\d*)"
+        r"\.(?P<patch>0|[1-9]\d*)"
+        r"(?:-(?P<prerelease>[0-9A-Za-z.-]+))?"
+        r"(?:\+[0-9A-Za-z.-]+)?$"
+    )
+
     def __init__(self, plugin_dir: Optional[str] = None):
         """
         Initialize plugin manager.
@@ -569,6 +577,54 @@ class PluginManager:
 
         return all(token in searchable_text for token in query_tokens)
 
+    @staticmethod
+    def _normalize_prerelease_identifier(
+        identifier: str,
+    ) -> tuple[int, int | str] | None:
+        """Normalize one semantic-version prerelease identifier for sorting."""
+        if not identifier:
+            return None
+
+        if identifier.isdigit():
+            return (0, int(identifier))
+
+        return (1, identifier.casefold())
+
+    @classmethod
+    def _version_sort_key(cls, version: str) -> tuple[Any, ...]:
+        """Build deterministic sort keys with semantic-version precedence."""
+        normalized_version = str(version).strip()
+        semver_match = cls.SEMVER_PATTERN.fullmatch(normalized_version)
+        if semver_match is None:
+            return (1, normalized_version.casefold(), normalized_version)
+
+        prerelease = semver_match.group("prerelease")
+        prerelease_identifiers: tuple[tuple[int, int | str], ...] = ()
+        prerelease_rank = 1
+
+        if prerelease is not None:
+            parsed_identifiers: list[tuple[int, int | str]] = []
+            for raw_identifier in prerelease.split("."):
+                normalized_identifier = cls._normalize_prerelease_identifier(
+                    raw_identifier
+                )
+                if normalized_identifier is None:
+                    return (1, normalized_version.casefold(), normalized_version)
+                parsed_identifiers.append(normalized_identifier)
+
+            prerelease_identifiers = tuple(parsed_identifiers)
+            prerelease_rank = 0
+
+        return (
+            0,
+            int(semver_match.group("major")),
+            int(semver_match.group("minor")),
+            int(semver_match.group("patch")),
+            prerelease_rank,
+            prerelease_identifiers,
+            normalized_version.casefold(),
+        )
+
     def list_plugins(
         self,
         required_permissions: Optional[Sequence[str]] = None,
@@ -631,9 +687,9 @@ class PluginManager:
                 query text. Defaults to ``False`` for case-insensitive
                 matching.
             sort_by: Optional field used for sorting output. Supports
-                ``"name"``, ``"version"``, ``"author"``,
-                ``"permission_count"``, runtime ``"module_path"``, and
-                runtime ``"initialized"`` status.
+                ``"name"``, ``"version"`` (semantic-version aware),
+                ``"author"``, ``"permission_count"``, runtime
+                ``"module_path"``, and runtime ``"initialized"`` status.
             sort_order: Sorting direction used when ``sort_by`` is provided.
                 Supports ``"asc"`` (default) and ``"desc"``.
             offset: Number of filtered/sorted plugin entries to skip before
@@ -829,6 +885,15 @@ class PluginManager:
                 manifests = sorted(
                     manifests,
                     key=lambda manifest: len(manifest.permissions),
+                    reverse=reverse_sort,
+                )
+            elif sort_by == "version":
+                manifests = sorted(
+                    manifests,
+                    key=lambda manifest: (
+                        self._version_sort_key(manifest.version),
+                        manifest.name.casefold(),
+                    ),
                     reverse=reverse_sort,
                 )
             elif sort_by == "module_path":
