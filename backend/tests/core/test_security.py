@@ -545,6 +545,56 @@ def test_decode_token_rejects_missing_required_scopes() -> None:
     assert decode_token(token, required_scopes=["chat:read", "chat:write"]) is None
 
 
+def test_decode_token_accepts_required_scope_patterns() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "scope": "chat:read chat:write profile:view",
+        }
+    )
+
+    payload = decode_token(
+        token,
+        required_scopes=["chat:*", "profile:*"],
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_accepts_required_scope_patterns_with_match_any_mode() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "scope": "chat:read analytics:view",
+        }
+    )
+
+    payload = decode_token(
+        token,
+        required_scopes=["admin:*", "analytics:*"],
+        match_any_scopes=True,
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_rejects_non_matching_required_scope_patterns() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "scope": "chat:read profile:view",
+        }
+    )
+
+    assert (
+        decode_token(
+            token,
+            required_scopes=["chat:*", "admin:*"],
+        )
+        is None
+    )
+
+
 def test_decode_token_supports_custom_scope_claim_name() -> None:
     token = create_access_token(
         {

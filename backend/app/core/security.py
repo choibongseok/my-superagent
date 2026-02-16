@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
+from fnmatch import fnmatchcase
 import re
 import time
 from typing import Any
@@ -265,6 +266,22 @@ def _normalize_required_scopes(
         raise ValueError("required_scopes cannot be an empty iterable")
 
     return tuple(dict.fromkeys(normalized_scopes))
+
+
+def _scope_requirement_matches(
+    required_scope: str,
+    token_scope_set: set[str],
+) -> bool:
+    """Return whether one required scope is satisfied by token scopes.
+
+    Required scopes support glob patterns (for example, ``"chat:*"``).
+    """
+    if any(token in required_scope for token in "*?["):
+        return any(
+            fnmatchcase(token_scope, required_scope) for token_scope in token_scope_set
+        )
+
+    return required_scope in token_scope_set
 
 
 def _normalize_scope_claim_name(scope_claim: str) -> str:
@@ -537,6 +554,8 @@ def decode_token(
             any contained string fully matches.
         required_scopes: Optional OAuth-style scope requirements. Accepts a
             scope string (space/comma-delimited) or iterable of scope strings.
+            Required scope values support glob patterns (for example,
+            ``"chat:*"``).
         scope_claim: Token claim name containing scopes. Defaults to
             ``"scope"``.
         match_any_scopes: Scope matching mode. ``False`` (default) requires
@@ -679,12 +698,17 @@ def decode_token(
             return None
 
         token_scope_set = set(token_scopes)
-        required_scope_set = set(normalized_required_scopes)
 
         if match_any_scopes:
-            if token_scope_set.isdisjoint(required_scope_set):
+            if not any(
+                _scope_requirement_matches(required_scope, token_scope_set)
+                for required_scope in normalized_required_scopes
+            ):
                 return None
-        elif not required_scope_set.issubset(token_scope_set):
+        elif not all(
+            _scope_requirement_matches(required_scope, token_scope_set)
+            for required_scope in normalized_required_scopes
+        ):
             return None
 
     if normalized_max_age_seconds is not None:
