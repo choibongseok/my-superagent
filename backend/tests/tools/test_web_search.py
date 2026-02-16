@@ -858,6 +858,63 @@ def test_invalidate_cache_rejects_invalid_newest_first_selector(monkeypatch):
         tool.invalidate_cache(newest_first="true")  # type: ignore[arg-type]
 
 
+def test_invalidate_cache_rejects_invalid_case_sensitive_selector(monkeypatch):
+    """case_sensitive selector should accept only boolean values."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    with pytest.raises(ValueError, match="case_sensitive must be a boolean value"):
+        tool.invalidate_cache(case_sensitive="false")  # type: ignore[arg-type]
+
+
+def test_invalidate_cache_case_insensitive_prefix_matching(monkeypatch):
+    """case_sensitive=False should match prefix selectors across case variants."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("News AI") == "payload"
+    assert tool._run("NEWS robotics") == "payload"
+    assert tool._run("weather seoul") == "payload"
+
+    removed_entries = tool.invalidate_cache(prefix="news", case_sensitive=False)
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["weather seoul"]
+
+
+def test_invalidate_cache_case_insensitive_regex_matching(monkeypatch):
+    """case_sensitive=False should apply ignore-case behavior for regex selectors."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("News AI") == "payload"
+    assert tool._run("NEWS robotics") == "payload"
+    assert tool._run("weather seoul") == "payload"
+
+    removed_entries = tool.invalidate_cache(
+        regex=r"^news\s",
+        case_sensitive=False,
+    )
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["weather seoul"]
+
+
 def test_prune_cache_removes_entries_outside_retention_window(monkeypatch):
     """prune_cache should drop entries older than TTL/stale retention windows."""
     fake_backend = _FakeSearchBackend(response="payload")

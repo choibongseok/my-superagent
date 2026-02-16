@@ -337,6 +337,7 @@ class DuckDuckGoSearchTool(BaseTool):
         older_than_seconds: float | None = None,
         limit: int | None = None,
         newest_first: bool = False,
+        case_sensitive: bool = True,
         dry_run: bool = False,
     ) -> int:
         """Invalidate selected cache entries or clear the full cache.
@@ -365,6 +366,11 @@ class DuckDuckGoSearchTool(BaseTool):
                 order.
             newest_first: When ``True``, matching entries are processed from
                 newest to oldest before optional ``limit`` capping.
+            case_sensitive: When ``True`` (default), text selectors are
+                matched with exact case. Set to ``False`` to enable
+                case-insensitive matching for ``query``, ``queries``,
+                ``contains``, ``prefix``, ``suffix``, ``pattern``, and
+                ``regex`` selectors.
             dry_run: When ``True``, returns the number of matching cache
                 entries without deleting them.
 
@@ -377,8 +383,8 @@ class DuckDuckGoSearchTool(BaseTool):
                 ``regex`` is not a valid regular expression, if
                 ``regex_flags`` is invalid, if ``older_than_seconds`` is not
                 a positive number, if ``limit`` is not a positive integer, if
-                ``newest_first`` is not a boolean, or if ``dry_run`` is not a
-                boolean.
+                ``newest_first`` is not a boolean, if ``case_sensitive`` is
+                not a boolean, or if ``dry_run`` is not a boolean.
         """
         selector_count = sum(
             candidate is not None
@@ -404,6 +410,9 @@ class DuckDuckGoSearchTool(BaseTool):
 
         if not isinstance(newest_first, bool):
             raise ValueError("newest_first must be a boolean value")
+
+        if not isinstance(case_sensitive, bool):
+            raise ValueError("case_sensitive must be a boolean value")
 
         if regex_flags is not None and regex is None:
             raise ValueError("regex_flags can only be used with regex selector")
@@ -444,9 +453,18 @@ class DuckDuckGoSearchTool(BaseTool):
 
         if query is not None:
             normalized_query = self._normalize_query(query)
-            matching_queries = (
-                [normalized_query] if normalized_query in self._cache else []
-            )
+            if case_sensitive:
+                matching_queries = (
+                    [normalized_query] if normalized_query in self._cache else []
+                )
+            else:
+                normalized_query_casefold = normalized_query.casefold()
+                matching_queries = [
+                    cached_query
+                    for cached_query in self._cache
+                    if cached_query.casefold() == normalized_query_casefold
+                ]
+
             matching_queries = _apply_limit(matching_queries)
             if not dry_run:
                 for cached_query in matching_queries:
@@ -466,11 +484,23 @@ class DuckDuckGoSearchTool(BaseTool):
                     "queries must be an iterable of non-empty strings"
                 ) from exc
 
-            matching_queries = [
-                normalized_query
-                for normalized_query in dict.fromkeys(normalized_queries)
-                if normalized_query in self._cache
-            ]
+            if case_sensitive:
+                matching_queries = [
+                    normalized_query
+                    for normalized_query in dict.fromkeys(normalized_queries)
+                    if normalized_query in self._cache
+                ]
+            else:
+                casefolded_targets = {
+                    normalized_query.casefold()
+                    for normalized_query in normalized_queries
+                }
+                matching_queries = [
+                    cached_query
+                    for cached_query in self._cache
+                    if cached_query.casefold() in casefolded_targets
+                ]
+
             matching_queries = _apply_limit(matching_queries)
 
             if not dry_run:
@@ -497,35 +527,69 @@ class DuckDuckGoSearchTool(BaseTool):
 
         if contains is not None:
             normalized_contains = self._normalize_query(contains)
-            matching_queries = [
-                cached_query
-                for cached_query in self._cache
-                if normalized_contains in cached_query
-            ]
+            if case_sensitive:
+                matching_queries = [
+                    cached_query
+                    for cached_query in self._cache
+                    if normalized_contains in cached_query
+                ]
+            else:
+                normalized_contains_casefold = normalized_contains.casefold()
+                matching_queries = [
+                    cached_query
+                    for cached_query in self._cache
+                    if normalized_contains_casefold in cached_query.casefold()
+                ]
         elif prefix is not None:
             normalized_prefix = self._normalize_query(prefix)
-            matching_queries = [
-                cached_query
-                for cached_query in self._cache
-                if cached_query.startswith(normalized_prefix)
-            ]
+            if case_sensitive:
+                matching_queries = [
+                    cached_query
+                    for cached_query in self._cache
+                    if cached_query.startswith(normalized_prefix)
+                ]
+            else:
+                normalized_prefix_casefold = normalized_prefix.casefold()
+                matching_queries = [
+                    cached_query
+                    for cached_query in self._cache
+                    if cached_query.casefold().startswith(normalized_prefix_casefold)
+                ]
         elif suffix is not None:
             normalized_suffix = self._normalize_query(suffix)
-            matching_queries = [
-                cached_query
-                for cached_query in self._cache
-                if cached_query.endswith(normalized_suffix)
-            ]
+            if case_sensitive:
+                matching_queries = [
+                    cached_query
+                    for cached_query in self._cache
+                    if cached_query.endswith(normalized_suffix)
+                ]
+            else:
+                normalized_suffix_casefold = normalized_suffix.casefold()
+                matching_queries = [
+                    cached_query
+                    for cached_query in self._cache
+                    if cached_query.casefold().endswith(normalized_suffix_casefold)
+                ]
         elif pattern is not None:
             normalized_pattern = self._normalize_query(pattern)
-            matching_queries = [
-                cached_query
-                for cached_query in self._cache
-                if fnmatchcase(cached_query, normalized_pattern)
-            ]
+            if case_sensitive:
+                matching_queries = [
+                    cached_query
+                    for cached_query in self._cache
+                    if fnmatchcase(cached_query, normalized_pattern)
+                ]
+            else:
+                normalized_pattern_casefold = normalized_pattern.casefold()
+                matching_queries = [
+                    cached_query
+                    for cached_query in self._cache
+                    if fnmatchcase(cached_query.casefold(), normalized_pattern_casefold)
+                ]
         else:
             assert regex is not None
             regex_flag_bits = self._parse_regex_flags(regex_flags)
+            if not case_sensitive:
+                regex_flag_bits |= re.IGNORECASE
             try:
                 compiled_pattern = re.compile(regex, flags=regex_flag_bits)
             except re.error as exc:
