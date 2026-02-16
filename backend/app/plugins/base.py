@@ -521,6 +521,28 @@ class BasePlugin(ABC):
 
         raise ValueError("numeric value expected")
 
+    @staticmethod
+    def _resolve_effective_numeric_bound(
+        constraints: list[tuple[float, bool]],
+        *,
+        is_lower: bool,
+    ) -> tuple[float, bool] | None:
+        """Resolve the strictest effective numeric bound from constraints."""
+        if not constraints:
+            return None
+
+        boundary_value = (
+            max(boundary for boundary, _ in constraints)
+            if is_lower
+            else min(boundary for boundary, _ in constraints)
+        )
+        inclusive = all(
+            is_inclusive
+            for boundary, is_inclusive in constraints
+            if math.isclose(boundary, boundary_value, rel_tol=0.0, abs_tol=1e-12)
+        )
+        return boundary_value, inclusive
+
     @classmethod
     def _validate_numeric_bounds(
         cls,
@@ -530,7 +552,7 @@ class BasePlugin(ABC):
         schema: Dict[str, Any],
         expected_type: Optional[str],
     ) -> None:
-        """Validate minimum/maximum constraints for numeric schema fields."""
+        """Validate inclusive/exclusive numeric bounds for schema fields."""
         minimum = cls._coerce_numeric_constraint(
             schema,
             key=key,
@@ -543,14 +565,63 @@ class BasePlugin(ABC):
             aliases=("maximum", "max"),
             label="maximum",
         )
+        exclusive_minimum = cls._coerce_numeric_constraint(
+            schema,
+            key=key,
+            aliases=("exclusive_minimum", "exclusiveMinimum", "exclusive_min"),
+            label="exclusive_minimum",
+        )
+        exclusive_maximum = cls._coerce_numeric_constraint(
+            schema,
+            key=key,
+            aliases=("exclusive_maximum", "exclusiveMaximum", "exclusive_max"),
+            label="exclusive_maximum",
+        )
 
-        if minimum is None and maximum is None:
+        if (
+            minimum is None
+            and maximum is None
+            and exclusive_minimum is None
+            and exclusive_maximum is None
+        ):
             return
 
         if minimum is not None and maximum is not None and minimum > maximum:
             raise ValueError(
                 f"Invalid schema for input '{key}': minimum cannot be greater than maximum"
             )
+
+        lower_constraints: list[tuple[float, bool]] = []
+        if minimum is not None:
+            lower_constraints.append((minimum, True))
+        if exclusive_minimum is not None:
+            lower_constraints.append((exclusive_minimum, False))
+
+        upper_constraints: list[tuple[float, bool]] = []
+        if maximum is not None:
+            upper_constraints.append((maximum, True))
+        if exclusive_maximum is not None:
+            upper_constraints.append((exclusive_maximum, False))
+
+        lower_bound = cls._resolve_effective_numeric_bound(
+            lower_constraints,
+            is_lower=True,
+        )
+        upper_bound = cls._resolve_effective_numeric_bound(
+            upper_constraints,
+            is_lower=False,
+        )
+
+        if lower_bound and upper_bound:
+            lower_value, lower_inclusive = lower_bound
+            upper_value, upper_inclusive = upper_bound
+            if lower_value > upper_value or (
+                math.isclose(lower_value, upper_value, rel_tol=0.0, abs_tol=1e-12)
+                and (not lower_inclusive or not upper_inclusive)
+            ):
+                raise ValueError(
+                    f"Invalid schema for input '{key}': numeric lower bounds conflict with upper bounds"
+                )
 
         if expected_type not in {"integer", "number"}:
             return
@@ -562,9 +633,19 @@ class BasePlugin(ABC):
                 f"Invalid value for input '{key}': must be greater than or equal to {minimum:g}"
             )
 
+        if exclusive_minimum is not None and numeric_value <= exclusive_minimum:
+            raise ValueError(
+                f"Invalid value for input '{key}': must be greater than {exclusive_minimum:g}"
+            )
+
         if maximum is not None and numeric_value > maximum:
             raise ValueError(
                 f"Invalid value for input '{key}': must be less than or equal to {maximum:g}"
+            )
+
+        if exclusive_maximum is not None and numeric_value >= exclusive_maximum:
+            raise ValueError(
+                f"Invalid value for input '{key}': must be less than {exclusive_maximum:g}"
             )
 
     @classmethod

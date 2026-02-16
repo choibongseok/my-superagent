@@ -127,6 +127,68 @@ class ConstrainedSchemaPlugin(BasePlugin):
         )
 
 
+class ExclusiveBoundsSchemaPlugin(BasePlugin):
+    """Plugin using exclusive numeric bound constraints."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="exclusive-bounds",
+            version="1.0.0",
+            description="Exclusive numeric bounds plugin",
+            author="tests",
+            permissions=[],
+            inputs={
+                "confidence": {
+                    "type": "number",
+                    "required": True,
+                    "exclusiveMinimum": 0,
+                    "exclusiveMaximum": 1,
+                },
+                "attempts": {
+                    "type": "integer",
+                    "required": False,
+                    "exclusive_minimum": 0,
+                    "exclusive_maximum": 4,
+                },
+            },
+            outputs={"ok": "boolean"},
+        )
+
+
+class InvalidExclusiveBoundsSchemaPlugin(BasePlugin):
+    """Plugin exposing conflicting exclusive numeric bounds metadata."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="invalid-exclusive-bounds",
+            version="1.0.0",
+            description="Invalid exclusive numeric bounds constraints",
+            author="tests",
+            permissions=[],
+            inputs={
+                "confidence": {
+                    "type": "number",
+                    "required": True,
+                    "minimum": 0,
+                    "exclusiveMaximum": 0,
+                },
+            },
+            outputs={"ok": "boolean"},
+        )
+
+
 class InvalidMultipleOfSchemaPlugin(BasePlugin):
     """Plugin exposing invalid multiple_of schema metadata."""
 
@@ -251,6 +313,34 @@ class ConfigLengthConstraintPlugin(BasePlugin):
                     "min_properties": 1,
                     "max_properties": 2,
                 },
+            },
+        )
+
+
+class ExclusiveBoundsConfigPlugin(BasePlugin):
+    """Plugin with exclusive numeric bounds in config schema."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="exclusive-bounds-config",
+            version="1.0.0",
+            description="Exclusive numeric config bounds plugin",
+            author="tests",
+            permissions=[],
+            inputs={"query": "string (required)"},
+            outputs={"ok": "boolean"},
+            config_schema={
+                "threshold": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "exclusiveMaximum": 1,
+                }
             },
         )
 
@@ -466,6 +556,58 @@ async def test_validate_inputs_rejects_values_outside_multiple_of_constraint():
 
 
 @pytest.mark.asyncio
+async def test_validate_inputs_accepts_values_within_exclusive_bounds():
+    plugin = ExclusiveBoundsSchemaPlugin()
+
+    assert (
+        await plugin.validate_inputs(
+            {
+                "confidence": 0.5,
+                "attempts": 2,
+            }
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_values_at_exclusive_boundaries():
+    plugin = ExclusiveBoundsSchemaPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'confidence': must be greater than 0",
+    ):
+        await plugin.validate_inputs({"confidence": 0})
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'confidence': must be less than 1",
+    ):
+        await plugin.validate_inputs({"confidence": 1})
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'attempts': must be greater than 0",
+    ):
+        await plugin.validate_inputs({"confidence": 0.5, "attempts": 0})
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_conflicting_exclusive_bounds_schema():
+    plugin = InvalidExclusiveBoundsSchemaPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Invalid schema for input 'confidence': "
+            "numeric lower bounds conflict with upper bounds"
+        ),
+    ):
+        await plugin.validate_inputs({"confidence": 0})
+
+
+@pytest.mark.asyncio
 async def test_validate_inputs_rejects_invalid_multiple_of_schema():
     plugin = InvalidMultipleOfSchemaPlugin()
 
@@ -581,5 +723,43 @@ def test_validate_config_rejects_array_and_object_size_constraint_violations():
                     "b": 2,
                     "c": 3,
                 },
+            }
+        )
+
+
+def test_validate_config_supports_exclusive_numeric_bounds():
+    plugin = ExclusiveBoundsConfigPlugin()
+
+    validated_config = plugin.validate_config(
+        {
+            "threshold": 0.5,
+        }
+    )
+
+    assert validated_config == {
+        "threshold": 0.5,
+    }
+
+
+def test_validate_config_rejects_values_at_exclusive_numeric_bounds():
+    plugin = ExclusiveBoundsConfigPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'threshold': must be greater than 0",
+    ):
+        plugin.validate_config(
+            {
+                "threshold": 0,
+            }
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'threshold': must be less than 1",
+    ):
+        plugin.validate_config(
+            {
+                "threshold": 1,
             }
         )
