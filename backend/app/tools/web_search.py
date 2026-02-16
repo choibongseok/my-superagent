@@ -79,9 +79,7 @@ class DuckDuckGoSearchTool(BaseTool):
         self._retry_backoff_seconds = self._normalize_retry_backoff_seconds(
             retry_backoff_seconds
         )
-        self._max_batch_queries = self._normalize_max_batch_queries(
-            max_batch_queries
-        )
+        self._max_batch_queries = self._normalize_max_batch_queries(max_batch_queries)
         self._cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
         self._cache_metrics = {
             "cache_hits": 0,
@@ -772,6 +770,8 @@ class DuckDuckGoSearchTool(BaseTool):
         min_age_seconds: float | None = None,
         max_age_seconds: float | None = None,
         case_sensitive: bool = True,
+        include_payload_preview: bool = False,
+        payload_preview_chars: int | None = 120,
     ) -> list[dict[str, Any]]:
         """Return a deterministic snapshot of cached queries and freshness state.
 
@@ -790,6 +790,12 @@ class DuckDuckGoSearchTool(BaseTool):
             case_sensitive: When ``True`` (default), ``query_contains`` matching
                 is case-sensitive. Set to ``False`` for case-insensitive
                 matching.
+            include_payload_preview: When ``True``, include payload preview
+                metadata in each cache-entry row for debugging.
+            payload_preview_chars: Optional maximum number of characters to
+                include in each payload preview. Set to ``None`` to include
+                full payload text whenever ``include_payload_preview`` is
+                enabled.
 
         Returns:
             List of per-entry diagnostics with query key, age, freshness status,
@@ -801,7 +807,9 @@ class DuckDuckGoSearchTool(BaseTool):
                 if ``status`` includes unsupported values, if
                 ``query_contains`` is not a non-empty string when provided, if
                 ``min_age_seconds``/``max_age_seconds`` are not non-negative
-                numbers, or if ``min_age_seconds`` is greater than
+                numbers, if ``include_payload_preview`` is not a boolean,
+                if ``payload_preview_chars`` is not ``None`` or a positive
+                integer, or if ``min_age_seconds`` is greater than
                 ``max_age_seconds``.
         """
         if not isinstance(newest_first, bool):
@@ -809,6 +817,23 @@ class DuckDuckGoSearchTool(BaseTool):
 
         if not isinstance(case_sensitive, bool):
             raise ValueError("case_sensitive must be a boolean value")
+
+        if not isinstance(include_payload_preview, bool):
+            raise ValueError("include_payload_preview must be a boolean value")
+
+        if payload_preview_chars is not None:
+            if isinstance(payload_preview_chars, bool) or not isinstance(
+                payload_preview_chars,
+                int,
+            ):
+                raise ValueError(
+                    "payload_preview_chars must be a positive integer or None"
+                )
+
+            if payload_preview_chars <= 0:
+                raise ValueError(
+                    "payload_preview_chars must be a positive integer or None"
+                )
 
         if min_age_seconds is not None:
             if isinstance(min_age_seconds, bool) or not isinstance(
@@ -837,9 +862,7 @@ class DuckDuckGoSearchTool(BaseTool):
             and max_age_seconds is not None
             and min_age_seconds > max_age_seconds
         ):
-            raise ValueError(
-                "min_age_seconds cannot be greater than max_age_seconds"
-            )
+            raise ValueError("min_age_seconds cannot be greater than max_age_seconds")
 
         if limit is not None:
             if isinstance(limit, bool) or not isinstance(limit, int):
@@ -891,14 +914,23 @@ class DuckDuckGoSearchTool(BaseTool):
                     if normalized_query_contains_casefold not in query.casefold():
                         continue
 
-            inspected_entries.append(
-                {
-                    "query": query,
-                    "age_seconds": age_seconds,
-                    "status": cache_status,
-                    "payload_chars": len(payload),
-                }
-            )
+            entry: dict[str, Any] = {
+                "query": query,
+                "age_seconds": age_seconds,
+                "status": cache_status,
+                "payload_chars": len(payload),
+            }
+
+            if include_payload_preview:
+                if payload_preview_chars is None:
+                    payload_preview = payload
+                else:
+                    payload_preview = payload[:payload_preview_chars]
+
+                entry["payload_preview"] = payload_preview
+                entry["payload_truncated"] = payload_preview != payload
+
+            inspected_entries.append(entry)
 
         if limit is not None:
             inspected_entries = inspected_entries[:limit]

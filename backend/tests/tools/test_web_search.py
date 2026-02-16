@@ -1198,6 +1198,68 @@ def test_list_cache_entries_can_filter_by_age_range(monkeypatch):
     assert [entry["query"] for entry in entries] == ["warm"]
 
 
+def test_list_cache_entries_can_include_payload_previews(monkeypatch):
+    """Cache inspection should optionally include truncated payload previews."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 300.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=60, cache_max_entries=16)
+    tool._cache["alpha"] = (290.0, "1234567890")
+
+    entries = tool.list_cache_entries(
+        include_payload_preview=True,
+        payload_preview_chars=4,
+    )
+
+    assert entries == [
+        {
+            "query": "alpha",
+            "age_seconds": 10.0,
+            "status": "active",
+            "payload_chars": 10,
+            "payload_preview": "1234",
+            "payload_truncated": True,
+        }
+    ]
+
+
+def test_list_cache_entries_can_include_full_payload_preview(monkeypatch):
+    """Payload preview should include full text when preview limit is disabled."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 300.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=60, cache_max_entries=16)
+    tool._cache["beta"] = (295.0, "hello")
+
+    entries = tool.list_cache_entries(
+        include_payload_preview=True,
+        payload_preview_chars=None,
+    )
+
+    assert entries == [
+        {
+            "query": "beta",
+            "age_seconds": 5.0,
+            "status": "active",
+            "payload_chars": 5,
+            "payload_preview": "hello",
+            "payload_truncated": False,
+        }
+    ]
+
+
 def test_list_cache_entries_rejects_invalid_options(monkeypatch):
     """Cache inspection options should validate selectors and filter options."""
     fake_backend = _FakeSearchBackend(response="payload")
@@ -1213,6 +1275,24 @@ def test_list_cache_entries_rejects_invalid_options(monkeypatch):
 
     with pytest.raises(ValueError, match="case_sensitive must be a boolean value"):
         tool.list_cache_entries(case_sensitive="false")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="include_payload_preview must be a boolean value",
+    ):
+        tool.list_cache_entries(include_payload_preview="true")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="payload_preview_chars must be a positive integer or None",
+    ):
+        tool.list_cache_entries(payload_preview_chars=0)
+
+    with pytest.raises(
+        ValueError,
+        match="payload_preview_chars must be a positive integer or None",
+    ):
+        tool.list_cache_entries(payload_preview_chars=True)  # type: ignore[arg-type]
 
     with pytest.raises(ValueError, match="limit must be a positive integer"):
         tool.list_cache_entries(limit=0)
