@@ -229,6 +229,37 @@ class ConversationMemory:
 
         return normalized_roles
 
+    @staticmethod
+    def _parse_regex_flags(raw_flags: str | None) -> int:
+        """Parse optional regex flag string into ``re`` bitmask values."""
+        if raw_flags is None:
+            return 0
+
+        if not isinstance(raw_flags, str):
+            raise ValueError("regex_flags must be a string containing only i, m, s, x")
+
+        normalized_flags = raw_flags.strip().lower()
+        if normalized_flags == "":
+            return 0
+
+        supported_flags = {
+            "i": re.IGNORECASE,
+            "m": re.MULTILINE,
+            "s": re.DOTALL,
+            "x": re.VERBOSE,
+        }
+
+        parsed_flags = 0
+        for flag in normalized_flags:
+            resolved_flag = supported_flags.get(flag)
+            if resolved_flag is None:
+                raise ValueError(
+                    "regex_flags must contain only supported flags: i, m, s, x"
+                )
+            parsed_flags |= resolved_flag
+
+        return parsed_flags
+
     def search_messages(
         self,
         query: str,
@@ -250,6 +281,7 @@ class ConversationMemory:
             "all_terms",
             "any_terms",
         ] = "substring",
+        regex_flags: str | None = None,
         fuzzy_threshold: float = 0.75,
     ) -> List[BaseMessage]:
         """Search conversation messages by query text and optional role.
@@ -277,13 +309,16 @@ class ConversationMemory:
                 - "fuzzy": typo-tolerant matching using similarity ratio
                 - "all_terms": all query terms appear in any order
                 - "any_terms": at least one query term appears
+            regex_flags: Optional regular-expression flags for regex mode
+                (supported values: i, m, s, x). Ignored for other match modes.
             fuzzy_threshold: Similarity threshold used by fuzzy matching (0-1)
 
         Returns:
             List of matched messages in chronological order
 
         Raises:
-            ValueError: If query/role/limit/match_mode/fuzzy_threshold is invalid
+            ValueError: If query/role/limit/match_mode/regex_flags/
+                fuzzy_threshold is invalid
         """
         normalized_query = query.strip()
         if not normalized_query:
@@ -317,6 +352,9 @@ class ConversationMemory:
         if not (0.0 <= fuzzy_threshold <= 1.0):
             raise ValueError("fuzzy_threshold must be in [0, 1]")
 
+        if regex_flags is not None and normalized_match_mode != "regex":
+            raise ValueError("regex_flags can only be used when match_mode='regex'")
+
         target_query = normalized_query if case_sensitive else normalized_query.lower()
         regex_pattern: Optional[re.Pattern[str]] = None
         query_terms: Optional[List[str]] = None
@@ -325,7 +363,9 @@ class ConversationMemory:
             flags = 0 if case_sensitive else re.IGNORECASE
             regex_pattern = re.compile(rf"\b{re.escape(normalized_query)}\b", flags)
         elif normalized_match_mode == "regex":
-            flags = 0 if case_sensitive else re.IGNORECASE
+            flags = self._parse_regex_flags(regex_flags)
+            if not case_sensitive:
+                flags |= re.IGNORECASE
             try:
                 regex_pattern = re.compile(normalized_query, flags)
             except re.error as error:

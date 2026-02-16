@@ -107,9 +107,7 @@ class TestMemoryManagerContext:
         assistant_matches = manager.search_conversation("project", role="assistant")
 
         assert [message.content for message in user_matches] == ["project kickoff"]
-        assert [message.content for message in assistant_matches] == [
-            "project summary"
-        ]
+        assert [message.content for message in assistant_matches] == ["project summary"]
 
     def test_add_system_message_is_included_in_context(self):
         manager = MemoryManager(
@@ -167,6 +165,28 @@ class TestMemoryManagerContext:
             "project status",
         ]
         assert [message.content for message in strict_matches] == ["project status"]
+
+    def test_search_conversation_supports_regex_flags(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="test_session",
+            use_vector_memory=False,
+        )
+
+        manager.add_user_message("Ticket ABC-123")
+        manager.add_ai_message("ticket xyz-999")
+
+        matches = manager.search_conversation(
+            r"ticket [a-z]{3}-\d{3}",
+            match_mode="regex",
+            case_sensitive=True,
+            regex_flags="i",
+        )
+
+        assert [message.content for message in matches] == [
+            "Ticket ABC-123",
+            "ticket xyz-999",
+        ]
 
     def test_search_conversation_supports_fuzzy_match_mode(self):
         manager = MemoryManager(

@@ -414,6 +414,62 @@ class TestConversationMemory:
 
         assert len(matches) == 2
 
+    def test_search_messages_regex_mode_supports_explicit_regex_flags(self):
+        """regex_flags should enable ignore-case matching in strict mode."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("Ticket ABC-123 is open")
+        memory.add_ai_message("ticket xyz-999 is closed")
+
+        matches = memory.search_messages(
+            r"ticket [a-z]{3}-\d{3}",
+            match_mode="regex",
+            case_sensitive=True,
+            regex_flags="i",
+        )
+
+        assert [message.content for message in matches] == [
+            "Ticket ABC-123 is open",
+            "ticket xyz-999 is closed",
+        ]
+
+    def test_search_messages_regex_mode_rejects_invalid_regex_flags(self):
+        """regex_flags should reject unsupported flag tokens."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="regex_flags must contain only supported flags: i, m, s, x",
+        ):
+            memory.search_messages(
+                "ticket",
+                match_mode="regex",
+                regex_flags="izq",
+            )
+
+    def test_search_messages_rejects_regex_flags_for_non_regex_modes(self):
+        """regex_flags should be accepted only when match_mode='regex'."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="regex_flags can only be used when match_mode='regex'",
+        ):
+            memory.search_messages(
+                "ticket",
+                match_mode="substring",
+                regex_flags="i",
+            )
+
     def test_search_messages_supports_fuzzy_matching(self):
         """Fuzzy mode should tolerate minor typos."""
         memory = ConversationMemory(
@@ -550,6 +606,16 @@ class TestConversationMemory:
 
         with pytest.raises(ValueError, match="invalid regular expression"):
             memory.search_messages("(", match_mode="regex")
+
+        with pytest.raises(
+            ValueError,
+            match="regex_flags must be a string containing only i, m, s, x",
+        ):
+            memory.search_messages(
+                "ticket",
+                match_mode="regex",
+                regex_flags=True,  # type: ignore[arg-type]
+            )
 
         with pytest.raises(ValueError, match="query must include at least one"):
             memory.search_messages("!!!", match_mode="phrase")

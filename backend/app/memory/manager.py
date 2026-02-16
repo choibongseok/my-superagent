@@ -219,6 +219,7 @@ class MemoryManager:
         last_n: Optional[int] = None,
         limit: Optional[int] = None,
         match_mode: str = "substring",
+        regex_flags: str | None = None,
         fuzzy_threshold: float = 0.75,
     ) -> List[BaseMessage]:
         """Search conversation memory for keyword or pattern matches.
@@ -235,6 +236,8 @@ class MemoryManager:
             limit: Maximum number of matched messages to return
             match_mode: Matching strategy (substring, exact, starts_with,
                 ends_with, word, regex, fuzzy, all_terms, any_terms)
+            regex_flags: Optional regular-expression flags used only when
+                ``match_mode`` is ``"regex"`` (supported: i, m, s, x).
             fuzzy_threshold: Similarity threshold when using fuzzy mode (0-1)
 
         Returns:
@@ -247,6 +250,7 @@ class MemoryManager:
             last_n=last_n,
             limit=limit,
             match_mode=match_mode,
+            regex_flags=regex_flags,
             fuzzy_threshold=fuzzy_threshold,
         )
 
