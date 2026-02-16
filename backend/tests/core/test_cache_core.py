@@ -852,6 +852,84 @@ async def test_invalidate_cache_rejects_invalid_max_key_length_configuration():
         await invalidate_cache("example", 1, max_key_length=20)
 
 
+@pytest.mark.asyncio
+async def test_invalidate_cache_supports_custom_key_builder(monkeypatch):
+    deleted_keys: list[str] = []
+
+    async def fake_delete(key: str):
+        deleted_keys.append(key)
+        return True
+
+    monkeypatch.setattr(cache, "delete", fake_delete)
+
+    await invalidate_cache(
+        "example",
+        21,
+        key_builder=lambda value: f"value:{value}",
+    )
+
+    assert deleted_keys == ["example:value:21"]
+
+
+@pytest.mark.asyncio
+async def test_invalidate_cache_supports_async_key_builder(monkeypatch):
+    deleted_keys: list[str] = []
+
+    async def fake_delete(key: str):
+        deleted_keys.append(key)
+        return True
+
+    monkeypatch.setattr(cache, "delete", fake_delete)
+
+    async def build_key(value: int) -> str:
+        return f"value:{value}"
+
+    await invalidate_cache("example", 21, key_builder=build_key)
+
+    assert deleted_keys == ["example:value:21"]
+
+
+@pytest.mark.asyncio
+async def test_invalidate_cache_can_ignore_selected_kwargs(monkeypatch):
+    deleted_keys: list[str] = []
+
+    async def fake_delete(key: str):
+        deleted_keys.append(key)
+        return True
+
+    monkeypatch.setattr(cache, "delete", fake_delete)
+
+    await invalidate_cache(
+        "example",
+        21,
+        trace_id="abc123",
+        ignored_kwargs=["trace_id"],
+    )
+
+    assert deleted_keys == ["example:21"]
+
+
+@pytest.mark.asyncio
+async def test_invalidate_cache_rejects_invalid_key_builder_configuration():
+    with pytest.raises(ValueError, match="key_builder must be callable"):
+        await invalidate_cache("example", 21, key_builder="value:21")  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_invalidate_cache_rejects_invalid_ignored_kwargs_configuration():
+    with pytest.raises(
+        ValueError,
+        match="ignored_kwargs must be an iterable of non-empty strings",
+    ):
+        await invalidate_cache("example", 21, ignored_kwargs="trace_id")
+
+    with pytest.raises(
+        ValueError,
+        match="ignored_kwargs must be an iterable of non-empty strings",
+    ):
+        await invalidate_cache("example", 21, ignored_kwargs=["trace_id", "  "])
+
+
 def test_cached_rejects_invalid_refresh_ttl_configuration():
     with pytest.raises(ValueError, match="refresh_ttl_on_hit must be a boolean"):
         cached(prefix="example", refresh_ttl_on_hit="yes")  # type: ignore[arg-type]

@@ -316,6 +316,25 @@ def _validate_max_key_length(
         )
 
 
+def _normalize_ignored_kwargs(
+    ignored_kwargs: Optional[Iterable[str]],
+) -> frozenset[str]:
+    """Normalize optional kwarg names excluded from cache-key generation."""
+    if ignored_kwargs is None:
+        return frozenset()
+
+    if isinstance(ignored_kwargs, str):
+        raise ValueError("ignored_kwargs must be an iterable of non-empty strings")
+
+    normalized_values: set[str] = set()
+    for name in ignored_kwargs:
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("ignored_kwargs must be an iterable of non-empty strings")
+        normalized_values.add(name)
+
+    return frozenset(normalized_values)
+
+
 def _shorten_cache_storage_key(
     key: str,
     *,
@@ -436,21 +455,7 @@ def cached(
     key_namespace = _build_cache_namespace(prefix, key_version)
     _validate_max_key_length(max_key_length, key_namespace=key_namespace)
 
-    normalized_ignored_kwargs: frozenset[str]
-    if ignored_kwargs is None:
-        normalized_ignored_kwargs = frozenset()
-    elif isinstance(ignored_kwargs, str):
-        raise ValueError("ignored_kwargs must be an iterable of non-empty strings")
-    else:
-        normalized_values: set[str] = set()
-        for name in ignored_kwargs:
-            if not isinstance(name, str) or not name.strip():
-                raise ValueError(
-                    "ignored_kwargs must be an iterable of non-empty strings"
-                )
-            normalized_values.add(name)
-
-        normalized_ignored_kwargs = frozenset(normalized_values)
+    normalized_ignored_kwargs = _normalize_ignored_kwargs(ignored_kwargs)
 
     def decorator(func: Callable):
         def _resolve_key_args(call_args: tuple[Any, ...]) -> tuple[Any, ...]:
@@ -629,10 +634,12 @@ def cached(
 
 async def invalidate_cache(
     prefix: str,
-    *args,
+    *args: Any,
     key_version: Optional[str | int] = None,
     max_key_length: Optional[int] = None,
-    **kwargs,
+    key_builder: Optional[Callable[..., str | Awaitable[str]]] = None,
+    ignored_kwargs: Optional[Iterable[str]] = None,
+    **kwargs: Any,
 ) -> None:
     """
     Invalidate cache for specific key or pattern.
@@ -642,14 +649,34 @@ async def invalidate_cache(
         *args: Positional arguments for key building
         key_version: Optional cache namespace version marker used in ``cached``.
         max_key_length: Optional key hashing length used with ``cached``.
+        key_builder: Optional key builder used by ``cached``.
+        ignored_kwargs: Optional kwarg names excluded from key generation.
         **kwargs: Keyword arguments for key building
     """
     namespace = _build_cache_namespace(prefix, key_version)
     _validate_max_key_length(max_key_length, key_namespace=namespace)
 
+    if key_builder is not None and not callable(key_builder):
+        raise ValueError("key_builder must be callable when provided")
+
+    normalized_ignored_kwargs = _normalize_ignored_kwargs(ignored_kwargs)
+
     if args or kwargs:
+        key_kwargs = dict(kwargs)
+        for ignored_name in normalized_ignored_kwargs:
+            key_kwargs.pop(ignored_name, None)
+
+        if key_builder is not None:
+            built_key = key_builder(*args, **key_kwargs)
+            if inspect.isawaitable(built_key):
+                built_key = await built_key
+
+            full_key = f"{namespace}:{built_key}"
+        else:
+            full_key = f"{namespace}:{cache_key(*args, **key_kwargs)}"
+
         key = _shorten_cache_storage_key(
-            f"{namespace}:{cache_key(*args, **kwargs)}",
+            full_key,
             key_namespace=namespace,
             max_key_length=max_key_length,
         )
