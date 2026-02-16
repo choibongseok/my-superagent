@@ -113,6 +113,61 @@ def test_decode_token_validates_expected_subject_input() -> None:
         decode_token(token, expected_subject=["user-123", "   "])
 
 
+def test_decode_token_accepts_expected_jti_string_match() -> None:
+    token = create_access_token({"sub": "user-123", "jti": "token-001"})
+
+    payload = decode_token(token, expected_jti="token-001")
+
+    assert payload is not None
+    assert payload["jti"] == "token-001"
+
+
+def test_decode_token_accepts_expected_jti_allowlist_match() -> None:
+    token = create_access_token({"sub": "user-123", "jti": "token-001"})
+
+    payload = decode_token(
+        token,
+        expected_jti=("token-999", "token-001"),
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_rejects_missing_or_mismatched_expected_jti() -> None:
+    token = create_access_token({"sub": "user-123", "jti": "token-001"})
+
+    assert decode_token(token, expected_jti="token-999") is None
+    assert (
+        decode_token(
+            create_access_token({"sub": "user-123"}),
+            expected_jti="token-001",
+        )
+        is None
+    )
+
+
+def test_decode_token_validates_expected_jti_input() -> None:
+    token = create_access_token({"sub": "user-123", "jti": "token-001"})
+
+    with pytest.raises(ValueError, match="expected_jti cannot be blank"):
+        decode_token(token, expected_jti="   ")
+
+    with pytest.raises(ValueError, match="expected_jti cannot be an empty iterable"):
+        decode_token(token, expected_jti=[])
+
+    with pytest.raises(
+        TypeError,
+        match="expected_jti must contain only strings",
+    ):
+        decode_token(token, expected_jti=["token-001", 123])
+
+    with pytest.raises(
+        ValueError,
+        match="expected_jti cannot contain blank values",
+    ):
+        decode_token(token, expected_jti=["token-001", "   "])
+
+
 def test_decode_token_rejects_missing_required_claim() -> None:
     token_without_sub = create_access_token({"scope": "chat:read"})
 

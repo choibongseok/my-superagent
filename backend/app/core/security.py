@@ -343,6 +343,37 @@ def _normalize_expected_subjects(
     return tuple(dict.fromkeys(normalized_subjects))
 
 
+def _normalize_expected_jtis(
+    expected_jti: str | Iterable[str] | None,
+) -> tuple[str, ...]:
+    """Normalize expected token ID requirements for ``decode_token``."""
+    if expected_jti is None:
+        return ()
+
+    if isinstance(expected_jti, str):
+        normalized_jti = expected_jti.strip()
+        if not normalized_jti:
+            raise ValueError("expected_jti cannot be blank")
+
+        return (normalized_jti,)
+
+    normalized_jtis: list[str] = []
+    for jti in expected_jti:
+        if not isinstance(jti, str):
+            raise TypeError("expected_jti must contain only strings")
+
+        normalized_jti = jti.strip()
+        if not normalized_jti:
+            raise ValueError("expected_jti cannot contain blank values")
+
+        normalized_jtis.append(normalized_jti)
+
+    if not normalized_jtis:
+        raise ValueError("expected_jti cannot be an empty iterable")
+
+    return tuple(dict.fromkeys(normalized_jtis))
+
+
 def _normalize_expected_audiences(
     expected_audience: str | Iterable[str] | None,
 ) -> tuple[str, ...]:
@@ -465,6 +496,7 @@ def decode_token(
     *,
     expected_type: str | Iterable[str] | None = None,
     expected_subject: str | Iterable[str] | None = None,
+    expected_jti: str | Iterable[str] | None = None,
     expected_issuer: str | None = None,
     expected_audience: str | Iterable[str] | None = None,
     required_claims: Iterable[str] | None = None,
@@ -486,6 +518,9 @@ def decode_token(
         expected_subject: Optional token ``sub`` claim value(s) to enforce.
             Accepts either a single subject string or an iterable of allowed
             subject values.
+        expected_jti: Optional token ``jti`` claim value(s) to enforce.
+            Accepts either a single token ID string or an iterable of allowed
+            token IDs.
         expected_issuer: Optional token ``iss`` claim value to enforce.
         expected_audience: Optional token ``aud`` claim value(s) to enforce.
             Accepts either a single audience string or an iterable of allowed
@@ -528,6 +563,7 @@ def decode_token(
 
     normalized_expected_types = _normalize_expected_types(expected_type)
     normalized_expected_subjects = _normalize_expected_subjects(expected_subject)
+    normalized_expected_jtis = _normalize_expected_jtis(expected_jti)
     normalized_expected_audiences = _normalize_expected_audiences(expected_audience)
     normalized_required_claims = _normalize_required_claims(required_claims)
     normalized_required_claim_values = _normalize_required_claim_values(
@@ -577,6 +613,18 @@ def decode_token(
             return None
 
         if normalized_subject_claim not in normalized_expected_subjects:
+            return None
+
+    if normalized_expected_jtis:
+        token_id_claim = payload.get("jti")
+        if not isinstance(token_id_claim, str):
+            return None
+
+        normalized_token_id_claim = token_id_claim.strip()
+        if not normalized_token_id_claim:
+            return None
+
+        if normalized_token_id_claim not in normalized_expected_jtis:
             return None
 
     if expected_issuer is not None and payload.get("iss") != expected_issuer:
