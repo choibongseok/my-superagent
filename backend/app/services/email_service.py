@@ -323,7 +323,9 @@ class EmailService:
         - ``path`` / ``file_path`` to load content from disk.
 
         ``filename`` is required for inline payload attachments and optional
-        for path-based attachments (defaults to the path basename).
+        for path-based attachments (defaults to the path basename). When
+        ``content_base64`` uses a ``data:*;base64,`` URL payload and
+        ``mime_type`` is omitted, the media type from the data URL is used.
         """
         if attachments is None:
             return []
@@ -356,6 +358,7 @@ class EmailService:
 
             resolved_path: str | None = None
             payload: bytes
+            data_url_mime_type: str | None = None
 
             if has_path:
                 if not isinstance(raw_path, str):
@@ -387,9 +390,12 @@ class EmailService:
                     normalized_base64_content.lower().startswith("data:")
                     and "," in normalized_base64_content
                 ):
-                    _, encoded_payload = normalized_base64_content.split(
+                    data_url_header, encoded_payload = normalized_base64_content.split(
                         ",", maxsplit=1
                     )
+                    media_type = data_url_header[5:].split(";", maxsplit=1)[0].strip()
+                    if media_type:
+                        data_url_mime_type = media_type
                 else:
                     encoded_payload = normalized_base64_content
 
@@ -436,7 +442,11 @@ class EmailService:
                 guessed_mime_type = (
                     mimetypes.guess_type(resolved_path)[0] if resolved_path else None
                 )
-                raw_mime_type = guessed_mime_type or "application/octet-stream"
+                raw_mime_type = (
+                    data_url_mime_type
+                    or guessed_mime_type
+                    or "application/octet-stream"
+                )
 
             if not isinstance(raw_mime_type, str):
                 raise TypeError("attachments mime_type must be a string")
@@ -565,7 +575,8 @@ class EmailService:
                 - path / file_path (str): Filesystem path to load attachment
                   content from disk
                 - mime_type (str, optional): MIME type. Defaults to detected
-                  file type for path-based attachments, otherwise
+                  file type for path-based attachments, data-URL media type
+                  for ``content_base64`` payloads that include one, otherwise
                   "application/octet-stream"
             headers: Optional custom message headers. Header names are
                 validated and cannot override core delivery headers such as

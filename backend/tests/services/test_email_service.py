@@ -551,6 +551,85 @@ class TestEmailService:
         assert attachments[1].get_payload(decode=True) == b"hello world"
 
     @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_infers_attachment_mime_type_from_data_url_when_omitted(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Data-URL attachments should infer MIME type when mime_type is omitted."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        data_url_payload = "data:text/markdown;base64," + base64.b64encode(
+            b"# Daily Notes"
+        ).decode("ascii")
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Data URL mime",
+            html_body="<p>See attached.</p>",
+            attachments=[
+                {
+                    "filename": "notes.md",
+                    "content_base64": data_url_payload,
+                }
+            ],
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        attachments = [
+            part
+            for part in sent_message.walk()
+            if part.get_content_disposition() == "attachment"
+        ]
+
+        assert len(attachments) == 1
+        assert attachments[0].get_filename() == "notes.md"
+        assert attachments[0].get_content_type() == "text/markdown"
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_prefers_explicit_attachment_mime_type_over_data_url(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Explicit attachment mime_type should override data-URL metadata."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        data_url_payload = "data:text/plain;base64," + base64.b64encode(
+            b"custom payload"
+        ).decode("ascii")
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Explicit mime",
+            html_body="<p>See attached.</p>",
+            attachments=[
+                {
+                    "filename": "payload.bin",
+                    "content_base64": data_url_payload,
+                    "mime_type": "application/octet-stream",
+                }
+            ],
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        attachments = [
+            part
+            for part in sent_message.walk()
+            if part.get_content_disposition() == "attachment"
+        ]
+
+        assert len(attachments) == 1
+        assert attachments[0].get_filename() == "payload.bin"
+        assert attachments[0].get_content_type() == "application/octet-stream"
+
+    @patch("app.services.email_service.smtplib.SMTP")
     def test_send_email_supports_path_based_attachments(
         self,
         mock_smtp,
