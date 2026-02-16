@@ -5,7 +5,7 @@ import re
 import time
 from collections import OrderedDict
 from fnmatch import fnmatchcase
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.tools import BaseTool
@@ -290,6 +290,7 @@ class DuckDuckGoSearchTool(BaseTool):
         self,
         query: str | None = None,
         *,
+        queries: Iterable[str] | None = None,
         prefix: str | None = None,
         pattern: str | None = None,
     ) -> int:
@@ -297,6 +298,9 @@ class DuckDuckGoSearchTool(BaseTool):
 
         Args:
             query: Optional query string to invalidate after normalization.
+            queries: Optional iterable of query strings to invalidate in one
+                call. Normalization and de-duplication are applied before
+                deletion.
             prefix: Optional normalized-query prefix used to invalidate all
                 matching cache entries.
             pattern: Optional glob-style matcher applied against normalized
@@ -306,13 +310,16 @@ class DuckDuckGoSearchTool(BaseTool):
             Number of entries removed from cache.
 
         Raises:
-            ValueError: If more than one selector argument is provided.
+            ValueError: If more than one selector argument is provided, or if
+                ``queries`` is not an iterable of non-empty strings.
         """
         selector_count = sum(
-            candidate is not None for candidate in (query, prefix, pattern)
+            candidate is not None for candidate in (query, queries, prefix, pattern)
         )
         if selector_count > 1:
-            raise ValueError("query, prefix, and pattern are mutually exclusive")
+            raise ValueError(
+                "query, queries, prefix, and pattern are mutually exclusive"
+            )
 
         if selector_count == 0:
             removed_entries = len(self._cache)
@@ -325,6 +332,27 @@ class DuckDuckGoSearchTool(BaseTool):
                 self._cache.pop(normalized_query, None)
                 return 1
             return 0
+
+        if queries is not None:
+            if isinstance(queries, str):
+                raise ValueError("queries must be an iterable of non-empty strings")
+
+            try:
+                normalized_queries = [
+                    self._normalize_query(candidate) for candidate in queries
+                ]
+            except TypeError as exc:
+                raise ValueError(
+                    "queries must be an iterable of non-empty strings"
+                ) from exc
+
+            removed_entries = 0
+            for normalized_query in dict.fromkeys(normalized_queries):
+                if normalized_query in self._cache:
+                    self._cache.pop(normalized_query, None)
+                    removed_entries += 1
+
+            return removed_entries
 
         if prefix is not None:
             normalized_prefix = self._normalize_query(prefix)

@@ -399,6 +399,57 @@ def test_invalidate_cache_rejects_multiple_selectors(monkeypatch):
     with pytest.raises(ValueError, match="mutually exclusive"):
         tool.invalidate_cache(prefix="a", pattern="a*")
 
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        tool.invalidate_cache(queries=["alpha"], pattern="a*")
+
+
+def test_invalidate_cache_can_remove_multiple_explicit_queries(monkeypatch):
+    """Multiple query invalidation should normalize inputs and de-duplicate keys."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("alpha one") == "payload"
+    assert tool._run("beta one") == "payload"
+    assert tool._run("gamma one") == "payload"
+
+    removed_entries = tool.invalidate_cache(
+        queries=[" alpha\none ", "beta\tone", "alpha one"],
+    )
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["gamma one"]
+
+
+def test_invalidate_cache_rejects_invalid_queries_selector(monkeypatch):
+    """Explicit query list selector must be an iterable of non-empty strings."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    with pytest.raises(
+        ValueError,
+        match="queries must be an iterable of non-empty strings",
+    ):
+        tool.invalidate_cache(queries="alpha")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="queries must be an iterable of non-empty strings",
+    ):
+        tool.invalidate_cache(queries=123)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="query must be a non-empty string"):
+        tool.invalidate_cache(queries=["alpha", "   "])
+
 
 def test_invalidate_cache_can_remove_entries_by_prefix(monkeypatch):
     """Prefix invalidation should remove all matching normalized query keys."""
