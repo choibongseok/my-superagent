@@ -448,6 +448,7 @@ class PromptRegistry:
         version_weights: Mapping[str, float] | None = None,
         subject: str | None = None,
         min_performance_score: float | None = None,
+        exclude_versions: Iterable[str] | None = None,
     ) -> PromptVersion:
         """Select a prompt version for A/B testing.
 
@@ -460,6 +461,9 @@ class PromptRegistry:
                 version for deterministic rollout behavior.
             min_performance_score: Optional threshold that filters out versions
                 with missing/low ``performance_score`` values.
+            exclude_versions: Optional iterable of version labels that should be
+                excluded from experiment selection (for example to quarantine a
+                known-bad rollout version).
 
         Returns:
             Selected prompt version.
@@ -467,12 +471,59 @@ class PromptRegistry:
         Raises:
             ValueError: When the prompt has no eligible versions, weight values
                 are invalid, unknown version labels are provided, or
-                ``min_performance_score``/``subject`` are invalid.
+                ``min_performance_score``/``subject``/``exclude_versions`` are
+                invalid.
             TypeError: When ``version_weights`` is not a mapping.
         """
-        versions = self.list_versions(name)
-        if not versions:
+        all_versions = self.list_versions(name)
+        if not all_versions:
             raise ValueError(f"Prompt '{name}' has no registered versions")
+
+        versions = list(all_versions)
+
+        if exclude_versions is not None:
+            if isinstance(exclude_versions, str):
+                raise ValueError("exclude_versions must be an iterable of version labels")
+
+            normalized_excluded_versions: set[str] = set()
+            try:
+                for raw_version in exclude_versions:
+                    if not isinstance(raw_version, str):
+                        raise ValueError(
+                            "exclude_versions must contain only string version labels"
+                        )
+
+                    normalized_version = raw_version.strip()
+                    if not normalized_version:
+                        raise ValueError(
+                            "exclude_versions cannot contain empty version labels"
+                        )
+
+                    normalized_excluded_versions.add(normalized_version)
+            except TypeError as error:
+                raise ValueError(
+                    "exclude_versions must be an iterable of version labels"
+                ) from error
+
+            known_versions = {version.version for version in all_versions}
+            unknown_excluded_versions = sorted(
+                normalized_excluded_versions - known_versions
+            )
+            if unknown_excluded_versions:
+                unknown_display = ", ".join(unknown_excluded_versions)
+                raise ValueError(
+                    f"Unknown excluded versions for '{name}': {unknown_display}"
+                )
+
+            versions = [
+                version
+                for version in versions
+                if version.version not in normalized_excluded_versions
+            ]
+            if not versions:
+                raise ValueError(
+                    f"Prompt '{name}' has no versions remaining after exclusions"
+                )
 
         if min_performance_score is not None:
             if isinstance(min_performance_score, bool) or not isinstance(
@@ -499,7 +550,7 @@ class PromptRegistry:
             if not isinstance(version_weights, Mapping):
                 raise TypeError("version_weights must be a mapping")
 
-            known_versions = {version.version for version in self.list_versions(name)}
+            known_versions = {version.version for version in all_versions}
             unknown_versions = sorted(set(version_weights.keys()) - known_versions)
             if unknown_versions:
                 unknown_display = ", ".join(unknown_versions)

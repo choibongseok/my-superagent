@@ -661,6 +661,88 @@ def test_select_for_experiment_raises_when_no_versions_match_min_score(temp_regi
         )
 
 
+def test_select_for_experiment_excludes_requested_versions(
+    temp_registry,
+    monkeypatch,
+):
+    """exclude_versions should remove matching versions from sampling candidates."""
+    temp_registry.register(
+        name="experiment_prompt",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+    temp_registry.register(
+        name="experiment_prompt",
+        template="v2",
+        variables=[],
+        version="v2",
+    )
+    temp_registry.register(
+        name="experiment_prompt",
+        template="v3",
+        variables=[],
+        version="v3",
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_choices(population, *, weights, k):
+        captured["population"] = [candidate.version for candidate in population]
+        captured["weights"] = list(weights)
+        captured["k"] = k
+        return [population[-1]]
+
+    monkeypatch.setattr("app.prompts.registry.random.choices", _fake_choices)
+
+    selected = temp_registry.select_for_experiment(
+        "experiment_prompt",
+        exclude_versions=[" v2 "],
+        version_weights={"v1": 1.0, "v2": 99.0, "v3": 2.0},
+    )
+
+    assert selected.version == "v3"
+    assert captured == {
+        "population": ["v1", "v3"],
+        "weights": [1.0, 2.0],
+        "k": 1,
+    }
+
+
+def test_select_for_experiment_validates_excluded_versions(temp_registry):
+    """Excluded-version inputs should reject invalid or impossible selections."""
+    temp_registry.register(
+        name="experiment_prompt",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+
+    with pytest.raises(ValueError, match="iterable of version labels"):
+        temp_registry.select_for_experiment(
+            "experiment_prompt",
+            exclude_versions="v1",  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(ValueError, match="must contain only string version labels"):
+        temp_registry.select_for_experiment(
+            "experiment_prompt",
+            exclude_versions=[1],  # type: ignore[list-item]
+        )
+
+    with pytest.raises(ValueError, match="Unknown excluded versions"):
+        temp_registry.select_for_experiment(
+            "experiment_prompt",
+            exclude_versions=["v9"],
+        )
+
+    with pytest.raises(ValueError, match="no versions remaining after exclusions"):
+        temp_registry.select_for_experiment(
+            "experiment_prompt",
+            exclude_versions=["v1"],
+        )
+
+
 def test_list_versions(temp_registry):
     """Test listing all versions of a prompt."""
     # Register multiple versions
