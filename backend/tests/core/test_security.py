@@ -180,6 +180,30 @@ def test_decode_token_rejects_blank_required_string_claim() -> None:
     assert decode_token(token_with_blank_subject, required_claims=("sub",)) is None
 
 
+def test_decode_token_accepts_required_nested_claims() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "context": {"tenant": {"id": "team-alpha"}},
+        }
+    )
+
+    payload = decode_token(token, required_claims=("context.tenant.id",))
+
+    assert payload is not None
+
+
+def test_decode_token_rejects_missing_required_nested_claims() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "context": {"tenant": {}},
+        }
+    )
+
+    assert decode_token(token, required_claims=("context.tenant.id",)) is None
+
+
 def test_decode_token_validates_required_claims_input() -> None:
     token = create_access_token({"sub": "user-123"})
 
@@ -229,6 +253,45 @@ def test_decode_token_accepts_required_claim_values_for_collection_claims() -> N
 
     assert payload is not None
     assert payload["roles"] == ["viewer", "editor"]
+
+
+def test_decode_token_accepts_required_claim_values_for_nested_claim_paths() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "context": {
+                "tenant": {"id": "team-alpha"},
+                "roles": ["viewer", "editor"],
+            },
+        }
+    )
+
+    payload = decode_token(
+        token,
+        required_claim_values={
+            "context.tenant.id": "team-alpha",
+            "context.roles": ("admin", "editor"),
+        },
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_required_claim_values_prioritize_exact_claim_keys() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "context": {"tenant": {"id": "team-nested"}},
+            "context.tenant.id": "team-literal",
+        }
+    )
+
+    payload = decode_token(
+        token,
+        required_claim_values={"context.tenant.id": "team-literal"},
+    )
+
+    assert payload is not None
 
 
 def test_decode_token_rejects_required_claim_values_when_collection_claim_misses() -> (
@@ -326,6 +389,28 @@ def test_decode_token_accepts_required_claim_patterns_for_collection_claims() ->
     payload = decode_token(
         token,
         required_claim_patterns={"roles": r"[a-z-]+admin"},
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_accepts_required_claim_patterns_for_nested_claim_paths() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "context": {
+                "tenant": "team-alpha",
+                "emails": ["owner@agenthq.ai", "ops@agenthq.ai"],
+            },
+        }
+    )
+
+    payload = decode_token(
+        token,
+        required_claim_patterns={
+            "context.tenant": r"team-[a-z]+",
+            "context.emails": r".+@agenthq\.ai",
+        },
     )
 
     assert payload is not None

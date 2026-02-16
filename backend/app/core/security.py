@@ -219,6 +219,38 @@ def _claim_value_matches_expected_values(
     return any(claim_value == expected_value for expected_value in expected_values)
 
 
+def _resolve_claim_value(
+    payload: Mapping[str, Any],
+    claim_name: str,
+) -> tuple[bool, Any]:
+    """Resolve claim values using exact names or dotted nested claim paths.
+
+    Exact key matches take priority. When direct lookup fails, dotted claim
+    names (for example ``"context.tenant.id"``) are resolved against nested
+    mapping values.
+
+    Returns:
+        ``(True, value)`` when the claim is present, otherwise ``(False, None)``.
+    """
+    if claim_name in payload:
+        return True, payload[claim_name]
+
+    if "." not in claim_name:
+        return False, None
+
+    current_value: Any = payload
+    for segment in claim_name.split("."):
+        if segment == "" or not isinstance(current_value, Mapping):
+            return False, None
+
+        if segment not in current_value:
+            return False, None
+
+        current_value = current_value[segment]
+
+    return True, current_value
+
+
 _SCOPE_SPLIT_PATTERN = re.compile(r"[,\s]+")
 
 
@@ -609,12 +641,16 @@ def decode_token(
             audience values. Audience requirements support glob patterns
             (for example, ``"api://agenthq-*"``).
         required_claims: Optional claims that must be present and non-empty.
+            Claim names can use dotted paths (for example,
+            ``"context.tenant_id"``) to validate nested payload fields.
         required_claim_values: Optional claim value requirements. Values may
             be exact scalars or non-empty collections of allowed values.
+            Claim names can use dotted paths to target nested payload fields.
             When the token claim itself is a collection, validation passes if
             any claim entry matches an allowed value.
         required_claim_patterns: Optional regex requirements for string-based
-            claims. Values may be regex pattern strings or compiled
+            claims. Claim names can use dotted paths to target nested payload
+            fields. Values may be regex pattern strings or compiled
             ``re.Pattern`` instances. String claims must satisfy
             ``pattern.fullmatch(claim_value)``, and collection claims pass when
             any contained string fully matches.
@@ -733,24 +769,24 @@ def decode_token(
             return None
 
     for claim in normalized_required_claims:
-        claim_value = payload.get(claim)
-        if claim_value is None:
+        claim_exists, claim_value = _resolve_claim_value(payload, claim)
+        if not claim_exists or claim_value is None:
             return None
 
         if isinstance(claim_value, str) and not claim_value.strip():
             return None
 
     for claim, expected_values in normalized_required_claim_values.items():
-        claim_value = payload.get(claim)
-        if claim_value is None:
+        claim_exists, claim_value = _resolve_claim_value(payload, claim)
+        if not claim_exists or claim_value is None:
             return None
 
         if not _claim_value_matches_expected_values(claim_value, expected_values):
             return None
 
     for claim, pattern in normalized_required_claim_patterns.items():
-        claim_value = payload.get(claim)
-        if claim_value is None:
+        claim_exists, claim_value = _resolve_claim_value(payload, claim)
+        if not claim_exists or claim_value is None:
             return None
 
         if isinstance(claim_value, str):
