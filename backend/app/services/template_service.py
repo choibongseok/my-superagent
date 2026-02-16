@@ -588,6 +588,49 @@ def _round_numeric(value: object, argument_spec: str) -> int | float:
     return round(numeric_value, ndigits)
 
 
+def _format_number(value: object, argument_spec: str) -> str:
+    """Format numeric values with optional decimal precision and separators.
+
+    ``number`` applies thousands separators while preserving integral outputs.
+    ``number()`` uses natural precision for non-integral inputs.
+    ``number(2)`` enforces fixed decimal precision (for example ``1,234.50``).
+    """
+    args: list[str] = []
+    if argument_spec.strip():
+        args = _parse_transform_args(argument_spec)
+
+    if len(args) > 1:
+        raise ValueError("number expects zero or one argument: ndigits")
+
+    if isinstance(value, bool):
+        raise ValueError("number expects a numeric value")
+
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("number expects a numeric value") from exc
+
+    if not args:
+        if numeric_value.is_integer():
+            return f"{int(numeric_value):,}"
+
+        return format(numeric_value, ",")
+
+    try:
+        ndigits = int(args[0].strip())
+    except ValueError as exc:
+        raise ValueError("number ndigits must be an integer") from exc
+
+    if ndigits < 0:
+        raise ValueError("number ndigits must be greater than or equal to 0")
+
+    rounded_value = round(numeric_value, ndigits)
+    if ndigits == 0:
+        return f"{int(rounded_value):,}"
+
+    return f"{rounded_value:,.{ndigits}f}"
+
+
 def _format_percent(value: object, argument_spec: str) -> str:
     """Format numeric ratio values as percentage strings.
 
@@ -1432,6 +1475,7 @@ class TemplateService:
         - ``{notes->trim_lines}``
         - ``{ticket->prepend("#")}``, ``{title->append(" ✅")}``
         - ``{score->round(2)}``
+        - ``{budget->number}``, ``{budget->number(2)}``, ``{budget->num}``
         - ``{conversion_rate->percent(1)}``, ``{conversion_rate->pct}``
         - ``{delta->abs}``
         - ``{estimate->floor}``, ``{estimate->ceil}``
@@ -1509,6 +1553,8 @@ class TemplateService:
             "last": lambda raw: _select_boundary_item(raw, "last"),
             "reverse": _reverse_value,
             "round": lambda raw: _round_numeric(raw, ""),
+            "number": lambda raw: _format_number(raw, ""),
+            "num": lambda raw: _format_number(raw, ""),
             "percent": lambda raw: _format_percent(raw, ""),
             "pct": lambda raw: _format_percent(raw, ""),
             "abs": _absolute_numeric,
@@ -1601,6 +1647,8 @@ class TemplateService:
                 "fallback(<value>)",
                 "indent([prefix])",
                 "round([ndigits])",
+                "number([ndigits])",
+                "num([ndigits])",
                 "percent([ndigits])",
                 "pct([ndigits])",
                 "clamp(<min>,<max>)",
@@ -1719,6 +1767,11 @@ class TemplateService:
                 elif transform_name == "round":
                     operation = lambda raw, spec=argument_spec: _round_numeric(
                         raw, spec
+                    )
+                elif transform_name in {"number", "num"}:
+                    operation = lambda raw, spec=argument_spec: _format_number(
+                        raw,
+                        spec,
                     )
                 elif transform_name in {"percent", "pct"}:
                     operation = lambda raw, spec=argument_spec: _format_percent(

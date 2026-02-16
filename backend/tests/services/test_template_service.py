@@ -741,6 +741,97 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_number_and_num_transforms(
+        self, service_with_mock_db
+    ):
+        """number/num should add grouping separators with optional precision."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template=(
+                "Revenue: {revenue->number}, "
+                "Precise: {ratio->number(2)}, "
+                "Alias: {users->num}"
+            ),
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"revenue": 1234567, "ratio": 0.756, "users": "10000"},
+                user_id,
+            )
+
+        assert (
+            result["prompt"]
+            == "Revenue: 1,234,567, Precise: 0.76, Alias: 10,000"
+        )
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_number_transform_for_non_numeric_values(
+        self, service_with_mock_db
+    ):
+        """number should fail fast for non-numeric values."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Revenue: {revenue->number}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'number'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"revenue": "unknown"},
+                    user_id,
+                )
+
+        assert template.usage_count == 2
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_number_transform_with_invalid_precision(
+        self, service_with_mock_db
+    ):
+        """number(ndigits) should require a non-negative integer precision."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Revenue: {revenue->number(-1)}",
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'number\(-1\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"revenue": 1234},
+                    user_id,
+                )
+
+        assert template.usage_count == 1
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_percent_and_pct_transforms(
         self, service_with_mock_db
     ):
