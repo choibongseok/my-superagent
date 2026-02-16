@@ -3004,6 +3004,7 @@ class LocalCacheService:
         reset: bool = False,
         *,
         include_ttl_summary: bool = False,
+        include_tag_summary: bool = False,
     ) -> dict[str, Any]:
         """Return cache operational counters and runtime metadata.
 
@@ -3025,9 +3026,18 @@ class LocalCacheService:
                 - ``next_expiration_in_seconds``: Remaining lifetime (seconds)
                   for the soonest-expiring key, or ``None`` if no expiring
                   entries exist.
+            include_tag_summary: When ``True``, include tag-oriented metadata
+                for active entries:
+
+                - ``tagged_entries``: Active entries with at least one tag.
+                - ``untagged_entries``: Active entries without tags.
+                - ``unique_tags``: Number of active unique tags.
         """
         if not isinstance(include_ttl_summary, bool):
             raise ValueError("include_ttl_summary must be a boolean")
+
+        if not isinstance(include_tag_summary, bool):
+            raise ValueError("include_tag_summary must be a boolean")
 
         self._purge_expired_entries()
         active_entries = len(self._store)
@@ -3073,6 +3083,22 @@ class LocalCacheService:
                     "expiring_entries": expiring_entries,
                     "persistent_entries": persistent_entries,
                     "next_expiration_in_seconds": next_expiration_in_seconds,
+                }
+            )
+
+        if include_tag_summary:
+            active_tags = {
+                tag for tag, keys in self._keys_by_tag.items() if keys
+            }
+            tagged_entries = sum(
+                1 for key in self._store if self._tags_by_key.get(key)
+            )
+
+            snapshot.update(
+                {
+                    "tagged_entries": tagged_entries,
+                    "untagged_entries": active_entries - tagged_entries,
+                    "unique_tags": len(active_tags),
                 }
             )
 

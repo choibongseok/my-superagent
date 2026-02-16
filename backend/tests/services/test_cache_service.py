@@ -3460,11 +3460,48 @@ def test_local_cache_stats_ttl_summary_handles_persistent_only_entries():
     assert stats["next_expiration_in_seconds"] is None
 
 
+def test_local_cache_stats_can_include_tag_summary_for_active_entries():
+    cache = LocalCacheService()
+
+    cache.set_tagged("agent:profile", {"name": "Claw"}, tags=["user", "active"])
+    cache.set_tagged("agent:prefs", {"theme": "dark"}, tags=["user", "prefs"])
+    cache.set("session", "token")
+    cache.set_tagged("expired", "gone", tags=["expired"], ttl_seconds=1)
+
+    time.sleep(1.05)
+
+    stats = cache.stats(include_tag_summary=True)
+
+    assert stats["entries"] == 3
+    assert stats["tagged_entries"] == 2
+    assert stats["untagged_entries"] == 1
+    assert stats["unique_tags"] == 3
+
+
+def test_local_cache_stats_tag_summary_handles_untagged_entries_only():
+    cache = LocalCacheService()
+    cache.set_many({"alpha": 1, "beta": 2})
+
+    stats = cache.stats(include_tag_summary=True)
+
+    assert stats["entries"] == 2
+    assert stats["tagged_entries"] == 0
+    assert stats["untagged_entries"] == 2
+    assert stats["unique_tags"] == 0
+
+
 def test_local_cache_stats_ttl_summary_flag_must_be_boolean():
     cache = LocalCacheService()
 
     with pytest.raises(ValueError, match="include_ttl_summary must be a boolean"):
         cache.stats(include_ttl_summary="yes")  # type: ignore[arg-type]
+
+
+def test_local_cache_stats_tag_summary_flag_must_be_boolean():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="include_tag_summary must be a boolean"):
+        cache.stats(include_tag_summary="yes")  # type: ignore[arg-type]
 
 
 def test_local_cache_stats_include_set_if_absent_and_pop_lookups():
