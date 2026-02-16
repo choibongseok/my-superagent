@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.agents.task_planner import ExecutionPlan, PlanStep, TaskPlanner
+from app.agents.task_planner import ExecutionPlan, PlanStep, TaskPlanner, TaskStatus
 
 
 @pytest.fixture
@@ -110,7 +110,9 @@ def test_estimate_makespan_accounts_for_parallelism(planner_stub):
         PlanStep("step_2", "Collect metrics", "research", 30, 0.02, 2000),
         PlanStep("step_3", "Draft summary", "docs", 20, 0.03, 3000, ["step_1"]),
         PlanStep("step_4", "Build table", "sheets", 15, 0.02, 1500, ["step_2"]),
-        PlanStep("step_5", "Finalize report", "docs", 20, 0.03, 3000, ["step_3", "step_4"]),
+        PlanStep(
+            "step_5", "Finalize report", "docs", 20, 0.03, 3000, ["step_3", "step_4"]
+        ),
     ]
 
     plan = _build_plan(steps)
@@ -125,7 +127,9 @@ def test_get_critical_path_prefers_longest_dependency_chain(planner_stub):
         PlanStep("step_2", "Collect metrics", "research", 30, 0.02, 2000),
         PlanStep("step_3", "Draft summary", "docs", 20, 0.03, 3000, ["step_1"]),
         PlanStep("step_4", "Build table", "sheets", 15, 0.02, 1500, ["step_2"]),
-        PlanStep("step_5", "Finalize report", "docs", 20, 0.03, 3000, ["step_3", "step_4"]),
+        PlanStep(
+            "step_5", "Finalize report", "docs", 20, 0.03, 3000, ["step_3", "step_4"]
+        ),
     ]
 
     plan = _build_plan(steps)
@@ -140,7 +144,9 @@ def test_get_execution_summary_reports_schedule_metrics(planner_stub):
         PlanStep("step_2", "Collect metrics", "research", 30, 0.02, 2000),
         PlanStep("step_3", "Draft summary", "docs", 20, 0.03, 3000, ["step_1"]),
         PlanStep("step_4", "Build table", "sheets", 15, 0.02, 1500, ["step_2"]),
-        PlanStep("step_5", "Finalize report", "docs", 20, 0.03, 3000, ["step_3", "step_4"]),
+        PlanStep(
+            "step_5", "Finalize report", "docs", 20, 0.03, 3000, ["step_3", "step_4"]
+        ),
     ]
 
     plan = _build_plan(steps)
@@ -157,6 +163,49 @@ def test_get_execution_summary_reports_schedule_metrics(planner_stub):
     }
 
 
+def test_get_ready_steps_returns_only_dependency_satisfied_planned_steps(planner_stub):
+    """Ready-queue helper should skip steps with unmet or terminally failed dependencies."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Collect metrics", "research", 30, 0.02, 2000),
+        PlanStep("step_3", "Draft summary", "docs", 20, 0.03, 3000, ["step_1"]),
+        PlanStep("step_4", "Build table", "sheets", 15, 0.02, 1500, ["step_2"]),
+        PlanStep(
+            "step_5", "Finalize report", "docs", 20, 0.03, 3000, ["step_3", "step_4"]
+        ),
+    ]
+
+    steps[0].status = TaskStatus.COMPLETED
+    steps[1].status = TaskStatus.FAILED
+
+    plan = _build_plan(steps)
+
+    ready_steps = planner_stub.get_ready_steps(plan)
+
+    assert [step.step_id for step in ready_steps] == ["step_3"]
+
+
+def test_get_progress_reports_ready_queue_and_failed_dependency_blockers(planner_stub):
+    """Progress payload should expose runnable steps and failed-dependency blockers."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Collect metrics", "research", 30, 0.02, 2000),
+        PlanStep("step_3", "Draft summary", "docs", 20, 0.03, 3000, ["step_1"]),
+        PlanStep("step_4", "Build table", "sheets", 15, 0.02, 1500, ["step_2"]),
+    ]
+
+    steps[0].status = TaskStatus.COMPLETED
+    steps[1].status = TaskStatus.CANCELLED
+
+    plan = _build_plan(steps)
+
+    progress = planner_stub.get_progress(plan)
+
+    assert progress["ready"] == 1
+    assert progress["ready_step_ids"] == ["step_3"]
+    assert progress["blocked_by_failed_dependencies"] == {"step_4": ["step_2"]}
+
+
 @pytest.mark.asyncio
 async def test_plan_parses_structured_content_blocks(planner_stub):
     """Structured provider responses with fenced JSON should parse correctly."""
@@ -164,7 +213,7 @@ async def test_plan_parses_structured_content_blocks(planner_stub):
         content=[
             {
                 "type": "text",
-                "text": "```json\n{\"steps\": [{\"step_id\": \"step_1\", \"description\": \"Collect facts\", \"agent_type\": \"research\", \"complexity\": \"low\", \"dependencies\": []}]}\n```",
+                "text": '```json\n{"steps": [{"step_id": "step_1", "description": "Collect facts", "agent_type": "research", "complexity": "low", "dependencies": []}]}\n```',
             }
         ]
     )

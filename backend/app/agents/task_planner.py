@@ -246,7 +246,11 @@ class TaskPlanner:
 
         while remaining:
             ready_ids = sorted(
-                [step_id for step_id in remaining if not unresolved_dependencies[step_id]],
+                [
+                    step_id
+                    for step_id in remaining
+                    if not unresolved_dependencies[step_id]
+                ],
                 key=lambda step_id: order_index[step_id],
             )
 
@@ -335,6 +339,65 @@ class TaskPlanner:
             "parallelism_gain": round(total_work / makespan, 2) if makespan else 0.0,
             "critical_path_step_ids": self.get_critical_path(plan),
         }
+
+    def _get_ready_and_blocked_steps(
+        self,
+        plan: ExecutionPlan,
+    ) -> tuple[List[PlanStep], Dict[str, List[str]]]:
+        """Return ready planned steps and dependency blockers for non-runnable steps.
+
+        A step is considered *ready* when:
+        - its status is ``PLANNED``
+        - all declared dependencies are ``COMPLETED``
+        - none of its dependencies are in a terminal failed state
+
+        Returns:
+            Tuple of ``(ready_steps, blocked_by_failed_dependencies)`` where
+            ``blocked_by_failed_dependencies`` maps ``step_id`` to dependency IDs
+            that are currently ``FAILED`` or ``CANCELLED``.
+        """
+        self._validate_step_dependencies(plan.steps)
+
+        completed_ids = {
+            step.step_id for step in plan.steps if step.status == TaskStatus.COMPLETED
+        }
+        failed_dependency_ids = {
+            step.step_id
+            for step in plan.steps
+            if step.status in {TaskStatus.FAILED, TaskStatus.CANCELLED}
+        }
+
+        ready_steps: List[PlanStep] = []
+        blocked_by_failed_dependencies: Dict[str, List[str]] = {}
+
+        for step in plan.steps:
+            if step.status != TaskStatus.PLANNED:
+                continue
+
+            blocking_dependencies = [
+                dependency_id
+                for dependency_id in step.dependencies
+                if dependency_id in failed_dependency_ids
+            ]
+            if blocking_dependencies:
+                blocked_by_failed_dependencies[step.step_id] = blocking_dependencies
+                continue
+
+            if all(
+                dependency_id in completed_ids for dependency_id in step.dependencies
+            ):
+                ready_steps.append(step)
+
+        return ready_steps, blocked_by_failed_dependencies
+
+    def get_ready_steps(self, plan: ExecutionPlan) -> List[PlanStep]:
+        """Return PLANNED steps that can be executed immediately.
+
+        This helper is useful for scheduler/runner loops that repeatedly pull
+        the next dependency-safe execution batch from an evolving plan state.
+        """
+        ready_steps, _ = self._get_ready_and_blocked_steps(plan)
+        return ready_steps
 
     async def plan(
         self,
@@ -428,7 +491,9 @@ Create a detailed execution plan. Output JSON only."""
             plan_data = json.loads(plan_text)
             raw_steps = plan_data.get("steps") if isinstance(plan_data, dict) else None
             if not isinstance(raw_steps, list) or not raw_steps:
-                raise ValueError("Planner response must include a non-empty 'steps' list")
+                raise ValueError(
+                    "Planner response must include a non-empty 'steps' list"
+                )
 
             # Create PlanStep objects with resource estimates
             steps: List[PlanStep] = []
@@ -588,7 +653,10 @@ Create an updated execution plan. Output JSON only."""
             # For brevity, reusing same logic
             updated_plan = await self.plan(
                 goal=original_plan.goal,
-                context={"replan_reason": reason, "previous_results": execution_results},
+                context={
+                    "replan_reason": reason,
+                    "previous_results": execution_results,
+                },
                 constraints=original_plan.constraints,
             )
 
@@ -653,6 +721,10 @@ Create an updated execution plan. Output JSON only."""
         failed = sum(1 for s in plan.steps if s.status == TaskStatus.FAILED)
         blocked = sum(1 for s in plan.steps if s.status == TaskStatus.BLOCKED)
 
+        ready_steps, blocked_by_failed_dependencies = self._get_ready_and_blocked_steps(
+            plan
+        )
+
         # Calculate actual vs estimated
         actual_time = sum(s.actual_time or 0 for s in plan.steps if s.actual_time)
         actual_cost = sum(s.actual_cost or 0.0 for s in plan.steps if s.actual_cost)
@@ -665,6 +737,9 @@ Create an updated execution plan. Output JSON only."""
             "in_progress": in_progress,
             "failed": failed,
             "blocked": blocked,
+            "ready": len(ready_steps),
+            "ready_step_ids": [step.step_id for step in ready_steps],
+            "blocked_by_failed_dependencies": blocked_by_failed_dependencies,
             "progress_percentage": round(progress_pct, 1),
             "estimated_time": plan.total_estimated_time,
             "actual_time": actual_time,
