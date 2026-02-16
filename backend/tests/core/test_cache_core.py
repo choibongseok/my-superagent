@@ -33,6 +33,17 @@ def test_cache_key_distinguishes_string_and_numeric_scalars():
     assert cache_key("1") != cache_key(1)
 
 
+def test_cache_key_normalizes_binary_payloads_across_buffer_types():
+    payload = b"\x00\xffagenthq"
+
+    assert cache_key(payload) == cache_key(bytearray(payload))
+    assert cache_key(payload) == cache_key(memoryview(payload))
+
+
+def test_cache_key_distinguishes_different_binary_payloads():
+    assert cache_key(memoryview(b"alpha")) != cache_key(memoryview(b"beta"))
+
+
 def test_cache_key_normalizes_dataclass_instances_deterministically():
     @dataclass
     class Filters:

@@ -1,6 +1,7 @@
 """Redis cache configuration and utilities."""
 
 import asyncio
+import base64
 from dataclasses import asdict, is_dataclass
 from functools import wraps
 import hashlib
@@ -192,8 +193,24 @@ def _extract_mapping_payload(value: Any) -> Mapping[str, Any] | None:
     return None
 
 
+def _normalize_binary_cache_key_value(
+    value: bytes | bytearray | memoryview,
+) -> dict[str, str]:
+    """Normalize bytes-like payloads into deterministic JSON-safe objects."""
+    if isinstance(value, memoryview):
+        normalized_bytes = value.tobytes()
+    else:
+        normalized_bytes = bytes(value)
+
+    encoded_value = base64.b64encode(normalized_bytes).decode("ascii")
+    return {"__binary_base64__": encoded_value}
+
+
 def _normalize_cache_key_value(value: Any) -> Any:
     """Normalize cache-key values into deterministic JSON-serializable payloads."""
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return _normalize_binary_cache_key_value(value)
+
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
 
