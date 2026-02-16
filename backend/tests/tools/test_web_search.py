@@ -45,6 +45,23 @@ class _FailingSearchBackend:
         raise RuntimeError(self.message)
 
 
+class _FlakySearchBackend:
+    """Fails for the first N calls, then returns a stable success payload."""
+
+    def __init__(
+        self, *, failures_before_success: int, success_payload: object
+    ) -> None:
+        self.failures_before_success = failures_before_success
+        self.success_payload = success_payload
+        self.queries: list[str] = []
+
+    def run(self, query: str) -> object:
+        self.queries.append(query)
+        if len(self.queries) <= self.failures_before_success:
+            raise RuntimeError("transient outage")
+        return self.success_payload
+
+
 def test_init_rejects_invalid_max_result_chars():
     """Result-length guard should only allow positive integers or None."""
     with pytest.raises(
@@ -105,6 +122,33 @@ def test_init_rejects_invalid_cache_options():
         DuckDuckGoSearchTool(stale_cache_ttl_seconds=True)  # type: ignore[arg-type]
 
 
+def test_init_rejects_invalid_retry_options():
+    """Retry guards should enforce non-negative integers/floats."""
+    with pytest.raises(
+        ValueError,
+        match="retry_attempts must be a non-negative integer",
+    ):
+        DuckDuckGoSearchTool(retry_attempts=-1)
+
+    with pytest.raises(
+        ValueError,
+        match="retry_attempts must be a non-negative integer",
+    ):
+        DuckDuckGoSearchTool(retry_attempts=1.5)  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="retry_backoff_seconds must be a non-negative number",
+    ):
+        DuckDuckGoSearchTool(retry_backoff_seconds=-0.1)
+
+    with pytest.raises(
+        ValueError,
+        match="retry_backoff_seconds must be a non-negative number",
+    ):
+        DuckDuckGoSearchTool(retry_backoff_seconds=True)  # type: ignore[arg-type]
+
+
 def test_run_normalizes_query_and_returns_backend_results(monkeypatch):
     """_run should trim query whitespace before delegating to backend."""
     fake_backend = _FakeSearchBackend(response="result payload")
@@ -119,6 +163,33 @@ def test_run_normalizes_query_and_returns_backend_results(monkeypatch):
 
     assert result == "result payload"
     assert fake_backend.queries == ["agentic workflow"]
+
+
+def test_run_retries_transient_failures_before_returning_success(monkeypatch):
+    """Retry configuration should recover from transient backend errors."""
+    fake_backend = _FlakySearchBackend(
+        failures_before_success=2,
+        success_payload="eventual payload",
+    )
+    sleep_calls: list[float] = []
+
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+    monkeypatch.setattr("app.tools.web_search.time.sleep", sleep_calls.append)
+
+    tool = DuckDuckGoSearchTool(
+        retry_attempts=2,
+        retry_backoff_seconds=0.25,
+        cache_ttl_seconds=None,
+    )
+
+    result = tool._run("agent retries")
+
+    assert result == "eventual payload"
+    assert fake_backend.queries == ["agent retries", "agent retries", "agent retries"]
+    assert sleep_calls == [0.25, 0.5]
 
 
 def test_run_uses_cache_for_normalized_duplicate_queries(monkeypatch):
@@ -190,6 +261,36 @@ def test_run_returns_stale_cache_when_backend_fails(monkeypatch):
 
     assert result.startswith("fresh snapshot")
     assert "[stale cache fallback due to search error: upstream timeout]" in result
+
+
+def test_run_stale_cache_fallback_after_retry_exhaustion(monkeypatch):
+    """Stale cache fallback should kick in after all retries fail."""
+    priming_backend = _FakeSearchBackend(response="fresh snapshot")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: priming_backend,
+    )
+
+    now = {"value": 10.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=5,
+        cache_max_entries=16,
+        stale_cache_ttl_seconds=40,
+        retry_attempts=2,
+    )
+    assert tool._run("agent") == "fresh snapshot"
+
+    now["value"] = 20.0
+    failing_backend = _FailingSearchBackend(message="still down")
+    tool._search = failing_backend
+
+    result = tool._run("agent")
+
+    assert result.startswith("fresh snapshot")
+    assert "[stale cache fallback due to search error: still down]" in result
+    assert failing_backend.queries == ["agent", "agent", "agent"]
 
 
 def test_run_stale_cache_window_expiry_returns_error(monkeypatch):

@@ -36,6 +36,8 @@ class DuckDuckGoSearchTool(BaseTool):
         cache_ttl_seconds: Optional[float] = 300.0,
         cache_max_entries: int = 128,
         stale_cache_ttl_seconds: Optional[float] = None,
+        retry_attempts: int = 0,
+        retry_backoff_seconds: float = 0.0,
     ):
         """Initialize DuckDuckGo search tool.
 
@@ -51,6 +53,10 @@ class DuckDuckGoSearchTool(BaseTool):
                 seconds. When configured, expired cache entries can still be
                 returned if a fresh backend lookup fails and the stale entry
                 age is within this window. Set to ``None`` to disable fallback.
+            retry_attempts: Number of retry attempts after the initial
+                backend failure. Set to ``0`` (default) to disable retries.
+            retry_backoff_seconds: Base delay between retry attempts in
+                seconds. Delay grows exponentially per retry attempt.
         """
         super().__init__()
         self._max_result_chars = self._normalize_max_result_chars(max_result_chars)
@@ -58,6 +64,10 @@ class DuckDuckGoSearchTool(BaseTool):
         self._cache_max_entries = self._normalize_cache_max_entries(cache_max_entries)
         self._stale_cache_ttl_seconds = self._normalize_stale_cache_ttl(
             stale_cache_ttl_seconds
+        )
+        self._retry_attempts = self._normalize_retry_attempts(retry_attempts)
+        self._retry_backoff_seconds = self._normalize_retry_backoff_seconds(
+            retry_backoff_seconds
         )
         self._cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
         self._search = DuckDuckGoSearchRun()
@@ -118,6 +128,29 @@ class DuckDuckGoSearchTool(BaseTool):
             raise ValueError(
                 "stale_cache_ttl_seconds must be a positive number or None"
             )
+
+        return normalized_value
+
+    @staticmethod
+    def _normalize_retry_attempts(value: int) -> int:
+        """Validate retry-attempt configuration."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("retry_attempts must be a non-negative integer")
+
+        if value < 0:
+            raise ValueError("retry_attempts must be a non-negative integer")
+
+        return value
+
+    @staticmethod
+    def _normalize_retry_backoff_seconds(value: float) -> float:
+        """Validate retry backoff configuration in seconds."""
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("retry_backoff_seconds must be a non-negative number")
+
+        normalized_value = float(value)
+        if normalized_value < 0:
+            raise ValueError("retry_backoff_seconds must be a non-negative number")
 
         return normalized_value
 
@@ -196,6 +229,34 @@ class DuckDuckGoSearchTool(BaseTool):
         """Clear in-memory cached search results."""
         self._cache.clear()
 
+    def _run_search_with_retries(self, query: str) -> Any:
+        """Run backend search with optional retry/backoff semantics."""
+        attempts = self._retry_attempts + 1
+        last_error: Exception | None = None
+
+        for attempt in range(attempts):
+            try:
+                return self._search.run(query)
+            except Exception as error:  # pragma: no cover - branches tested via _run
+                last_error = error
+                is_last_attempt = attempt == attempts - 1
+                if is_last_attempt:
+                    break
+
+                retry_delay = self._retry_backoff_seconds * (2**attempt)
+                logger.warning(
+                    "DuckDuckGo search failed for '%s' (attempt %d/%d): %s",
+                    query,
+                    attempt + 1,
+                    attempts,
+                    error,
+                )
+                if retry_delay > 0:
+                    time.sleep(retry_delay)
+
+        assert last_error is not None
+        raise last_error
+
     def _run(self, query: str) -> str:
         """
         Run web search synchronously.
@@ -219,7 +280,7 @@ class DuckDuckGoSearchTool(BaseTool):
                 return cached_results
 
             logger.debug("Running DuckDuckGo search: %s", normalized_query)
-            results = self._search.run(normalized_query)
+            results = self._run_search_with_retries(normalized_query)
             normalized_results = self._truncate_results(results)
             self._set_cached_results(normalized_query, normalized_results)
             logger.debug("Search completed: %d characters", len(normalized_results))
