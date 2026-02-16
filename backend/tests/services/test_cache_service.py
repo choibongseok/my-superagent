@@ -723,6 +723,85 @@ def test_local_cache_set_many_if_absent_tracks_lookup_stats_per_key():
     assert stats["misses"] == 1
 
 
+def test_local_cache_set_if_present_updates_existing_key_and_preserves_ttl_by_default():
+    cache = LocalCacheService()
+    cache.set("session", "v1", ttl_seconds=1)
+
+    time.sleep(0.4)
+
+    assert cache.set_if_present("session", "v2") is True
+    assert cache.get("session") == "v2"
+
+    ttl = cache.ttl_remaining("session")
+    assert ttl is not None
+    assert 0 < ttl < 1
+
+
+def test_local_cache_set_if_present_returns_false_for_missing_or_expired_key():
+    cache = LocalCacheService()
+
+    assert cache.set_if_present("missing", "value") is False
+
+    cache.set("otp", "1234", ttl_seconds=1)
+    time.sleep(1.05)
+
+    assert cache.set_if_present("otp", "5678") is False
+
+
+def test_local_cache_set_if_present_validates_keep_ttl_flag():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="keep_ttl must be a boolean"):
+        cache.set_if_present(
+            "session",
+            "value",
+            keep_ttl="yes",  # type: ignore[arg-type]
+        )
+
+
+def test_local_cache_set_many_if_present_updates_existing_keys_only():
+    cache = LocalCacheService()
+    cache.set("alpha", 1, ttl_seconds=1)
+    cache.set("beta", 2)
+
+    time.sleep(0.4)
+
+    updated = cache.set_many_if_present(
+        {
+            "alpha": 10,
+            "beta": 20,
+            "missing": 30,
+        },
+        ttl_seconds=2,
+        keep_ttl=False,
+    )
+
+    assert updated == {
+        "alpha": True,
+        "beta": True,
+        "missing": False,
+    }
+    assert cache.get_many(["alpha", "beta", "missing"]) == {
+        "alpha": 10,
+        "beta": 20,
+    }
+
+    alpha_ttl = cache.ttl_remaining("alpha")
+    beta_ttl = cache.ttl_remaining("beta")
+    assert alpha_ttl is not None and 1.5 <= alpha_ttl <= 2
+    assert beta_ttl is not None and 1.5 <= beta_ttl <= 2
+
+
+def test_local_cache_set_many_if_present_validates_keep_ttl_flag():
+    cache = LocalCacheService()
+
+    with pytest.raises(ValueError, match="keep_ttl must be a boolean"):
+        cache.set_many_if_present(
+            {"alpha": 1},
+            keep_ttl="yes",  # type: ignore[arg-type]
+        )
+
+
 def test_local_cache_has_respects_expiration():
     cache = LocalCacheService()
 

@@ -672,6 +672,36 @@ class LocalCacheService:
         self.set(key, value, ttl_seconds=ttl_seconds)
         return True
 
+    def set_if_present(
+        self,
+        key: str,
+        value: Any,
+        ttl_seconds: int | None = None,
+        *,
+        keep_ttl: bool = True,
+    ) -> bool:
+        """Store ``value`` only when ``key`` already exists.
+
+        Args:
+            key: Cache key to update.
+            value: Value to write when ``key`` exists.
+            ttl_seconds: TTL override used when ``keep_ttl`` is ``False``.
+            keep_ttl: Preserve the existing absolute expiration by default.
+
+        Returns:
+            ``True`` when the key existed and was updated,
+            ``False`` when key is missing/expired.
+        """
+        if not isinstance(keep_ttl, bool):
+            raise ValueError("keep_ttl must be a boolean")
+
+        return self.replace(
+            key,
+            value,
+            ttl_seconds=ttl_seconds,
+            keep_ttl=keep_ttl,
+        )
+
     def set_many_if_absent(
         self,
         items: Mapping[str, Any],
@@ -691,6 +721,32 @@ class LocalCacheService:
             )
 
         return inserted_by_key
+
+    def set_many_if_present(
+        self,
+        items: Mapping[str, Any],
+        ttl_seconds: int | None = None,
+        *,
+        keep_ttl: bool = True,
+    ) -> dict[str, bool]:
+        """Store many key/value pairs only when each key already exists.
+
+        Missing/expired keys remain untouched. The returned mapping keeps input
+        order and reports whether each key was updated.
+        """
+        if not isinstance(keep_ttl, bool):
+            raise ValueError("keep_ttl must be a boolean")
+
+        updated_by_key: dict[str, bool] = {}
+        for key, value in items.items():
+            updated_by_key[key] = self.set_if_present(
+                key,
+                value,
+                ttl_seconds=ttl_seconds,
+                keep_ttl=keep_ttl,
+            )
+
+        return updated_by_key
 
     def get(self, key: str) -> Any | None:
         """Return cached value or ``None`` when missing/expired."""
