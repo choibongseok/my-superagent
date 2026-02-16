@@ -370,3 +370,75 @@ def test_replace_template_variables_rejects_invalid_dry_run_flags(
         )
 
     mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
+def test_replace_template_variables_skip_none_values_omits_none_replacements(docs_api):
+    """skip_none_values should exclude None-valued placeholders from requests."""
+    api, mocked_service = docs_api
+
+    result = api.replace_template_variables(
+        "doc-7",
+        {
+            "name": "AgentHQ",
+            "optional_note": None,
+        },
+        skip_none_values=True,
+    )
+
+    assert result == {"replies": [{}, {}]}
+    mocked_service.documents.return_value.batchUpdate.assert_called_once_with(
+        documentId="doc-7",
+        body={
+            "requests": [
+                {
+                    "replaceAllText": {
+                        "containsText": {"text": "{{name}}", "matchCase": True},
+                        "replaceText": "AgentHQ",
+                    }
+                }
+            ]
+        },
+    )
+
+
+def test_replace_template_variables_skip_none_values_short_circuits_empty_requests(
+    docs_api,
+):
+    """All-None payloads should return deterministic no-op metadata."""
+    api, mocked_service = docs_api
+
+    result = api.replace_template_variables(
+        "doc-8",
+        {
+            "optional_a": None,
+            "optional_b": None,
+        },
+        skip_none_values=True,
+    )
+
+    assert result == {
+        "documentId": "doc-8",
+        "requestCount": 0,
+        "batchCount": 0,
+        "batchResponses": [],
+        "replies": [],
+    }
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
+@pytest.mark.parametrize("skip_none_values", [None, "yes", 1])
+def test_replace_template_variables_rejects_invalid_skip_none_values_flags(
+    docs_api,
+    skip_none_values,
+):
+    """skip_none_values must be explicitly provided as a boolean."""
+    api, mocked_service = docs_api
+
+    with pytest.raises(ValueError, match="skip_none_values must be a boolean"):
+        api.replace_template_variables(
+            "doc-9",
+            {"name": "AgentHQ"},
+            skip_none_values=skip_none_values,  # type: ignore[arg-type]
+        )
+
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()

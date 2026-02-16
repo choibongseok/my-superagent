@@ -145,6 +145,14 @@ class GoogleDocsAPI:
 
         return value
 
+    @staticmethod
+    def _normalize_skip_none_values(value: Any) -> bool:
+        """Normalize None-skipping flags used by template replacement."""
+        if not isinstance(value, bool):
+            raise ValueError("skip_none_values must be a boolean")
+
+        return value
+
     def replace_template_variables(
         self,
         document_id: str,
@@ -155,13 +163,15 @@ class GoogleDocsAPI:
         match_case: bool = True,
         max_requests_per_batch: int | None = 100,
         dry_run: bool = False,
+        skip_none_values: bool = False,
     ) -> dict[str, Any]:
         """Replace template placeholders (e.g. ``{{name}}``) in a document.
 
         Args:
             document_id: Target document ID.
             variables: Mapping of placeholder names to replacement values.
-                ``None`` values are replaced with an empty string.
+                ``None`` values are replaced with an empty string unless
+                ``skip_none_values`` is enabled.
             placeholder_prefix: Prefix used when constructing placeholders.
             placeholder_suffix: Suffix used when constructing placeholders.
             match_case: Whether placeholder matching should be case sensitive.
@@ -170,6 +180,8 @@ class GoogleDocsAPI:
                 Use ``None`` to send all requests in a single call.
             dry_run: When ``True``, skip API calls and return a payload that
                 describes the generated request batches.
+            skip_none_values: When ``True``, variables with ``None`` values are
+                ignored instead of being replaced with an empty string.
 
         Returns:
             API response dictionary from ``documents().batchUpdate``.
@@ -179,10 +191,12 @@ class GoogleDocsAPI:
             When ``dry_run`` is enabled, returns a deterministic preview
             payload containing ``documentId``, ``requestCount``,
             ``batchCount``, and ``requestBatches``.
+            When ``skip_none_values`` filters out all replacements, returns an
+            empty deterministic payload without issuing API calls.
 
         Raises:
             ValueError: If variables/prefix/suffix/match_case/batch size or
-                ``dry_run`` are invalid.
+                ``dry_run``/``skip_none_values`` are invalid.
             HttpError: If Google Docs replacement request fails.
         """
         if not isinstance(variables, Mapping):
@@ -193,6 +207,9 @@ class GoogleDocsAPI:
             raise ValueError("match_case must be a boolean")
 
         normalized_dry_run = self._normalize_dry_run(dry_run)
+        normalized_skip_none_values = self._normalize_skip_none_values(
+            skip_none_values
+        )
         normalized_max_requests_per_batch = self._normalize_max_requests_per_batch(
             max_requests_per_batch
         )
@@ -215,6 +232,9 @@ class GoogleDocsAPI:
             if not normalized_name:
                 raise ValueError("variables keys must be non-empty strings")
 
+            if replacement_value is None and normalized_skip_none_values:
+                continue
+
             placeholder = f"{normalized_prefix}{normalized_name}{normalized_suffix}"
             requests.append(
                 {
@@ -229,6 +249,24 @@ class GoogleDocsAPI:
                     }
                 }
             )
+
+        if not requests:
+            if normalized_dry_run:
+                return {
+                    "dryRun": True,
+                    "documentId": document_id,
+                    "requestCount": 0,
+                    "batchCount": 0,
+                    "requestBatches": [],
+                }
+
+            return {
+                "documentId": document_id,
+                "requestCount": 0,
+                "batchCount": 0,
+                "batchResponses": [],
+                "replies": [],
+            }
 
         request_batches = [requests]
         if normalized_max_requests_per_batch is not None:
