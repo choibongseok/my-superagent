@@ -124,6 +124,19 @@ class GoogleDocsAPI:
 
         return normalized_token
 
+    @staticmethod
+    def _normalize_max_requests_per_batch(value: Any) -> int | None:
+        """Normalize optional batch sizes for template replacement updates."""
+        if value is None:
+            return None
+
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(
+                "max_requests_per_batch must be a positive integer or None"
+            )
+
+        return value
+
     def replace_template_variables(
         self,
         document_id: str,
@@ -132,6 +145,7 @@ class GoogleDocsAPI:
         placeholder_prefix: str = "{{",
         placeholder_suffix: str = "}}",
         match_case: bool = True,
+        max_requests_per_batch: int | None = 100,
     ) -> dict[str, Any]:
         """Replace template placeholders (e.g. ``{{name}}``) in a document.
 
@@ -142,12 +156,19 @@ class GoogleDocsAPI:
             placeholder_prefix: Prefix used when constructing placeholders.
             placeholder_suffix: Suffix used when constructing placeholders.
             match_case: Whether placeholder matching should be case sensitive.
+            max_requests_per_batch: Optional maximum number of
+                ``replaceAllText`` requests sent in each ``batchUpdate`` call.
+                Use ``None`` to send all requests in a single call.
 
         Returns:
             API response dictionary from ``documents().batchUpdate``.
+            When multiple batches are required, returns an aggregate payload
+            containing ``batchCount``, ``requestCount``, and
+            ``batchResponses`` (plus merged ``replies`` when available).
 
         Raises:
-            ValueError: If variables/prefix/suffix/match_case are invalid.
+            ValueError: If variables/prefix/suffix/match_case/batch size are
+                invalid.
             HttpError: If Google Docs replacement request fails.
         """
         if not isinstance(variables, Mapping):
@@ -156,6 +177,10 @@ class GoogleDocsAPI:
             raise ValueError("variables must include at least one placeholder")
         if not isinstance(match_case, bool):
             raise ValueError("match_case must be a boolean")
+
+        normalized_max_requests_per_batch = self._normalize_max_requests_per_batch(
+            max_requests_per_batch
+        )
 
         normalized_prefix = self._normalize_placeholder_token(
             placeholder_prefix,
@@ -190,18 +215,51 @@ class GoogleDocsAPI:
                 }
             )
 
+        request_batches = [requests]
+        if normalized_max_requests_per_batch is not None:
+            request_batches = [
+                requests[index : index + normalized_max_requests_per_batch]
+                for index in range(0, len(requests), normalized_max_requests_per_batch)
+            ]
+
         try:
-            result = (
-                self.service.documents()
-                .batchUpdate(documentId=document_id, body={"requests": requests})
-                .execute()
-            )
+            batch_responses: list[dict[str, Any]] = []
+            for request_batch in request_batches:
+                result = (
+                    self.service.documents()
+                    .batchUpdate(
+                        documentId=document_id, body={"requests": request_batch}
+                    )
+                    .execute()
+                )
+                batch_responses.append(result)
+
             logger.debug(
-                "Replaced %s template placeholders in document %s",
+                "Replaced %s template placeholders in document %s using %s batch(es)",
                 len(requests),
                 document_id,
+                len(batch_responses),
             )
-            return result
+
+            if len(batch_responses) == 1:
+                return batch_responses[0]
+
+            merged_replies = [
+                reply
+                for response in batch_responses
+                for reply in response.get("replies", [])
+            ]
+
+            aggregate_response: dict[str, Any] = {
+                "batchCount": len(batch_responses),
+                "requestCount": len(requests),
+                "batchResponses": batch_responses,
+            }
+
+            if merged_replies:
+                aggregate_response["replies"] = merged_replies
+
+            return aggregate_response
 
         except HttpError as error:
             logger.error("Failed to replace template variables: %s", error)

@@ -162,3 +162,129 @@ def test_replace_template_variables_rejects_invalid_placeholder_tokens(
         api.replace_template_variables("doc-2", {"name": "AgentHQ"}, **kwargs)
 
     mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
+def test_replace_template_variables_chunks_requests_when_batch_limit_is_set(docs_api):
+    """Large replacement payloads should be split into multiple batchUpdate calls."""
+    api, mocked_service = docs_api
+    batch_update = mocked_service.documents.return_value.batchUpdate
+    batch_update.return_value.execute.side_effect = [
+        {"replies": [{"batch": 1}]},
+        {"replies": [{"batch": 2}]},
+    ]
+
+    result = api.replace_template_variables(
+        "doc-3",
+        {
+            "first": "one",
+            "second": "two",
+            "third": "three",
+        },
+        max_requests_per_batch=2,
+    )
+
+    assert batch_update.call_count == 2
+    assert batch_update.call_args_list[0].kwargs == {
+        "documentId": "doc-3",
+        "body": {
+            "requests": [
+                {
+                    "replaceAllText": {
+                        "containsText": {"text": "{{first}}", "matchCase": True},
+                        "replaceText": "one",
+                    }
+                },
+                {
+                    "replaceAllText": {
+                        "containsText": {"text": "{{second}}", "matchCase": True},
+                        "replaceText": "two",
+                    }
+                },
+            ]
+        },
+    }
+    assert batch_update.call_args_list[1].kwargs == {
+        "documentId": "doc-3",
+        "body": {
+            "requests": [
+                {
+                    "replaceAllText": {
+                        "containsText": {"text": "{{third}}", "matchCase": True},
+                        "replaceText": "three",
+                    }
+                }
+            ]
+        },
+    }
+
+    assert result == {
+        "batchCount": 2,
+        "requestCount": 3,
+        "batchResponses": [
+            {"replies": [{"batch": 1}]},
+            {"replies": [{"batch": 2}]},
+        ],
+        "replies": [{"batch": 1}, {"batch": 2}],
+    }
+
+
+def test_replace_template_variables_allows_unbounded_single_batch_requests(docs_api):
+    """Passing None as batch size should submit all replacements in one call."""
+    api, mocked_service = docs_api
+
+    api.replace_template_variables(
+        "doc-4",
+        {
+            "first": "one",
+            "second": "two",
+            "third": "three",
+        },
+        max_requests_per_batch=None,
+    )
+
+    mocked_service.documents.return_value.batchUpdate.assert_called_once_with(
+        documentId="doc-4",
+        body={
+            "requests": [
+                {
+                    "replaceAllText": {
+                        "containsText": {"text": "{{first}}", "matchCase": True},
+                        "replaceText": "one",
+                    }
+                },
+                {
+                    "replaceAllText": {
+                        "containsText": {"text": "{{second}}", "matchCase": True},
+                        "replaceText": "two",
+                    }
+                },
+                {
+                    "replaceAllText": {
+                        "containsText": {"text": "{{third}}", "matchCase": True},
+                        "replaceText": "three",
+                    }
+                },
+            ]
+        },
+    )
+
+
+@pytest.mark.parametrize("max_requests_per_batch", [0, -1, True, 1.5, "2"])
+def test_replace_template_variables_rejects_invalid_batch_limits(
+    docs_api,
+    max_requests_per_batch,
+):
+    """Batch-size configuration should accept only positive integers or None."""
+    api, mocked_service = docs_api
+
+    with pytest.raises(
+        ValueError,
+        match="max_requests_per_batch must be a positive integer or None",
+    ):
+        api.replace_template_variables(
+            "doc-5",
+            {"name": "AgentHQ"},
+            max_requests_per_batch=max_requests_per_batch,  # type: ignore[arg-type]
+        )
+
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()
