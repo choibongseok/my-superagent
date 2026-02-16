@@ -267,6 +267,7 @@ class ConversationMemory:
         *,
         case_sensitive: bool = False,
         last_n: Optional[int] = None,
+        offset: int = 0,
         limit: Optional[int] = None,
         newest_first: bool = False,
         match_mode: Literal[
@@ -295,6 +296,8 @@ class ConversationMemory:
                 comma-separated values, or an iterable of roles.
             case_sensitive: Whether to match query with exact case
             last_n: Restrict search to the last N messages
+            offset: Number of matched messages to skip before collecting
+                results. Useful for pagination when paired with ``limit``.
             limit: Maximum number of matched messages to return
             newest_first: When ``True``, evaluate messages from newest to
                 oldest and return matches in that order. Defaults to
@@ -322,14 +325,20 @@ class ConversationMemory:
             ``newest_first`` is enabled
 
         Raises:
-            ValueError: If query/role/limit/newest_first/match_mode/
-                regex_flags/fuzzy_threshold is invalid
+            ValueError: If query/role/offset/limit/newest_first/
+                match_mode/regex_flags/fuzzy_threshold is invalid
         """
         normalized_query = query.strip()
         if not normalized_query:
             raise ValueError("query must be a non-empty string")
 
         normalized_roles = self._normalize_role_filter(role)
+
+        if isinstance(offset, bool) or not isinstance(offset, int):
+            raise ValueError("offset must be a non-negative integer")
+
+        if offset < 0:
+            raise ValueError("offset must be a non-negative integer")
 
         if limit is not None and limit <= 0:
             raise ValueError("limit must be greater than 0")
@@ -391,6 +400,7 @@ class ConversationMemory:
             candidate_messages = list(reversed(candidate_messages))
 
         matches: List[BaseMessage] = []
+        skipped_matches = 0
         for message in candidate_messages:
             if normalized_roles is not None:
                 message_role = self._get_role_key(message)
@@ -440,6 +450,10 @@ class ConversationMemory:
                 )
 
             if is_match:
+                if skipped_matches < offset:
+                    skipped_matches += 1
+                    continue
+
                 matches.append(message)
 
                 if limit is not None and len(matches) >= limit:

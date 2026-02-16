@@ -406,6 +406,45 @@ class TestConversationMemory:
             "target middle",
         ]
 
+    def test_search_messages_supports_offset_pagination(self):
+        """offset should skip matched rows before applying limit capping."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("target oldest")
+        memory.add_ai_message("target middle")
+        memory.add_system_message("target newest")
+
+        matches = memory.search_messages(
+            "target",
+            offset=1,
+            limit=1,
+        )
+
+        assert [message.content for message in matches] == ["target middle"]
+
+    def test_search_messages_offset_works_with_newest_first_ordering(self):
+        """offset should respect newest_first ordering before pagination."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("target oldest")
+        memory.add_ai_message("target middle")
+        memory.add_system_message("target newest")
+
+        matches = memory.search_messages(
+            "target",
+            newest_first=True,
+            offset=1,
+            limit=1,
+        )
+
+        assert [message.content for message in matches] == ["target middle"]
+
     def test_search_messages_supports_whole_word_matching(self):
         """Whole-word mode should not match partial words."""
         memory = ConversationMemory(
@@ -612,6 +651,12 @@ class TestConversationMemory:
 
         with pytest.raises(ValueError, match="role must be one of"):
             memory.search_messages("hello", role=[])
+
+        with pytest.raises(ValueError, match="offset must be a non-negative integer"):
+            memory.search_messages("hello", offset=-1)
+
+        with pytest.raises(ValueError, match="offset must be a non-negative integer"):
+            memory.search_messages("hello", offset=True)  # type: ignore[arg-type]
 
         with pytest.raises(ValueError, match="limit must be greater than 0"):
             memory.search_messages("hello", limit=0)
