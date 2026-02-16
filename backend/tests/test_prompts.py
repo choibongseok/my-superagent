@@ -830,6 +830,86 @@ def test_rollback_rejects_missing_target_version(temp_registry):
         temp_registry.rollback("incident_prompt", target_version="v9")
 
 
+def test_diff_versions_reports_template_variable_metadata_and_score_changes(
+    temp_registry,
+):
+    """diff_versions should return a deterministic, structured change summary."""
+    temp_registry.register(
+        name="incident_prompt",
+        template="Draft for {name} in {locale}",
+        variables=["name", "locale"],
+        metadata={"owner": "ops", "channel": "slack"},
+        version="v1",
+    )
+    temp_registry.register(
+        name="incident_prompt",
+        template="Final draft for {name} ({tone})",
+        variables=["name", "tone"],
+        metadata={"owner": "platform", "priority": "high"},
+        version="v2",
+    )
+
+    temp_registry.update_performance_score("incident_prompt", "v1", 0.6)
+    temp_registry.update_performance_score("incident_prompt", "v2", 0.85)
+
+    diff = temp_registry.diff_versions("incident_prompt", "v1", "v2")
+
+    assert diff == {
+        "name": "incident_prompt",
+        "from_version": "v1",
+        "to_version": "v2",
+        "template_changed": True,
+        "variables_added": ["tone"],
+        "variables_removed": ["locale"],
+        "metadata_added": {"priority": "high"},
+        "metadata_removed": {"channel": "slack"},
+        "metadata_changed": {
+            "owner": {
+                "from": "ops",
+                "to": "platform",
+            }
+        },
+        "performance_score_delta": 0.25,
+    }
+
+
+def test_diff_versions_returns_none_score_delta_when_any_score_is_missing(
+    temp_registry,
+):
+    """Score delta should be None when either side lacks a performance score."""
+    temp_registry.register(
+        name="quality_prompt",
+        template="v1 {topic}",
+        variables=["topic"],
+        version="v1",
+    )
+    temp_registry.register(
+        name="quality_prompt",
+        template="v2 {topic}",
+        variables=["topic"],
+        version="v2",
+    )
+
+    temp_registry.update_performance_score("quality_prompt", "v2", 0.92)
+
+    diff = temp_registry.diff_versions("quality_prompt", "v1", "v2")
+
+    assert diff["performance_score_delta"] is None
+
+
+def test_diff_versions_rejects_missing_versions(temp_registry):
+    """diff_versions should fail fast when either requested version is absent."""
+    temp_registry.register(
+        name="cleanup_prompt",
+        template="v1",
+        variables=[],
+        version="v1",
+    )
+
+    with pytest.raises(ValueError, match="version 'v9' was not found"):
+        temp_registry.diff_versions("cleanup_prompt", "v1", "v9")
+
+
 def test_delete_version_removes_target_and_persists_remaining_versions(temp_registry):
     """delete_version should remove one version without touching others."""
     temp_registry.register(

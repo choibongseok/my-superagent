@@ -566,6 +566,91 @@ class PromptRegistry:
             persist=persist,
         )
 
+    def diff_versions(
+        self,
+        name: str,
+        from_version: str,
+        to_version: str,
+    ) -> Dict[str, Any]:
+        """Compare two prompt versions and return a structured change summary.
+
+        Args:
+            name: Prompt name.
+            from_version: Baseline version identifier.
+            to_version: Target version identifier.
+
+        Returns:
+            Dictionary describing template, variable, metadata, and optional
+            performance-score differences.
+
+        Raises:
+            ValueError: If either version cannot be found.
+        """
+        baseline = self.get(name, version=from_version)
+        if baseline is None:
+            raise ValueError(f"Prompt '{name}' version '{from_version}' was not found")
+
+        target = self.get(name, version=to_version)
+        if target is None:
+            raise ValueError(f"Prompt '{name}' version '{to_version}' was not found")
+
+        baseline_variables = list(dict.fromkeys(baseline.variables))
+        target_variables = list(dict.fromkeys(target.variables))
+        baseline_variable_set = set(baseline_variables)
+        target_variable_set = set(target_variables)
+
+        variables_added = [
+            variable
+            for variable in target_variables
+            if variable not in baseline_variable_set
+        ]
+        variables_removed = [
+            variable
+            for variable in baseline_variables
+            if variable not in target_variable_set
+        ]
+
+        baseline_metadata = dict(baseline.metadata)
+        target_metadata = dict(target.metadata)
+
+        metadata_added = {
+            key: target_metadata[key]
+            for key in sorted(target_metadata.keys() - baseline_metadata.keys())
+        }
+        metadata_removed = {
+            key: baseline_metadata[key]
+            for key in sorted(baseline_metadata.keys() - target_metadata.keys())
+        }
+        metadata_changed = {
+            key: {"from": baseline_metadata[key], "to": target_metadata[key]}
+            for key in sorted(baseline_metadata.keys() & target_metadata.keys())
+            if baseline_metadata[key] != target_metadata[key]
+        }
+
+        if (
+            baseline.performance_score is None
+            or target.performance_score is None
+        ):
+            performance_score_delta = None
+        else:
+            performance_score_delta = round(
+                target.performance_score - baseline.performance_score,
+                6,
+            )
+
+        return {
+            "name": name,
+            "from_version": baseline.version,
+            "to_version": target.version,
+            "template_changed": baseline.template != target.template,
+            "variables_added": variables_added,
+            "variables_removed": variables_removed,
+            "metadata_added": metadata_added,
+            "metadata_removed": metadata_removed,
+            "metadata_changed": metadata_changed,
+            "performance_score_delta": performance_score_delta,
+        }
+
     def delete_version(
         self,
         name: str,
