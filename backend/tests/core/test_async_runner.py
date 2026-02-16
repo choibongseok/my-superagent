@@ -36,6 +36,7 @@ from app.core.async_runner import (
     run_async_partition,
     run_async_partition_batched,
     run_async_reduce,
+    run_async_reduce_batched,
     run_async_retry,
     run_async_sort,
     run_async_sort_batched,
@@ -2349,6 +2350,123 @@ def test_run_async_reduce_with_empty_offset_window_and_initial_returns_initial()
     assert run_async_reduce(_add, [1, 2, 3], start=3, initial=99) == 99
 
 
+def test_run_async_reduce_batched_without_initial_uses_first_item_as_accumulator():
+    async def _add(accumulator: int, value: int) -> int:
+        await asyncio.sleep(0.01)
+        return accumulator + value
+
+    assert run_async_reduce_batched(_add, [1, 2, 3, 4], batch_size=2) == 10
+
+
+@pytest.mark.asyncio
+async def test_run_async_reduce_batched_with_existing_event_loop_returns_value():
+    async def _concat(accumulator: str, value: str) -> str:
+        await asyncio.sleep(0.01)
+        return f"{accumulator}-{value}"
+
+    assert (
+        run_async_reduce_batched(
+            _concat,
+            ["a", "b", "c"],
+            batch_size=2,
+            initial="start",
+        )
+        == "start-a-b-c"
+    )
+
+
+def test_run_async_reduce_batched_supports_initial_value_for_empty_iterables():
+    async def _add(accumulator: int, value: int) -> int:
+        await asyncio.sleep(0.01)
+        return accumulator + value
+
+    assert run_async_reduce_batched(_add, [], batch_size=1, initial=42) == 42
+
+
+def test_run_async_reduce_batched_raises_lookup_error_for_empty_iterable_without_initial():
+    async def _add(accumulator: int, value: int) -> int:
+        return accumulator + value
+
+    with pytest.raises(
+        LookupError,
+        match="cannot reduce an empty iterable",
+    ):
+        run_async_reduce_batched(_add, [], batch_size=1)
+
+
+def test_run_async_reduce_batched_rejects_non_callable_reducer():
+    with pytest.raises(TypeError, match="expects a callable coro_reducer"):
+        run_async_reduce_batched(123, [1, 2, 3], batch_size=2)  # type: ignore[arg-type]
+
+
+def test_run_async_reduce_batched_rejects_non_awaitable_reducer_results():
+    def _sync_add(accumulator: int, value: int) -> int:
+        return accumulator + value
+
+    with pytest.raises(TypeError, match="must return an awaitable"):
+        run_async_reduce_batched(_sync_add, [1, 2, 3], batch_size=2)
+
+
+def test_run_async_reduce_batched_timeout_applies_to_entire_reduction():
+    async def _slow_add(accumulator: int, value: int) -> int:
+        await asyncio.sleep(0.03)
+        return accumulator + value
+
+    with pytest.raises(TimeoutError, match="run_async_reduce_batched timed out"):
+        run_async_reduce_batched(
+            _slow_add, [1, 2, 3], batch_size=1, initial=0, timeout=0.05
+        )
+
+
+def test_run_async_reduce_batched_supports_start_and_stop_offsets():
+    async def _add(accumulator: int, value: int) -> int:
+        await asyncio.sleep(0.01)
+        return accumulator + value
+
+    assert run_async_reduce_batched(_add, [1, 2, 3, 4], batch_size=2, start=1) == 9
+    assert run_async_reduce_batched(_add, [1, 2, 3, 4], batch_size=2, stop=3) == 6
+    assert (
+        run_async_reduce_batched(
+            _add,
+            [1, 2, 3, 4],
+            batch_size=2,
+            start=1,
+            stop=3,
+            initial=10,
+        )
+        == 15
+    )
+
+
+def test_run_async_reduce_batched_rejects_invalid_offsets():
+    async def _add(accumulator: int, value: int) -> int:
+        return accumulator + value
+
+    with pytest.raises(ValueError, match="start must be an integer"):
+        run_async_reduce_batched(_add, [1, 2], batch_size=1, start=True)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="stop cannot be negative"):
+        run_async_reduce_batched(_add, [1, 2], batch_size=1, stop=-1)
+
+
+def test_run_async_reduce_batched_rejects_non_positive_batch_size_for_empty_items():
+    async def _add(accumulator: int, value: int) -> int:
+        return accumulator + value
+
+    with pytest.raises(ValueError, match="batch_size must be greater than 0"):
+        run_async_reduce_batched(_add, [], batch_size=0, initial=0)
+
+
+def test_run_async_reduce_batched_with_empty_offset_window_and_initial_returns_initial():
+    async def _add(accumulator: int, value: int) -> int:
+        return accumulator + value
+
+    assert (
+        run_async_reduce_batched(_add, [1, 2, 3], batch_size=2, start=3, initial=99)
+        == 99
+    )
+
+
 def test_run_async_starmap_supports_positional_argument_groups():
     async def _add(left: int, right: int) -> int:
         await asyncio.sleep(0.01)
@@ -2481,24 +2599,18 @@ def test_run_async_starmap_batched_supports_start_and_stop_offsets():
         await asyncio.sleep(0.01)
         return left + right
 
-    assert (
-        run_async_starmap_batched(
-            _add,
-            [(1, 1), (2, 2), (3, 3)],
-            batch_size=2,
-            start=1,
-        )
-        == [4, 6]
-    )
-    assert (
-        run_async_starmap_batched(
-            _add,
-            [(1, 1), (2, 2), (3, 3)],
-            batch_size=2,
-            stop=2,
-        )
-        == [2, 4]
-    )
+    assert run_async_starmap_batched(
+        _add,
+        [(1, 1), (2, 2), (3, 3)],
+        batch_size=2,
+        start=1,
+    ) == [4, 6]
+    assert run_async_starmap_batched(
+        _add,
+        [(1, 1), (2, 2), (3, 3)],
+        batch_size=2,
+        stop=2,
+    ) == [2, 4]
 
 
 def test_run_async_starmap_batched_rejects_invalid_offsets():

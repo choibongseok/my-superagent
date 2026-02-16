@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from itertools import islice
 import queue
 import random
 import threading
@@ -1276,6 +1277,74 @@ def run_async_reduce(
 
     def _timeout_error() -> TimeoutError:
         return TimeoutError(f"run_async_reduce timed out after {timeout} seconds")
+
+    return _run_with_event_loop_bridge(
+        _run_with_timeout,
+        timeout_error_factory=_timeout_error,
+    )
+
+
+def run_async_reduce_batched(
+    coro_reducer: Callable[[A, I], Awaitable[A]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    initial: A | object = _MISSING,
+    start: int = 0,
+    stop: int | None = None,
+) -> A:
+    """Batch-oriented variant of :func:`run_async_reduce`.
+
+    This helper preserves ``run_async_reduce`` semantics while processing items
+    in bounded windows so large iterables do not need to be fully materialized
+    before reduction starts.
+    """
+    if not callable(coro_reducer):
+        raise TypeError("run_async_reduce_batched expects a callable coro_reducer")
+
+    _validate_batch_size(batch_size)
+    _validate_timeout(timeout)
+    _validate_start_index(start)
+    _validate_stop_index(stop)
+
+    selected_iterator = iter(islice(items, start, stop))
+
+    if initial is _MISSING:
+        try:
+            accumulator: A = cast(A, next(selected_iterator))
+        except StopIteration as error:
+            raise LookupError(
+                "run_async_reduce_batched cannot reduce an empty iterable without an initial value"
+            ) from error
+    else:
+        accumulator = cast(A, initial)
+
+    async def _run_reducer() -> A:
+        current = accumulator
+
+        while True:
+            batch = list(islice(selected_iterator, batch_size))
+            if not batch:
+                break
+
+            for item in batch:
+                produced = coro_reducer(current, item)
+                if not inspect.isawaitable(produced):
+                    raise TypeError("coro_reducer must return an awaitable")
+                current = await cast(Awaitable[A], produced)
+
+        return current
+
+    async def _run_with_timeout() -> A:
+        if timeout is None:
+            return await _run_reducer()
+        return await asyncio.wait_for(_run_reducer(), timeout=timeout)
+
+    def _timeout_error() -> TimeoutError:
+        return TimeoutError(
+            f"run_async_reduce_batched timed out after {timeout} seconds"
+        )
 
     return _run_with_event_loop_bridge(
         _run_with_timeout,
