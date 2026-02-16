@@ -1791,6 +1791,30 @@ def test_local_cache_list_namespaces_supports_count_based_sorting():
     ]
 
 
+def test_local_cache_list_namespaces_supports_min_and_max_count_filters():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "session:alpha": 1,
+            "session:beta": 2,
+            "user:alpha": 3,
+            "audit:1": 4,
+            "audit:2": 5,
+            "audit:3": 6,
+        }
+    )
+
+    assert cache.list_namespaces(min_count=2) == ["audit", "session"]
+
+    assert cache.list_namespaces(max_count=1, include_counts=True) == [
+        {"namespace": "user", "count": 1}
+    ]
+
+    assert cache.list_namespaces(min_count=2, max_count=2, include_counts=True) == [
+        {"namespace": "session", "count": 2}
+    ]
+
+
 def test_local_cache_list_namespaces_rejects_invalid_inputs():
     cache = LocalCacheService()
 
@@ -1802,6 +1826,21 @@ def test_local_cache_list_namespaces_rejects_invalid_inputs():
 
     with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
         cache.list_namespaces(match_all_tags="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="min_count must be a non-negative integer"):
+        cache.list_namespaces(min_count=-1)
+
+    with pytest.raises(ValueError, match="min_count must be a non-negative integer"):
+        cache.list_namespaces(min_count=1.5)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="max_count must be a non-negative integer"):
+        cache.list_namespaces(max_count=-1)
+
+    with pytest.raises(ValueError, match="max_count must be a non-negative integer"):
+        cache.list_namespaces(max_count=1.5)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="min_count cannot be greater than max_count"):
+        cache.list_namespaces(min_count=2, max_count=1)
 
     with pytest.raises(ValueError, match="separator cannot be empty"):
         cache.list_namespaces(separator="   ")

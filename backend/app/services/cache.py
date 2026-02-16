@@ -1686,6 +1686,8 @@ class LocalCacheService:
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
         separator: str = ":",
+        min_count: int | None = None,
+        max_count: int | None = None,
         offset: int | None = None,
         limit: int | None = None,
         include_counts: bool = False,
@@ -1703,6 +1705,10 @@ class LocalCacheService:
             tags: Optional key-tag filters.
             match_all_tags: Tag matching mode when ``tags`` are provided.
             separator: Namespace delimiter used to split keys.
+            min_count: Optional minimum number of matching keys required
+                for a namespace to be included.
+            max_count: Optional maximum number of matching keys allowed
+                for a namespace to be included.
             offset: Optional number of sorted namespaces to skip.
             limit: Optional maximum number of namespaces to return.
             include_counts: Include entry counts per namespace.
@@ -1718,6 +1724,21 @@ class LocalCacheService:
 
         if not isinstance(match_all_tags, bool):
             raise ValueError("match_all_tags must be a boolean")
+
+        if min_count is not None:
+            if isinstance(min_count, bool) or not isinstance(min_count, int):
+                raise ValueError("min_count must be a non-negative integer")
+            if min_count < 0:
+                raise ValueError("min_count must be a non-negative integer")
+
+        if max_count is not None:
+            if isinstance(max_count, bool) or not isinstance(max_count, int):
+                raise ValueError("max_count must be a non-negative integer")
+            if max_count < 0:
+                raise ValueError("max_count must be a non-negative integer")
+
+        if min_count is not None and max_count is not None and min_count > max_count:
+            raise ValueError("min_count cannot be greater than max_count")
 
         if offset is not None and offset < 0:
             raise ValueError("offset must be greater than or equal to 0")
@@ -1752,7 +1773,12 @@ class LocalCacheService:
 
             namespace_counts[namespace] += 1
 
-        namespace_rows = list(namespace_counts.items())
+        namespace_rows = [
+            (namespace, count)
+            for namespace, count in namespace_counts.items()
+            if (min_count is None or count >= min_count)
+            and (max_count is None or count <= max_count)
+        ]
         if sort_by == "count":
             if descending:
                 namespace_rows.sort(key=lambda row: (-row[1], row[0]))
