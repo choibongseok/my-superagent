@@ -534,6 +534,85 @@ def test_rate_limit_middleware_uses_client_id_header_for_bucket_isolation(
         assert first_beta.status_code == 200
 
 
+def test_rate_limit_middleware_supports_client_id_header_fallbacks(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+        client_id_header=["X-Primary-ID", "X-Secondary-ID"],
+    )
+
+    with TestClient(app) as client:
+        first_secondary = client.get("/limited", headers={"X-Secondary-ID": "tenant-a"})
+        second_secondary = client.get(
+            "/limited",
+            headers={"X-Secondary-ID": "tenant-a"},
+        )
+        first_primary = client.get("/limited", headers={"X-Primary-ID": "tenant-a"})
+
+        assert first_secondary.status_code == 200
+        assert second_secondary.status_code == 429
+        assert first_primary.status_code == 429
+
+
+def test_rate_limit_middleware_uses_first_non_empty_configured_client_header(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+        client_id_header=["X-Primary-ID", "X-Secondary-ID"],
+    )
+
+    with TestClient(app) as client:
+        first = client.get(
+            "/limited",
+            headers={
+                "X-Primary-ID": "primary-a",
+                "X-Secondary-ID": "secondary-a",
+            },
+        )
+        second_same_primary = client.get(
+            "/limited",
+            headers={
+                "X-Primary-ID": "primary-a",
+                "X-Secondary-ID": "secondary-b",
+            },
+        )
+        first_other_primary = client.get(
+            "/limited",
+            headers={
+                "X-Primary-ID": "primary-b",
+                "X-Secondary-ID": "secondary-a",
+            },
+        )
+
+        assert first.status_code == 200
+        assert second_same_primary.status_code == 429
+        assert first_other_primary.status_code == 200
+
+
 def test_rate_limit_middleware_uses_forwarded_header_for_bucket_isolation(
     fake_cache: InMemoryAsyncCache,
     frozen_time: dict[str, float],
@@ -679,8 +758,27 @@ def test_rate_limit_middleware_skips_invalid_x_forwarded_for_candidates(
 def test_rate_limit_middleware_rejects_invalid_client_id_header() -> None:
     app = FastAPI()
 
-    with pytest.raises(ValueError, match="client_id_header must be a non-empty string"):
+    with pytest.raises(
+        ValueError,
+        match="client_id_header must be a non-empty string or iterable",
+    ):
         RateLimitMiddleware(app, client_id_header="")
+
+
+def test_rate_limit_middleware_rejects_invalid_client_id_header_iterables() -> None:
+    app = FastAPI()
+
+    with pytest.raises(
+        ValueError,
+        match="client_id_header must be a non-empty string or iterable",
+    ):
+        RateLimitMiddleware(app, client_id_header=[])
+
+    with pytest.raises(
+        ValueError,
+        match="client_id_header must contain only non-empty header strings",
+    ):
+        RateLimitMiddleware(app, client_id_header=["X-API-Key", ""])
 
 
 def test_rate_limit_middleware_rejects_invalid_exclude_paths() -> None:

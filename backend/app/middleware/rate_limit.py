@@ -134,7 +134,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path_request_costs: Optional[Mapping[str, int]] = None,
         exclude_paths: Optional[Iterable[str]] = None,
         exclude_methods: Optional[Iterable[str]] = None,
-        client_id_header: Optional[str] = None,
+        client_id_header: Optional[str | Iterable[str]] = None,
     ):
         """
         Initialize rate limit middleware.
@@ -155,10 +155,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             exclude_methods: Optional HTTP methods that should bypass
                 rate limiting entirely (for example ``["OPTIONS"]`` for
                 CORS preflight requests).
-            client_id_header: Optional HTTP header name used to identify
-                clients for bucket isolation (e.g. ``"X-API-Key"``). When
-                provided and present on a request, it takes precedence over
-                ``request.state.user_id`` and IP-based identification.
+            client_id_header: Optional HTTP header name (or ordered list of
+                header names) used to identify clients for bucket isolation
+                (e.g. ``"X-API-Key"`` or
+                ``["X-API-Key", "X-Client-ID"]``). When configured and
+                present on a request, the first non-empty header value takes
+                precedence over ``request.state.user_id`` and IP-based
+                identification.
         """
         super().__init__(app)
 
@@ -174,7 +177,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.request_costs = self._normalize_request_costs(request_costs)
         self.path_request_costs = self._normalize_path_request_costs(path_request_costs)
         self.exclude_methods = self._normalize_exclude_methods(exclude_methods)
-        self.client_id_header = self._normalize_client_id_header(client_id_header)
+        self.client_id_headers = self._normalize_client_id_headers(client_id_header)
+        # Backward-compatible alias for callers that still access this attribute.
+        self.client_id_header = (
+            self.client_id_headers[0] if self.client_id_headers else None
+        )
 
         # Token bucket: refills at requests_per_minute rate
         # Max capacity: burst_size
@@ -194,14 +201,51 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.exclude_path_rules = self._normalize_exclude_paths(exclude_paths)
 
     @staticmethod
-    def _normalize_client_id_header(client_id_header: Optional[str]) -> Optional[str]:
+    def _normalize_client_id_headers(
+        client_id_header: Optional[str | Iterable[str]],
+    ) -> tuple[str, ...]:
         """Normalize optional header names used for rate-limit identity keys."""
         if client_id_header is None:
-            return None
-        if not isinstance(client_id_header, str) or not client_id_header.strip():
-            raise ValueError("client_id_header must be a non-empty string")
+            return ()
 
-        return client_id_header.strip()
+        if isinstance(client_id_header, str):
+            normalized_header = client_id_header.strip()
+            if not normalized_header:
+                raise ValueError(
+                    "client_id_header must be a non-empty string or iterable of non-empty strings"
+                )
+
+            return (normalized_header,)
+
+        try:
+            raw_headers = list(client_id_header)
+        except TypeError as exc:
+            raise ValueError(
+                "client_id_header must be a non-empty string or iterable of non-empty strings"
+            ) from exc
+
+        if not raw_headers:
+            raise ValueError(
+                "client_id_header must be a non-empty string or iterable of non-empty strings"
+            )
+
+        normalized_headers: list[str] = []
+        for raw_header in raw_headers:
+            if not isinstance(raw_header, str) or not raw_header.strip():
+                raise ValueError(
+                    "client_id_header must contain only non-empty header strings"
+                )
+
+            normalized_header = raw_header.strip()
+            if normalized_header not in normalized_headers:
+                normalized_headers.append(normalized_header)
+
+        if not normalized_headers:
+            raise ValueError(
+                "client_id_header must be a non-empty string or iterable of non-empty strings"
+            )
+
+        return tuple(normalized_headers)
 
     @staticmethod
     def _normalize_exclude_methods(
@@ -476,9 +520,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             Client identifier (user_id or IP address)
         """
         # Prefer explicit client identity headers when configured.
-        if self.client_id_header is not None:
-            client_header_value = request.headers.get(self.client_id_header)
-            if client_header_value is not None:
+        if self.client_id_headers:
+            for header_name in self.client_id_headers:
+                client_header_value = request.headers.get(header_name)
+                if client_header_value is None:
+                    continue
+
                 normalized_client_header_value = client_header_value.strip()
                 if normalized_client_header_value:
                     return f"header:{normalized_client_header_value}"
@@ -635,7 +682,7 @@ def get_rate_limit_middleware(
     path_request_costs: Optional[Mapping[str, int]] = None,
     exclude_paths: Optional[Iterable[str]] = None,
     exclude_methods: Optional[Iterable[str]] = None,
-    client_id_header: Optional[str] = None,
+    client_id_header: Optional[str | Iterable[str]] = None,
 ):
     """
     Create rate limit middleware factory.
@@ -646,7 +693,8 @@ def get_rate_limit_middleware(
         path_request_costs: Optional exact/prefix path token costs
         exclude_paths: Optional exact/prefix/method-scoped exclusion rules
         exclude_methods: Optional HTTP methods that bypass rate limiting
-        client_id_header: Optional HTTP header name used for client identity
+        client_id_header: Optional HTTP header name (or ordered header list)
+            used for client identity
 
     Returns:
         Callable middleware factory compatible with ``add_middleware``
