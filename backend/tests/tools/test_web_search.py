@@ -417,6 +417,9 @@ def test_invalidate_cache_rejects_multiple_selectors(monkeypatch):
     with pytest.raises(ValueError, match="mutually exclusive"):
         tool.invalidate_cache(status="expired", pattern="*alpha*")
 
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        tool.invalidate_cache(older_than_seconds=10, younger_than_seconds=5)
+
 
 def test_invalidate_cache_rejects_invalid_older_than_selector(monkeypatch):
     """Age selector should accept only positive numeric values."""
@@ -447,6 +450,37 @@ def test_invalidate_cache_rejects_invalid_older_than_selector(monkeypatch):
         ValueError, match="older_than_seconds must be a positive number"
     ):
         tool.invalidate_cache(older_than_seconds="10")  # type: ignore[arg-type]
+
+
+def test_invalidate_cache_rejects_invalid_younger_than_selector(monkeypatch):
+    """Young-age selector should accept only positive numeric values."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    with pytest.raises(
+        ValueError, match="younger_than_seconds must be a positive number"
+    ):
+        tool.invalidate_cache(younger_than_seconds=0)
+
+    with pytest.raises(
+        ValueError, match="younger_than_seconds must be a positive number"
+    ):
+        tool.invalidate_cache(younger_than_seconds=-1)
+
+    with pytest.raises(
+        ValueError, match="younger_than_seconds must be a positive number"
+    ):
+        tool.invalidate_cache(younger_than_seconds=True)  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError, match="younger_than_seconds must be a positive number"
+    ):
+        tool.invalidate_cache(younger_than_seconds="10")  # type: ignore[arg-type]
 
 
 def test_invalidate_cache_rejects_invalid_limit_selector(monkeypatch):
@@ -492,6 +526,28 @@ def test_invalidate_cache_can_remove_entries_older_than_threshold(monkeypatch):
 
     assert removed_entries == 2
     assert list(tool._cache.keys()) == ["fresh"]
+
+
+def test_invalidate_cache_can_remove_entries_younger_than_threshold(monkeypatch):
+    """Young-age selector should evict entries below the provided age threshold."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 100.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+    tool._cache["fresh"] = (99.0, "fresh")
+    tool._cache["warm"] = (95.0, "warm")
+    tool._cache["stale"] = (80.0, "stale")
+
+    removed_entries = tool.invalidate_cache(younger_than_seconds=6)
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["stale"]
 
 
 def test_invalidate_cache_can_remove_entries_by_status(monkeypatch):

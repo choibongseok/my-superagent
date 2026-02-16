@@ -382,6 +382,7 @@ class DuckDuckGoSearchTool(BaseTool):
         regex: str | None = None,
         regex_flags: str | None = None,
         older_than_seconds: float | None = None,
+        younger_than_seconds: float | None = None,
         status: str | Iterable[str] | None = None,
         limit: int | None = None,
         newest_first: bool = False,
@@ -409,6 +410,8 @@ class DuckDuckGoSearchTool(BaseTool):
                 ``s``, ``x``) used only when ``regex`` is provided.
             older_than_seconds: Optional age threshold that removes cache
                 entries older than the provided number of seconds.
+            younger_than_seconds: Optional age threshold that removes cache
+                entries younger than the provided number of seconds.
             status: Optional cache-status selector. Accepts one status or an
                 iterable of statuses from ``active``, ``stale_eligible``,
                 ``expired``, and ``unbounded``.
@@ -432,8 +435,9 @@ class DuckDuckGoSearchTool(BaseTool):
             ValueError: If more than one selector argument is provided, if
                 ``queries`` is not an iterable of non-empty strings, if
                 ``regex`` is not a valid regular expression, if
-                ``regex_flags`` is invalid, if ``older_than_seconds`` is not
-                a positive number, if ``status`` is invalid, if ``limit`` is
+                ``regex_flags`` is invalid, if ``older_than_seconds`` or
+                ``younger_than_seconds`` is not a positive number, if
+                ``status`` is invalid, if ``limit`` is
                 not a positive integer, if ``newest_first`` is not a boolean,
                 if ``case_sensitive`` is not a boolean, or if ``dry_run`` is
                 not a boolean.
@@ -451,13 +455,14 @@ class DuckDuckGoSearchTool(BaseTool):
                 pattern,
                 regex,
                 older_than_seconds,
+                younger_than_seconds,
                 normalized_status_selector,
             )
         )
         if selector_count > 1:
             raise ValueError(
-                "query, queries, contains, prefix, suffix, pattern, regex, and "
-                "older_than_seconds, and status are mutually exclusive"
+                "query, queries, contains, prefix, suffix, pattern, regex, "
+                "older_than_seconds, younger_than_seconds, and status are mutually exclusive"
             )
 
         if not isinstance(dry_run, bool):
@@ -482,6 +487,17 @@ class DuckDuckGoSearchTool(BaseTool):
             normalized_age_threshold = float(older_than_seconds)
             if normalized_age_threshold <= 0:
                 raise ValueError("older_than_seconds must be a positive number")
+
+        if younger_than_seconds is not None:
+            if isinstance(younger_than_seconds, bool) or not isinstance(
+                younger_than_seconds,
+                (int, float),
+            ):
+                raise ValueError("younger_than_seconds must be a positive number")
+
+            normalized_age_threshold = float(younger_than_seconds)
+            if normalized_age_threshold <= 0:
+                raise ValueError("younger_than_seconds must be a positive number")
 
         if limit is not None:
             if isinstance(limit, bool) or not isinstance(limit, int):
@@ -571,6 +587,22 @@ class DuckDuckGoSearchTool(BaseTool):
                 cached_query
                 for cached_query, (cached_at, _payload) in self._cache.items()
                 if now - cached_at > normalized_age_threshold
+            ]
+            matching_queries = _apply_limit(matching_queries)
+
+            if not dry_run:
+                for cached_query in matching_queries:
+                    self._cache.pop(cached_query, None)
+
+            return len(matching_queries)
+
+        if younger_than_seconds is not None:
+            now = time.monotonic()
+            normalized_age_threshold = float(younger_than_seconds)
+            matching_queries = [
+                cached_query
+                for cached_query, (cached_at, _payload) in self._cache.items()
+                if now - cached_at < normalized_age_threshold
             ]
             matching_queries = _apply_limit(matching_queries)
 
