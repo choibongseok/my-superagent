@@ -288,3 +288,85 @@ def test_replace_template_variables_rejects_invalid_batch_limits(
         )
 
     mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
+def test_replace_template_variables_dry_run_returns_batched_preview_payload(
+    docs_api,
+):
+    """Dry-run mode should return generated requests without calling Google APIs."""
+    api, mocked_service = docs_api
+
+    result = api.replace_template_variables(
+        "doc-preview",
+        {
+            "first": "one",
+            "second": "two",
+            "third": "three",
+        },
+        max_requests_per_batch=2,
+        dry_run=True,
+    )
+
+    assert result == {
+        "dryRun": True,
+        "documentId": "doc-preview",
+        "requestCount": 3,
+        "batchCount": 2,
+        "requestBatches": [
+            {
+                "requests": [
+                    {
+                        "replaceAllText": {
+                            "containsText": {
+                                "text": "{{first}}",
+                                "matchCase": True,
+                            },
+                            "replaceText": "one",
+                        }
+                    },
+                    {
+                        "replaceAllText": {
+                            "containsText": {
+                                "text": "{{second}}",
+                                "matchCase": True,
+                            },
+                            "replaceText": "two",
+                        }
+                    },
+                ]
+            },
+            {
+                "requests": [
+                    {
+                        "replaceAllText": {
+                            "containsText": {
+                                "text": "{{third}}",
+                                "matchCase": True,
+                            },
+                            "replaceText": "three",
+                        }
+                    }
+                ]
+            },
+        ],
+    }
+
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
+@pytest.mark.parametrize("dry_run", [None, "yes", 1])
+def test_replace_template_variables_rejects_invalid_dry_run_flags(
+    docs_api,
+    dry_run,
+):
+    """dry_run must be explicitly provided as a boolean."""
+    api, mocked_service = docs_api
+
+    with pytest.raises(ValueError, match="dry_run must be a boolean"):
+        api.replace_template_variables(
+            "doc-6",
+            {"name": "AgentHQ"},
+            dry_run=dry_run,  # type: ignore[arg-type]
+        )
+
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()

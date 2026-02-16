@@ -137,6 +137,14 @@ class GoogleDocsAPI:
 
         return value
 
+    @staticmethod
+    def _normalize_dry_run(value: Any) -> bool:
+        """Normalize dry-run flags used by template replacement."""
+        if not isinstance(value, bool):
+            raise ValueError("dry_run must be a boolean")
+
+        return value
+
     def replace_template_variables(
         self,
         document_id: str,
@@ -146,6 +154,7 @@ class GoogleDocsAPI:
         placeholder_suffix: str = "}}",
         match_case: bool = True,
         max_requests_per_batch: int | None = 100,
+        dry_run: bool = False,
     ) -> dict[str, Any]:
         """Replace template placeholders (e.g. ``{{name}}``) in a document.
 
@@ -159,16 +168,21 @@ class GoogleDocsAPI:
             max_requests_per_batch: Optional maximum number of
                 ``replaceAllText`` requests sent in each ``batchUpdate`` call.
                 Use ``None`` to send all requests in a single call.
+            dry_run: When ``True``, skip API calls and return a payload that
+                describes the generated request batches.
 
         Returns:
             API response dictionary from ``documents().batchUpdate``.
             When multiple batches are required, returns an aggregate payload
             containing ``batchCount``, ``requestCount``, and
             ``batchResponses`` (plus merged ``replies`` when available).
+            When ``dry_run`` is enabled, returns a deterministic preview
+            payload containing ``documentId``, ``requestCount``,
+            ``batchCount``, and ``requestBatches``.
 
         Raises:
-            ValueError: If variables/prefix/suffix/match_case/batch size are
-                invalid.
+            ValueError: If variables/prefix/suffix/match_case/batch size or
+                ``dry_run`` are invalid.
             HttpError: If Google Docs replacement request fails.
         """
         if not isinstance(variables, Mapping):
@@ -178,6 +192,7 @@ class GoogleDocsAPI:
         if not isinstance(match_case, bool):
             raise ValueError("match_case must be a boolean")
 
+        normalized_dry_run = self._normalize_dry_run(dry_run)
         normalized_max_requests_per_batch = self._normalize_max_requests_per_batch(
             max_requests_per_batch
         )
@@ -221,6 +236,17 @@ class GoogleDocsAPI:
                 requests[index : index + normalized_max_requests_per_batch]
                 for index in range(0, len(requests), normalized_max_requests_per_batch)
             ]
+
+        if normalized_dry_run:
+            return {
+                "dryRun": True,
+                "documentId": document_id,
+                "requestCount": len(requests),
+                "batchCount": len(request_batches),
+                "requestBatches": [
+                    {"requests": request_batch} for request_batch in request_batches
+                ],
+            }
 
         try:
             batch_responses: list[dict[str, Any]] = []
