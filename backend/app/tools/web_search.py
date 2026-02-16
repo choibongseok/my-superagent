@@ -748,6 +748,8 @@ class DuckDuckGoSearchTool(BaseTool):
         newest_first: bool = False,
         status: str | Iterable[str] | None = None,
         query_contains: str | None = None,
+        min_age_seconds: float | None = None,
+        max_age_seconds: float | None = None,
         case_sensitive: bool = True,
     ) -> list[dict[str, Any]]:
         """Return a deterministic snapshot of cached queries and freshness state.
@@ -760,6 +762,10 @@ class DuckDuckGoSearchTool(BaseTool):
                 ``stale_eligible``, ``expired``, and ``unbounded``.
             query_contains: Optional substring matcher applied to cache query
                 keys after optional whitespace normalization.
+            min_age_seconds: Optional minimum cache-entry age in seconds
+                (inclusive) used to filter diagnostics.
+            max_age_seconds: Optional maximum cache-entry age in seconds
+                (inclusive) used to filter diagnostics.
             case_sensitive: When ``True`` (default), ``query_contains`` matching
                 is case-sensitive. Set to ``False`` for case-insensitive
                 matching.
@@ -771,14 +777,48 @@ class DuckDuckGoSearchTool(BaseTool):
         Raises:
             ValueError: If ``limit`` is not a positive integer, if
                 ``newest_first`` or ``case_sensitive`` is not a boolean value,
-                if ``status`` includes unsupported values, or if
-                ``query_contains`` is not a non-empty string when provided.
+                if ``status`` includes unsupported values, if
+                ``query_contains`` is not a non-empty string when provided, if
+                ``min_age_seconds``/``max_age_seconds`` are not non-negative
+                numbers, or if ``min_age_seconds`` is greater than
+                ``max_age_seconds``.
         """
         if not isinstance(newest_first, bool):
             raise ValueError("newest_first must be a boolean value")
 
         if not isinstance(case_sensitive, bool):
             raise ValueError("case_sensitive must be a boolean value")
+
+        if min_age_seconds is not None:
+            if isinstance(min_age_seconds, bool) or not isinstance(
+                min_age_seconds,
+                (int, float),
+            ):
+                raise ValueError("min_age_seconds must be a non-negative number")
+
+            min_age_seconds = float(min_age_seconds)
+            if min_age_seconds < 0:
+                raise ValueError("min_age_seconds must be a non-negative number")
+
+        if max_age_seconds is not None:
+            if isinstance(max_age_seconds, bool) or not isinstance(
+                max_age_seconds,
+                (int, float),
+            ):
+                raise ValueError("max_age_seconds must be a non-negative number")
+
+            max_age_seconds = float(max_age_seconds)
+            if max_age_seconds < 0:
+                raise ValueError("max_age_seconds must be a non-negative number")
+
+        if (
+            min_age_seconds is not None
+            and max_age_seconds is not None
+            and min_age_seconds > max_age_seconds
+        ):
+            raise ValueError(
+                "min_age_seconds cannot be greater than max_age_seconds"
+            )
 
         if limit is not None:
             if isinstance(limit, bool) or not isinstance(limit, int):
@@ -808,6 +848,12 @@ class DuckDuckGoSearchTool(BaseTool):
         for query, (cached_at, payload) in cache_entries:
             age_seconds = now - cached_at
             cache_status = self._cache_entry_status(age_seconds)
+
+            if min_age_seconds is not None and age_seconds < min_age_seconds:
+                continue
+
+            if max_age_seconds is not None and age_seconds > max_age_seconds:
+                continue
 
             if (
                 normalized_status_selector is not None

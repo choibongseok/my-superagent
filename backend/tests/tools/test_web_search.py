@@ -1156,6 +1156,27 @@ def test_list_cache_entries_can_filter_by_query_contains(monkeypatch):
     ]
 
 
+def test_list_cache_entries_can_filter_by_age_range(monkeypatch):
+    """Cache inspection should support minimum/maximum age filters."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 500.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=60, cache_max_entries=16)
+    tool._cache["fresh"] = (498.0, "a")
+    tool._cache["warm"] = (490.0, "b")
+    tool._cache["old"] = (450.0, "c")
+
+    entries = tool.list_cache_entries(min_age_seconds=5, max_age_seconds=20)
+
+    assert [entry["query"] for entry in entries] == ["warm"]
+
+
 def test_list_cache_entries_rejects_invalid_options(monkeypatch):
     """Cache inspection options should validate selectors and filter options."""
     fake_backend = _FakeSearchBackend(response="payload")
@@ -1189,6 +1210,30 @@ def test_list_cache_entries_rejects_invalid_options(monkeypatch):
 
     with pytest.raises(ValueError, match="query must be a non-empty string"):
         tool.list_cache_entries(query_contains="   ")
+
+    with pytest.raises(
+        ValueError,
+        match="min_age_seconds must be a non-negative number",
+    ):
+        tool.list_cache_entries(min_age_seconds=-1)
+
+    with pytest.raises(
+        ValueError,
+        match="min_age_seconds must be a non-negative number",
+    ):
+        tool.list_cache_entries(min_age_seconds=True)  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="max_age_seconds must be a non-negative number",
+    ):
+        tool.list_cache_entries(max_age_seconds="10")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="min_age_seconds cannot be greater than max_age_seconds",
+    ):
+        tool.list_cache_entries(min_age_seconds=10, max_age_seconds=5)
 
 
 def test_prune_cache_removes_entries_outside_retention_window(monkeypatch):
