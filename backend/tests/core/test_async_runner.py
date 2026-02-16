@@ -10,31 +10,37 @@ from app.core.async_runner import (
     run_async_all_batched,
     run_async_any,
     run_async_any_batched,
+    run_async_at_least,
+    run_async_at_least_batched,
+    run_async_at_most,
+    run_async_at_most_batched,
     run_async_count,
     run_async_count_batched,
     run_async_dict,
+    run_async_exactly,
+    run_async_exactly_batched,
     run_async_filter,
     run_async_filter_batched,
     run_async_find,
     run_async_find_batched,
     run_async_first,
+    run_async_group_by,
+    run_async_group_by_batched,
     run_async_index,
     run_async_index_batched,
     run_async_many,
     run_async_map,
     run_async_map_batched,
-    run_async_group_by,
-    run_async_group_by_batched,
     run_async_none,
     run_async_none_batched,
     run_async_partition,
     run_async_partition_batched,
     run_async_reduce,
     run_async_retry,
-    run_async_starmap,
-    run_async_starmap_batched,
     run_async_sort,
     run_async_sort_batched,
+    run_async_starmap,
+    run_async_starmap_batched,
 )
 
 
@@ -1144,6 +1150,123 @@ def test_run_async_all_batched_rejects_non_positive_batch_size_for_empty_items()
 
     with pytest.raises(ValueError, match="batch_size must be greater than 0"):
         run_async_all_batched(_always_true, [], batch_size=0)
+
+
+def test_run_async_at_least_returns_true_when_threshold_is_met():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_at_least(_is_even, [1, 2, 3, 4], 2) is True
+    assert run_async_at_least(_is_even, [1, 3, 5], 1) is False
+
+
+def test_run_async_at_least_supports_offsets_and_zero_threshold():
+    async def _is_positive(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value > 0
+
+    assert run_async_at_least(_is_positive, [-1, 2, 3], 2, start=1) is True
+    assert run_async_at_least(_is_positive, [1, 2, 3], 3, stop=2) is False
+    assert run_async_at_least(_is_positive, [], 0) is True
+
+
+def test_run_async_at_least_rejects_invalid_threshold():
+    async def _is_even(value: int) -> bool:
+        return value % 2 == 0
+
+    with pytest.raises(
+        ValueError, match="minimum_matches must be a non-negative integer"
+    ):
+        run_async_at_least(_is_even, [1, 2], -1)
+
+    with pytest.raises(
+        ValueError, match="minimum_matches must be a non-negative integer"
+    ):
+        run_async_at_least(_is_even, [1, 2], True)  # type: ignore[arg-type]
+
+
+def test_run_async_at_least_batched_supports_threshold_offsets_and_batch_size():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert (
+        run_async_at_least_batched(
+            _is_even,
+            [1, 2, 3, 4],
+            2,
+            batch_size=2,
+            start=1,
+        )
+        is True
+    )
+
+    with pytest.raises(ValueError, match="batch_size must be greater than 0"):
+        run_async_at_least_batched(_is_even, [1], 1, batch_size=0)
+
+
+def test_run_async_at_most_returns_true_when_count_stays_under_threshold():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_at_most(_is_even, [1, 2, 3], 1) is True
+    assert run_async_at_most(_is_even, [2, 4, 6], 2) is False
+
+
+def test_run_async_at_most_batched_supports_offsets():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_at_most_batched(_is_even, [2, 4, 5], 1, batch_size=2, stop=2) is (
+        False
+    )
+    assert run_async_at_most_batched(_is_even, [2, 4, 5], 1, batch_size=2, start=2) is (
+        True
+    )
+
+
+def test_run_async_exactly_matches_required_count():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_exactly(_is_even, [1, 2, 4, 5], 2) is True
+    assert run_async_exactly(_is_even, [1, 2, 4, 5], 3) is False
+    assert run_async_exactly(_is_even, [], 0) is True
+
+
+def test_run_async_exactly_batched_supports_offsets_and_validation():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_exactly_batched(_is_even, [1, 2, 4, 5], 2, batch_size=2) is True
+    assert (
+        run_async_exactly_batched(
+            _is_even,
+            [1, 2, 4, 5],
+            1,
+            batch_size=2,
+            stop=2,
+        )
+        is True
+    )
+
+    with pytest.raises(
+        ValueError, match="required_matches must be a non-negative integer"
+    ):
+        run_async_exactly_batched(_is_even, [1], -1, batch_size=1)
+
+
+def test_run_async_exactly_rejects_non_bool_predicate_results():
+    async def _invalid(_: int) -> int:
+        return 1
+
+    with pytest.raises(TypeError, match="predicate must return bool"):
+        run_async_exactly(_invalid, [1], 1)
 
 
 def test_run_async_index_returns_first_matching_index():

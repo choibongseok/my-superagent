@@ -2015,3 +2015,216 @@ def run_async_all_batched(
         _coerce_filter_result(include, function_name="run_async_all_batched")
         for include in predicate_results
     )
+
+
+def _validate_match_threshold(value: int, *, field_name: str) -> None:
+    """Validate non-negative integer thresholds used by quantifier helpers."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be a non-negative integer")
+
+    if value < 0:
+        raise ValueError(f"{field_name} must be a non-negative integer")
+
+
+def run_async_at_least(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    minimum_matches: int,
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
+) -> bool:
+    """Return ``True`` when at least ``minimum_matches`` items match.
+
+    Optional ``start``/``stop`` offsets mirror slicing semantics.
+    """
+    if not callable(coro_predicate):
+        raise TypeError("run_async_at_least expects a callable coro_predicate")
+
+    _validate_match_threshold(minimum_matches, field_name="minimum_matches")
+
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if minimum_matches == 0:
+        return True
+
+    if not searchable_items or minimum_matches > len(searchable_items):
+        return False
+
+    match_count = run_async_count(
+        coro_predicate,
+        searchable_items,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+    return match_count >= minimum_matches
+
+
+def run_async_at_least_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    minimum_matches: int,
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
+) -> bool:
+    """Batch-oriented variant of :func:`run_async_at_least` with offsets."""
+    if not callable(coro_predicate):
+        raise TypeError("run_async_at_least_batched expects a callable coro_predicate")
+
+    _validate_match_threshold(minimum_matches, field_name="minimum_matches")
+    _validate_batch_size(batch_size)
+
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if minimum_matches == 0:
+        return True
+
+    if not searchable_items or minimum_matches > len(searchable_items):
+        return False
+
+    match_count = run_async_count_batched(
+        coro_predicate,
+        searchable_items,
+        batch_size=batch_size,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+    return match_count >= minimum_matches
+
+
+def run_async_at_most(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    maximum_matches: int,
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
+) -> bool:
+    """Return ``True`` when at most ``maximum_matches`` items match.
+
+    Optional ``start``/``stop`` offsets mirror slicing semantics.
+    """
+    if not callable(coro_predicate):
+        raise TypeError("run_async_at_most expects a callable coro_predicate")
+
+    _validate_match_threshold(maximum_matches, field_name="maximum_matches")
+
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items or maximum_matches >= len(searchable_items):
+        return True
+
+    match_count = run_async_count(
+        coro_predicate,
+        searchable_items,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+    return match_count <= maximum_matches
+
+
+def run_async_at_most_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    maximum_matches: int,
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
+) -> bool:
+    """Batch-oriented variant of :func:`run_async_at_most` with offsets."""
+    if not callable(coro_predicate):
+        raise TypeError("run_async_at_most_batched expects a callable coro_predicate")
+
+    _validate_match_threshold(maximum_matches, field_name="maximum_matches")
+    _validate_batch_size(batch_size)
+
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items or maximum_matches >= len(searchable_items):
+        return True
+
+    match_count = run_async_count_batched(
+        coro_predicate,
+        searchable_items,
+        batch_size=batch_size,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+    return match_count <= maximum_matches
+
+
+def run_async_exactly(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    required_matches: int,
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
+) -> bool:
+    """Return ``True`` when exactly ``required_matches`` items match.
+
+    Optional ``start``/``stop`` offsets mirror slicing semantics.
+    """
+    if not callable(coro_predicate):
+        raise TypeError("run_async_exactly expects a callable coro_predicate")
+
+    _validate_match_threshold(required_matches, field_name="required_matches")
+
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
+        return required_matches == 0
+
+    if required_matches > len(searchable_items):
+        return False
+
+    match_count = run_async_count(
+        coro_predicate,
+        searchable_items,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+    return match_count == required_matches
+
+
+def run_async_exactly_batched(
+    coro_predicate: Callable[[I], Awaitable[bool]],
+    items: Iterable[I],
+    required_matches: int,
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
+) -> bool:
+    """Batch-oriented variant of :func:`run_async_exactly` with offsets."""
+    if not callable(coro_predicate):
+        raise TypeError("run_async_exactly_batched expects a callable coro_predicate")
+
+    _validate_match_threshold(required_matches, field_name="required_matches")
+    _validate_batch_size(batch_size)
+
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
+        return required_matches == 0
+
+    if required_matches > len(searchable_items):
+        return False
+
+    match_count = run_async_count_batched(
+        coro_predicate,
+        searchable_items,
+        batch_size=batch_size,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+    return match_count == required_matches
