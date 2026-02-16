@@ -293,6 +293,7 @@ class DuckDuckGoSearchTool(BaseTool):
         queries: Iterable[str] | None = None,
         prefix: str | None = None,
         pattern: str | None = None,
+        regex: str | None = None,
     ) -> int:
         """Invalidate selected cache entries or clear the full cache.
 
@@ -305,20 +306,24 @@ class DuckDuckGoSearchTool(BaseTool):
                 matching cache entries.
             pattern: Optional glob-style matcher applied against normalized
                 query keys (for example, ``"news *"``).
+            regex: Optional regular-expression matcher applied against
+                normalized query keys.
 
         Returns:
             Number of entries removed from cache.
 
         Raises:
-            ValueError: If more than one selector argument is provided, or if
-                ``queries`` is not an iterable of non-empty strings.
+            ValueError: If more than one selector argument is provided, if
+                ``queries`` is not an iterable of non-empty strings, or if
+                ``regex`` is not a valid regular expression.
         """
         selector_count = sum(
-            candidate is not None for candidate in (query, queries, prefix, pattern)
+            candidate is not None
+            for candidate in (query, queries, prefix, pattern, regex)
         )
         if selector_count > 1:
             raise ValueError(
-                "query, queries, prefix, and pattern are mutually exclusive"
+                "query, queries, prefix, pattern, and regex are mutually exclusive"
             )
 
         if selector_count == 0:
@@ -361,13 +366,24 @@ class DuckDuckGoSearchTool(BaseTool):
                 for cached_query in self._cache
                 if cached_query.startswith(normalized_prefix)
             ]
-        else:
-            assert pattern is not None
+        elif pattern is not None:
             normalized_pattern = self._normalize_query(pattern)
             matching_queries = [
                 cached_query
                 for cached_query in self._cache
                 if fnmatchcase(cached_query, normalized_pattern)
+            ]
+        else:
+            assert regex is not None
+            try:
+                compiled_pattern = re.compile(regex)
+            except re.error as exc:
+                raise ValueError("regex must be a valid regular expression") from exc
+
+            matching_queries = [
+                cached_query
+                for cached_query in self._cache
+                if compiled_pattern.search(cached_query)
             ]
 
         for cached_query in matching_queries:

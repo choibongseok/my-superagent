@@ -402,6 +402,9 @@ def test_invalidate_cache_rejects_multiple_selectors(monkeypatch):
     with pytest.raises(ValueError, match="mutually exclusive"):
         tool.invalidate_cache(queries=["alpha"], pattern="a*")
 
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        tool.invalidate_cache(pattern="a*", regex="a.*")
+
 
 def test_invalidate_cache_can_remove_multiple_explicit_queries(monkeypatch):
     """Multiple query invalidation should normalize inputs and de-duplicate keys."""
@@ -489,6 +492,43 @@ def test_invalidate_cache_can_remove_entries_by_pattern(monkeypatch):
 
     assert removed_entries == 2
     assert list(tool._cache.keys()) == ["weather seoul"]
+
+
+def test_invalidate_cache_can_remove_entries_by_regex(monkeypatch):
+    """Regex invalidation should support flexible normalized key matching."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("news ai") == "payload"
+    assert tool._run("news robotics") == "payload"
+    assert tool._run("weather seoul") == "payload"
+
+    removed_entries = tool.invalidate_cache(regex=r"^news\s")
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["weather seoul"]
+
+
+def test_invalidate_cache_rejects_invalid_regex_selector(monkeypatch):
+    """Regex selector should fail fast on invalid patterns."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    with pytest.raises(
+        ValueError,
+        match="regex must be a valid regular expression",
+    ):
+        tool.invalidate_cache(regex="(")
 
 
 def test_invalidate_cache_clears_full_cache_and_returns_removed_count(monkeypatch):
