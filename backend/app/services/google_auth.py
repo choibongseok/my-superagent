@@ -1,6 +1,7 @@
 """Google Authentication and Credentials Management Service."""
 
 import logging
+import re
 from collections.abc import Iterable
 from typing import Optional
 from uuid import UUID
@@ -17,6 +18,9 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 
 
+_SCOPE_DELIMITER_PATTERN = re.compile(r"[\s,]+")
+
+
 def _normalize_required_scopes(
     required_scopes: str | Iterable[str] | None,
 ) -> list[str]:
@@ -24,6 +28,8 @@ def _normalize_required_scopes(
 
     Args:
         required_scopes: Scope string, iterable of scope strings, or ``None``.
+            String values can contain one scope or a comma/whitespace-delimited
+            scope list.
 
     Returns:
         Normalized unique scope list in first-seen order.
@@ -51,15 +57,24 @@ def _normalize_required_scopes(
         if not isinstance(scope, str):
             raise TypeError("required_scopes must contain only strings")
 
-        normalized_scope = scope.strip()
-        if not normalized_scope:
+        normalized_scope_value = scope.strip()
+        if not normalized_scope_value:
             raise ValueError("required_scopes cannot contain empty values")
 
-        if normalized_scope in seen_scopes:
-            continue
+        extracted_scopes = [
+            token
+            for token in _SCOPE_DELIMITER_PATTERN.split(normalized_scope_value)
+            if token
+        ]
+        if not extracted_scopes:
+            raise ValueError("required_scopes cannot contain empty values")
 
-        seen_scopes.add(normalized_scope)
-        normalized_scopes.append(normalized_scope)
+        for normalized_scope in extracted_scopes:
+            if normalized_scope in seen_scopes:
+                continue
+
+            seen_scopes.add(normalized_scope)
+            normalized_scopes.append(normalized_scope)
 
     return normalized_scopes
 
