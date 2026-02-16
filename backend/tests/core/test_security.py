@@ -158,6 +158,42 @@ def test_decode_token_accepts_required_claim_values_allowlist_match() -> None:
     assert payload["role"] == "editor"
 
 
+def test_decode_token_accepts_required_claim_values_for_collection_claims() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "roles": ["viewer", "editor"],
+        }
+    )
+
+    payload = decode_token(
+        token,
+        required_claim_values={"roles": ("admin", "editor")},
+    )
+
+    assert payload is not None
+    assert payload["roles"] == ["viewer", "editor"]
+
+
+def test_decode_token_rejects_required_claim_values_when_collection_claim_misses() -> (
+    None
+):
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "roles": ["viewer", "reader"],
+        }
+    )
+
+    assert (
+        decode_token(
+            token,
+            required_claim_values={"roles": ("admin", "editor")},
+        )
+        is None
+    )
+
+
 def test_decode_token_rejects_missing_or_mismatched_required_claim_values() -> None:
     token = create_access_token({"sub": "user-123", "scope": "chat:read"})
 

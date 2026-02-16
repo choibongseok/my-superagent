@@ -153,6 +153,27 @@ def _normalize_required_claim_values(
     return normalized_claim_values
 
 
+def _claim_value_matches_expected_values(
+    claim_value: Any,
+    expected_values: tuple[Any, ...],
+) -> bool:
+    """Return whether decoded claim values satisfy expected scalar/allowlist values.
+
+    Scalar claims require an exact match against at least one expected value.
+    Collection claims (list/tuple/set/frozenset) match when any contained
+    value matches at least one expected value.
+    """
+    if isinstance(claim_value, (list, tuple, set, frozenset)):
+        for candidate_value in claim_value:
+            if any(
+                candidate_value == expected_value for expected_value in expected_values
+            ):
+                return True
+        return False
+
+    return any(claim_value == expected_value for expected_value in expected_values)
+
+
 _SCOPE_SPLIT_PATTERN = re.compile(r"[,\s]+")
 
 
@@ -427,6 +448,8 @@ def decode_token(
         required_claims: Optional claims that must be present and non-empty.
         required_claim_values: Optional claim value requirements. Values may
             be exact scalars or non-empty collections of allowed values.
+            When the token claim itself is a collection, validation passes if
+            any claim entry matches an allowed value.
         required_scopes: Optional OAuth-style scope requirements. Accepts a
             scope string (space/comma-delimited) or iterable of scope strings.
         scope_claim: Token claim name containing scopes. Defaults to
@@ -524,7 +547,10 @@ def decode_token(
 
     for claim, expected_values in normalized_required_claim_values.items():
         claim_value = payload.get(claim)
-        if claim_value is None or claim_value not in expected_values:
+        if claim_value is None:
+            return None
+
+        if not _claim_value_matches_expected_values(claim_value, expected_values):
             return None
 
     if normalized_required_scopes:
