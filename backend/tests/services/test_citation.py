@@ -1038,6 +1038,50 @@ class TestCitationTracker:
             "Zeta Guide",
         ]
 
+    def test_search_sources_supports_sort_order_override_for_title(self):
+        """sort_order='desc' should reverse title sorting while keeping stable ranking."""
+        tracker = CitationTracker()
+
+        tracker.add_source(title="Zeta Guide")
+        tracker.add_source(title="alpha guide")
+        tracker.add_source(title="Beta Guide")
+
+        descending = tracker.search_sources(
+            "guide",
+            sort_by="title",
+            sort_order="desc",
+        )
+
+        assert [source.title for source in descending] == [
+            "Zeta Guide",
+            "Beta Guide",
+            "alpha guide",
+        ]
+
+    def test_search_sources_supports_sort_order_override_for_citation_count(self):
+        """sort_order='asc' should surface least-cited sources first."""
+        tracker = CitationTracker()
+
+        uncited_id = tracker.add_source(title="Agent Ops Glossary")
+        lightly_cited_id = tracker.add_source(title="Agent Ops Primer")
+        heavily_cited_id = tracker.add_source(title="Agent Ops Handbook")
+
+        tracker.cite(heavily_cited_id, quoted_text="One")
+        tracker.cite(heavily_cited_id, quoted_text="Two")
+        tracker.cite(lightly_cited_id, quoted_text="One")
+
+        ascending = tracker.search_sources(
+            "agent ops",
+            sort_by="citation_count",
+            sort_order="asc",
+        )
+
+        assert [source.id for source in ascending] == [
+            uncited_id,
+            lightly_cited_id,
+            heavily_cited_id,
+        ]
+
     def test_search_sources_supports_sort_by_author(self):
         """sort_by='author' should sort by normalized author and keep unknown last."""
         tracker = CitationTracker()
@@ -1072,6 +1116,26 @@ class TestCitationTracker:
             "Zulu Guide",
             "Beta Guide",
             "Untitled Guide",
+        ]
+
+    def test_search_sources_with_details_supports_sort_order_override(self):
+        """Detailed search should respect sort_order overrides from search_sources."""
+        tracker = CitationTracker()
+
+        tracker.add_source(title="Zeta Guide")
+        tracker.add_source(title="alpha guide")
+        tracker.add_source(title="Beta Guide")
+
+        detailed = tracker.search_sources_with_details(
+            "guide",
+            sort_by="title",
+            sort_order="desc",
+        )
+
+        assert [item["source"].title for item in detailed] == [
+            "Zeta Guide",
+            "Beta Guide",
+            "alpha guide",
         ]
 
     def test_search_sources_supports_sort_by_source_type(self):
@@ -1119,6 +1183,16 @@ class TestCitationTracker:
             match="sort_by must be one of: relevance, hybrid, title, author, source_type, published_date, citation_count, authority, recency",
         ):
             tracker.search_sources("agent", sort_by="custom")
+
+    def test_search_sources_rejects_invalid_sort_order(self):
+        """Search should validate supported sort_order values."""
+        tracker = CitationTracker()
+
+        with pytest.raises(
+            ValueError,
+            match="sort_order must be one of: default, asc, desc",
+        ):
+            tracker.search_sources("agent", sort_order="up")
 
     def test_search_sources_with_details_returns_ranked_explainability_metadata(self):
         """Detailed search results should include rank, counts, and match signals."""

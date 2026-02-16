@@ -928,6 +928,7 @@ class CitationTracker:
             "authority",
             "recency",
         ] = "relevance",
+        sort_order: Literal["default", "asc", "desc"] = "default",
     ) -> List[Source]:
         """Search sources with lightweight relevance ranking.
 
@@ -1059,6 +1060,9 @@ class CitationTracker:
                 heuristics based on source type (for example, databases before
                 generic web pages). ``"recency"`` ranks by freshness score
                 using ``recency_window_days``/``recency_profile``.
+            sort_order: Optional ordering override. ``"default"`` keeps each
+                ``sort_by`` strategy's native direction, while ``"asc"`` and
+                ``"desc"`` force ascending/descending result order.
 
         Returns:
             Ranked list of matching sources.
@@ -1250,6 +1254,10 @@ class CitationTracker:
             raise ValueError(
                 "sort_by must be one of: relevance, hybrid, title, author, source_type, published_date, citation_count, authority, recency"
             )
+
+        normalized_sort_order = self._normalize_text(sort_order)
+        if normalized_sort_order not in {"default", "asc", "desc"}:
+            raise ValueError("sort_order must be one of: default, asc, desc")
 
         normalized_query = self._normalize_text(query)
         query_tokens = [token for token in normalized_query.split(" ") if token]
@@ -1585,6 +1593,24 @@ class CitationTracker:
                 )
             )
 
+        default_desc_sort_modes = {
+            "relevance",
+            "hybrid",
+            "published_date",
+            "citation_count",
+            "authority",
+            "recency",
+        }
+        default_sort_order = (
+            "desc" if normalized_sort_by in default_desc_sort_modes else "asc"
+        )
+        should_reverse_sort = (
+            normalized_sort_order != "default"
+            and normalized_sort_order != default_sort_order
+        )
+        if should_reverse_sort:
+            ranked_matches.reverse()
+
         sources = [source for *_, source in ranked_matches]
 
         if max_results_per_domain is not None:
@@ -1762,6 +1788,7 @@ class CitationTracker:
             "authority",
             "recency",
         ] = "relevance",
+        sort_order: Literal["default", "asc", "desc"] = "default",
         include_score_breakdown: bool = False,
     ) -> List[Dict[str, Any]]:
         """Search sources and return explainable ranking metadata.
@@ -1770,7 +1797,8 @@ class CitationTracker:
         useful for UI debugging, audit logs, and ranking transparency.
 
         Set ``include_score_breakdown=True`` to include weighted hybrid-score
-        component details for each ranked source.
+        component details for each ranked source. Use ``sort_order`` to force
+        ascending/descending order while keeping explainability metadata intact.
         """
         if not isinstance(include_score_breakdown, bool):
             raise ValueError("include_score_breakdown must be a boolean")
@@ -1817,6 +1845,7 @@ class CitationTracker:
             max_results_per_author=max_results_per_author,
             max_results_per_source_type=max_results_per_source_type,
             sort_by=sort_by,
+            sort_order=sort_order,
         )
 
         normalized_query = self._normalize_text(query)
