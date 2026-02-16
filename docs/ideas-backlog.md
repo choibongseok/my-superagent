@@ -10178,3 +10178,530 @@ Quick Actions: "📝 이번 달 보고서 생성"
 설계자 에이전트가 신규 3개 아이디어의 **기술적 타당성 및 구현 우선순위**를 검토해주세요!
 
 🚀 AgentHQ가 2026년 AI Agent 시장을 선도할 수 있는 완전한 로드맵이 준비되었습니다!
+# 🚀 AgentHQ - 새로운 아이디어 제안 (2026-02-16 07:20 UTC)
+
+**작성자**: Planner Agent (Cron: Planner Ideation)  
+**작성일**: 2026-02-16 07:20 UTC  
+**프로젝트 상태**: 6주 스프린트 100% 완료 ✅
+
+---
+
+## 📊 최근 개발 트렌드 분석
+
+**최근 10개 커밋 분석** (2026-02-12 ~ 2026-02-16):
+1. ✅ **DuckDuckGo search tool 강화** - 입력/출력 검증 개선
+2. ✅ **Citation IEEE 스타일 추가** - 인용 형식 다양화
+3. ✅ **Cache 메트릭 추가** - 성능 모니터링 강화
+4. ✅ **Async runner offset/windowing** - 대량 작업 처리 개선
+5. ✅ **Plugin 스키마 validation** - 데이터 검증 강화
+
+**트렌드 요약**:
+- 🔍 **검색 품질 개선** - 더 정확하고 안정적인 웹 검색
+- 📚 **Citation 강화** - 출처 검증 및 다양한 형식 지원
+- ⚡ **성능 최적화** - 캐싱, 비동기 처리, 대량 작업
+- 🛡️ **데이터 검증** - 스키마 validation, 입력 검증
+
+---
+
+## 💡 신규 아이디어 3개 (기존 111개와 차별화)
+
+### 🔔 Idea #113: "Search Intelligence Platform" - 실시간 변화 감지 AI
+
+**문제점**:
+- **정적 검색**: 현재 Agent는 "지금 이 순간" 검색만 가능 ❌
+  - 예: "경쟁사 A 가격 확인" → 한 번 검색 후 끝
+  - 변경 사항 추적 불가 → 중요한 변화 놓침 😓
+- **수동 모니터링**: 사용자가 매일 같은 검색 반복 → 10분 낭비 💸
+- **알림 부재**: 중요한 뉴스/변경사항 놓침 → 경쟁 열위 ⏱️
+- **경쟁사 현황**:
+  - Google Alerts: 키워드 알림 (단순 매칭)
+  - TalkWalker: 소셜 미디어 모니터링 (비싸고 복잡)
+  - **AgentHQ: 검색만 가능 (모니터링 X)** ❌
+
+**제안 솔루션**:
+```
+"Search Intelligence Platform" - AI가 웹을 지속적으로 모니터링하고 변화를 자동 감지
+```
+
+**핵심 기능**:
+1. **Continuous Monitoring**: 
+   - 사용자가 "경쟁사 A 가격 모니터링" 설정
+   - Agent가 매 6시간마다 자동 검색 (DuckDuckGo API 활용)
+   - 변경 사항 감지 → 즉시 알림
+   - 예: "경쟁사 A가 가격을 $99 → $79로 낮췄어요!" (20% 할인 🚨)
+
+2. **Smart Change Detection**: 
+   - AI가 의미 있는 변화만 알림 (노이즈 필터링)
+   - 예: 경쟁사 블로그 게시물 → "신제품 출시" 감지 ✅, "회사 소개 수정" 무시 ❌
+   - Semantic diff: 본질적 변화만 추출
+   - 임계값 설정: "가격 10% 이상 변동 시만 알림"
+
+3. **Topic Tracking**: 
+   - 사용자가 관심 주제 설정: "AI 규제", "경쟁사 동향", "우리 회사 언급"
+   - 웹 전체 스캔 → 새 기사/블로그 발견 → 자동 요약 + 알림
+   - 예: "Forbes에서 당신 회사를 언급했어요! (긍정 98%)" ⭐
+
+4. **Competitive Intelligence**: 
+   - 경쟁사 5개 자동 추적
+   - 가격, 제품, 마케팅, 채용 공고 변화 감지
+   - 주간 리포트 자동 생성: "이번 주 경쟁사 동향 요약"
+   - 예: "경쟁사 B가 AI 엔지니어 10명 채용 중 → 신제품 준비 중일 수 있음"
+
+5. **Sentiment Analysis**: 
+   - 소셜 미디어 멘션 자동 분석
+   - 긍정/부정/중립 분류 (GPT-4)
+   - 예: "트위터에서 당신 제품 언급 50건 (긍정 80%, 부정 15%, 중립 5%)"
+
+**기술 구현**:
+- **Backend**: 
+  - MonitoringTask 모델 (query, frequency, last_check, threshold)
+  - Celery Beat 스케줄러 (6시간마다 자동 실행)
+  - DuckDuckGo API 활용 (최근 강화된 기능 활용 ✅)
+  - Change detection: diff 알고리즘 (Myers' diff)
+  - Sentiment API: GPT-4 or TextBlob
+
+- **Frontend**: 
+  - Monitoring dashboard (활성 모니터링 목록)
+  - Alert history (변경 사항 타임라인)
+  - Topic manager (관심 주제 설정)
+
+**예상 임팩트**:
+- ⏱️ **시간 절약**: 수동 검색 시간 연간 52시간 절감 (주 1시간 × 52주)
+- 🎯 **경쟁 우위**: 경쟁사 변화 즉시 파악 → 선제 대응
+- 📈 **매출**: 
+  - Monitoring tier $29/user/month (모니터링 10개)
+  - Enterprise tier $99/user/month (무제한 모니터링)
+  - 1,000명 × $29 = $29k/month
+- 💼 **Enterprise 확보**: 
+  - 마케팅팀 필수 도구
+  - 경영진 경쟁 인텔리전스
+  - 법무팀 규제 모니터링
+
+**경쟁 우위**: 
+- Google Alerts: 키워드만 (의미 분석 X) ❌
+- TalkWalker: 비싸고 복잡 ($9,600/year) ⚠️
+- **AgentHQ: AI 기반 스마트 모니터링 + 자동 리포트** ⭐⭐⭐
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Medium-High)  
+**개발 기간**: 6주  
+**우선순위**: 🔥 CRITICAL  
+**ROI**: ⭐⭐⭐⭐⭐
+
+**기술 의존성**: ✅ DuckDuckGo search tool 이미 강화됨 (최근 커밋)
+
+---
+
+### 🕸️ Idea #114: "Document Relationship Graph" - 문서 간 지능형 연결망
+
+**문제점**:
+- **고립된 문서**: 현재 각 문서는 독립적 → 연결성 없음 😓
+  - 예: "Q4 리포트"가 "Q3 리포트", "매출 데이터"와 관련 있지만 연결 안 됨 ❌
+  - 관련 문서 찾기 어려움 → 30분 낭비 💸
+- **수동 링크**: 사용자가 직접 문서 링크 추가 → 번거로움 ⏱️
+- **컨텍스트 손실**: 이전 작업 맥락 놓침 → 중복 작업 발생 ❌
+- **경쟁사 현황**:
+  - Notion: 수동 링크만 (자동 연결 X)
+  - Obsidian: 백링크 (파일명 기반, 의미 기반 X)
+  - Roam Research: 양방향 링크 (수동)
+  - **AgentHQ: 문서 연결 기능 없음** ❌
+
+**제안 솔루션**:
+```
+"Document Relationship Graph" - AI가 문서 간 관계를 자동으로 발견하고 시각화
+```
+
+**핵심 기능**:
+1. **Automatic Linking**: 
+   - AI가 문서 생성 시 관련 문서 자동 감지
+   - Citation tracker 활용 (이미 구현됨 ✅)
+   - 예: "Q4 리포트" 생성 → "Q3 리포트", "매출 Sheets", "경쟁사 분석" 자동 링크
+   - Semantic search: 의미 기반 유사도 (95% 이상)
+
+2. **Relationship Types**: 
+   - **References** (참조): "이 문서는 X를 인용합니다"
+   - **Derived from** (파생): "이 Slides는 X Sheets 기반입니다"
+   - **Updated version** (업데이트): "v2.0 (이전: v1.0)"
+   - **Related topics** (관련 주제): "유사한 주제의 문서 5개"
+   - **Temporal** (시간): "이전 주 리포트", "다음 분기 계획"
+
+3. **Graph Visualization**: 
+   - D3.js 기반 인터랙티브 그래프
+   - 노드: 문서, 엣지: 관계
+   - 클릭 → 해당 문서로 점프
+   - 필터: 관계 타입별, 날짜별, Agent별
+   - 예: "Q4 리포트" 중심으로 연결된 20개 문서 시각화
+
+4. **Smart Suggestions**: 
+   - 작업 시작 시 관련 문서 자동 제안
+   - 예: "새 Slides 만들기" → "Q3 Slides를 템플릿으로 사용할까요?"
+   - 예: "경쟁사 분석" → "3개월 전 경쟁사 리포트를 참고하세요"
+   - Context injection: 관련 문서 자동 로드
+
+5. **Timeline View**: 
+   - 프로젝트별 문서 타임라인
+   - 예: "Q4 프로젝트" → Research (10월) → Sheets (11월) → Docs (12월) → Slides (1월)
+   - 진행 상황 추적: "80% 완료 (Slides만 남음)"
+
+**기술 구현**:
+- **Backend**: 
+  - DocumentRelationship 모델 (source_id, target_id, relationship_type, strength)
+  - Graph builder: NetworkX (Python graph library)
+  - Semantic search: VectorMemory 활용 (이미 구현됨 ✅)
+  - Citation 활용 (이미 강화됨 ✅)
+
+- **Frontend**: 
+  - D3.js force-directed graph
+  - Timeline component (React Timeline)
+  - Related docs sidebar
+
+**예상 임팩트**:
+- ⏱️ **시간 절약**: 관련 문서 찾기 시간 -80% (30분 → 6분)
+- 🎯 **컨텍스트 유지**: 이전 작업 자동 참조 → 품질 +40%
+- 📈 **매출**: 
+  - Graph tier $19/user/month (무제한 링크)
+  - 3,000명 × $19 = $57k/month
+- 💼 **Enterprise**: 
+  - 지식 관리 (Knowledge Management)
+  - 프로젝트 추적 (Project Tracking)
+  - 감사 추적 (Audit Trail)
+
+**경쟁 우위**: 
+- Notion: 수동 링크 (자동 X) ❌
+- Obsidian: 파일명 기반 (의미 기반 X) ⚠️
+- **AgentHQ: AI 자동 링크 + 시각화 + Citation 통합** ⭐⭐⭐
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Medium-High)  
+**개발 기간**: 7주  
+**우선순위**: 🔥 HIGH  
+**ROI**: ⭐⭐⭐⭐⭐
+
+**기술 의존성**: ✅ Citation tracker 이미 강화됨 (IEEE 스타일 추가)
+
+---
+
+### 🔮 Idea #115: "Anticipatory Computing" - AI가 미리 준비하는 작업 예측 시스템
+
+**문제점**:
+- **Reactive 작업**: 사용자가 명령해야만 실행 → 대기 시간 발생 😓
+  - 예: "회의 30분 전에 자료 준비" → 수동 실행 → 늦음 ❌
+  - 예: "다음 주 월요일 리포트" → 월요일에 시작 → 아침 시간 낭비 💸
+- **패턴 활용 부족**: 반복 작업도 매번 수동 실행 ⏱️
+- **CPU 낭비**: 유휴 시간에 할 수 있는 작업을 피크 타임에 실행 ❌
+- **경쟁사 현황**:
+  - Autopilot (Idea #20): 패턴 학습 후 제안 (reactive)
+  - Zapier: 스케줄링만 (예측 X)
+  - **AgentHQ: 예측 기능 없음** ❌
+
+**제안 솔루션**:
+```
+"Anticipatory Computing" - AI가 작업을 미리 예측하고 자동으로 준비 (Prefetching)
+```
+
+**핵심 기능**:
+1. **Predictive Scheduling**: 
+   - AI가 과거 패턴 분석 → 미래 작업 예측
+   - 예: "지난 4주 월요일 9시에 주간 리포트 작성"
+   - → "다음 월요일 일요일 밤 11시에 미리 초안 생성"
+   - 사용자는 월요일 아침에 "90% 완성된 리포트" 발견 🎁
+
+2. **Pre-computation**: 
+   - 유휴 시간(새벽 2-6시)에 미리 계산
+   - 예: "월간 매출 분석" → 매월 1일 새벽 3시에 자동 계산
+   - 사용자가 오전 9시에 "이미 준비된 리포트" 확인
+   - CPU 효율: 피크 타임 부하 -60%
+
+3. **Context Prefetching**: 
+   - 회의 일정 감지 → 30분 전 자동 자료 준비
+   - 예: 캘린더 "경쟁사 리뷰 회의 (10:00)"
+   - → 9:30에 "경쟁사 최신 뉴스 + 가격 비교 Slides" 자동 생성
+   - Slack에 자동 공유: "회의 자료 준비 완료!"
+
+4. **Smart Caching**: 
+   - 자주 요청되는 작업 미리 캐시
+   - Async runner 활용 (이미 개선됨 ✅)
+   - 예: "매일 아침 이메일 요약" → 8:30에 미리 생성
+   - 사용자 9:00 요청 → 즉시 응답 (0.1초)
+
+5. **What-If Scenarios**: 
+   - AI가 여러 버전 미리 생성
+   - 예: "Q4 리포트" → 3가지 스타일 (간결/상세/시각적)
+   - 사용자: "간결 버전 보여줘" → 즉시 표시
+   - A/B 테스트: "어떤 버전이 나아요?" → 피드백 학습
+
+**기술 구현**:
+- **Backend**: 
+  - PredictionEngine: Time series forecasting (Prophet, LSTM)
+  - PrecomputeQueue: Celery Beat (야간 실행)
+  - Async runner 활용 (이미 offset/windowing 개선됨 ✅)
+  - Calendar integration: Google Calendar API
+
+- **Frontend**: 
+  - Prepared dashboard ("오늘 준비된 작업 3개")
+  - Prefetch status indicator
+  - "Skip precompute" 옵션
+
+**예상 임팩트**:
+- ⏱️ **시간 절약**: 작업 시작 시간 -90% (즉시 사용 가능)
+- ⚡ **성능**: CPU 효율 +60% (유휴 시간 활용)
+- 🎯 **생산성**: 아침 첫 1시간 효율 +200% (준비 완료)
+- 📈 **매출**: 
+  - Anticipatory tier $39/user/month (무제한 예측)
+  - 2,000명 × $39 = $78k/month
+- 💼 **Enterprise**: 
+  - 경영진 일일 브리핑 자동 준비
+  - 팀 회의 자료 자동 생성
+  - 분기 보고서 미리 준비
+
+**경쟁 우위**: 
+- Autopilot (Idea #20): 제안만 (실행 X) ⚠️
+- Zapier: 스케줄링 (예측 X) ❌
+- **AgentHQ: 예측 + 자동 실행 + Prefetching** ⭐⭐⭐
+
+**개발 난이도**: ⭐⭐⭐⭐⭐ (Hard)  
+**개발 기간**: 9주  
+**우선순위**: 🔥 CRITICAL  
+**ROI**: ⭐⭐⭐⭐⭐
+
+**기술 의존성**: ✅ Async runner 이미 개선됨 (offset/windowing 추가)
+
+---
+
+## 📊 아이디어 비교표
+
+| ID | 아이디어 | 핵심 가치 | 우선순위 | 개발 기간 | 매출 예상 |
+|----|----------|----------|----------|-----------|-----------|
+| #113 | Search Intelligence | 실시간 변화 감지 | 🔥 CRITICAL | 6주 | $29k/month |
+| #114 | Document Graph | 문서 간 연결 자동화 | 🔥 HIGH | 7주 | $57k/month |
+| #115 | Anticipatory Computing | 작업 예측 및 사전 준비 | 🔥 CRITICAL | 9주 | $78k/month |
+
+**총 예상 매출**: $164k/month = $1.97M/year
+
+---
+
+## 🎯 우선순위 제안 (Phase 9-10)
+
+### Phase 9 (12주)
+1. **Search Intelligence** (6주) - 즉시 가치 제공
+2. **Document Graph** (7주) - 사용자 경험 혁신
+
+### Phase 10 (9주)
+3. **Anticipatory Computing** (9주) - 게임 체인저
+
+**총 개발 기간**: 22주 (약 5.5개월)  
+**예상 매출 증가**: $1.97M/year  
+**ROI**: ⭐⭐⭐⭐⭐
+
+---
+
+## 💬 기획자 최종 코멘트
+
+이번 제안은 **최근 개발 트렌드를 100% 활용**한 아이디어입니다:
+
+1. **Search Intelligence** ✅ DuckDuckGo 강화 활용
+   - 단순 검색 → 지속 모니터링으로 진화
+   - 경쟁사에 없는 **AI 기반 변화 감지**
+
+2. **Document Graph** ✅ Citation tracker 활용
+   - 고립된 문서 → 연결된 지식 그래프
+   - Notion 대비 **자동 링크 생성** 우위
+
+3. **Anticipatory Computing** ✅ Async runner 활용
+   - Reactive → Proactive → **Predictive**
+   - "AI가 미리 준비하는" 혁신적 경험
+
+**차별화 포인트**:
+- 기존 Idea #20 (Autopilot): 패턴 학습 후 **제안**
+- 신규 Idea #115 (Anticipatory): 패턴 학습 후 **자동 실행**
+- 결합 시너지: Autopilot이 "할까요?" 묻고, Anticipatory가 "이미 했어요!" 제시
+
+**설계자 에이전트 검토 요청 사항**:
+1. Search Intelligence: Celery Beat 스케줄링 + DuckDuckGo API rate limit
+2. Document Graph: NetworkX vs Neo4j (graph DB 선택)
+3. Anticipatory Computing: Prophet vs LSTM (시계열 예측 모델 선택)
+
+**다음 단계**:
+설계자 에이전트에게 **기술적 타당성 및 아키텍처 설계**를 요청하겠습니다!
+
+🚀 AgentHQ가 2026년 AI Agent 시장을 **완전히 재정의**할 준비가 완료되었습니다!
+
+---
+
+**작성 완료**: 2026-02-16 07:20 UTC  
+**제안 수**: 3개 (기존 111개와 차별화)  
+**예상 매출**: $1.97M/year  
+**우선순위**: 모두 CRITICAL/HIGH
+
+---
+
+## 2026-02-16 (AM 9:20) | 기획자 에이전트 - 사용자 경험 개선 🎓💰🎨
+
+### 💡 Idea #116: "Interactive Learning Assistant" - 사용자를 가르치는 AI 튜터 🎓📚
+
+**문제점**:
+- **학습 곡선 높음**: 신규 사용자 1-2주 소요 😓
+- **문서 의존**: FAQ 읽어야 함 → 30분 낭비 💸
+- **기능 발견 어려움**: 고급 기능 활용 못 함 ❌
+- **경쟁사 현황**:
+  - Notion: 온보딩 체크리스트 (일회성)
+  - ChatGPT: 예시 프롬프트 (정적)
+  - **AgentHQ: 온보딩 없음** ❌
+
+**제안 솔루션**:
+```
+"Interactive Learning Assistant" - AI가 사용자 행동을 분석하고 맞춤형 학습 경로를 제공
+```
+
+**핵심 기능**:
+1. **Contextual Tooltips**: 작업 중 실시간 팁 표시
+2. **Progressive Onboarding**: 4주 학습 경로 (기본 → 고급 → 숨겨진 보석)
+3. **Interactive Challenges**: 게이미피케이션 (Badge, Achievement)
+4. **Smart FAQ**: 행동 기반 FAQ 자동 제안
+5. **Weekly Learning Digest**: 매주 금요일 "새로 배운 것" 요약
+
+**기술 구현**:
+- Backend: LearningProgress 모델, Feature tracking
+- Frontend: Tooltip component, Challenge modal
+
+**예상 임팩트**:
+- ⏱️ **학습 시간 단축**: 2주 → 3일 (-78%)
+- 🎯 **기능 활용도**: +200%
+- 📈 **Retention**: 이탈률 -45%
+- 💼 **Enterprise**: 팀 온보딩 시간 -80%
+- 📊 **매출**: $36k/month
+
+**경쟁 우위**: **AgentHQ: 행동 기반 맞춤형 학습 + 게이미피케이션** ⭐⭐⭐
+
+**개발 난이도**: ⭐⭐⭐☆☆ (Medium)  
+**개발 기간**: 5주  
+**우선순위**: 🔥 HIGH  
+**ROI**: ⭐⭐⭐⭐⭐
+
+---
+
+### 💡 Idea #117: "Cost Intelligence Dashboard" - 비용 투명성 및 최적화 AI 💰📊
+
+**문제점**:
+- **비용 블랙박스**: 사용자가 Agent 비용 모름 😓
+- **예산 초과 위험**: 비용 알림 없음 → 청구서 폭탄 💸
+- **최적화 불가능**: 비용 줄이는 방법 모름 ⏱️
+- **Enterprise 감사**: 비용 투명성 요구사항 미충족 ❌
+- **경쟁사 현황**:
+  - ChatGPT Plus: 정액제 $20/month
+  - **AgentHQ: 종량제 (비용 추적 없음)** ❌
+
+**제안 솔루션**:
+```
+"Cost Intelligence Dashboard" - AI가 비용을 실시간 추적하고 최적화 방법을 제안
+```
+
+**핵심 기능**:
+1. **Real-time Cost Tracking**: 모든 Agent 작업 비용 자동 계산
+2. **Budget Alerts**: 예산 80% 도달 시 알림, 100% 도달 시 자동 중단
+3. **Cost Optimization Suggestions**: AI가 비용 절감 방법 자동 제안
+4. **Cost Breakdown**: Agent별/작업별/Model별 비용 분석
+5. **Savings Calculator**: "만약 GPT-3.5를 50% 사용하면?" → "연간 $600 절감"
+
+**기술 구현**:
+- Backend: CostTracking 모델, Budget monitoring, LangFuse 활용
+- Frontend: Cost dashboard, Budget progress bar
+
+**예상 임팩트**:
+- 💰 **비용 절감**: 사용자당 연간 $600-$1,300 (-40%)
+- 📊 **투명성**: NPS +20, 신뢰도 +50%
+- 💼 **Enterprise**: 감사 요구사항 충족 → 계약 +30%
+- 🎯 **Churn 감소**: -70%
+- 📈 **매출**: $45k/month
+
+**경쟁 우위**: **AgentHQ: 종량제 + 실시간 추적 + 최적화** ⭐⭐⭐
+
+**개발 난이도**: ⭐⭐⭐☆☆ (Medium)  
+**개발 기간**: 4주  
+**우선순위**: 🔥 CRITICAL  
+**ROI**: ⭐⭐⭐⭐⭐
+
+---
+
+### 💡 Idea #118: "Smart Template Library" - 커뮤니티 기반 템플릿 마켓플레이스 🎨🤝
+
+**문제점**:
+- **템플릿 부족**: 현재 5-10개만 존재 😓
+- **템플릿 발견 불가**: 어떤 템플릿이 있는지 몰라 💸
+- **품질 불균형**: 일부 템플릿 저품질 ⏱️
+- **경쟁사 현황**:
+  - Notion: 5,000+ 템플릿 (커뮤니티)
+  - Canva: 100,000+ 디자인
+  - **AgentHQ: 5-10개 기본 템플릿** ❌
+
+**제안 솔루션**:
+```
+"Smart Template Library" - 커뮤니티가 만들고 AI가 추천하는 템플릿 마켓플레이스
+```
+
+**핵심 기능**:
+1. **Community Template Submission**: 사용자가 작업을 템플릿으로 저장 (Share as Template)
+2. **Quality Scoring**: AI가 품질 자동 평가 (70점 이상만 승인)
+3. **Smart Recommendations**: 행동 기반 템플릿 추천 + Semantic search
+4. **One-Click Customization**: 템플릿 → 사용자 데이터 자동 주입 (5초 만에 80% 완성)
+5. **Template Marketplace**: 프리미엄 템플릿 ($1-$5), 수익 분배 (제작자 70%, AgentHQ 30%)
+
+**기술 구현**:
+- Backend: Template 모델, Plugin schema validation 활용, Quality scoring (GPT-4)
+- Frontend: Template gallery, One-click use, Creator dashboard
+
+**예상 임팩트**:
+- 🎨 **템플릿 확대**: 10개 → 5,000개 (50,000%)
+- ⏱️ **작업 시간 단축**: 신규 작업 시작 시간 -80% (5분 → 1분)
+- 💼 **Enterprise**: 업종별 맞춤 템플릿 → 도입률 +50%
+- 🤝 **커뮤니티**: 사용자 참여 +300%
+- 📈 **매출**: $34k/month
+
+**경쟁 우위**: **AgentHQ: AI 품질 검증 + 자동 커스터마이징 + Marketplace** ⭐⭐⭐
+
+**개발 난이도**: ⭐⭐⭐⭐☆ (Medium-High)  
+**개발 기간**: 7주  
+**우선순위**: 🔥 CRITICAL  
+**ROI**: ⭐⭐⭐⭐⭐
+
+**기술 의존성**: ✅ Plugin schema validation 이미 강화됨
+
+---
+
+## 📊 Phase 9-10 업데이트 아이디어 비교표
+
+| ID | 아이디어 | 핵심 가치 | 우선순위 | 개발 기간 | 매출 예상 |
+|----|----------|----------|----------|-----------|-----------|
+| **Phase 9 (사용자 경험 개선)** |
+| #116 | Interactive Learning | 학습 시간 -78% | 🔥 HIGH | 5주 | $36k/month |
+| #117 | Cost Intelligence | 비용 절감 -40% | 🔥 CRITICAL | 4주 | $45k/month |
+| #118 | Smart Template Library | 템플릿 50,000% 확대 | 🔥 CRITICAL | 7주 | $34k/month |
+| **Phase 10 (기술 혁신)** |
+| #113 | Search Intelligence | 실시간 변화 감지 | 🔥 CRITICAL | 6주 | $29k/month |
+| #114 | Document Graph | 문서 간 연결 자동화 | 🔥 HIGH | 7주 | $57k/month |
+| #115 | Anticipatory Computing | 작업 예측 및 사전 준비 | 🔥 CRITICAL | 9주 | $78k/month |
+
+**총 예상 매출**: $115k/month (Phase 9) + $164k/month (Phase 10) = **$279k/month = $3.35M/year**
+
+---
+
+## 🎯 최종 우선순위 제안 (Phase 9-10)
+
+### Phase 9 (16주) - 사용자 경험 개선
+1. **Cost Intelligence** (4주) - 🔥 CRITICAL - 비용 투명성 즉시 필요
+2. **Interactive Learning** (5주) - 🔥 HIGH - 신규 사용자 온보딩 개선
+3. **Smart Template Library** (7주) - 🔥 CRITICAL - 커뮤니티 활성화
+
+### Phase 10 (22주) - 기술 혁신
+4. **Search Intelligence** (6주) - 🔥 CRITICAL - 실시간 모니터링
+5. **Document Graph** (7주) - 🔥 HIGH - 문서 연결
+6. **Anticipatory Computing** (9주) - 🔥 CRITICAL - 작업 예측
+
+**총 개발 기간**: 38주 (약 9.5개월)  
+**예상 매출 증가**: **$3.35M/year**  
+**ROI**: ⭐⭐⭐⭐⭐
+
+**완벽한 균형**: 사용자 경험 (Phase 9) + 기술 혁신 (Phase 10) = 완전한 제품 🚀
+
+---
+
+**업데이트**: 2026-02-16 09:20 UTC  
+**총 아이디어**: **117개** (기존 114개 + 신규 3개)
