@@ -39,7 +39,10 @@ class TaskInDB(BaseModel):
     error_message: Optional[str] = None
     document_url: Optional[str] = None
     document_id: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        validation_alias="task_metadata",
+    )
     celery_task_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime

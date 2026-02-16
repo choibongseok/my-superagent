@@ -11,12 +11,60 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import get_current_user
 from app.core.database import get_db
 from app.models.task import Task as TaskModel
-from app.models.task import TaskStatus
+from app.models.task import TaskStatus, TaskType
 from app.models.user import User
 from app.schemas.task import Task, TaskCreate, TaskList
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+TASK_TITLE_DEFAULTS = {
+    "docs": "Untitled Document",
+    "sheets": "Untitled Spreadsheet",
+    "slides": "Untitled Presentation",
+}
+
+TASK_TITLE_METADATA_KEYS = {
+    "docs": ("title", "document_title"),
+    "sheets": ("title", "sheet_title", "spreadsheet_title"),
+    "slides": ("title", "deck_title", "presentation_title"),
+}
+
+
+def _build_task_kwargs(
+    *,
+    user_id: UUID,
+    prompt: str,
+    task_type: TaskType | str,
+    metadata: dict | None,
+) -> dict:
+    """Build Task model kwargs with explicit task metadata mapping."""
+    return {
+        "user_id": user_id,
+        "prompt": prompt,
+        "task_type": task_type,
+        "status": TaskStatus.PENDING,
+        "task_metadata": metadata,
+    }
+
+
+def _resolve_task_title(task_type: str, metadata: dict | None) -> str:
+    """Resolve task title from metadata with sensible per-type fallbacks."""
+    fallback = TASK_TITLE_DEFAULTS.get(task_type)
+    if fallback is None:
+        raise ValueError(f"No title default configured for task type: {task_type}")
+
+    if not isinstance(metadata, dict):
+        return fallback
+
+    for key in TASK_TITLE_METADATA_KEYS.get(task_type, ("title",)):
+        value = metadata.get(key)
+        if isinstance(value, str):
+            normalized_value = value.strip()
+            if normalized_value:
+                return normalized_value
+
+    return fallback
 
 
 @router.post("/", response_model=Task, status_code=status.HTTP_201_CREATED)
@@ -37,13 +85,13 @@ async def create_task(
         Task: Created task
     """
     # Create task
-    task = TaskModel(
+    task_kwargs = _build_task_kwargs(
         user_id=current_user.id,
         prompt=task_data.prompt,
         task_type=task_data.task_type,
-        status=TaskStatus.PENDING,
         metadata=task_data.metadata,
     )
+    task = TaskModel(**task_kwargs)
     
     db.add(task)
     await db.commit()
@@ -66,17 +114,17 @@ async def create_task(
                 args=[task_id_str, task_data.prompt, user_id_str]
             )
         elif task_data.task_type == "docs":
-            title = task_data.metadata.get("title", "Untitled Document") if task_data.metadata else "Untitled Document"
+            title = _resolve_task_title("docs", task_data.metadata)
             celery_task = process_docs_task.apply_async(
                 args=[task_id_str, task_data.prompt, user_id_str, title]
             )
         elif task_data.task_type == "sheets":
-            title = task_data.metadata.get("title", "Untitled Spreadsheet") if task_data.metadata else "Untitled Spreadsheet"
+            title = _resolve_task_title("sheets", task_data.metadata)
             celery_task = process_sheets_task.apply_async(
                 args=[task_id_str, task_data.prompt, user_id_str, title]
             )
         elif task_data.task_type == "slides":
-            title = task_data.metadata.get("title", "Untitled Presentation") if task_data.metadata else "Untitled Presentation"
+            title = _resolve_task_title("slides", task_data.metadata)
             celery_task = process_slides_task.apply_async(
                 args=[task_id_str, task_data.prompt, user_id_str, title]
             )
