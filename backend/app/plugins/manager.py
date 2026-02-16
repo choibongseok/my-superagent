@@ -665,8 +665,8 @@ class PluginManager:
             exclude_plugins: Optional denylist of selectors in the same format
                 as ``include_plugins``.
             include_runtime: When ``True``, include runtime metadata
-                (initialization status, module path, and active config) with
-                each listed plugin.
+                (initialization status, module path, active config, and
+                load-sequence order) with each listed plugin.
             initialized: Optional runtime initialization filter. ``True``
                 returns only initialized plugins, ``False`` returns only
                 non-initialized plugins, and ``None`` disables filtering.
@@ -962,6 +962,9 @@ class PluginManager:
                         "initialized": plugin.is_initialized() if plugin else False,
                         "module_path": plugin.__class__.__module__ if plugin else None,
                         "config": dict(plugin.config) if plugin else None,
+                        "loaded_order": self._plugin_load_sequence.get(
+                            manifest.name
+                        ),
                     }
                 )
 

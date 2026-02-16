@@ -1303,8 +1303,53 @@ async def test_list_plugins_include_runtime_enriches_manifest_entries(
             "initialized": True,
             "module_path": "app.plugins.weather_tool",
             "config": {"units": "metric"},
+            "loaded_order": 1,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_include_runtime_tracks_loaded_order_across_reload(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"]),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class("beta-plugin", ["network.http"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    before_reload = manager.list_plugins(include_runtime=True, sort_by="name")
+    assert {item["name"]: item["loaded_order"] for item in before_reload} == {
+        "alpha-plugin": 1,
+        "beta-plugin": 2,
+    }
+
+    await manager.reload_plugin("alpha-plugin")
+
+    after_reload = manager.list_plugins(include_runtime=True, sort_by="name")
+    assert {item["name"]: item["loaded_order"] for item in after_reload} == {
+        "alpha-plugin": 3,
+        "beta-plugin": 2,
+    }
 
 
 @pytest.mark.asyncio
