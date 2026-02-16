@@ -336,6 +336,7 @@ class DuckDuckGoSearchTool(BaseTool):
         regex_flags: str | None = None,
         older_than_seconds: float | None = None,
         limit: int | None = None,
+        newest_first: bool = False,
         dry_run: bool = False,
     ) -> int:
         """Invalidate selected cache entries or clear the full cache.
@@ -360,8 +361,10 @@ class DuckDuckGoSearchTool(BaseTool):
             older_than_seconds: Optional age threshold that removes cache
                 entries older than the provided number of seconds.
             limit: Optional maximum number of matching cache entries to
-                invalidate. Matches are processed in deterministic cache-key
+                invalidate. Matches are processed in deterministic cache
                 order.
+            newest_first: When ``True``, matching entries are processed from
+                newest to oldest before optional ``limit`` capping.
             dry_run: When ``True``, returns the number of matching cache
                 entries without deleting them.
 
@@ -373,8 +376,9 @@ class DuckDuckGoSearchTool(BaseTool):
                 ``queries`` is not an iterable of non-empty strings, if
                 ``regex`` is not a valid regular expression, if
                 ``regex_flags`` is invalid, if ``older_than_seconds`` is not
-                a positive number, if ``limit`` is not a positive integer, or
-                if ``dry_run`` is not a boolean.
+                a positive number, if ``limit`` is not a positive integer, if
+                ``newest_first`` is not a boolean, or if ``dry_run`` is not a
+                boolean.
         """
         selector_count = sum(
             candidate is not None
@@ -398,6 +402,9 @@ class DuckDuckGoSearchTool(BaseTool):
         if not isinstance(dry_run, bool):
             raise ValueError("dry_run must be a boolean value")
 
+        if not isinstance(newest_first, bool):
+            raise ValueError("newest_first must be a boolean value")
+
         if regex_flags is not None and regex is None:
             raise ValueError("regex_flags can only be used with regex selector")
 
@@ -420,6 +427,9 @@ class DuckDuckGoSearchTool(BaseTool):
                 raise ValueError("limit must be a positive integer")
 
         def _apply_limit(matching_queries: list[str]) -> list[str]:
+            if newest_first:
+                matching_queries = list(reversed(matching_queries))
+
             if limit is None:
                 return matching_queries
 

@@ -533,6 +533,26 @@ def test_invalidate_cache_limit_caps_full_cache_clear(monkeypatch):
     assert list(tool._cache.keys()) == ["gamma"]
 
 
+def test_invalidate_cache_newest_first_prioritizes_recent_entries(monkeypatch):
+    """newest_first should process most recent cache entries before limit capping."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("alpha") == "payload"
+    assert tool._run("beta") == "payload"
+    assert tool._run("gamma") == "payload"
+
+    removed_entries = tool.invalidate_cache(limit=2, newest_first=True)
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["alpha"]
+
+
 def test_invalidate_cache_limit_respects_dry_run_without_deletion(monkeypatch):
     """dry_run with limit should count only limited matches and keep cache intact."""
     fake_backend = _FakeSearchBackend(response="payload")
@@ -822,6 +842,20 @@ def test_invalidate_cache_rejects_invalid_dry_run_selector(monkeypatch):
 
     with pytest.raises(ValueError, match="dry_run must be a boolean value"):
         tool.invalidate_cache(dry_run="true")  # type: ignore[arg-type]
+
+
+def test_invalidate_cache_rejects_invalid_newest_first_selector(monkeypatch):
+    """newest_first selector should accept only boolean values."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    with pytest.raises(ValueError, match="newest_first must be a boolean value"):
+        tool.invalidate_cache(newest_first="true")  # type: ignore[arg-type]
 
 
 def test_prune_cache_removes_entries_outside_retention_window(monkeypatch):
