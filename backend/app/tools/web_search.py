@@ -918,15 +918,13 @@ class DuckDuckGoSearchTool(BaseTool):
         assert last_error is not None
         raise last_error
 
-    def _run(self, query: str) -> str:
-        """
-        Run web search synchronously.
-
-        Args:
-            query: Search query string
+    def _execute_search(self, query: str) -> tuple[str, str, str | None]:
+        """Execute one search request and return result payload + source metadata.
 
         Returns:
-            Formatted search results
+            Tuple of ``(result, source, normalized_query)`` where source is one
+            of ``"cache_hit"``, ``"fresh_search"``, ``"stale_cache_fallback"``,
+            or ``"error"``.
         """
         normalized_query: str | None = None
 
@@ -939,7 +937,7 @@ class DuckDuckGoSearchTool(BaseTool):
                 logger.debug(
                     "Returning cached DuckDuckGo results: %s", normalized_query
                 )
-                return cached_results
+                return cached_results, "cache_hit", normalized_query
 
             if self._cache_ttl_seconds is not None:
                 self._increment_cache_metric("cache_misses")
@@ -951,7 +949,7 @@ class DuckDuckGoSearchTool(BaseTool):
             if self._cache_ttl_seconds is not None:
                 self._increment_cache_metric("cache_writes")
             logger.debug("Search completed: %d characters", len(normalized_results))
-            return normalized_results
+            return normalized_results, "fresh_search", normalized_query
 
         except Exception as error:
             if normalized_query is not None:
@@ -963,13 +961,57 @@ class DuckDuckGoSearchTool(BaseTool):
                         normalized_query,
                         error,
                     )
-                    return (
+                    fallback_payload = (
                         f"{stale_results}\n\n"
                         f"[stale cache fallback due to search error: {error}]"
                     )
+                    return (
+                        fallback_payload,
+                        "stale_cache_fallback",
+                        normalized_query,
+                    )
 
             logger.error("Search failed: %s", error, exc_info=True)
-            return f"Search failed: {error}"
+            return f"Search failed: {error}", "error", normalized_query
+
+    def search_with_diagnostics(self, query: str) -> dict[str, Any]:
+        """Run a search and include source + latency diagnostics.
+
+        This helper keeps the same output payload as ``_run`` while exposing
+        metadata that can be used for observability dashboards and debugging.
+        """
+        start_time = time.monotonic()
+        result, source, normalized_query = self._execute_search(query)
+        latency_ms = (time.monotonic() - start_time) * 1000
+
+        diagnostics: dict[str, Any] = {
+            "query": query,
+            "normalized_query": normalized_query,
+            "result": result,
+            "source": source,
+            "latency_ms": latency_ms,
+            "success": source != "error",
+            "cache_hit": source == "cache_hit",
+            "stale_fallback": source == "stale_cache_fallback",
+        }
+
+        if source == "error":
+            diagnostics["error"] = result.removeprefix("Search failed: ")
+
+        return diagnostics
+
+    def _run(self, query: str) -> str:
+        """
+        Run web search synchronously.
+
+        Args:
+            query: Search query string
+
+        Returns:
+            Formatted search results
+        """
+        result, _source, _normalized_query = self._execute_search(query)
+        return result
 
     async def _arun(self, query: str) -> str:
         """

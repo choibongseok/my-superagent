@@ -1320,6 +1320,100 @@ def test_cache_stats_tracks_stale_fallback_hits_and_can_reset_metrics(monkeypatc
     assert reset_stats["hit_ratio"] is None
 
 
+def test_search_with_diagnostics_reports_fresh_search_source(monkeypatch):
+    """Diagnostics should report fresh backend execution metadata."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(max_result_chars=None)
+
+    diagnostics = tool.search_with_diagnostics("  agent\nquery  ")
+
+    assert diagnostics["normalized_query"] == "agent query"
+    assert diagnostics["source"] == "fresh_search"
+    assert diagnostics["result"] == "payload"
+    assert diagnostics["success"] is True
+    assert diagnostics["cache_hit"] is False
+    assert diagnostics["stale_fallback"] is False
+    assert diagnostics["latency_ms"] >= 0
+
+
+def test_search_with_diagnostics_reports_cache_hits(monkeypatch):
+    """Repeated normalized queries should report cache-hit diagnostics."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=60, cache_max_entries=16)
+
+    first = tool.search_with_diagnostics("agent")
+    second = tool.search_with_diagnostics("agent")
+
+    assert first["source"] == "fresh_search"
+    assert second["source"] == "cache_hit"
+    assert second["cache_hit"] is True
+    assert second["success"] is True
+    assert fake_backend.queries == ["agent"]
+
+
+def test_search_with_diagnostics_reports_stale_fallback_source(monkeypatch):
+    """Diagnostics should expose stale-cache fallback behavior on failures."""
+    priming_backend = _FakeSearchBackend(response="fresh snapshot")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: priming_backend,
+    )
+
+    now = {"value": 10.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=5,
+        cache_max_entries=16,
+        stale_cache_ttl_seconds=40,
+    )
+
+    assert tool.search_with_diagnostics("agent")["source"] == "fresh_search"
+
+    now["value"] = 20.0
+    tool._search = _FailingSearchBackend(message="still down")
+
+    diagnostics = tool.search_with_diagnostics("agent")
+
+    assert diagnostics["source"] == "stale_cache_fallback"
+    assert diagnostics["success"] is True
+    assert diagnostics["cache_hit"] is False
+    assert diagnostics["stale_fallback"] is True
+    assert diagnostics["result"].startswith("fresh snapshot")
+
+
+def test_search_with_diagnostics_reports_error_details(monkeypatch):
+    """Validation failures should be surfaced with deterministic diagnostics."""
+    fake_backend = _FakeSearchBackend(response="should not be used")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool()
+
+    diagnostics = tool.search_with_diagnostics("   ")
+
+    assert diagnostics["normalized_query"] is None
+    assert diagnostics["source"] == "error"
+    assert diagnostics["success"] is False
+    assert diagnostics["cache_hit"] is False
+    assert diagnostics["stale_fallback"] is False
+    assert diagnostics["error"] == "query must be a non-empty string"
+    assert diagnostics["result"] == "Search failed: query must be a non-empty string"
+    assert fake_backend.queries == []
+
+
 def test_run_rejects_overly_long_queries_without_backend_calls(monkeypatch):
     """Configured query-length limits should fail fast before backend calls."""
     fake_backend = _FakeSearchBackend(response="should not be used")
