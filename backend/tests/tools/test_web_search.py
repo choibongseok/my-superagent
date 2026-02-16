@@ -383,6 +383,63 @@ def test_invalidate_cache_removes_normalized_query_entries(monkeypatch):
     assert fake_backend.queries == ["alpha query", "alpha query"]
 
 
+def test_invalidate_cache_rejects_multiple_selectors(monkeypatch):
+    """Only one invalidate selector should be accepted per call."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        tool.invalidate_cache("alpha", prefix="a")
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        tool.invalidate_cache(prefix="a", pattern="a*")
+
+
+def test_invalidate_cache_can_remove_entries_by_prefix(monkeypatch):
+    """Prefix invalidation should remove all matching normalized query keys."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("alpha one") == "payload"
+    assert tool._run("alpha two") == "payload"
+    assert tool._run("beta one") == "payload"
+
+    removed_entries = tool.invalidate_cache(prefix="  alpha  ")
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["beta one"]
+
+
+def test_invalidate_cache_can_remove_entries_by_pattern(monkeypatch):
+    """Pattern invalidation should support glob matching against query keys."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("news ai") == "payload"
+    assert tool._run("news robotics") == "payload"
+    assert tool._run("weather seoul") == "payload"
+
+    removed_entries = tool.invalidate_cache(pattern="news *")
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["weather seoul"]
+
+
 def test_invalidate_cache_clears_full_cache_and_returns_removed_count(monkeypatch):
     """Calling invalidate_cache with no query should clear all entries."""
     fake_backend = _FakeSearchBackend(response="payload")

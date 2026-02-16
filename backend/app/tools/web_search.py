@@ -4,6 +4,7 @@ import logging
 import re
 import time
 from collections import OrderedDict
+from fnmatch import fnmatchcase
 from typing import Any, Optional
 
 from langchain_community.tools import DuckDuckGoSearchRun
@@ -285,27 +286,66 @@ class DuckDuckGoSearchTool(BaseTool):
 
         return len(removable_queries)
 
-    def invalidate_cache(self, query: str | None = None) -> int:
-        """Invalidate one cache entry or clear the full in-memory cache.
+    def invalidate_cache(
+        self,
+        query: str | None = None,
+        *,
+        prefix: str | None = None,
+        pattern: str | None = None,
+    ) -> int:
+        """Invalidate selected cache entries or clear the full cache.
 
         Args:
             query: Optional query string to invalidate after normalization.
-                When ``None``, the entire cache is cleared.
+            prefix: Optional normalized-query prefix used to invalidate all
+                matching cache entries.
+            pattern: Optional glob-style matcher applied against normalized
+                query keys (for example, ``"news *"``).
 
         Returns:
             Number of entries removed from cache.
+
+        Raises:
+            ValueError: If more than one selector argument is provided.
         """
-        if query is None:
+        selector_count = sum(
+            candidate is not None for candidate in (query, prefix, pattern)
+        )
+        if selector_count > 1:
+            raise ValueError("query, prefix, and pattern are mutually exclusive")
+
+        if selector_count == 0:
             removed_entries = len(self._cache)
             self._cache.clear()
             return removed_entries
 
-        normalized_query = self._normalize_query(query)
-        if normalized_query in self._cache:
-            self._cache.pop(normalized_query, None)
-            return 1
+        if query is not None:
+            normalized_query = self._normalize_query(query)
+            if normalized_query in self._cache:
+                self._cache.pop(normalized_query, None)
+                return 1
+            return 0
 
-        return 0
+        if prefix is not None:
+            normalized_prefix = self._normalize_query(prefix)
+            matching_queries = [
+                cached_query
+                for cached_query in self._cache
+                if cached_query.startswith(normalized_prefix)
+            ]
+        else:
+            assert pattern is not None
+            normalized_pattern = self._normalize_query(pattern)
+            matching_queries = [
+                cached_query
+                for cached_query in self._cache
+                if fnmatchcase(cached_query, normalized_pattern)
+            ]
+
+        for cached_query in matching_queries:
+            self._cache.pop(cached_query, None)
+
+        return len(matching_queries)
 
     def clear_cache(self) -> None:
         """Clear in-memory cached search results."""
