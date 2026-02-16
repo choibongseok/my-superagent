@@ -1801,24 +1801,43 @@ def run_async_find_batched(
     return cast(D, default)
 
 
+def _slice_items_with_offsets(
+    items: Iterable[I],
+    *,
+    start: int,
+    stop: int | None,
+) -> list[I]:
+    """Materialize items and apply validated ``start``/``stop`` slicing."""
+    _validate_start_index(start)
+    _validate_stop_index(stop)
+    return list(items)[start:stop]
+
+
 def run_async_any(
     coro_predicate: Callable[[I], Awaitable[bool]],
     items: Iterable[I],
     *,
     timeout: float | None = None,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> bool:
     """Return ``True`` when any item matches an async predicate.
 
     Behaves like Python's built-in :func:`any` while validating that predicate
-    outputs are explicit booleans.
+    outputs are explicit booleans. Optional ``start``/``stop`` offsets mirror
+    slicing semantics.
     """
     if not callable(coro_predicate):
         raise TypeError("run_async_any expects a callable coro_predicate")
 
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
+        return False
+
     predicate_results = run_async_map(
         coro_predicate,
-        list(items),
+        searchable_items,
         timeout=timeout,
         max_concurrency=max_concurrency,
     )
@@ -1836,19 +1855,21 @@ def run_async_any_batched(
     batch_size: int,
     timeout: float | None = None,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> bool:
-    """Batch-oriented variant of :func:`run_async_any`."""
+    """Batch-oriented variant of :func:`run_async_any` with offsets."""
     if not callable(coro_predicate):
         raise TypeError("run_async_any_batched expects a callable coro_predicate")
 
-    materialized_items = list(items)
-    if not materialized_items:
-        _validate_batch_size(batch_size)
+    _validate_batch_size(batch_size)
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
         return False
 
     predicate_results = run_async_map_batched(
         coro_predicate,
-        materialized_items,
+        searchable_items,
         batch_size=batch_size,
         timeout=timeout,
         max_concurrency=max_concurrency,
@@ -1866,18 +1887,25 @@ def run_async_none(
     *,
     timeout: float | None = None,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> bool:
     """Return ``True`` when no item matches an async predicate.
 
     Behaves like ``not any(...)`` while validating that predicate outputs are
-    explicit booleans.
+    explicit booleans. Optional ``start``/``stop`` offsets mirror slicing
+    semantics.
     """
     if not callable(coro_predicate):
         raise TypeError("run_async_none expects a callable coro_predicate")
 
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
+        return True
+
     predicate_results = run_async_map(
         coro_predicate,
-        list(items),
+        searchable_items,
         timeout=timeout,
         max_concurrency=max_concurrency,
     )
@@ -1895,19 +1923,21 @@ def run_async_none_batched(
     batch_size: int,
     timeout: float | None = None,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> bool:
-    """Batch-oriented variant of :func:`run_async_none`."""
+    """Batch-oriented variant of :func:`run_async_none` with offsets."""
     if not callable(coro_predicate):
         raise TypeError("run_async_none_batched expects a callable coro_predicate")
 
-    materialized_items = list(items)
-    if not materialized_items:
-        _validate_batch_size(batch_size)
+    _validate_batch_size(batch_size)
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
         return True
 
     predicate_results = run_async_map_batched(
         coro_predicate,
-        materialized_items,
+        searchable_items,
         batch_size=batch_size,
         timeout=timeout,
         max_concurrency=max_concurrency,
@@ -1925,18 +1955,25 @@ def run_async_all(
     *,
     timeout: float | None = None,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> bool:
     """Return ``True`` when all items match an async predicate.
 
     Behaves like Python's built-in :func:`all` while validating that predicate
-    outputs are explicit booleans.
+    outputs are explicit booleans. Optional ``start``/``stop`` offsets mirror
+    slicing semantics.
     """
     if not callable(coro_predicate):
         raise TypeError("run_async_all expects a callable coro_predicate")
 
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
+        return True
+
     predicate_results = run_async_map(
         coro_predicate,
-        list(items),
+        searchable_items,
         timeout=timeout,
         max_concurrency=max_concurrency,
     )
@@ -1954,19 +1991,21 @@ def run_async_all_batched(
     batch_size: int,
     timeout: float | None = None,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> bool:
-    """Batch-oriented variant of :func:`run_async_all`."""
+    """Batch-oriented variant of :func:`run_async_all` with offsets."""
     if not callable(coro_predicate):
         raise TypeError("run_async_all_batched expects a callable coro_predicate")
 
-    materialized_items = list(items)
-    if not materialized_items:
-        _validate_batch_size(batch_size)
+    _validate_batch_size(batch_size)
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
         return True
 
     predicate_results = run_async_map_batched(
         coro_predicate,
-        materialized_items,
+        searchable_items,
         batch_size=batch_size,
         timeout=timeout,
         max_concurrency=max_concurrency,

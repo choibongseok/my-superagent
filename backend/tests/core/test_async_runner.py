@@ -918,6 +918,26 @@ def test_run_async_any_empty_input_returns_false():
     assert run_async_any(_always_true, []) is False
 
 
+def test_run_async_any_supports_start_and_stop_offsets():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_any(_is_even, [2, 3, 5], start=1) is False
+    assert run_async_any(_is_even, [1, 3, 4, 6], stop=3) is True
+
+
+def test_run_async_any_rejects_invalid_offsets():
+    async def _is_even(value: int) -> bool:
+        return value % 2 == 0
+
+    with pytest.raises(ValueError, match="start must be an integer"):
+        run_async_any(_is_even, [1, 2, 3], start=True)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="stop cannot be negative"):
+        run_async_any(_is_even, [1, 2, 3], stop=-1)
+
+
 def test_run_async_any_rejects_non_bool_predicate_results():
     async def _invalid(_: int) -> str:
         return "yes"
@@ -932,6 +952,31 @@ def test_run_async_any_batched_returns_true_when_predicate_matches_any_item():
         return value > 0
 
     assert run_async_any_batched(_is_positive, [-2, -1, 0, 1], batch_size=2) is True
+
+
+def test_run_async_any_batched_supports_start_and_stop_offsets():
+    async def _is_positive(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value > 0
+
+    assert (
+        run_async_any_batched(
+            _is_positive,
+            [-1, -2, 3],
+            batch_size=2,
+            start=1,
+        )
+        is True
+    )
+    assert (
+        run_async_any_batched(
+            _is_positive,
+            [-1, -2, 3],
+            batch_size=2,
+            stop=2,
+        )
+        is False
+    )
 
 
 def test_run_async_any_batched_rejects_non_positive_batch_size_for_empty_items():
@@ -965,6 +1010,15 @@ def test_run_async_none_empty_input_returns_true():
     assert run_async_none(_always_false, []) is True
 
 
+def test_run_async_none_supports_start_and_stop_offsets():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_none(_is_even, [2, 4, 5], start=2) is True
+    assert run_async_none(_is_even, [1, 3, 4, 6], stop=3) is False
+
+
 def test_run_async_none_rejects_non_bool_predicate_results():
     async def _invalid(_: int) -> str:
         return "yes"
@@ -979,6 +1033,31 @@ def test_run_async_none_batched_returns_true_when_no_items_match():
         return value > 0
 
     assert run_async_none_batched(_is_positive, [-2, -1, 0], batch_size=2) is True
+
+
+def test_run_async_none_batched_supports_start_and_stop_offsets():
+    async def _is_positive(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value > 0
+
+    assert (
+        run_async_none_batched(
+            _is_positive,
+            [-1, 2, 3],
+            batch_size=2,
+            stop=1,
+        )
+        is True
+    )
+    assert (
+        run_async_none_batched(
+            _is_positive,
+            [-1, 2, 3],
+            batch_size=2,
+            start=1,
+        )
+        is False
+    )
 
 
 def test_run_async_none_batched_rejects_non_positive_batch_size_for_empty_items():
@@ -1012,6 +1091,15 @@ def test_run_async_all_empty_input_returns_true():
     assert run_async_all(_always_false, []) is True
 
 
+def test_run_async_all_supports_start_and_stop_offsets():
+    async def _is_positive(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value > 0
+
+    assert run_async_all(_is_positive, [0, 1, 2], start=1) is True
+    assert run_async_all(_is_positive, [1, 2, 0], stop=2) is True
+
+
 def test_run_async_all_rejects_non_bool_predicate_results():
     async def _invalid(_: int) -> int:
         return 1
@@ -1026,6 +1114,28 @@ def test_run_async_all_batched_returns_false_when_any_item_fails_predicate():
         return value % 2 == 0
 
     assert run_async_all_batched(_is_even, [2, 4, 5, 6], batch_size=2) is False
+
+
+def test_run_async_all_batched_supports_start_and_stop_offsets():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_all_batched(_is_even, [1, 2, 4], batch_size=2, start=1) is True
+    assert run_async_all_batched(_is_even, [2, 4, 5], batch_size=2, stop=2) is True
+
+
+def test_run_async_all_batched_rejects_invalid_offsets():
+    async def _is_even(value: int) -> bool:
+        return value % 2 == 0
+
+    with pytest.raises(ValueError, match="start must be an integer"):
+        run_async_all_batched(
+            _is_even,
+            [1, 2, 3],
+            batch_size=2,
+            start=True,  # type: ignore[arg-type]
+        )
 
 
 def test_run_async_all_batched_rejects_non_positive_batch_size_for_empty_items():
