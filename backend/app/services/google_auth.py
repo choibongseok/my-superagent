@@ -31,7 +31,9 @@ def _normalize_required_scopes(
     Args:
         required_scopes: Scope string, iterable of scope strings, or ``None``.
             String values can contain one scope or a comma/semicolon/
-            whitespace-delimited scope list.
+            whitespace-delimited scope list. Individual requirements can
+            include ``|``-delimited alternatives (for example,
+            ``"scope.read|scope.write"``).
 
     Returns:
         Normalized unique scope list in first-seen order.
@@ -81,15 +83,32 @@ def _normalize_required_scopes(
     return normalized_scopes
 
 
-def _scope_matches_requirement(
+def _split_scope_alternatives(required_scope: str) -> list[str]:
+    """Split scope requirements supporting ``scope.a|scope.b`` alternatives."""
+    alternatives: list[str] = []
+    seen_alternatives: set[str] = set()
+
+    for raw_alternative in required_scope.split("|"):
+        normalized_alternative = raw_alternative.strip()
+        if not normalized_alternative:
+            raise ValueError(
+                "required_scopes alternatives cannot contain empty values"
+            )
+
+        if normalized_alternative in seen_alternatives:
+            continue
+
+        seen_alternatives.add(normalized_alternative)
+        alternatives.append(normalized_alternative)
+
+    return alternatives
+
+
+def _scope_matches_single_requirement(
     available_scopes: set[str],
     required_scope: str,
 ) -> bool:
-    """Return whether a required scope is satisfied by available scopes.
-
-    Supports exact scope matching and glob-style requirements (``*``, ``?``,
-    and ``[]`` ranges) for convenience when validating scope families.
-    """
+    """Return whether one scope requirement is satisfied by available scopes."""
     if required_scope in available_scopes:
         return True
 
@@ -101,6 +120,22 @@ def _scope_matches_requirement(
     return any(
         fnmatchcase(available_scope, required_scope)
         for available_scope in available_scopes
+    )
+
+
+def _scope_matches_requirement(
+    available_scopes: set[str],
+    required_scope: str,
+) -> bool:
+    """Return whether a required scope is satisfied by available scopes.
+
+    Supports exact scope matching, glob-style requirements (``*``, ``?``,
+    and ``[]`` ranges), and ``|``-separated alternatives where matching any
+    one alternative satisfies the requirement.
+    """
+    return any(
+        _scope_matches_single_requirement(available_scopes, alternative)
+        for alternative in _split_scope_alternatives(required_scope)
     )
 
 
@@ -134,7 +169,10 @@ def get_missing_scopes(
     credentials: Credentials,
     required_scopes: str | Iterable[str] | None,
 ) -> list[str]:
-    """Return required scopes that are not present in credentials."""
+    """Return required scopes that are not present in credentials.
+
+    Requirements may include ``|``-delimited alternatives.
+    """
     normalized_required_scopes = _normalize_required_scopes(required_scopes)
     if not normalized_required_scopes:
         return []
@@ -155,8 +193,10 @@ def credentials_have_scopes(
 ) -> bool:
     """Return whether credentials satisfy required scopes.
 
-    By default, all required scopes must be present. When ``match_any`` is
-    ``True``, matching at least one required scope is sufficient.
+    By default, all required scope requirements must be satisfied. When
+    ``match_any`` is ``True``, satisfying at least one requirement is
+    sufficient. Individual requirements may contain ``|``-delimited
+    alternatives.
     """
     if not isinstance(match_any, bool):
         raise ValueError("match_any must be a boolean")

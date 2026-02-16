@@ -198,6 +198,34 @@ async def test_get_user_credentials_accepts_semicolon_delimited_required_scope_s
 
 
 @pytest.mark.asyncio
+async def test_get_user_credentials_supports_scope_alternatives(monkeypatch):
+    user = SimpleNamespace(
+        id=uuid4(),
+        google_access_token="token",
+        google_refresh_token=None,
+    )
+
+    class _DB:
+        async def execute(self, _):
+            return _Result(user)
+
+    monkeypatch.setattr(google_auth, "Credentials", _FakeCreds)
+    monkeypatch.setattr(
+        google_auth.settings,
+        "GOOGLE_SCOPES",
+        "scope.read",
+    )
+
+    creds = await google_auth.get_user_credentials(
+        user.id,
+        db=_DB(),
+        required_scopes=["scope.admin|scope.read"],
+    )
+
+    assert creds is not None
+
+
+@pytest.mark.asyncio
 async def test_get_user_credentials_rejects_missing_required_scopes(monkeypatch):
     user = SimpleNamespace(
         id=uuid4(),
@@ -221,6 +249,36 @@ async def test_get_user_credentials_rejects_missing_required_scopes(monkeypatch)
             user.id,
             db=_DB(),
             required_scopes=["scope.read", "scope.admin"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_user_credentials_rejects_invalid_scope_alternatives(monkeypatch):
+    user = SimpleNamespace(
+        id=uuid4(),
+        google_access_token="token",
+        google_refresh_token=None,
+    )
+
+    class _DB:
+        async def execute(self, _):
+            return _Result(user)
+
+    monkeypatch.setattr(google_auth, "Credentials", _FakeCreds)
+    monkeypatch.setattr(
+        google_auth.settings,
+        "GOOGLE_SCOPES",
+        "scope.read",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="required_scopes alternatives cannot contain empty values",
+    ):
+        await google_auth.get_user_credentials(
+            user.id,
+            db=_DB(),
+            required_scopes=["scope.read||scope.write"],
         )
 
 
@@ -292,6 +350,17 @@ def test_get_missing_scopes_supports_glob_scope_patterns():
     assert missing == ["calendar.*"]
 
 
+def test_get_missing_scopes_supports_scope_alternatives():
+    creds = _FakeCreds(scopes=["scope.read", "scope.write"])
+
+    missing = google_auth.get_missing_scopes(
+        creds,
+        ["scope.admin|scope.read", "scope.owner|scope.audit"],
+    )
+
+    assert missing == ["scope.owner|scope.audit"]
+
+
 def test_get_missing_scopes_rejects_invalid_scope_values():
     creds = _FakeCreds(scopes=["scope.read"])
 
@@ -303,6 +372,12 @@ def test_get_missing_scopes_rejects_invalid_scope_values():
 
     with pytest.raises(TypeError, match="required_scopes must contain only strings"):
         google_auth.get_missing_scopes(creds, ["scope.read", 123])
+
+    with pytest.raises(
+        ValueError,
+        match="required_scopes alternatives cannot contain empty values",
+    ):
+        google_auth.get_missing_scopes(creds, ["scope.read||scope.write"])
 
 
 def test_credentials_have_scopes_returns_true_only_when_all_scopes_exist():
@@ -317,6 +392,19 @@ def test_credentials_have_scopes_supports_glob_scope_patterns():
 
     assert google_auth.credentials_have_scopes(creds, ["scope.*"])
     assert not google_auth.credentials_have_scopes(creds, ["admin.*"])
+
+
+def test_credentials_have_scopes_supports_scope_alternatives():
+    creds = _FakeCreds(scopes=["scope.read", "scope.write"])
+
+    assert google_auth.credentials_have_scopes(
+        creds,
+        ["scope.admin|scope.read", "scope.owner|scope.write"],
+    )
+    assert not google_auth.credentials_have_scopes(
+        creds,
+        ["scope.admin|scope.audit"],
+    )
 
 
 def test_credentials_have_scopes_supports_match_any_mode():
