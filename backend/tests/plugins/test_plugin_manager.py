@@ -1609,6 +1609,68 @@ async def test_list_plugins_supports_sorting_by_runtime_initialized_state(
     ]
 
 
+@pytest.mark.asyncio
+async def test_list_plugins_supports_sorting_by_loaded_order(tmp_path, monkeypatch):
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"]),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class("beta-plugin", ["network.http"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugin("app.plugins.beta")
+    await manager.load_plugin("app.plugins.alpha")
+
+    ascending = manager.list_plugins(sort_by="loaded_order")
+    descending = manager.list_plugins(sort_by="loaded_order", sort_order="desc")
+
+    assert [item["name"] for item in ascending] == ["beta-plugin", "alpha-plugin"]
+    assert [item["name"] for item in descending] == ["alpha-plugin", "beta-plugin"]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_loaded_order_updates_after_reload(tmp_path, monkeypatch):
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"]),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class("beta-plugin", ["network.http"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugin("app.plugins.alpha")
+    await manager.load_plugin("app.plugins.beta")
+
+    await manager.reload_plugin("alpha-plugin")
+
+    ordered = manager.list_plugins(sort_by="loaded_order")
+
+    assert [item["name"] for item in ordered] == ["beta-plugin", "alpha-plugin"]
+
+
 def test_list_plugins_validates_sort_options(tmp_path):
     manager = PluginManager(plugin_dir=str(tmp_path))
 

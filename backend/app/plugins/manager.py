@@ -43,6 +43,8 @@ class PluginManager:
         """
         self.plugins: Dict[str, BasePlugin] = {}
         self.manifests: Dict[str, PluginManifest] = {}
+        self._plugin_load_sequence: Dict[str, int] = {}
+        self._load_sequence_counter = 0
 
         # Plugin directory
         if plugin_dir:
@@ -109,6 +111,8 @@ class PluginManager:
             # Register plugin
             self.plugins[manifest.name] = plugin
             self.manifests[manifest.name] = manifest
+            self._load_sequence_counter += 1
+            self._plugin_load_sequence[manifest.name] = self._load_sequence_counter
 
             logger.info(
                 f"Plugin loaded successfully: {manifest.name} v{manifest.version}"
@@ -689,7 +693,8 @@ class PluginManager:
             sort_by: Optional field used for sorting output. Supports
                 ``"name"``, ``"version"`` (semantic-version aware),
                 ``"author"``, ``"permission_count"``, runtime
-                ``"module_path"``, and runtime ``"initialized"`` status.
+                ``"module_path"``, runtime ``"initialized"`` status, and
+                ``"loaded_order"`` (oldest-to-newest plugin load sequence).
             sort_order: Sorting direction used when ``sort_by`` is provided.
                 Supports ``"asc"`` (default) and ``"desc"``.
             offset: Number of filtered/sorted plugin entries to skip before
@@ -774,20 +779,19 @@ class PluginManager:
             "permission_count",
             "module_path",
             "initialized",
+            "loaded_order",
         }
+        sort_by_error = (
+            "sort_by must be one of: name, version, author, permission_count, "
+            "module_path, initialized, loaded_order"
+        )
         if sort_by is not None:
             if not isinstance(sort_by, str) or not sort_by.strip():
-                raise ValueError(
-                    "sort_by must be one of: name, version, author, "
-                    "permission_count, module_path, initialized"
-                )
+                raise ValueError(sort_by_error)
 
             sort_by = sort_by.strip().lower()
             if sort_by not in allowed_sort_fields:
-                raise ValueError(
-                    "sort_by must be one of: name, version, author, "
-                    "permission_count, module_path, initialized"
-                )
+                raise ValueError(sort_by_error)
 
         if not isinstance(sort_order, str) or not sort_order.strip():
             raise ValueError("sort_order must be 'asc' or 'desc'")
@@ -921,6 +925,15 @@ class PluginManager:
                             if (plugin := self.plugins.get(manifest.name)) is not None
                             else False
                         ),
+                        manifest.name.casefold(),
+                    ),
+                    reverse=reverse_sort,
+                )
+            elif sort_by == "loaded_order":
+                manifests = sorted(
+                    manifests,
+                    key=lambda manifest: (
+                        self._plugin_load_sequence.get(manifest.name, -1),
                         manifest.name.casefold(),
                     ),
                     reverse=reverse_sort,
@@ -1290,6 +1303,7 @@ class PluginManager:
             # Remove from registry
             del self.plugins[plugin_name]
             del self.manifests[plugin_name]
+            self._plugin_load_sequence.pop(plugin_name, None)
 
             logger.info(f"Plugin unloaded: {plugin_name}")
 
