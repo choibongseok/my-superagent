@@ -27,6 +27,24 @@ _UNHEALTHY_STATUS_VALUES = {
     "offline",
 }
 
+_STATUS_FILTER_ALIASES: dict[str, str] = {
+    "healthy": "healthy",
+    "ok": "healthy",
+    "operational": "healthy",
+    "up": "healthy",
+    "degraded": "degraded",
+    "warning": "degraded",
+    "limited": "degraded",
+    "partial": "degraded",
+    "unhealthy": "unhealthy",
+    "down": "unhealthy",
+    "failed": "unhealthy",
+    "error": "unhealthy",
+    "critical": "unhealthy",
+    "offline": "unhealthy",
+    "unknown": "unknown",
+}
+
 
 def _uptime_seconds() -> float:
     """Return process uptime in seconds based on monotonic clock."""
@@ -67,6 +85,20 @@ def _parse_requested_services(raw_services: str | None) -> list[str]:
     return requested_services
 
 
+def _classify_service_status(raw_status: str) -> str:
+    """Normalize one raw status value into a summary category."""
+    normalized_status = str(raw_status).strip().lower()
+
+    if normalized_status in _HEALTHY_STATUS_VALUES:
+        return "healthy"
+    if normalized_status in _DEGRADED_STATUS_VALUES:
+        return "degraded"
+    if normalized_status in _UNHEALTHY_STATUS_VALUES:
+        return "unhealthy"
+
+    return "unknown"
+
+
 def _build_service_summary(service_statuses: dict[str, str]) -> dict[str, int]:
     """Build status-category counts for the selected service statuses."""
     summary = {
@@ -78,22 +110,78 @@ def _build_service_summary(service_statuses: dict[str, str]) -> dict[str, int]:
     }
 
     for raw_status in service_statuses.values():
-        normalized_status = str(raw_status).strip().lower()
-
-        if normalized_status in _HEALTHY_STATUS_VALUES:
-            summary["healthy"] += 1
-        elif normalized_status in _DEGRADED_STATUS_VALUES:
-            summary["degraded"] += 1
-        elif normalized_status in _UNHEALTHY_STATUS_VALUES:
-            summary["unhealthy"] += 1
-        else:
-            summary["unknown"] += 1
+        summary[_classify_service_status(raw_status)] += 1
 
     return summary
 
 
+def _parse_status_filter(raw_status_filter: str | None) -> set[str] | None:
+    """Parse optional comma-delimited status-category filters."""
+    if raw_status_filter is None:
+        return None
+
+    normalized_tokens = [
+        token.strip().lower() for token in raw_status_filter.split(",") if token.strip()
+    ]
+    if not normalized_tokens:
+        raise HTTPException(
+            status_code=400,
+            detail="status_filter must include at least one status category",
+        )
+
+    normalized_categories: set[str] = set()
+    unknown_tokens: list[str] = []
+
+    for token in normalized_tokens:
+        normalized_category = _STATUS_FILTER_ALIASES.get(token)
+        if normalized_category is None:
+            unknown_tokens.append(token)
+            continue
+
+        normalized_categories.add(normalized_category)
+
+    if unknown_tokens:
+        unknown_list = ", ".join(sorted(dict.fromkeys(unknown_tokens)))
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unknown status_filter values: {unknown_list}. "
+                "Supported categories: healthy, degraded, unhealthy, unknown."
+            ),
+        )
+
+    return normalized_categories
+
+
+def _filter_service_statuses_by_category(
+    service_statuses: dict[str, str],
+    *,
+    allowed_categories: set[str] | None,
+) -> dict[str, str]:
+    """Filter service statuses by normalized health categories."""
+    if allowed_categories is None:
+        return service_statuses
+
+    return {
+        service_name: raw_status
+        for service_name, raw_status in service_statuses.items()
+        if _classify_service_status(raw_status) in allowed_categories
+    }
+
+
+def _build_service_categories(service_statuses: dict[str, str]) -> dict[str, str]:
+    """Build normalized health categories for each selected service."""
+    return {
+        service_name: _classify_service_status(raw_status)
+        for service_name, raw_status in service_statuses.items()
+    }
+
+
 def _derive_overall_status(summary: dict[str, int]) -> str:
     """Derive aggregate service health from category counts."""
+    if summary["total"] == 0:
+        return "unknown"
+
     if summary["unhealthy"] > 0:
         return "degraded"
     if summary["degraded"] > 0:
@@ -120,7 +208,8 @@ async def ping(
 
 @router.get("/status")
 async def status(
-    services: str | None = Query(
+    services: str
+    | None = Query(
         default=None,
         description="Comma-delimited service filter (e.g., api,redis)",
     ),
@@ -132,6 +221,18 @@ async def status(
         default=False,
         description="Include categorized service-health summary counts",
     ),
+    include_categories: bool = Query(
+        default=False,
+        description="Include normalized health category per selected service",
+    ),
+    status_filter: str
+    | None = Query(
+        default=None,
+        description=(
+            "Optional comma-delimited status categories to include "
+            "(healthy,degraded,unhealthy,unknown)"
+        ),
+    ),
 ) -> dict[str, Any]:
     """Detailed status endpoint with optional service filtering."""
     selected_services = _parse_requested_services(services)
@@ -139,12 +240,19 @@ async def status(
         service_name: _SERVICE_STATUSES[service_name]
         for service_name in selected_services
     }
+    selected_statuses = _filter_service_statuses_by_category(
+        selected_statuses,
+        allowed_categories=_parse_status_filter(status_filter),
+    )
     service_summary = _build_service_summary(selected_statuses)
 
     payload: dict[str, Any] = {
         "status": _derive_overall_status(service_summary),
         "services": selected_statuses,
     }
+
+    if include_categories:
+        payload["service_categories"] = _build_service_categories(selected_statuses)
 
     if include_summary:
         payload["summary"] = service_summary

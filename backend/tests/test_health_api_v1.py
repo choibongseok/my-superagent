@@ -163,3 +163,128 @@ def test_status_derives_unknown_when_only_unknown_statuses_present(
             "redis": "maintenance",
         },
     }
+
+
+def test_status_can_include_normalized_service_categories(
+    health_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Category mode should expose normalized health classes per service."""
+    monkeypatch.setattr(
+        "app.api.v1.health._SERVICE_STATUSES",
+        {
+            "api": "ok",
+            "database": "critical",
+            "redis": "maintenance",
+        },
+    )
+
+    response = health_client.get(
+        "/status",
+        params={"include_categories": True, "services": "api,database,redis"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "degraded",
+        "services": {
+            "api": "ok",
+            "database": "critical",
+            "redis": "maintenance",
+        },
+        "service_categories": {
+            "api": "healthy",
+            "database": "unhealthy",
+            "redis": "unknown",
+        },
+    }
+
+
+def test_status_can_filter_services_by_status_category(
+    health_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """status_filter should keep only services in requested health categories."""
+    monkeypatch.setattr(
+        "app.api.v1.health._SERVICE_STATUSES",
+        {
+            "api": "healthy",
+            "database": "warning",
+            "redis": "down",
+        },
+    )
+
+    response = health_client.get(
+        "/status",
+        params={
+            "status_filter": "degraded,unhealthy",
+            "include_categories": True,
+            "include_summary": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "degraded",
+        "services": {
+            "database": "warning",
+            "redis": "down",
+        },
+        "service_categories": {
+            "database": "degraded",
+            "redis": "unhealthy",
+        },
+        "summary": {
+            "total": 2,
+            "healthy": 0,
+            "degraded": 1,
+            "unhealthy": 1,
+            "unknown": 0,
+        },
+    }
+
+
+def test_status_filter_can_use_aliases_and_return_unknown_when_no_matches(
+    health_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Alias filters should normalize categories and support empty result sets."""
+    monkeypatch.setattr(
+        "app.api.v1.health._SERVICE_STATUSES",
+        {
+            "api": "healthy",
+            "database": "healthy",
+            "redis": "healthy",
+        },
+    )
+
+    response = health_client.get(
+        "/status",
+        params={"status_filter": "offline", "include_summary": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "unknown",
+        "services": {},
+        "summary": {
+            "total": 0,
+            "healthy": 0,
+            "degraded": 0,
+            "unhealthy": 0,
+            "unknown": 0,
+        },
+    }
+
+
+def test_status_filter_rejects_unknown_categories(
+    health_client: TestClient,
+) -> None:
+    """Unknown status filters should raise a clear validation error."""
+    response = health_client.get("/status", params={"status_filter": "critical-ish"})
+
+    assert response.status_code == 400
+    assert (
+        response.json()["detail"]
+        == "Unknown status_filter values: critical-ish. Supported categories: healthy, degraded, unhealthy, unknown."
+    )
