@@ -5,6 +5,7 @@ semantic similarity search across conversation history.
 """
 
 import logging
+import math
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Generator, List, Optional, Tuple
@@ -656,6 +657,7 @@ class VectorStoreMemory:
         min_score_margin: Optional[float] = None,
         min_relative_score: Optional[float] = None,
         min_top_score: Optional[float] = None,
+        top_score_fraction: Optional[float] = None,
         sort_by_score: bool = False,
         sort_by_recency: bool = False,
         include_score_context: bool = False,
@@ -713,6 +715,10 @@ class VectorStoreMemory:
                 filtering. When set, all results are rejected unless the best
                 remaining candidate score is at least this value. Accepted
                 range is ``[0, 1]``.
+            top_score_fraction: Optional fraction of highest-scoring results to
+                keep after score-threshold filtering. Accepted range is
+                ``(0, 1]``. Ties at the boundary are retained, so the final
+                result count can exceed the exact fraction.
             sort_by_score: When ``True``, sort accepted results by descending score
                 before applying the final ``k`` limit. Ties preserve original
                 vector-store order for deterministic pagination.
@@ -785,7 +791,8 @@ class VectorStoreMemory:
                 ``min_confidence``/``min_relevance`` values, invalid
                 ``max_score_gap``/``min_score_margin``/
                 ``min_relative_score``/``min_top_score``/
-                ``offset``/``max_results_per_session``/
+                ``top_score_fraction``/``offset``/
+                ``max_results_per_session``/
                 ``candidate_pool_multiplier`` values, invalid
                 ``created_after``/``created_before``/``max_age_hours``/
                 ``min_content_length``/``max_content_length`` boundaries,
@@ -920,6 +927,20 @@ class VectorStoreMemory:
             if not (0.0 <= min_top_score <= 1.0):
                 raise ValueError(
                     f"min_top_score must be in [0, 1], got {min_top_score}"
+                )
+
+        if top_score_fraction is not None:
+            if isinstance(top_score_fraction, bool) or not isinstance(
+                top_score_fraction, (int, float)
+            ):
+                raise ValueError(
+                    f"top_score_fraction must be in (0, 1], got {top_score_fraction}"
+                )
+
+            top_score_fraction = float(top_score_fraction)
+            if not (0.0 < top_score_fraction <= 1.0):
+                raise ValueError(
+                    f"top_score_fraction must be in (0, 1], got {top_score_fraction}"
                 )
 
         normalized_min_confidence = self._normalize_min_confidence(min_confidence)
@@ -1332,6 +1353,23 @@ class VectorStoreMemory:
                 min_relative_score,
                 top_score_after_threshold,
                 minimum_allowed_score,
+                len(results),
+            )
+
+        if top_score_fraction is not None and results:
+            target_rank_count = max(1, math.ceil(len(results) * top_score_fraction))
+            descending_scores = sorted((score for _, score in results), reverse=True)
+            score_cutoff = descending_scores[target_rank_count - 1]
+            results = [
+                (doc, score)
+                for doc, score in results
+                if score + SCORE_EPSILON >= score_cutoff
+            ]
+            logger.debug(
+                "Applied top_score_fraction filtering: fraction=%.3f, rank_count=%d, cutoff=%.3f, kept=%d",
+                top_score_fraction,
+                target_rank_count,
+                score_cutoff,
                 len(results),
             )
 

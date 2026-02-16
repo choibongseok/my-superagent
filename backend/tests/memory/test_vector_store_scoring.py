@@ -1191,6 +1191,106 @@ class TestCandidatePoolMultiplier:
         )
 
 
+class TestTopScoreFractionFiltering:
+    """Test optional top-score fraction filtering for scored search."""
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_top_score_fraction_validation(self):
+        """top_score_fraction must be a number in (0, 1]."""
+        memory = VectorStoreMemory(user_id="test_user")
+
+        with pytest.raises(
+            ValueError,
+            match=r"top_score_fraction must be in \(0, 1\]",
+        ):
+            memory.search_with_scores(query="test", top_score_fraction="0.5")
+
+        with pytest.raises(
+            ValueError,
+            match=r"top_score_fraction must be in \(0, 1\]",
+        ):
+            memory.search_with_scores(query="test", top_score_fraction=True)
+
+        with pytest.raises(
+            ValueError,
+            match=r"top_score_fraction must be in \(0, 1\]",
+        ):
+            memory.search_with_scores(query="test", top_score_fraction=0)
+
+        with pytest.raises(
+            ValueError,
+            match=r"top_score_fraction must be in \(0, 1\]",
+        ):
+            memory.search_with_scores(query="test", top_score_fraction=1.2)
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_top_score_fraction_keeps_highest_scoring_band(self):
+        """Filtering should retain only the configured highest-scoring fraction."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        first_doc = Document(page_content="first", metadata={})
+        second_doc = Document(page_content="second", metadata={})
+        third_doc = Document(page_content="third", metadata={})
+        fourth_doc = Document(page_content="fourth", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (first_doc, 0.95),
+                (second_doc, 0.83),
+                (third_doc, 0.72),
+                (fourth_doc, 0.61),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            top_score_fraction=0.5,
+        )
+
+        assert [result["content"] for result in results] == ["first", "second"]
+
+    @patch.object(VectorStoreMemory, "__init__", lambda x, **kwargs: None)
+    def test_top_score_fraction_keeps_boundary_ties(self):
+        """Scores tied at the fraction cutoff should all be preserved."""
+        memory = VectorStoreMemory(user_id="test_user")
+        memory.user_id = "test_user"
+        memory.top_k = 5
+
+        top_doc = Document(page_content="top", metadata={})
+        tie_a_doc = Document(page_content="tie-a", metadata={})
+        tie_b_doc = Document(page_content="tie-b", metadata={})
+        low_doc = Document(page_content="low", metadata={})
+
+        memory.vector_store = Mock()
+        memory.vector_store.similarity_search_with_relevance_scores = Mock(
+            return_value=[
+                (top_doc, 0.96),
+                (tie_a_doc, 0.8),
+                (tie_b_doc, 0.8),
+                (low_doc, 0.5),
+            ]
+        )
+
+        results = memory.search_with_scores(
+            query="test",
+            adaptive_threshold=False,
+            score_threshold=0.0,
+            top_score_fraction=0.5,
+            sort_by_score=True,
+        )
+
+        assert [result["content"] for result in results] == [
+            "top",
+            "tie-a",
+            "tie-b",
+        ]
+
+
 class TestUniqueContentDeduplication:
     """Test optional duplicate collapsing based on memory content."""
 
