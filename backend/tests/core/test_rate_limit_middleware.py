@@ -115,6 +115,45 @@ def test_rate_limit_middleware_applies_method_specific_request_costs(
         assert limited_response.headers["X-RateLimit-Request-Cost"] == "1"
 
 
+def test_rate_limit_middleware_supports_wildcard_request_cost_fallback(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/items")
+    async def get_items() -> dict[str, bool]:
+        return {"ok": True}
+
+    @app.patch("/items")
+    async def patch_items() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=4,
+        request_costs={"*": 2, "GET": 1},
+    )
+
+    with TestClient(app) as client:
+        patch_response = client.patch("/items")
+        assert patch_response.status_code == 200
+        assert patch_response.headers["X-RateLimit-Request-Cost"] == "2"
+        assert patch_response.headers["X-RateLimit-Remaining"] == "2"
+
+        get_response = client.get("/items")
+        assert get_response.status_code == 200
+        assert get_response.headers["X-RateLimit-Request-Cost"] == "1"
+        assert get_response.headers["X-RateLimit-Remaining"] == "1"
+
+        limited_patch_response = client.patch("/items")
+        assert limited_patch_response.status_code == 429
+        assert limited_patch_response.headers["X-RateLimit-Request-Cost"] == "2"
+
+
 def test_rate_limit_middleware_emits_rfc9333_headers_on_success(
     fake_cache: InMemoryAsyncCache,
     frozen_time: dict[str, float],
@@ -178,6 +217,12 @@ def test_rate_limit_middleware_emits_rfc9333_headers_on_429(
 
 def test_rate_limit_middleware_rejects_invalid_request_costs() -> None:
     app = FastAPI()
+
+    with pytest.raises(
+        ValueError,
+        match=r"request_costs keys must be alphabetic HTTP methods or '\*'",
+    ):
+        RateLimitMiddleware(app, request_costs={"P0ST": 1})
 
     with pytest.raises(
         ValueError,

@@ -143,7 +143,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             app: FastAPI application
             requests_per_minute: Sustained request rate
             burst_size: Maximum burst requests (defaults to 2x rate)
-            request_costs: Optional per-method token costs (e.g. {"POST": 2})
+            request_costs: Optional per-method token costs (e.g. {"POST": 2}).
+                Use "*" as a wildcard fallback for methods not explicitly listed.
             path_request_costs: Optional per-path token costs where keys are
                 exact paths (e.g. ``"/api/v1/tasks"``), prefix patterns
                 (e.g. ``"/api/v1/tasks/*"``), or glob patterns
@@ -284,6 +285,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         for method, cost in request_costs.items():
             if not isinstance(method, str) or not method.strip():
                 raise ValueError("request_costs keys must be non-empty method strings")
+
+            normalized_method = method.strip().upper()
+            if normalized_method != "*" and not re.fullmatch(
+                r"[A-Z]+",
+                normalized_method,
+            ):
+                raise ValueError(
+                    "request_costs keys must be alphabetic HTTP methods or '*'"
+                )
+
             if isinstance(cost, bool) or not isinstance(cost, int) or cost <= 0:
                 raise ValueError(
                     "request_costs values must be positive integer token costs"
@@ -291,7 +302,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if cost > self.burst_size:
                 raise ValueError("request_costs values cannot exceed burst_size")
 
-            normalized_costs[method.strip().upper()] = cost
+            normalized_costs[normalized_method] = cost
 
         return normalized_costs
 
@@ -575,7 +586,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if generic_cost is not None:
             return generic_cost
 
-        return self.request_costs.get(method, 1)
+        if method in self.request_costs:
+            return self.request_costs[method]
+
+        if "*" in self.request_costs:
+            return self.request_costs["*"]
+
+        return 1
 
     def _build_rate_limit_headers(
         self,
@@ -689,7 +706,7 @@ def get_rate_limit_middleware(
 
     Args:
         requests_per_minute: Request rate limit (defaults to settings)
-        request_costs: Optional per-method token costs
+        request_costs: Optional per-method token costs (supports "*" wildcard fallback)
         path_request_costs: Optional exact/prefix path token costs
         exclude_paths: Optional exact/prefix/method-scoped exclusion rules
         exclude_methods: Optional HTTP methods that bypass rate limiting
