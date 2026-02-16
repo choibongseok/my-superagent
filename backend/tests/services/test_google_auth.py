@@ -120,7 +120,9 @@ async def test_get_user_credentials_validates_required_scopes(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_user_credentials_accepts_delimited_required_scope_string(monkeypatch):
+async def test_get_user_credentials_accepts_delimited_required_scope_string(
+    monkeypatch,
+):
     user = SimpleNamespace(
         id=uuid4(),
         google_access_token="old-token",
@@ -150,6 +152,45 @@ async def test_get_user_credentials_accepts_delimited_required_scope_string(monk
         user.id,
         db=fake_db,
         required_scopes="scope.read, scope.write",
+    )
+
+    assert creds is not None
+    assert creds.scopes == ["scope.read", "scope.write"]
+
+
+@pytest.mark.asyncio
+async def test_get_user_credentials_accepts_semicolon_delimited_required_scope_string(
+    monkeypatch,
+):
+    user = SimpleNamespace(
+        id=uuid4(),
+        google_access_token="old-token",
+        google_refresh_token="refresh-token",
+    )
+
+    class _DB:
+        committed = False
+
+        async def execute(self, _):
+            return _Result(user)
+
+        async def commit(self):
+            self.committed = True
+
+    fake_db = _DB()
+
+    monkeypatch.setattr(google_auth, "Credentials", _FakeCreds)
+    monkeypatch.setattr(google_auth, "Request", lambda: object())
+    monkeypatch.setattr(
+        google_auth.settings,
+        "GOOGLE_SCOPES",
+        "scope.read, scope.write",
+    )
+
+    creds = await google_auth.get_user_credentials(
+        user.id,
+        db=fake_db,
+        required_scopes="scope.read; scope.write",
     )
 
     assert creds is not None
@@ -229,6 +270,28 @@ def test_get_missing_scopes_supports_delimited_entries_in_scope_iterables():
     assert missing == ["scope.audit"]
 
 
+def test_get_missing_scopes_supports_semicolon_delimited_strings():
+    creds = _FakeCreds(scopes=["scope.read", "scope.write"])
+
+    missing = google_auth.get_missing_scopes(
+        creds,
+        "scope.read; scope.write; scope.admin",
+    )
+
+    assert missing == ["scope.admin"]
+
+
+def test_get_missing_scopes_supports_glob_scope_patterns():
+    creds = _FakeCreds(scopes=["scope.read", "scope.write", "drive.file"])
+
+    missing = google_auth.get_missing_scopes(
+        creds,
+        ["scope.*", "drive.*", "calendar.*"],
+    )
+
+    assert missing == ["calendar.*"]
+
+
 def test_get_missing_scopes_rejects_invalid_scope_values():
     creds = _FakeCreds(scopes=["scope.read"])
 
@@ -247,3 +310,10 @@ def test_credentials_have_scopes_returns_true_only_when_all_scopes_exist():
 
     assert google_auth.credentials_have_scopes(creds, ["scope.read"])
     assert not google_auth.credentials_have_scopes(creds, ["scope.read", "scope.admin"])
+
+
+def test_credentials_have_scopes_supports_glob_scope_patterns():
+    creds = _FakeCreds(scopes=["scope.read", "scope.write"])
+
+    assert google_auth.credentials_have_scopes(creds, ["scope.*"])
+    assert not google_auth.credentials_have_scopes(creds, ["admin.*"])

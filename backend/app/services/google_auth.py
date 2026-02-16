@@ -3,6 +3,7 @@
 import logging
 import re
 from collections.abc import Iterable
+from fnmatch import fnmatchcase
 from typing import Optional
 from uuid import UUID
 
@@ -18,7 +19,8 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 
 
-_SCOPE_DELIMITER_PATTERN = re.compile(r"[\s,]+")
+_SCOPE_DELIMITER_PATTERN = re.compile(r"[\s,;]+")
+_SCOPE_GLOB_PATTERN_CHARS = {"*", "?", "["}
 
 
 def _normalize_required_scopes(
@@ -28,8 +30,8 @@ def _normalize_required_scopes(
 
     Args:
         required_scopes: Scope string, iterable of scope strings, or ``None``.
-            String values can contain one scope or a comma/whitespace-delimited
-            scope list.
+            String values can contain one scope or a comma/semicolon/
+            whitespace-delimited scope list.
 
     Returns:
         Normalized unique scope list in first-seen order.
@@ -79,6 +81,29 @@ def _normalize_required_scopes(
     return normalized_scopes
 
 
+def _scope_matches_requirement(
+    available_scopes: set[str],
+    required_scope: str,
+) -> bool:
+    """Return whether a required scope is satisfied by available scopes.
+
+    Supports exact scope matching and glob-style requirements (``*``, ``?``,
+    and ``[]`` ranges) for convenience when validating scope families.
+    """
+    if required_scope in available_scopes:
+        return True
+
+    if not any(
+        pattern_char in required_scope for pattern_char in _SCOPE_GLOB_PATTERN_CHARS
+    ):
+        return False
+
+    return any(
+        fnmatchcase(available_scope, required_scope)
+        for available_scope in available_scopes
+    )
+
+
 def get_missing_scopes(
     credentials: Credentials,
     required_scopes: str | Iterable[str] | None,
@@ -95,7 +120,9 @@ def get_missing_scopes(
     }
 
     return [
-        scope for scope in normalized_required_scopes if scope not in available_scopes
+        scope
+        for scope in normalized_required_scopes
+        if not _scope_matches_requirement(available_scopes, scope)
     ]
 
 
