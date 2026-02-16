@@ -1611,6 +1611,56 @@ def test_search_many_rejects_invalid_deduplicate_option(monkeypatch):
         tool.search_many(["alpha"], deduplicate="true")  # type: ignore[arg-type]
 
 
+def test_search_many_with_diagnostics_can_deduplicate_normalized_queries(monkeypatch):
+    """deduplicate=True should reuse diagnostics rows for normalized duplicates."""
+    fake_backend = _SequencedSearchBackend(["alpha-result", "beta-result"])
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=None)
+
+    diagnostics = tool.search_many_with_diagnostics(
+        [" alpha\none ", "alpha\tone", "beta"],
+        deduplicate=True,
+    )
+
+    assert [row["source"] for row in diagnostics["results"]] == [
+        "fresh_search",
+        "fresh_search",
+        "fresh_search",
+    ]
+    assert diagnostics["results"][0]["deduplicated"] is False
+    assert diagnostics["results"][0]["deduplicated_from_query"] is None
+    assert diagnostics["results"][1]["deduplicated"] is True
+    assert diagnostics["results"][1]["deduplicated_from_query"] == " alpha\none "
+    assert diagnostics["results"][1]["latency_ms"] == 0.0
+
+    assert diagnostics["summary"]["total_queries"] == 3
+    assert diagnostics["summary"]["executed_queries"] == 2
+    assert diagnostics["summary"]["deduplicated_results"] == 1
+    assert diagnostics["summary"]["deduplication_rate"] == pytest.approx(1 / 3)
+    assert fake_backend.queries == ["alpha one", "beta"]
+
+
+def test_search_many_with_diagnostics_rejects_invalid_deduplicate_option(monkeypatch):
+    """deduplicate option should accept only boolean values."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool()
+
+    with pytest.raises(ValueError, match="deduplicate must be a boolean value"):
+        tool.search_many_with_diagnostics(
+            ["alpha"],
+            deduplicate="true",  # type: ignore[arg-type]
+        )
+
+
 def test_search_many_with_diagnostics_reports_per_query_rows_and_summary(monkeypatch):
     """Batch diagnostics should include ordered rows and aggregate counters."""
     fake_backend = _FakeSearchBackend(response="payload")
@@ -1629,6 +1679,9 @@ def test_search_many_with_diagnostics_reports_per_query_rows_and_summary(monkeyp
         "error",
     ]
     assert diagnostics["summary"]["total_queries"] == 3
+    assert diagnostics["summary"]["executed_queries"] == 3
+    assert diagnostics["summary"]["deduplicated_results"] == 0
+    assert diagnostics["summary"]["deduplication_rate"] == 0
     assert diagnostics["summary"]["successes"] == 2
     assert diagnostics["summary"]["errors"] == 1
     assert diagnostics["summary"]["fresh_searches"] == 1

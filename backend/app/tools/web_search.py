@@ -1177,21 +1177,80 @@ class DuckDuckGoSearchTool(BaseTool):
 
         return results
 
-    def search_many_with_diagnostics(self, queries: Iterable[str]) -> dict[str, Any]:
+    def search_many_with_diagnostics(
+        self,
+        queries: Iterable[str],
+        *,
+        deduplicate: bool = False,
+    ) -> dict[str, Any]:
         """Run multiple searches and return per-query + aggregate diagnostics.
 
         Args:
             queries: Iterable of query strings processed in order.
+            deduplicate: When ``True``, repeated normalized queries within the
+                same batch reuse the first diagnostics payload instead of
+                issuing duplicate backend lookups.
 
         Returns:
             Dictionary containing ``results`` (per-query diagnostics payloads)
             and ``summary`` (aggregate success/cache/latency metrics,
-            source distribution, latency extrema, and percentile latencies).
+            source distribution, latency extrema, percentile latencies, and
+            deduplication counters).
+
+        Raises:
+            ValueError: If ``deduplicate`` is not a boolean value.
         """
+        if not isinstance(deduplicate, bool):
+            raise ValueError("deduplicate must be a boolean value")
+
         normalized_queries = self._normalize_query_batch(queries)
-        diagnostics_rows = [
-            self.search_with_diagnostics(query) for query in normalized_queries
-        ]
+        diagnostics_rows: list[dict[str, Any]] = []
+        executed_queries = 0
+
+        if not deduplicate:
+            for query in normalized_queries:
+                diagnostics_row = dict(self.search_with_diagnostics(query))
+                diagnostics_row["deduplicated"] = False
+                diagnostics_row["deduplicated_from_query"] = None
+                diagnostics_rows.append(diagnostics_row)
+            executed_queries = len(diagnostics_rows)
+        else:
+            seen_diagnostics_by_query: dict[str, dict[str, Any]] = {}
+            seen_original_queries: dict[str, str] = {}
+
+            for query in normalized_queries:
+                try:
+                    normalized_query = self._normalize_query(query)
+                except ValueError:
+                    normalized_query = None
+
+                if (
+                    normalized_query is not None
+                    and normalized_query in seen_diagnostics_by_query
+                ):
+                    deduplicated_row = dict(seen_diagnostics_by_query[normalized_query])
+                    deduplicated_row["query"] = query
+                    deduplicated_row["normalized_query"] = normalized_query
+                    deduplicated_row["latency_ms"] = 0.0
+                    deduplicated_row["deduplicated"] = True
+                    deduplicated_row["deduplicated_from_query"] = seen_original_queries[
+                        normalized_query
+                    ]
+                    diagnostics_rows.append(deduplicated_row)
+                    continue
+
+                diagnostics_row = dict(self.search_with_diagnostics(query))
+                diagnostics_row["deduplicated"] = False
+                diagnostics_row["deduplicated_from_query"] = None
+                diagnostics_rows.append(diagnostics_row)
+                executed_queries += 1
+
+                normalized_diagnostics_query = diagnostics_row.get("normalized_query")
+                if isinstance(normalized_diagnostics_query, str):
+                    seen_diagnostics_by_query[
+                        normalized_diagnostics_query
+                    ] = diagnostics_row
+                    seen_original_queries[normalized_diagnostics_query] = query
 
         total_queries = len(diagnostics_rows)
         success_count = sum(1 for row in diagnostics_rows if row["success"])
@@ -1203,6 +1262,7 @@ class DuckDuckGoSearchTool(BaseTool):
             1 for row in diagnostics_rows if row["source"] == "fresh_search"
         )
         error_count = total_queries - success_count
+        deduplicated_count = sum(1 for row in diagnostics_rows if row["deduplicated"])
 
         latency_values = [float(row["latency_ms"]) for row in diagnostics_rows]
         average_latency_ms = sum(latency_values) / total_queries
@@ -1221,6 +1281,9 @@ class DuckDuckGoSearchTool(BaseTool):
             "results": diagnostics_rows,
             "summary": {
                 "total_queries": total_queries,
+                "executed_queries": executed_queries,
+                "deduplicated_results": deduplicated_count,
+                "deduplication_rate": deduplicated_count / total_queries,
                 "successes": success_count,
                 "errors": error_count,
                 "fresh_searches": fresh_search_count,
