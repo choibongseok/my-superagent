@@ -6,7 +6,9 @@ from datetime import datetime, timedelta
 import re
 
 import pytest
+from jose import jwt
 
+from app.core.config import settings
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -976,3 +978,103 @@ def test_decode_token_validates_leeway_seconds_input() -> None:
         match="leeway_seconds must be greater than or equal to 0",
     ):
         decode_token(token, leeway_seconds=-1)
+
+
+def test_decode_token_accepts_future_iat_within_max_future_window() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "iat": datetime.utcnow() + timedelta(seconds=30),
+        },
+        expires_delta=timedelta(minutes=5),
+    )
+
+    payload = decode_token(
+        token,
+        expected_subject="user-123",
+        max_future_iat_seconds=45,
+    )
+
+    assert payload is not None
+    assert payload["sub"] == "user-123"
+
+
+def test_decode_token_rejects_future_iat_beyond_max_future_window() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "iat": datetime.utcnow() + timedelta(minutes=2),
+        },
+        expires_delta=timedelta(minutes=5),
+    )
+
+    assert (
+        decode_token(
+            token,
+            expected_subject="user-123",
+            max_future_iat_seconds=30,
+        )
+        is None
+    )
+
+
+def test_decode_token_max_future_iat_respects_leeway() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "iat": datetime.utcnow() + timedelta(seconds=8),
+        },
+        expires_delta=timedelta(minutes=5),
+    )
+
+    payload = decode_token(
+        token,
+        expected_subject="user-123",
+        max_future_iat_seconds=0,
+        leeway_seconds=10,
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_requires_iat_when_max_future_iat_is_enabled() -> None:
+    token = jwt.encode(
+        {
+            "sub": "user-123",
+            "type": "access",
+            "exp": datetime.utcnow() + timedelta(minutes=5),
+        },
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
+
+    assert (
+        decode_token(
+            token,
+            expected_subject="user-123",
+            max_future_iat_seconds=10,
+        )
+        is None
+    )
+
+
+def test_decode_token_validates_max_future_iat_seconds_input() -> None:
+    token = create_access_token({"sub": "user-123"})
+
+    with pytest.raises(
+        TypeError,
+        match="max_future_iat_seconds must be a numeric value",
+    ):
+        decode_token(token, max_future_iat_seconds="10")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        TypeError,
+        match="max_future_iat_seconds must be a numeric value",
+    ):
+        decode_token(token, max_future_iat_seconds=True)  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="max_future_iat_seconds must be greater than or equal to 0",
+    ):
+        decode_token(token, max_future_iat_seconds=-1)

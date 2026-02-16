@@ -628,6 +628,28 @@ def _normalize_max_age_seconds(max_age_seconds: int | float | None) -> float | N
     return normalized_max_age
 
 
+def _normalize_max_future_iat_seconds(
+    max_future_iat_seconds: int | float | None,
+) -> float | None:
+    """Normalize optional future-``iat`` tolerance for ``decode_token``."""
+    if max_future_iat_seconds is None:
+        return None
+
+    if isinstance(max_future_iat_seconds, bool) or not isinstance(
+        max_future_iat_seconds,
+        (int, float),
+    ):
+        raise TypeError("max_future_iat_seconds must be a numeric value")
+
+    normalized_max_future_iat = float(max_future_iat_seconds)
+    if normalized_max_future_iat < 0:
+        raise ValueError(
+            "max_future_iat_seconds must be greater than or equal to 0"
+        )
+
+    return normalized_max_future_iat
+
+
 def _extract_issued_at_timestamp(payload: Mapping[str, Any]) -> float | None:
     """Extract normalized ``iat`` timestamps from decoded token payloads."""
     issued_at_claim = payload.get("iat")
@@ -665,6 +687,7 @@ def decode_token(
     match_any_scopes: bool = False,
     leeway_seconds: int | float | None = None,
     max_age_seconds: int | float | None = None,
+    max_future_iat_seconds: int | float | None = None,
 ) -> dict[str, Any] | None:
     """Decode a JWT token with optional type/claim validation.
 
@@ -718,6 +741,10 @@ def decode_token(
             applied during JWT decode.
         max_age_seconds: Optional freshness constraint based on ``iat`` claim.
             When provided, tokens older than this many seconds are rejected.
+        max_future_iat_seconds: Optional upper bound (seconds) for how far
+            the token ``iat`` claim may be in the future relative to current
+            time. Useful when freshness checks are not enabled but future
+            issuance timestamps should still be rejected.
 
     Returns:
         Decoded payload when valid, otherwise ``None``.
@@ -747,6 +774,9 @@ def decode_token(
     )
     normalized_leeway_seconds = _normalize_leeway_seconds(leeway_seconds)
     normalized_max_age_seconds = _normalize_max_age_seconds(max_age_seconds)
+    normalized_max_future_iat_seconds = _normalize_max_future_iat_seconds(
+        max_future_iat_seconds
+    )
 
     decode_options: dict[str, Any] = {"verify_aud": False}
     if normalized_leeway_seconds > 0:
@@ -882,17 +912,25 @@ def decode_token(
         ):
             return None
 
-    if normalized_max_age_seconds is not None:
+    if (
+        normalized_max_age_seconds is not None
+        or normalized_max_future_iat_seconds is not None
+    ):
         issued_at = _extract_issued_at_timestamp(payload)
         if issued_at is None:
             return None
 
         now_timestamp = time.time()
-        if issued_at > (now_timestamp + normalized_leeway_seconds):
+        allowed_future_iat_seconds = normalized_leeway_seconds
+        if normalized_max_future_iat_seconds is not None:
+            allowed_future_iat_seconds += normalized_max_future_iat_seconds
+
+        if issued_at > (now_timestamp + allowed_future_iat_seconds):
             return None
 
-        token_age = now_timestamp - issued_at
-        if token_age > (normalized_max_age_seconds + normalized_leeway_seconds):
-            return None
+        if normalized_max_age_seconds is not None:
+            token_age = now_timestamp - issued_at
+            if token_age > (normalized_max_age_seconds + normalized_leeway_seconds):
+                return None
 
     return payload
