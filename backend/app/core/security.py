@@ -328,11 +328,38 @@ def _normalize_scope_claim_name(scope_claim: str) -> str:
     return normalized_scope_claim
 
 
+def _normalize_scope_claim_fallbacks(
+    scope_claim_fallbacks: str | Iterable[str] | None,
+) -> tuple[str, ...]:
+    """Normalize optional scope-claim fallback names for ``decode_token``."""
+    if scope_claim_fallbacks is None:
+        return ()
+
+    if isinstance(scope_claim_fallbacks, str):
+        return (_normalize_scope_claim_name(scope_claim_fallbacks),)
+
+    normalized_scope_claims: list[str] = []
+    for scope_claim in scope_claim_fallbacks:
+        if not isinstance(scope_claim, str):
+            raise TypeError("scope_claim_fallbacks must contain only strings")
+
+        normalized_scope_claim = scope_claim.strip()
+        if not normalized_scope_claim:
+            raise ValueError("scope_claim_fallbacks cannot contain blank values")
+
+        normalized_scope_claims.append(normalized_scope_claim)
+
+    if not normalized_scope_claims:
+        raise ValueError("scope_claim_fallbacks cannot be an empty iterable")
+
+    return tuple(dict.fromkeys(normalized_scope_claims))
+
+
 def _extract_token_scopes(
     payload: Mapping[str, Any],
     scope_claim: str,
 ) -> tuple[str, ...] | None:
-    """Extract normalized token scopes from decoded payload."""
+    """Extract normalized token scopes from one decoded payload claim."""
     claim_value = payload.get(scope_claim)
     if claim_value is None:
         return None
@@ -357,6 +384,25 @@ def _extract_token_scopes(
             return None
 
         return tuple(dict.fromkeys(normalized_scopes))
+
+    return None
+
+
+def _extract_token_scopes_with_fallbacks(
+    payload: Mapping[str, Any],
+    scope_claims: tuple[str, ...],
+) -> tuple[str, ...] | None:
+    """Extract token scopes from one of multiple scope claims in order.
+
+    Claims are checked left-to-right. Missing claims are skipped. If a claim is
+    present but malformed, extraction fails immediately to avoid silently
+    accepting malformed payloads.
+    """
+    for scope_claim in scope_claims:
+        if scope_claim not in payload:
+            continue
+
+        return _extract_token_scopes(payload, scope_claim)
 
     return None
 
@@ -615,6 +661,7 @@ def decode_token(
     required_claim_patterns: Mapping[str, str | re.Pattern[str]] | None = None,
     required_scopes: str | Iterable[str] | None = None,
     scope_claim: str = "scope",
+    scope_claim_fallbacks: str | Iterable[str] | None = None,
     match_any_scopes: bool = False,
     leeway_seconds: int | float | None = None,
     max_age_seconds: int | float | None = None,
@@ -658,8 +705,12 @@ def decode_token(
             scope string (space/comma-delimited) or iterable of scope strings.
             Required scope values support glob patterns (for example,
             ``"chat:*"``).
-        scope_claim: Token claim name containing scopes. Defaults to
-            ``"scope"``.
+        scope_claim: Primary token claim name containing scopes.
+            Defaults to ``"scope"``.
+        scope_claim_fallbacks: Optional fallback claim name(s) checked in
+            order when ``scope_claim`` is missing (for example, ``"scp"``).
+            If a selected claim exists but has an invalid payload shape,
+            decoding fails.
         match_any_scopes: Scope matching mode. ``False`` (default) requires
             every ``required_scopes`` entry to be present. ``True`` requires
             at least one matching scope.
@@ -688,6 +739,12 @@ def decode_token(
     )
     normalized_required_scopes = _normalize_required_scopes(required_scopes)
     normalized_scope_claim = _normalize_scope_claim_name(scope_claim)
+    normalized_scope_claim_fallbacks = _normalize_scope_claim_fallbacks(
+        scope_claim_fallbacks
+    )
+    normalized_scope_claims = tuple(
+        dict.fromkeys((normalized_scope_claim, *normalized_scope_claim_fallbacks))
+    )
     normalized_leeway_seconds = _normalize_leeway_seconds(leeway_seconds)
     normalized_max_age_seconds = _normalize_max_age_seconds(max_age_seconds)
 
@@ -804,7 +861,10 @@ def decode_token(
             return None
 
     if normalized_required_scopes:
-        token_scopes = _extract_token_scopes(payload, normalized_scope_claim)
+        token_scopes = _extract_token_scopes_with_fallbacks(
+            payload,
+            normalized_scope_claims,
+        )
         if token_scopes is None:
             return None
 

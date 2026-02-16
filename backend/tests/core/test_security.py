@@ -761,6 +761,62 @@ def test_decode_token_supports_custom_scope_claim_name() -> None:
     assert payload is not None
 
 
+def test_decode_token_supports_scope_claim_fallbacks() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "scp": "chat:read chat:write",
+        }
+    )
+
+    payload = decode_token(
+        token,
+        required_scopes="chat:write",
+        scope_claim="scope",
+        scope_claim_fallbacks=["scp"],
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_supports_scope_claim_fallbacks_as_single_string() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "scp": "chat:read chat:write",
+        }
+    )
+
+    payload = decode_token(
+        token,
+        required_scopes="chat:write",
+        scope_claim="scope",
+        scope_claim_fallbacks="scp",
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_rejects_invalid_primary_scope_claim_before_fallbacks() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "scope": ["chat:read", 42],
+            "scp": "chat:read chat:write",
+        }
+    )
+
+    assert (
+        decode_token(
+            token,
+            required_scopes="chat:write",
+            scope_claim="scope",
+            scope_claim_fallbacks=["scp"],
+        )
+        is None
+    )
+
+
 def test_decode_token_rejects_invalid_scope_claim_payload_shape() -> None:
     token = create_access_token(
         {
@@ -789,6 +845,36 @@ def test_decode_token_validates_scope_requirement_inputs() -> None:
 
     with pytest.raises(ValueError, match="scope_claim cannot be blank"):
         decode_token(token, required_scopes="chat:read", scope_claim="   ")
+
+    with pytest.raises(
+        TypeError,
+        match="scope_claim_fallbacks must contain only strings",
+    ):
+        decode_token(
+            token,
+            required_scopes="chat:read",
+            scope_claim_fallbacks=["scp", 123],
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="scope_claim_fallbacks cannot contain blank values",
+    ):
+        decode_token(
+            token,
+            required_scopes="chat:read",
+            scope_claim_fallbacks=["scp", "   "],
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="scope_claim_fallbacks cannot be an empty iterable",
+    ):
+        decode_token(
+            token,
+            required_scopes="chat:read",
+            scope_claim_fallbacks=[],
+        )
 
     with pytest.raises(TypeError, match="match_any_scopes must be a boolean"):
         decode_token(token, required_scopes="chat:read", match_any_scopes="yes")
