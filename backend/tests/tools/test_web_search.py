@@ -104,6 +104,27 @@ def test_init_rejects_invalid_max_query_length():
         DuckDuckGoSearchTool(max_query_length=10.5)  # type: ignore[arg-type]
 
 
+def test_init_rejects_invalid_max_batch_queries():
+    """Batch-size guard should only allow positive integers or None."""
+    with pytest.raises(
+        ValueError,
+        match="max_batch_queries must be a positive integer or None",
+    ):
+        DuckDuckGoSearchTool(max_batch_queries=0)
+
+    with pytest.raises(
+        ValueError,
+        match="max_batch_queries must be a positive integer or None",
+    ):
+        DuckDuckGoSearchTool(max_batch_queries=True)  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="max_batch_queries must be a positive integer or None",
+    ):
+        DuckDuckGoSearchTool(max_batch_queries=10.5)  # type: ignore[arg-type]
+
+
 def test_init_rejects_invalid_cache_options():
     """Cache guards should enforce positive TTL and positive entry caps."""
     with pytest.raises(
@@ -1512,6 +1533,25 @@ def test_search_many_with_diagnostics_rejects_invalid_query_batches(monkeypatch)
         match="queries must contain only string values",
     ):
         tool.search_many_with_diagnostics(["agent", 1])  # type: ignore[list-item]
+
+
+def test_search_many_with_diagnostics_respects_max_batch_queries(monkeypatch):
+    """Batch diagnostics should reject payloads above configured batch size."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(max_batch_queries=2)
+
+    with pytest.raises(
+        ValueError,
+        match=r"queries exceeds max_batch_queries \(3 > 2\)",
+    ):
+        tool.search_many_with_diagnostics(["alpha", "beta", "gamma"])
+
+    assert fake_backend.queries == []
 
 
 def test_run_rejects_overly_long_queries_without_backend_calls(monkeypatch):

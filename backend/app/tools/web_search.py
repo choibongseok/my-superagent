@@ -41,6 +41,7 @@ class DuckDuckGoSearchTool(BaseTool):
         stale_cache_ttl_seconds: Optional[float] = None,
         retry_attempts: int = 0,
         retry_backoff_seconds: float = 0.0,
+        max_batch_queries: Optional[int] = None,
     ):
         """Initialize DuckDuckGo search tool.
 
@@ -62,6 +63,9 @@ class DuckDuckGoSearchTool(BaseTool):
                 backend failure. Set to ``0`` (default) to disable retries.
             retry_backoff_seconds: Base delay between retry attempts in
                 seconds. Delay grows exponentially per retry attempt.
+            max_batch_queries: Optional upper bound for
+                ``search_many_with_diagnostics`` batch size. Set to
+                ``None`` (default) to allow any batch length.
         """
         super().__init__()
         self._max_result_chars = self._normalize_max_result_chars(max_result_chars)
@@ -74,6 +78,9 @@ class DuckDuckGoSearchTool(BaseTool):
         self._retry_attempts = self._normalize_retry_attempts(retry_attempts)
         self._retry_backoff_seconds = self._normalize_retry_backoff_seconds(
             retry_backoff_seconds
+        )
+        self._max_batch_queries = self._normalize_max_batch_queries(
+            max_batch_queries
         )
         self._cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
         self._cache_metrics = {
@@ -177,6 +184,20 @@ class DuckDuckGoSearchTool(BaseTool):
 
         if value <= 0:
             raise ValueError("max_query_length must be a positive integer or None")
+
+        return value
+
+    @staticmethod
+    def _normalize_max_batch_queries(value: Optional[int]) -> Optional[int]:
+        """Validate optional batch-size guards for diagnostics helpers."""
+        if value is None:
+            return None
+
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("max_batch_queries must be a positive integer or None")
+
+        if value <= 0:
+            raise ValueError("max_batch_queries must be a positive integer or None")
 
         return value
 
@@ -1046,8 +1067,7 @@ class DuckDuckGoSearchTool(BaseTool):
 
         return diagnostics
 
-    @staticmethod
-    def _normalize_query_batch(queries: Iterable[str]) -> list[str]:
+    def _normalize_query_batch(self, queries: Iterable[str]) -> list[str]:
         """Validate and normalize query batches for bulk diagnostics helpers."""
         if isinstance(queries, str):
             raise ValueError("queries must be an iterable of query strings")
@@ -1059,6 +1079,15 @@ class DuckDuckGoSearchTool(BaseTool):
 
         if not normalized_queries:
             raise ValueError("queries must include at least one query")
+
+        if (
+            self._max_batch_queries is not None
+            and len(normalized_queries) > self._max_batch_queries
+        ):
+            raise ValueError(
+                "queries exceeds max_batch_queries "
+                f"({len(normalized_queries)} > {self._max_batch_queries})"
+            )
 
         if not all(isinstance(query, str) for query in normalized_queries):
             raise ValueError("queries must contain only string values")
