@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import html
 import logging
 import mimetypes
@@ -315,12 +317,13 @@ class EmailService:
     ) -> list[EmailAttachment]:
         """Normalize attachment payloads for MIME encoding.
 
-        Each attachment entry can provide either:
-        - ``content`` (bytes-like or string payload), or
+        Each attachment entry must provide exactly one payload source:
+        - ``content`` (bytes-like or string payload),
+        - ``content_base64`` / ``content_b64`` (base64-encoded payload), or
         - ``path`` / ``file_path`` to load content from disk.
 
-        ``filename`` is required for ``content`` attachments and optional for
-        path-based attachments (defaults to the path basename).
+        ``filename`` is required for inline payload attachments and optional
+        for path-based attachments (defaults to the path basename).
         """
         if attachments is None:
             return []
@@ -331,15 +334,25 @@ class EmailService:
                 raise TypeError("attachments entries must be mappings")
 
             raw_path = attachment.get("path", attachment.get("file_path"))
+            raw_base64_content = attachment.get(
+                "content_base64",
+                attachment.get("content_b64"),
+            )
             has_content = "content" in attachment
             has_path = raw_path is not None
+            has_base64_content = raw_base64_content is not None
 
-            if has_content and has_path:
+            payload_source_count = sum(
+                int(flag) for flag in (has_content, has_path, has_base64_content)
+            )
+            if payload_source_count > 1:
                 raise ValueError(
-                    "attachments must provide either content or path, not both"
+                    "attachments must provide only one of content, content_base64, or path"
                 )
-            if not has_content and not has_path:
-                raise ValueError("attachments must provide content or path")
+            if payload_source_count == 0:
+                raise ValueError(
+                    "attachments must provide content, content_base64, or path"
+                )
 
             resolved_path: str | None = None
             payload: bytes
@@ -361,6 +374,34 @@ class EmailService:
                 except OSError as exc:
                     raise ValueError(
                         f"attachments[{index}] path could not be read: {resolved_path}"
+                    ) from exc
+            elif has_base64_content:
+                if not isinstance(raw_base64_content, str):
+                    raise TypeError("attachments content_base64 must be a string")
+
+                normalized_base64_content = raw_base64_content.strip()
+                if not normalized_base64_content:
+                    raise ValueError("attachments content_base64 must not be empty")
+
+                if (
+                    normalized_base64_content.lower().startswith("data:")
+                    and "," in normalized_base64_content
+                ):
+                    _, encoded_payload = normalized_base64_content.split(
+                        ",", maxsplit=1
+                    )
+                else:
+                    encoded_payload = normalized_base64_content
+
+                encoded_payload = re.sub(r"\s+", "", encoded_payload)
+                if not encoded_payload:
+                    raise ValueError("attachments content_base64 must not be empty")
+
+                try:
+                    payload = base64.b64decode(encoded_payload, validate=True)
+                except (binascii.Error, ValueError) as exc:
+                    raise ValueError(
+                        f"attachments[{index}] content_base64 is not valid base64"
                     ) from exc
             else:
                 content = attachment.get("content")
@@ -516,8 +557,11 @@ class EmailService:
             reply_to_email: Optional Reply-To email address for recipient responses
             attachments: Optional email attachments with keys:
                 - filename (str, optional): Attachment display name. Required
-                  when using ``content`` and optional when using ``path``.
+                  when using ``content``/``content_base64`` and optional when
+                  using ``path``.
                 - content (bytes | bytearray | memoryview | str): Payload data
+                - content_base64 / content_b64 (str): Base64 payload. Optional
+                  ``data:*;base64,`` prefixes are supported.
                 - path / file_path (str): Filesystem path to load attachment
                   content from disk
                 - mime_type (str, optional): MIME type. Defaults to detected

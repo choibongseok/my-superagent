@@ -1,5 +1,7 @@
 """Tests for email service."""
 
+import base64
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -500,6 +502,55 @@ class TestEmailService:
         ]
 
     @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_supports_base64_and_data_url_attachments(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Base64 attachment payloads should decode before MIME packaging."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        binary_payload = b"\x00\x01\x02"
+        data_url_payload = "data:text/plain;base64," + base64.b64encode(
+            b"hello world"
+        ).decode("ascii")
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Base64 attachment",
+            html_body="<p>See attached.</p>",
+            attachments=[
+                {
+                    "filename": "payload.bin",
+                    "content_base64": base64.b64encode(binary_payload).decode("ascii"),
+                    "mime_type": "application/octet-stream",
+                },
+                {
+                    "filename": "note.txt",
+                    "content_b64": data_url_payload,
+                    "mime_type": "text/plain",
+                },
+            ],
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        attachments = [
+            part
+            for part in sent_message.walk()
+            if part.get_content_disposition() == "attachment"
+        ]
+
+        assert [part.get_filename() for part in attachments] == [
+            "payload.bin",
+            "note.txt",
+        ]
+        assert attachments[0].get_payload(decode=True) == binary_payload
+        assert attachments[1].get_payload(decode=True) == b"hello world"
+
+    @patch("app.services.email_service.smtplib.SMTP")
     def test_send_email_supports_path_based_attachments(
         self,
         mock_smtp,
@@ -557,6 +608,53 @@ class TestEmailService:
                     "filename": "report.txt",
                     "content": "inline",
                     "path": str(report_path),
+                }
+            ],
+        )
+
+        assert result is False
+        mock_smtp.assert_not_called()
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_rejects_invalid_base64_attachment_payloads(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Invalid base64 attachment definitions should fail before SMTP calls."""
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Invalid attachment",
+            html_body="<p>fail</p>",
+            attachments=[
+                {
+                    "filename": "bad.txt",
+                    "content_base64": "not-valid-base64@@@",
+                    "mime_type": "text/plain",
+                }
+            ],
+        )
+
+        assert result is False
+        mock_smtp.assert_not_called()
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_rejects_attachments_with_multiple_payload_sources(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Attachment entries must provide exactly one payload source."""
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Invalid attachment",
+            html_body="<p>fail</p>",
+            attachments=[
+                {
+                    "filename": "bad.txt",
+                    "content": "inline",
+                    "content_base64": base64.b64encode(b"inline").decode("ascii"),
+                    "mime_type": "text/plain",
                 }
             ],
         )
