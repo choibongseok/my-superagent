@@ -1,6 +1,7 @@
 """Base plugin interface for AgentHQ plugin system."""
 
 from abc import ABC, abstractmethod
+import copy
 import re
 from typing import Any, Dict, List, Optional
 
@@ -175,8 +176,146 @@ class BasePlugin(ABC):
 
         return True
 
+    def validate_config(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+        *,
+        apply_defaults: bool = False,
+    ) -> Dict[str, Any]:
+        """Validate runtime config against the manifest's ``config_schema``.
+
+        Supports both legacy flat schema dictionaries and JSON-schema style
+        payloads using top-level ``properties`` / ``required`` fields.
+        Unknown config keys are preserved for backward compatibility.
+        """
+        resolved_config = self.config if config is None else config
+        if resolved_config is None:
+            resolved_config = {}
+
+        if not isinstance(resolved_config, dict):
+            raise ValueError("config must be a dictionary")
+
+        normalized_config = dict(resolved_config)
+        manifest = self.get_manifest()
+        schema_fields, required_fields = self._extract_config_schema_fields(
+            manifest.config_schema
+        )
+
+        missing_required_fields: list[str] = []
+        for field_name in sorted(required_fields):
+            if field_name in normalized_config:
+                continue
+
+            field_schema = schema_fields.get(field_name)
+            if (
+                apply_defaults
+                and isinstance(field_schema, dict)
+                and "default" in field_schema
+            ):
+                normalized_config[field_name] = copy.deepcopy(field_schema["default"])
+                continue
+
+            missing_required_fields.append(field_name)
+
+        if missing_required_fields:
+            raise ValueError(f"Missing required config: {set(missing_required_fields)}")
+
+        for field_name, field_schema in schema_fields.items():
+            if field_name not in normalized_config:
+                if (
+                    apply_defaults
+                    and isinstance(field_schema, dict)
+                    and "default" in field_schema
+                ):
+                    normalized_config[field_name] = copy.deepcopy(
+                        field_schema["default"]
+                    )
+                continue
+
+            field_value = normalized_config[field_name]
+            if field_value is None:
+                if field_name in required_fields:
+                    raise ValueError(f"Config '{field_name}' cannot be null")
+                continue
+
+            expected_type = self._get_schema_type(field_schema)
+            if expected_type and not self._value_matches_type(
+                field_value,
+                expected_type,
+            ):
+                raise ValueError(
+                    f"Invalid type for config '{field_name}': expected {expected_type}"
+                )
+
+            choices = self._get_schema_choices(field_schema)
+            if choices and not self._value_in_choices(field_value, choices):
+                raise ValueError(
+                    f"Invalid value for config '{field_name}': expected one of {choices}"
+                )
+
+            self._validate_schema_constraints(
+                key=field_name,
+                value=field_value,
+                schema=field_schema,
+                expected_type=expected_type,
+            )
+
+        return normalized_config
+
+    @classmethod
+    def _extract_config_schema_fields(
+        cls,
+        config_schema: Any,
+    ) -> tuple[Dict[str, Any], set[str]]:
+        """Normalize config schema payloads into fields + required set."""
+        if not isinstance(config_schema, dict):
+            return {}, set()
+
+        properties = config_schema.get("properties")
+        if isinstance(properties, dict):
+            field_schemas: Dict[str, Any] = {}
+            for key, value in properties.items():
+                if not isinstance(key, str) or not key.strip():
+                    raise ValueError(
+                        "config_schema properties keys must be non-empty strings"
+                    )
+                field_schemas[key.strip()] = value
+
+            required_fields: set[str] = set()
+            raw_required = config_schema.get("required")
+            if raw_required is not None:
+                if not isinstance(raw_required, (list, tuple, set)):
+                    raise ValueError(
+                        "config_schema required must be a list of field names"
+                    )
+                for raw_key in raw_required:
+                    if not isinstance(raw_key, str) or not raw_key.strip():
+                        raise ValueError(
+                            "config_schema required must contain non-empty strings"
+                        )
+                    required_fields.add(raw_key.strip())
+
+            for field_name, field_schema in field_schemas.items():
+                if cls._is_input_required(field_schema, default_required=False):
+                    required_fields.add(field_name)
+
+            return field_schemas, required_fields
+
+        field_schemas: Dict[str, Any] = {}
+        required_fields: set[str] = set()
+        for raw_key, field_schema in config_schema.items():
+            if not isinstance(raw_key, str) or not raw_key.strip():
+                raise ValueError("config_schema keys must be non-empty strings")
+
+            field_name = raw_key.strip()
+            field_schemas[field_name] = field_schema
+            if cls._is_input_required(field_schema):
+                required_fields.add(field_name)
+
+        return field_schemas, required_fields
+
     @staticmethod
-    def _is_input_required(schema: Any) -> bool:
+    def _is_input_required(schema: Any, *, default_required: bool = True) -> bool:
         """Determine if an input schema marks a field as required."""
         if isinstance(schema, dict) and "required" in schema:
             return bool(schema["required"])
@@ -189,7 +328,7 @@ class BasePlugin(ABC):
                 return True
 
         # Backward compatible default: fields are required unless marked optional
-        return True
+        return default_required
 
     @staticmethod
     def _get_schema_type(schema: Any) -> Optional[str]:

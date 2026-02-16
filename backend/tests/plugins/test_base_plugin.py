@@ -110,6 +110,74 @@ class ConstrainedSchemaPlugin(BasePlugin):
         )
 
 
+class FlatConfigSchemaPlugin(BasePlugin):
+    """Plugin with legacy flat config schema entries."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="flat-config-schema",
+            version="1.0.0",
+            description="Config validation plugin",
+            author="tests",
+            permissions=[],
+            inputs={"query": "string (required)"},
+            outputs={"ok": "boolean"},
+            config_schema={
+                "api_key": "string (required)",
+                "timeout_seconds": {
+                    "type": "integer",
+                    "required": False,
+                    "default": 15,
+                    "minimum": 1,
+                },
+                "mode": {
+                    "type": "string",
+                    "required": False,
+                    "choices": ["safe", "fast"],
+                },
+            },
+        )
+
+
+class JsonSchemaConfigPlugin(BasePlugin):
+    """Plugin with JSON-schema style config payload."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="json-config-schema",
+            version="1.0.0",
+            description="JSON-schema config validation plugin",
+            author="tests",
+            permissions=[],
+            inputs={"query": "string (required)"},
+            outputs={"ok": "boolean"},
+            config_schema={
+                "type": "object",
+                "properties": {
+                    "api_key": {"type": "string"},
+                    "retry_count": {
+                        "type": "integer",
+                        "default": 2,
+                        "minimum": 0,
+                    },
+                },
+                "required": ["api_key"],
+            },
+        )
+
+
 @pytest.mark.asyncio
 async def test_validate_inputs_accepts_optional_string_field():
     plugin = OptionalStringSchemaPlugin()
@@ -251,3 +319,58 @@ def test_manifest_to_dict_includes_config_schema():
 
     assert "config_schema" in manifest_dict
     assert manifest_dict["config_schema"]["api_key"] == "string"
+
+
+def test_validate_config_rejects_missing_required_fields_for_flat_schema():
+    plugin = FlatConfigSchemaPlugin()
+
+    with pytest.raises(ValueError, match="Missing required config"):
+        plugin.validate_config({"mode": "safe"})
+
+
+def test_validate_config_applies_defaults_and_preserves_unknown_keys():
+    plugin = FlatConfigSchemaPlugin()
+
+    validated_config = plugin.validate_config(
+        {
+            "api_key": "secret-token",
+            "mode": "safe",
+            "extra": True,
+        },
+        apply_defaults=True,
+    )
+
+    assert validated_config == {
+        "api_key": "secret-token",
+        "timeout_seconds": 15,
+        "mode": "safe",
+        "extra": True,
+    }
+
+
+def test_validate_config_rejects_invalid_choice_values():
+    plugin = FlatConfigSchemaPlugin()
+
+    with pytest.raises(ValueError, match="Invalid value for config 'mode'"):
+        plugin.validate_config(
+            {
+                "api_key": "secret-token",
+                "mode": "turbo",
+            }
+        )
+
+
+def test_validate_config_supports_json_schema_style_required_and_defaults():
+    plugin = JsonSchemaConfigPlugin()
+
+    validated_config = plugin.validate_config(
+        {
+            "api_key": "abc123",
+        },
+        apply_defaults=True,
+    )
+
+    assert validated_config == {
+        "api_key": "abc123",
+        "retry_count": 2,
+    }

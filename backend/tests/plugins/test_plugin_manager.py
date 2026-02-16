@@ -133,6 +133,78 @@ async def test_load_plugins_from_directory_prefers_full_module_path_config(
 
 
 @pytest.mark.asyncio
+async def test_load_plugin_validates_required_config_schema_fields(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "secure.py").write_text("# secure", encoding="utf-8")
+
+    module = _plugin_module(
+        "app.plugins.secure",
+        _build_plugin_class(
+            "secure-plugin",
+            ["network.http"],
+            config_schema={
+                "api_key": "string (required)",
+            },
+        ),
+    )
+
+    def _import_module(name: str):
+        if name == "app.plugins.secure":
+            return module
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    with pytest.raises(ValueError, match="Missing required config"):
+        await manager.load_plugin("app.plugins.secure", config={})
+
+
+@pytest.mark.asyncio
+async def test_load_plugin_applies_config_defaults_from_manifest_schema(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "defaults.py").write_text("# defaults", encoding="utf-8")
+
+    module = _plugin_module(
+        "app.plugins.defaults",
+        _build_plugin_class(
+            "defaults-plugin",
+            ["network.http"],
+            config_schema={
+                "api_key": "string (required)",
+                "timeout_seconds": {
+                    "type": "integer",
+                    "required": False,
+                    "default": 30,
+                },
+            },
+        ),
+    )
+
+    def _import_module(name: str):
+        if name == "app.plugins.defaults":
+            return module
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    plugin = await manager.load_plugin(
+        "app.plugins.defaults",
+        config={"api_key": "token"},
+    )
+
+    assert plugin.config == {
+        "api_key": "token",
+        "timeout_seconds": 30,
+    }
+
+
+@pytest.mark.asyncio
 async def test_load_plugins_from_directory_respects_include_allowlist(
     tmp_path, monkeypatch
 ):

@@ -91,6 +91,9 @@ class PluginManager:
             if not isinstance(manifest, PluginManifest):
                 raise ValueError(f"Plugin manifest must be a PluginManifest instance")
 
+            # Validate + normalize runtime config against manifest schema.
+            plugin.config = plugin.validate_config(plugin.config, apply_defaults=True)
+
             # Initialize plugin
             await plugin.initialize()
             plugin.mark_initialized()
