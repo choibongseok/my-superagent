@@ -105,6 +105,38 @@ class ConstrainedSchemaPlugin(BasePlugin):
                     "required": False,
                     "max_length": 3,
                 },
+                "temperature": {
+                    "type": "number",
+                    "required": False,
+                    "multiple_of": 0.5,
+                },
+            },
+            outputs={"ok": "boolean"},
+        )
+
+
+class InvalidMultipleOfSchemaPlugin(BasePlugin):
+    """Plugin exposing invalid multiple_of schema metadata."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="invalid-multiple-of",
+            version="1.0.0",
+            description="Invalid numeric multiple_of constraints",
+            author="tests",
+            permissions=[],
+            inputs={
+                "count": {
+                    "type": "number",
+                    "required": True,
+                    "multiple_of": 0,
+                }
             },
             outputs={"ok": "boolean"},
         )
@@ -249,6 +281,7 @@ async def test_validate_inputs_accepts_structured_schema_constraints():
                 "priority": "3",
                 "summary": "Launch readiness checklist",
                 "tags": ["ops", "release"],
+                "temperature": "21.5",
             }
         )
         is True
@@ -311,6 +344,33 @@ async def test_validate_inputs_rejects_values_outside_length_bounds():
                 "tags": ["ops", "release", "qa", "infra"],
             }
         )
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_values_outside_multiple_of_constraint():
+    plugin = ConstrainedSchemaPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'temperature': must be a multiple of 0.5",
+    ):
+        await plugin.validate_inputs(
+            {
+                "slug": "agenthq-release-1",
+                "temperature": 21.3,
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_invalid_multiple_of_schema():
+    plugin = InvalidMultipleOfSchemaPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid schema for input 'count': multiple_of must be a number greater than 0",
+    ):
+        await plugin.validate_inputs({"count": 2})
 
 
 def test_manifest_to_dict_includes_config_schema():

@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 import copy
+import math
 import re
 from typing import Any, Dict, List, Optional
 
@@ -456,6 +457,12 @@ class BasePlugin(ABC):
             schema=schema,
             expected_type=expected_type,
         )
+        cls._validate_numeric_multiple_of(
+            key=key,
+            value=value,
+            schema=schema,
+            expected_type=expected_type,
+        )
         cls._validate_length_bounds(key=key, value=value, schema=schema)
         cls._validate_pattern_constraint(
             key=key,
@@ -553,6 +560,47 @@ class BasePlugin(ABC):
         if maximum is not None and numeric_value > maximum:
             raise ValueError(
                 f"Invalid value for input '{key}': must be less than or equal to {maximum:g}"
+            )
+
+    @classmethod
+    def _validate_numeric_multiple_of(
+        cls,
+        *,
+        key: str,
+        value: Any,
+        schema: Dict[str, Any],
+        expected_type: Optional[str],
+    ) -> None:
+        """Validate optional numeric ``multiple_of`` constraints."""
+        multiple_of = cls._coerce_numeric_constraint(
+            schema,
+            key=key,
+            aliases=("multiple_of", "multipleOf"),
+            label="multiple_of",
+        )
+        if multiple_of is None:
+            return
+
+        if not math.isfinite(multiple_of) or multiple_of <= 0:
+            raise ValueError(
+                f"Invalid schema for input '{key}': multiple_of must be a number greater than 0"
+            )
+
+        if expected_type not in {"integer", "number"}:
+            return
+
+        numeric_value = cls._coerce_numeric_value(value)
+        quotient = numeric_value / multiple_of
+        nearest_multiple = round(quotient)
+
+        if not math.isclose(
+            quotient,
+            nearest_multiple,
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        ):
+            raise ValueError(
+                f"Invalid value for input '{key}': must be a multiple of {multiple_of:g}"
             )
 
     @staticmethod
