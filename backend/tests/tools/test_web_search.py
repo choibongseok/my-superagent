@@ -409,6 +409,9 @@ def test_invalidate_cache_rejects_multiple_selectors(monkeypatch):
         tool.invalidate_cache(contains="alpha", prefix="a")
 
     with pytest.raises(ValueError, match="mutually exclusive"):
+        tool.invalidate_cache(suffix="alpha", pattern="*alpha")
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
         tool.invalidate_cache(query="alpha", older_than_seconds=10)
 
 
@@ -531,6 +534,26 @@ def test_invalidate_cache_can_remove_entries_by_prefix(monkeypatch):
 
     assert removed_entries == 2
     assert list(tool._cache.keys()) == ["beta one"]
+
+
+def test_invalidate_cache_can_remove_entries_by_suffix(monkeypatch):
+    """Suffix invalidation should remove all matching normalized query keys."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("weekly ai news") == "payload"
+    assert tool._run("breaking ai news") == "payload"
+    assert tool._run("weather seoul") == "payload"
+
+    removed_entries = tool.invalidate_cache(suffix=" ai\nnews ")
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["weather seoul"]
 
 
 def test_invalidate_cache_can_remove_entries_by_contains(monkeypatch):

@@ -330,6 +330,7 @@ class DuckDuckGoSearchTool(BaseTool):
         queries: Iterable[str] | None = None,
         contains: str | None = None,
         prefix: str | None = None,
+        suffix: str | None = None,
         pattern: str | None = None,
         regex: str | None = None,
         regex_flags: str | None = None,
@@ -345,6 +346,8 @@ class DuckDuckGoSearchTool(BaseTool):
             contains: Optional substring matcher applied against normalized
                 query keys.
             prefix: Optional normalized-query prefix used to invalidate all
+                matching cache entries.
+            suffix: Optional normalized-query suffix used to invalidate all
                 matching cache entries.
             pattern: Optional glob-style matcher applied against normalized
                 query keys (for example, ``"news *"``).
@@ -372,6 +375,7 @@ class DuckDuckGoSearchTool(BaseTool):
                 queries,
                 contains,
                 prefix,
+                suffix,
                 pattern,
                 regex,
                 older_than_seconds,
@@ -379,7 +383,7 @@ class DuckDuckGoSearchTool(BaseTool):
         )
         if selector_count > 1:
             raise ValueError(
-                "query, queries, contains, prefix, pattern, regex, and "
+                "query, queries, contains, prefix, suffix, pattern, regex, and "
                 "older_than_seconds are mutually exclusive"
             )
 
@@ -457,6 +461,13 @@ class DuckDuckGoSearchTool(BaseTool):
                 cached_query
                 for cached_query in self._cache
                 if cached_query.startswith(normalized_prefix)
+            ]
+        elif suffix is not None:
+            normalized_suffix = self._normalize_query(suffix)
+            matching_queries = [
+                cached_query
+                for cached_query in self._cache
+                if cached_query.endswith(normalized_suffix)
             ]
         elif pattern is not None:
             normalized_pattern = self._normalize_query(pattern)
