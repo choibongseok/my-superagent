@@ -469,6 +469,12 @@ class BasePlugin(ABC):
             schema=schema,
             expected_type=expected_type,
         )
+        cls._validate_array_uniqueness_constraint(
+            key=key,
+            value=value,
+            schema=schema,
+            expected_type=expected_type,
+        )
         cls._validate_pattern_constraint(
             key=key,
             value=value,
@@ -807,6 +813,42 @@ class BasePlugin(ABC):
             raise ValueError(
                 f"Invalid value for input '{key}': {max_error.format(limit=max_length)}"
             )
+
+    @staticmethod
+    def _validate_array_uniqueness_constraint(
+        *,
+        key: str,
+        value: Any,
+        schema: Dict[str, Any],
+        expected_type: Optional[str],
+    ) -> None:
+        """Validate optional unique-items constraints for array values."""
+        if expected_type != "array":
+            return
+
+        unique_items = None
+        for alias in ("unique_items", "uniqueItems"):
+            if alias in schema:
+                unique_items = schema[alias]
+                break
+
+        if unique_items is None:
+            return
+
+        if not isinstance(unique_items, bool):
+            raise ValueError(
+                f"Invalid schema for input '{key}': unique_items must be a boolean"
+            )
+
+        if not unique_items:
+            return
+
+        for index, item in enumerate(value):
+            for prior_item in value[:index]:
+                if item == prior_item:
+                    raise ValueError(
+                        f"Invalid value for input '{key}': array items must be unique"
+                    )
 
     @staticmethod
     def _validate_pattern_constraint(

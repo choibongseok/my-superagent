@@ -216,6 +216,60 @@ class InvalidMultipleOfSchemaPlugin(BasePlugin):
         )
 
 
+class UniqueItemsSchemaPlugin(BasePlugin):
+    """Plugin using unique-items array constraints."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="unique-items-schema",
+            version="1.0.0",
+            description="Array uniqueness constraints plugin",
+            author="tests",
+            permissions=[],
+            inputs={
+                "tag_ids": {
+                    "type": "array",
+                    "required": True,
+                    "unique_items": True,
+                }
+            },
+            outputs={"ok": "boolean"},
+        )
+
+
+class InvalidUniqueItemsSchemaPlugin(BasePlugin):
+    """Plugin exposing invalid unique_items schema metadata."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="invalid-unique-items",
+            version="1.0.0",
+            description="Invalid array uniqueness constraints",
+            author="tests",
+            permissions=[],
+            inputs={
+                "tag_ids": {
+                    "type": "array",
+                    "required": True,
+                    "uniqueItems": "yes",
+                }
+            },
+            outputs={"ok": "boolean"},
+        )
+
+
 class FlatConfigSchemaPlugin(BasePlugin):
     """Plugin with legacy flat config schema entries."""
 
@@ -340,6 +394,33 @@ class ExclusiveBoundsConfigPlugin(BasePlugin):
                     "type": "number",
                     "exclusiveMinimum": 0,
                     "exclusiveMaximum": 1,
+                }
+            },
+        )
+
+
+class UniqueItemsConfigPlugin(BasePlugin):
+    """Plugin with unique-items array constraints in config schema."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="unique-items-config",
+            version="1.0.0",
+            description="Unique items config constraints plugin",
+            author="tests",
+            permissions=[],
+            inputs={"query": "string (required)"},
+            outputs={"ok": "boolean"},
+            config_schema={
+                "labels": {
+                    "type": "array",
+                    "unique_items": True,
                 }
             },
         )
@@ -618,6 +699,42 @@ async def test_validate_inputs_rejects_invalid_multiple_of_schema():
         await plugin.validate_inputs({"count": 2})
 
 
+@pytest.mark.asyncio
+async def test_validate_inputs_accepts_unique_array_items_constraint():
+    plugin = UniqueItemsSchemaPlugin()
+
+    assert await plugin.validate_inputs({"tag_ids": ["ops", "release"]}) is True
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_duplicate_array_items_when_unique_items_enabled():
+    plugin = UniqueItemsSchemaPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'tag_ids': array items must be unique",
+    ):
+        await plugin.validate_inputs(
+            {
+                "tag_ids": [
+                    {"name": "ops"},
+                    {"name": "ops"},
+                ]
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_invalid_unique_items_schema_values():
+    plugin = InvalidUniqueItemsSchemaPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid schema for input 'tag_ids': unique_items must be a boolean",
+    ):
+        await plugin.validate_inputs({"tag_ids": ["ops"]})
+
+
 def test_manifest_to_dict_includes_config_schema():
     plugin = StructuredSchemaPlugin()
     manifest_dict = plugin.get_manifest().to_dict()
@@ -761,5 +878,33 @@ def test_validate_config_rejects_values_at_exclusive_numeric_bounds():
         plugin.validate_config(
             {
                 "threshold": 1,
+            }
+        )
+
+
+def test_validate_config_supports_unique_items_array_constraint():
+    plugin = UniqueItemsConfigPlugin()
+
+    validated_config = plugin.validate_config(
+        {
+            "labels": ["release", "qa"],
+        }
+    )
+
+    assert validated_config == {
+        "labels": ["release", "qa"],
+    }
+
+
+def test_validate_config_rejects_duplicates_when_unique_items_constraint_enabled():
+    plugin = UniqueItemsConfigPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'labels': array items must be unique",
+    ):
+        plugin.validate_config(
+            {
+                "labels": ["release", "release"],
             }
         )
