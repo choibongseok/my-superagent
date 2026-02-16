@@ -6,6 +6,7 @@ from functools import wraps
 import hashlib
 import inspect
 import json
+import random
 from collections.abc import Awaitable, Iterable, Mapping
 from datetime import date, datetime
 from enum import Enum
@@ -354,6 +355,7 @@ def _shorten_cache_storage_key(
 def cached(
     prefix: str,
     ttl: Optional[int] = None,
+    ttl_jitter: Optional[int] = None,
     key_builder: Optional[Callable] = None,
     skip_first_arg: Optional[bool] = None,
     refresh_flag: Optional[str] = "refresh_cache",
@@ -376,6 +378,8 @@ def cached(
     Args:
         prefix: Cache key prefix
         ttl: Time to live in seconds
+        ttl_jitter: Optional random positive jitter window in seconds added
+            to cache writes. Helps spread expirations to reduce herd effects.
         key_builder: Custom key builder function. May be sync or async.
         skip_first_arg: Whether to omit the first positional argument when
             building cache keys. ``None`` auto-detects bound methods when
@@ -451,6 +455,12 @@ def cached(
             raise ValueError("hit_ttl must be a positive integer when provided")
         if hit_ttl <= 0:
             raise ValueError("hit_ttl must be a positive integer when provided")
+
+    if ttl_jitter is not None:
+        if isinstance(ttl_jitter, bool) or not isinstance(ttl_jitter, int):
+            raise ValueError("ttl_jitter must be a non-negative integer when provided")
+        if ttl_jitter < 0:
+            raise ValueError("ttl_jitter must be a non-negative integer when provided")
 
     key_namespace = _build_cache_namespace(prefix, key_version)
     _validate_max_key_length(max_key_length, key_namespace=key_namespace)
@@ -581,7 +591,12 @@ def cached(
             result = await _call_wrapped_function(*call_args, **runtime_kwargs)
 
             if await _should_cache_result(result):
-                await cache.set(key, _encode_cached_payload(result), ttl)
+                effective_ttl = ttl
+                if ttl_jitter is not None:
+                    base_ttl = ttl if ttl is not None else settings.REDIS_DEFAULT_TTL
+                    effective_ttl = base_ttl + random.randint(0, ttl_jitter)
+
+                await cache.set(key, _encode_cached_payload(result), effective_ttl)
 
             return result
 

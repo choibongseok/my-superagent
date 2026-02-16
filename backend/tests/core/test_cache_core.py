@@ -940,6 +940,70 @@ def test_cached_rejects_invalid_refresh_ttl_configuration():
     ):
         cached(prefix="example", hit_ttl=0)
 
+    with pytest.raises(
+        ValueError,
+        match="ttl_jitter must be a non-negative integer when provided",
+    ):
+        cached(prefix="example", ttl_jitter="5")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="ttl_jitter must be a non-negative integer when provided",
+    ):
+        cached(prefix="example", ttl_jitter=-1)
+
+
+@pytest.mark.asyncio
+async def test_cached_applies_ttl_jitter_to_cache_writes(monkeypatch):
+    cached_values: dict[str, int] = {}
+    set_events: list[tuple[str, int]] = []
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        assert ttl is not None
+        set_events.append((key, ttl))
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+    monkeypatch.setattr("app.core.cache.random.randint", lambda _start, _end: 4)
+
+    @cached(prefix="example", ttl=30, ttl_jitter=10)
+    async def compute(value: int) -> int:
+        return value * 2
+
+    assert await compute(21) == 42
+    assert set_events == [("example:21", 34)]
+
+
+@pytest.mark.asyncio
+async def test_cached_applies_ttl_jitter_using_settings_default_ttl(monkeypatch):
+    cached_values: dict[str, int] = {}
+    set_events: list[tuple[str, int]] = []
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        assert ttl is not None
+        set_events.append((key, ttl))
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+    monkeypatch.setattr("app.core.cache.random.randint", lambda _start, _end: 3)
+
+    @cached(prefix="example", ttl_jitter=10)
+    async def compute(value: int) -> int:
+        return value * 2
+
+    assert await compute(21) == 42
+    assert set_events == [("example:21", settings.REDIS_DEFAULT_TTL + 3)]
+
 
 @pytest.mark.asyncio
 async def test_cached_refreshes_ttl_for_cache_hits_using_default_ttl(monkeypatch):
