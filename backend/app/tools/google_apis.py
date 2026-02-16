@@ -1,6 +1,6 @@
 """Google Workspace API tools for document creation and manipulation."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import logging
 from typing import Any
 
@@ -170,6 +170,14 @@ class GoogleDocsAPI:
         return value
 
     @staticmethod
+    def _normalize_flatten_nested_sequences(value: Any) -> bool:
+        """Normalize nested-sequence flattening flags."""
+        if not isinstance(value, bool):
+            raise ValueError("flatten_nested_sequences must be a boolean")
+
+        return value
+
+    @staticmethod
     def _normalize_nested_key_separator(value: Any) -> str:
         """Normalize nested-variable key separators used during flattening."""
         if not isinstance(value, str):
@@ -187,10 +195,42 @@ class GoogleDocsAPI:
         variables: Mapping[str, Any],
         *,
         nested_key_separator: str,
+        flatten_nested_sequences: bool = False,
         path: tuple[str, ...] = (),
     ) -> list[tuple[str, Any]]:
-        """Flatten nested template variables into dotted placeholder keys."""
+        """Flatten nested template variables into placeholder key paths."""
         flattened_variables: list[tuple[str, Any]] = []
+
+        def _flatten_value(
+            value: Any,
+            *,
+            value_path: tuple[str, ...],
+        ) -> None:
+            if isinstance(value, Mapping):
+                flattened_variables.extend(
+                    cls._flatten_template_variables(
+                        value,
+                        nested_key_separator=nested_key_separator,
+                        flatten_nested_sequences=flatten_nested_sequences,
+                        path=value_path,
+                    )
+                )
+                return
+
+            if (
+                flatten_nested_sequences
+                and isinstance(value, Sequence)
+                and not isinstance(value, (str, bytes, bytearray))
+            ):
+                for index, sequence_item in enumerate(value):
+                    _flatten_value(
+                        sequence_item,
+                        value_path=(*value_path, str(index)),
+                    )
+                return
+
+            normalized_key = nested_key_separator.join(value_path)
+            flattened_variables.append((normalized_key, value))
 
         for variable_name, replacement_value in variables.items():
             if not isinstance(variable_name, str):
@@ -201,19 +241,7 @@ class GoogleDocsAPI:
                 raise ValueError("variables keys must be non-empty strings")
 
             variable_path = (*path, normalized_name)
-            normalized_key = nested_key_separator.join(variable_path)
-
-            if isinstance(replacement_value, Mapping):
-                flattened_variables.extend(
-                    cls._flatten_template_variables(
-                        replacement_value,
-                        nested_key_separator=nested_key_separator,
-                        path=variable_path,
-                    )
-                )
-                continue
-
-            flattened_variables.append((normalized_key, replacement_value))
+            _flatten_value(replacement_value, value_path=variable_path)
 
         return flattened_variables
 
@@ -230,6 +258,7 @@ class GoogleDocsAPI:
         skip_none_values: bool = False,
         skip_blank_values: bool = False,
         flatten_nested_variables: bool = False,
+        flatten_nested_sequences: bool = False,
         nested_key_separator: str = ".",
     ) -> dict[str, Any]:
         """Replace template placeholders (e.g. ``{{name}}``) in a document.
@@ -255,6 +284,11 @@ class GoogleDocsAPI:
                 flattened into placeholder names joined by
                 ``nested_key_separator`` (for example,
                 ``{"user": {"name": "Ada"}}`` -> ``{{user.name}}``).
+            flatten_nested_sequences: When ``True`` (and
+                ``flatten_nested_variables`` is also enabled), nested list/
+                tuple values are flattened using zero-based indexes (for
+                example, ``{"items": ["A", "B"]}`` ->
+                ``{{items.0}}`` and ``{{items.1}}``).
             nested_key_separator: Separator used when flattening nested
                 variable keys.
 
@@ -292,12 +326,24 @@ class GoogleDocsAPI:
         normalized_flatten_nested_variables = self._normalize_flatten_nested_variables(
             flatten_nested_variables
         )
+        normalized_flatten_nested_sequences = (
+            self._normalize_flatten_nested_sequences(flatten_nested_sequences)
+        )
         normalized_nested_key_separator = self._normalize_nested_key_separator(
             nested_key_separator
         )
         normalized_max_requests_per_batch = self._normalize_max_requests_per_batch(
             max_requests_per_batch
         )
+
+        if (
+            normalized_flatten_nested_sequences
+            and not normalized_flatten_nested_variables
+        ):
+            raise ValueError(
+                "flatten_nested_sequences requires "
+                "flatten_nested_variables=True"
+            )
 
         normalized_prefix = self._normalize_placeholder_token(
             placeholder_prefix,
@@ -313,6 +359,7 @@ class GoogleDocsAPI:
             variable_items = self._flatten_template_variables(
                 variables,
                 nested_key_separator=normalized_nested_key_separator,
+                flatten_nested_sequences=normalized_flatten_nested_sequences,
             )
         else:
             variable_items = []

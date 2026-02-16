@@ -185,6 +185,121 @@ def test_replace_template_variables_flattening_honors_custom_separator(docs_api)
     )
 
 
+def test_replace_template_variables_can_flatten_nested_sequences(docs_api):
+    """Nested list/tuple values can be flattened into indexed placeholders."""
+    api, mocked_service = docs_api
+
+    api.replace_template_variables(
+        "doc-flat-sequences",
+        {
+            "milestones": ["draft", "review"],
+            "team": {
+                "members": [
+                    {"name": "Ada"},
+                    {"name": "Grace"},
+                ]
+            },
+        },
+        flatten_nested_variables=True,
+        flatten_nested_sequences=True,
+    )
+
+    mocked_service.documents.return_value.batchUpdate.assert_called_once_with(
+        documentId="doc-flat-sequences",
+        body={
+            "requests": [
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{milestones.0}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "draft",
+                    }
+                },
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{milestones.1}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "review",
+                    }
+                },
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{team.members.0.name}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "Ada",
+                    }
+                },
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{team.members.1.name}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "Grace",
+                    }
+                },
+            ]
+        },
+    )
+
+
+def test_replace_template_variables_keeps_sequences_as_single_value_by_default(
+    docs_api,
+):
+    """Sequence flattening is opt-in to preserve legacy placeholder behavior."""
+    api, mocked_service = docs_api
+
+    api.replace_template_variables(
+        "doc-flat-sequences-default",
+        {
+            "milestones": ["draft", "review"],
+        },
+        flatten_nested_variables=True,
+    )
+
+    mocked_service.documents.return_value.batchUpdate.assert_called_once_with(
+        documentId="doc-flat-sequences-default",
+        body={
+            "requests": [
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{milestones}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "['draft', 'review']",
+                    }
+                }
+            ]
+        },
+    )
+
+
+def test_replace_template_variables_requires_nested_flattening_for_sequences(
+    docs_api,
+):
+    """Sequence flattening requires flatten_nested_variables to be enabled."""
+    api, mocked_service = docs_api
+
+    with pytest.raises(
+        ValueError,
+        match="flatten_nested_sequences requires flatten_nested_variables=True",
+    ):
+        api.replace_template_variables(
+            "doc-invalid-sequence-flatten",
+            {"milestones": ["draft", "review"]},
+            flatten_nested_sequences=True,
+        )
+
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
 def test_replace_template_variables_rejects_duplicate_flattened_keys(docs_api):
     """Flattening should reject ambiguous placeholder collisions."""
     api, mocked_service = docs_api
@@ -223,6 +338,27 @@ def test_replace_template_variables_rejects_invalid_flatten_nested_variables(
             "doc-invalid-flat",
             {"name": "AgentHQ"},
             flatten_nested_variables=flatten_nested_variables,  # type: ignore[arg-type]
+        )
+
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
+@pytest.mark.parametrize("flatten_nested_sequences", [None, "yes", 1])
+def test_replace_template_variables_rejects_invalid_flatten_nested_sequences(
+    docs_api,
+    flatten_nested_sequences,
+):
+    """flatten_nested_sequences must be explicitly provided as a boolean."""
+    api, mocked_service = docs_api
+
+    with pytest.raises(
+        ValueError,
+        match="flatten_nested_sequences must be a boolean",
+    ):
+        api.replace_template_variables(
+            "doc-invalid-flat-sequences",
+            {"name": "AgentHQ"},
+            flatten_nested_sequences=flatten_nested_sequences,  # type: ignore[arg-type]
         )
 
     mocked_service.documents.return_value.batchUpdate.assert_not_called()
