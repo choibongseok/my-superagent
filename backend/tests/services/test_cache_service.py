@@ -3062,6 +3062,26 @@ def test_local_cache_list_keys_rejects_negative_offset():
         cache.list_keys(offset=-1)
 
 
+def test_local_cache_list_keys_supports_tag_state_filtering():
+    cache = LocalCacheService()
+    cache.set_tagged("tagged:alpha", 1, tags=["alpha"])
+    cache.set("untagged:beta", 2)
+    cache.set_tagged("tagged:gamma", 3, tags=["gamma"])
+
+    assert cache.list_keys(tag_state="tagged") == ["tagged:alpha", "tagged:gamma"]
+    assert cache.list_keys(tag_state="UNTAGGED") == ["untagged:beta"]
+
+
+def test_local_cache_list_keys_rejects_invalid_tag_state():
+    cache = LocalCacheService()
+
+    with pytest.raises(
+        ValueError,
+        match='tag_state must be one of: "all", "tagged", "untagged"',
+    ):
+        cache.list_keys(tag_state="invalid")
+
+
 def test_local_cache_list_entries_includes_ttl_metadata_and_optional_values():
     cache = LocalCacheService()
     cache.set("persistent", {"v": 1})
@@ -3292,6 +3312,28 @@ def test_local_cache_list_entries_supports_tag_filters():
     assert [entry["key"] for entry in all_tagged] == ["session:alpha"]
 
 
+def test_local_cache_list_entries_supports_tag_state_filtering():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", {"v": 1}, tags=["session", "active"])
+    cache.set("session:beta", {"v": 2})
+    cache.set_tagged("user:gamma", {"v": 3}, tags=["active"])
+
+    tagged_entries = cache.list_entries(tag_state="tagged")
+    untagged_entries = cache.list_entries(tag_state="untagged", include_values=True)
+
+    assert [entry["key"] for entry in tagged_entries] == [
+        "session:alpha",
+        "user:gamma",
+    ]
+    assert untagged_entries == [
+        {
+            "key": "session:beta",
+            "ttl_seconds": None,
+            "value": {"v": 2},
+        }
+    ]
+
+
 def test_local_cache_list_entries_can_include_namespace_metadata():
     cache = LocalCacheService()
     cache.set_many(
@@ -3392,6 +3434,16 @@ def test_local_cache_list_entries_rejects_invalid_expiration_and_sort_options():
         match='sort_by must be one of: "key", "namespace", "ttl_seconds", "expires_at"',
     ):
         cache.list_entries(sort_by="recency")
+
+
+def test_local_cache_list_entries_rejects_invalid_tag_state():
+    cache = LocalCacheService()
+
+    with pytest.raises(
+        ValueError,
+        match='tag_state must be one of: "all", "tagged", "untagged"',
+    ):
+        cache.list_entries(tag_state="not-valid")
 
 
 def test_local_cache_list_entries_rejects_invalid_ttl_window_filters():

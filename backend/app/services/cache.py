@@ -1678,6 +1678,20 @@ class LocalCacheService:
 
         return normalized_namespace
 
+    @staticmethod
+    def _normalize_tag_state(tag_state: str) -> Literal["all", "tagged", "untagged"]:
+        """Validate tag-state filters used by listing helpers."""
+        if not isinstance(tag_state, str):
+            raise ValueError('tag_state must be one of: "all", "tagged", "untagged"')
+
+        normalized_tag_state = tag_state.strip().lower()
+        if normalized_tag_state not in {"all", "tagged", "untagged"}:
+            raise ValueError(
+                'tag_state must be one of: "all", "tagged", "untagged"'
+            )
+
+        return cast(Literal["all", "tagged", "untagged"], normalized_tag_state)
+
     def list_namespaces(
         self,
         *,
@@ -2573,6 +2587,7 @@ class LocalCacheService:
         match_all_tags: bool = False,
         namespace: str | None = None,
         namespace_separator: str = ":",
+        tag_state: str = "all",
         offset: int | None = None,
         limit: int | None = None,
         descending: bool = False,
@@ -2590,6 +2605,10 @@ class LocalCacheService:
             namespace: Optional exact namespace filter applied after
                 prefix/pattern/tag matching.
             namespace_separator: Namespace delimiter used with ``namespace``.
+            tag_state: Optional tag-state filter. ``"all"`` (default)
+                returns every matching key, ``"tagged"`` includes only keys
+                with one or more tags, and ``"untagged"`` includes only keys
+                with no associated tags.
             offset: Optional number of sorted matching keys to skip.
             limit: Optional maximum number of keys to return.
             descending: Return keys in descending lexicographic order when
@@ -2609,6 +2628,8 @@ class LocalCacheService:
 
         if not isinstance(descending, bool):
             raise ValueError("descending must be a boolean")
+
+        normalized_tag_state = self._normalize_tag_state(tag_state)
 
         normalized_namespace: str | None = None
         normalized_namespace_separator: str | None = None
@@ -2646,6 +2667,14 @@ class LocalCacheService:
                 == normalized_namespace
             ]
 
+        if normalized_tag_state != "all":
+            require_tags = normalized_tag_state == "tagged"
+            matching_keys = [
+                key
+                for key in matching_keys
+                if bool(self._tags_by_key.get(key, set())) is require_tags
+            ]
+
         matching_keys.sort(reverse=descending)
 
         if offset:
@@ -2663,6 +2692,7 @@ class LocalCacheService:
         tags: Iterable[str] | None = None,
         match_all_tags: bool = False,
         namespace: str | None = None,
+        tag_state: str = "all",
         offset: int | None = None,
         limit: int | None = None,
         descending: bool = False,
@@ -2681,6 +2711,10 @@ class LocalCacheService:
         Args:
             namespace: Optional exact namespace filter applied before entry
                 metadata generation.
+            tag_state: Optional tag-state filter. ``"all"`` (default)
+                returns every matching key, ``"tagged"`` includes only keys
+                with one or more tags, and ``"untagged"`` includes only keys
+                with no associated tags.
             offset: Optional number of sorted matching entries to skip.
             descending: Return entries in descending sort order when ``True``.
             include_values: Include cached values in each entry payload.
@@ -2771,6 +2805,7 @@ class LocalCacheService:
             tags=tags,
             match_all_tags=match_all_tags,
             namespace=namespace,
+            tag_state=tag_state,
             namespace_separator=namespace_separator,
         ):
             value, expires_at = self._store[key]
