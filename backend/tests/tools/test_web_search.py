@@ -446,6 +446,29 @@ def test_invalidate_cache_rejects_invalid_older_than_selector(monkeypatch):
         tool.invalidate_cache(older_than_seconds="10")  # type: ignore[arg-type]
 
 
+def test_invalidate_cache_rejects_invalid_limit_selector(monkeypatch):
+    """limit should accept only positive integer values when provided."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    with pytest.raises(ValueError, match="limit must be a positive integer"):
+        tool.invalidate_cache(limit=0)
+
+    with pytest.raises(ValueError, match="limit must be a positive integer"):
+        tool.invalidate_cache(limit=-1)
+
+    with pytest.raises(ValueError, match="limit must be a positive integer"):
+        tool.invalidate_cache(limit=True)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="limit must be a positive integer"):
+        tool.invalidate_cache(limit=1.5)  # type: ignore[arg-type]
+
+
 def test_invalidate_cache_can_remove_entries_older_than_threshold(monkeypatch):
     """Age selector should evict cache entries above the provided age threshold."""
     fake_backend = _FakeSearchBackend(response="payload")
@@ -466,6 +489,68 @@ def test_invalidate_cache_can_remove_entries_older_than_threshold(monkeypatch):
 
     assert removed_entries == 2
     assert list(tool._cache.keys()) == ["fresh"]
+
+
+def test_invalidate_cache_limit_caps_age_based_invalidation(monkeypatch):
+    """limit should cap older-than invalidation using deterministic cache order."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 100.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+    tool._cache["stale-one"] = (80.0, "payload-1")
+    tool._cache["stale-two"] = (70.0, "payload-2")
+    tool._cache["stale-three"] = (60.0, "payload-3")
+
+    removed_entries = tool.invalidate_cache(older_than_seconds=5, limit=2)
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["stale-three"]
+
+
+def test_invalidate_cache_limit_caps_full_cache_clear(monkeypatch):
+    """limit should allow partial full-cache invalidation without selectors."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("alpha") == "payload"
+    assert tool._run("beta") == "payload"
+    assert tool._run("gamma") == "payload"
+
+    removed_entries = tool.invalidate_cache(limit=2)
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["gamma"]
+
+
+def test_invalidate_cache_limit_respects_dry_run_without_deletion(monkeypatch):
+    """dry_run with limit should count only limited matches and keep cache intact."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("alpha one") == "payload"
+    assert tool._run("alpha two") == "payload"
+    assert tool._run("alpha three") == "payload"
+
+    removed_entries = tool.invalidate_cache(prefix="alpha", limit=2, dry_run=True)
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["alpha one", "alpha two", "alpha three"]
 
 
 def test_invalidate_cache_can_remove_multiple_explicit_queries(monkeypatch):

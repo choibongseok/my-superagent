@@ -335,6 +335,7 @@ class DuckDuckGoSearchTool(BaseTool):
         regex: str | None = None,
         regex_flags: str | None = None,
         older_than_seconds: float | None = None,
+        limit: int | None = None,
         dry_run: bool = False,
     ) -> int:
         """Invalidate selected cache entries or clear the full cache.
@@ -358,6 +359,9 @@ class DuckDuckGoSearchTool(BaseTool):
                 ``s``, ``x``) used only when ``regex`` is provided.
             older_than_seconds: Optional age threshold that removes cache
                 entries older than the provided number of seconds.
+            limit: Optional maximum number of matching cache entries to
+                invalidate. Matches are processed in deterministic cache-key
+                order.
             dry_run: When ``True``, returns the number of matching cache
                 entries without deleting them.
 
@@ -369,7 +373,8 @@ class DuckDuckGoSearchTool(BaseTool):
                 ``queries`` is not an iterable of non-empty strings, if
                 ``regex`` is not a valid regular expression, if
                 ``regex_flags`` is invalid, if ``older_than_seconds`` is not
-                a positive number, or if ``dry_run`` is not a boolean.
+                a positive number, if ``limit`` is not a positive integer, or
+                if ``dry_run`` is not a boolean.
         """
         selector_count = sum(
             candidate is not None
@@ -407,19 +412,36 @@ class DuckDuckGoSearchTool(BaseTool):
             if normalized_age_threshold <= 0:
                 raise ValueError("older_than_seconds must be a positive number")
 
+        if limit is not None:
+            if isinstance(limit, bool) or not isinstance(limit, int):
+                raise ValueError("limit must be a positive integer")
+
+            if limit <= 0:
+                raise ValueError("limit must be a positive integer")
+
+        def _apply_limit(matching_queries: list[str]) -> list[str]:
+            if limit is None:
+                return matching_queries
+
+            return matching_queries[:limit]
+
         if selector_count == 0:
-            removed_entries = len(self._cache)
+            matching_queries = _apply_limit(list(self._cache.keys()))
             if not dry_run:
-                self._cache.clear()
-            return removed_entries
+                for cached_query in matching_queries:
+                    self._cache.pop(cached_query, None)
+            return len(matching_queries)
 
         if query is not None:
             normalized_query = self._normalize_query(query)
-            if normalized_query in self._cache:
-                if not dry_run:
-                    self._cache.pop(normalized_query, None)
-                return 1
-            return 0
+            matching_queries = (
+                [normalized_query] if normalized_query in self._cache else []
+            )
+            matching_queries = _apply_limit(matching_queries)
+            if not dry_run:
+                for cached_query in matching_queries:
+                    self._cache.pop(cached_query, None)
+            return len(matching_queries)
 
         if queries is not None:
             if isinstance(queries, str):
@@ -434,14 +456,18 @@ class DuckDuckGoSearchTool(BaseTool):
                     "queries must be an iterable of non-empty strings"
                 ) from exc
 
-            removed_entries = 0
-            for normalized_query in dict.fromkeys(normalized_queries):
-                if normalized_query in self._cache:
-                    if not dry_run:
-                        self._cache.pop(normalized_query, None)
-                    removed_entries += 1
+            matching_queries = [
+                normalized_query
+                for normalized_query in dict.fromkeys(normalized_queries)
+                if normalized_query in self._cache
+            ]
+            matching_queries = _apply_limit(matching_queries)
 
-            return removed_entries
+            if not dry_run:
+                for normalized_query in matching_queries:
+                    self._cache.pop(normalized_query, None)
+
+            return len(matching_queries)
 
         if older_than_seconds is not None:
             now = time.monotonic()
@@ -451,6 +477,7 @@ class DuckDuckGoSearchTool(BaseTool):
                 for cached_query, (cached_at, _payload) in self._cache.items()
                 if now - cached_at > normalized_age_threshold
             ]
+            matching_queries = _apply_limit(matching_queries)
 
             if not dry_run:
                 for cached_query in matching_queries:
@@ -499,6 +526,8 @@ class DuckDuckGoSearchTool(BaseTool):
                 for cached_query in self._cache
                 if compiled_pattern.search(cached_query)
             ]
+
+        matching_queries = _apply_limit(matching_queries)
 
         if not dry_run:
             for cached_query in matching_queries:
