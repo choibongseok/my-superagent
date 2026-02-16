@@ -2604,6 +2604,80 @@ class CitationTracker:
         uncited_source_count = total_sources - cited_source_count
         citation_coverage = cited_source_count / total_sources if total_sources else 0.0
 
+        source_type_rollups: dict[str, dict[str, int | str]] = {}
+        for source in self.sources.values():
+            source_type_value = (
+                source.type.value
+                if isinstance(source.type, SourceType)
+                else str(source.type)
+            )
+            normalized_source_type = self._normalize_text(source_type_value)
+            citation_count_for_source = per_source_citation_counts.get(source.id, 0)
+
+            rollup = source_type_rollups.setdefault(
+                normalized_source_type,
+                {
+                    "source_type": normalized_source_type,
+                    "source_count": 0,
+                    "cited_source_count": 0,
+                    "citation_count": 0,
+                },
+            )
+            rollup["source_count"] += 1
+            if citation_count_for_source > 0:
+                rollup["cited_source_count"] += 1
+            rollup["citation_count"] += citation_count_for_source
+
+        total_source_type_sources = sum(
+            int(rollup["source_count"]) for rollup in source_type_rollups.values()
+        )
+        total_source_type_citations = sum(
+            int(rollup["citation_count"]) for rollup in source_type_rollups.values()
+        )
+
+        source_type_breakdown = []
+        for rollup in source_type_rollups.values():
+            source_count = int(rollup["source_count"])
+            cited_count = int(rollup["cited_source_count"])
+            citation_count = int(rollup["citation_count"])
+
+            source_type_breakdown.append(
+                {
+                    "source_type": str(rollup["source_type"]),
+                    "source_count": source_count,
+                    "cited_source_count": cited_count,
+                    "uncited_source_count": source_count - cited_count,
+                    "citation_count": citation_count,
+                    "source_share": round(
+                        source_count / total_source_type_sources,
+                        3,
+                    )
+                    if total_source_type_sources
+                    else 0.0,
+                    "citation_share": round(
+                        citation_count / total_source_type_citations,
+                        3,
+                    )
+                    if total_source_type_citations
+                    else 0.0,
+                }
+            )
+
+        source_type_breakdown.sort(
+            key=lambda item: (
+                -int(item["citation_count"]),
+                -int(item["source_count"]),
+                str(item["source_type"]),
+            )
+        )
+
+        most_cited_source_type = (
+            source_type_breakdown[0]["source_type"] if source_type_breakdown else None
+        )
+        most_cited_source_type_count = (
+            source_type_breakdown[0]["citation_count"] if source_type_breakdown else 0
+        )
+
         domain_rollups: dict[str, dict[str, int | str]] = {}
         for source in self.sources.values():
             hostname = self._extract_source_hostname(source)
@@ -2682,6 +2756,10 @@ class CitationTracker:
             "uncited_source_count": uncited_source_count,
             "citation_coverage": round(citation_coverage, 3),
             "citation_counts_by_source": per_source_citation_counts,
+            "source_type_count": len(source_type_breakdown),
+            "most_cited_source_type": most_cited_source_type,
+            "most_cited_source_type_count": most_cited_source_type_count,
+            "source_type_breakdown": source_type_breakdown,
             "domain_count": len(domain_breakdown),
             "most_cited_domain": most_cited_domain,
             "most_cited_domain_count": most_cited_domain_count,

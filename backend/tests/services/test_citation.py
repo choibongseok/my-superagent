@@ -2693,6 +2693,75 @@ class TestCitationTracker:
         assert stats["least_cited_source_id"] == alpha_id
         assert stats["citation_counts_by_source"] == {alpha_id: 0, beta_id: 0}
 
+    def test_get_statistics_includes_source_type_breakdown(self):
+        """Source-type rollups should expose coverage and citation concentration."""
+        tracker = CitationTracker()
+
+        web_source_id = tracker.add_source(
+            title="Web Source",
+            type=SourceType.WEB,
+            url="https://web.example.com/post",
+        )
+        article_source_id = tracker.add_source(
+            title="Article Source",
+            type=SourceType.ARTICLE,
+            url="https://journal.example.org/paper",
+        )
+        api_source_id = tracker.add_source(
+            title="API Source",
+            type=SourceType.API,
+            url="https://api.example.net/v1/reference",
+        )
+
+        tracker.cite(web_source_id, quoted_text="Web citation")
+        tracker.cite(api_source_id, quoted_text="API citation 1")
+        tracker.cite(api_source_id, quoted_text="API citation 2")
+
+        stats = tracker.get_statistics()
+
+        assert stats["source_type_count"] == 3
+        assert stats["most_cited_source_type"] == "api"
+        assert stats["most_cited_source_type_count"] == 2
+        assert len(stats["source_type_breakdown"]) == 3
+
+        top_source_type = stats["source_type_breakdown"][0]
+        assert top_source_type["source_type"] == "api"
+        assert top_source_type["source_count"] == 1
+        assert top_source_type["cited_source_count"] == 1
+        assert top_source_type["uncited_source_count"] == 0
+        assert top_source_type["citation_count"] == 2
+        assert top_source_type["source_share"] == pytest.approx(0.333, abs=0.001)
+        assert top_source_type["citation_share"] == pytest.approx(0.667, abs=0.001)
+
+        second_source_type = stats["source_type_breakdown"][1]
+        assert second_source_type["source_type"] == "web"
+        assert second_source_type["source_count"] == 1
+        assert second_source_type["cited_source_count"] == 1
+        assert second_source_type["uncited_source_count"] == 0
+        assert second_source_type["citation_count"] == 1
+        assert second_source_type["source_share"] == pytest.approx(0.333, abs=0.001)
+        assert second_source_type["citation_share"] == pytest.approx(0.333, abs=0.001)
+
+        third_source_type = stats["source_type_breakdown"][2]
+        assert third_source_type["source_type"] == "article"
+        assert third_source_type["source_count"] == 1
+        assert third_source_type["cited_source_count"] == 0
+        assert third_source_type["uncited_source_count"] == 1
+        assert third_source_type["citation_count"] == 0
+        assert third_source_type["source_share"] == pytest.approx(0.333, abs=0.001)
+        assert third_source_type["citation_share"] == 0.0
+
+    def test_get_statistics_source_type_breakdown_handles_empty_tracker(self):
+        """Empty trackers should expose stable, zeroed source-type rollups."""
+        tracker = CitationTracker()
+
+        stats = tracker.get_statistics()
+
+        assert stats["source_type_count"] == 0
+        assert stats["most_cited_source_type"] is None
+        assert stats["most_cited_source_type_count"] == 0
+        assert stats["source_type_breakdown"] == []
+
     def test_get_statistics_includes_domain_breakdown(self):
         """Domain-level rollups should expose concentration diagnostics."""
         tracker = CitationTracker()
