@@ -1052,6 +1052,14 @@ def test_run_async_index_supports_start_offset():
     assert run_async_index(_is_even, [2, 4, 6], start=1) == 1
 
 
+def test_run_async_index_supports_stop_offset():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_index(_is_even, [1, 3, 4, 6], stop=3) == 2
+
+
 def test_run_async_index_rejects_invalid_start_offset():
     async def _is_even(value: int) -> bool:
         return value % 2 == 0
@@ -1064,6 +1072,20 @@ def test_run_async_index_rejects_invalid_start_offset():
 
     with pytest.raises(ValueError, match="start cannot be negative"):
         run_async_index(_is_even, [1, 2, 3], start=-1)
+
+
+def test_run_async_index_rejects_invalid_stop_offset():
+    async def _is_even(value: int) -> bool:
+        return value % 2 == 0
+
+    with pytest.raises(ValueError, match="stop must be an integer when provided"):
+        run_async_index(_is_even, [1, 2, 3], stop=1.5)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="stop must be an integer when provided"):
+        run_async_index(_is_even, [1, 2, 3], stop=True)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="stop cannot be negative"):
+        run_async_index(_is_even, [1, 2, 3], stop=-1)
 
 
 @pytest.mark.asyncio
@@ -1081,6 +1103,14 @@ def test_run_async_index_returns_default_when_no_items_match():
         return value % 2 == 0
 
     assert run_async_index(_is_even, [1, 3, 5], default=-1) == -1
+
+
+def test_run_async_index_respects_start_stop_window_when_no_items_match():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_index(_is_even, [2, 4, 6], start=2, stop=2, default=-1) == -1
 
 
 def test_run_async_index_raises_lookup_error_when_no_items_match_and_no_default():
@@ -1115,6 +1145,14 @@ def test_run_async_index_batched_supports_start_offset():
     assert run_async_index_batched(_is_even, [2, 4, 6], batch_size=2, start=1) == 1
 
 
+def test_run_async_index_batched_supports_stop_offset():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_index_batched(_is_even, [1, 3, 4, 6], batch_size=2, stop=3) == 2
+
+
 def test_run_async_index_batched_rejects_invalid_start_offset():
     async def _is_even(value: int) -> bool:
         return value % 2 == 0
@@ -1129,6 +1167,22 @@ def test_run_async_index_batched_rejects_invalid_start_offset():
 
     with pytest.raises(ValueError, match="start cannot be negative"):
         run_async_index_batched(_is_even, [1, 2, 3], batch_size=2, start=-1)
+
+
+def test_run_async_index_batched_rejects_invalid_stop_offset():
+    async def _is_even(value: int) -> bool:
+        return value % 2 == 0
+
+    with pytest.raises(ValueError, match="stop must be an integer when provided"):
+        run_async_index_batched(
+            _is_even,
+            [1, 2, 3],
+            batch_size=2,
+            stop=1.5,  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(ValueError, match="stop cannot be negative"):
+        run_async_index_batched(_is_even, [1, 2, 3], batch_size=2, stop=-1)
 
 
 def test_run_async_index_batched_short_circuits_after_first_match():
@@ -1149,6 +1203,24 @@ def test_run_async_index_batched_returns_default_when_no_items_match():
         return value % 2 == 0
 
     assert run_async_index_batched(_is_even, [1, 3, 5], batch_size=2, default=-1) == -1
+
+
+def test_run_async_index_batched_respects_start_stop_window_when_no_items_match():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert (
+        run_async_index_batched(
+            _is_even,
+            [2, 4, 6],
+            batch_size=2,
+            start=2,
+            stop=2,
+            default=-1,
+        )
+        == -1
+    )
 
 
 def test_run_async_index_batched_raises_lookup_error_when_no_match_and_no_default():
@@ -1183,6 +1255,14 @@ def test_run_async_find_supports_start_offset():
     assert run_async_find(_is_even, [2, 4, 6], start=1) == 4
 
 
+def test_run_async_find_supports_stop_offset():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_find(_is_even, [1, 3, 4, 6], stop=3) == 4
+
+
 def test_run_async_find_rejects_invalid_start_offset():
     async def _is_even(value: int) -> bool:
         return value % 2 == 0
@@ -1192,6 +1272,17 @@ def test_run_async_find_rejects_invalid_start_offset():
 
     with pytest.raises(ValueError, match="start cannot be negative"):
         run_async_find(_is_even, [1, 2, 3], start=-1)
+
+
+def test_run_async_find_rejects_invalid_stop_offset():
+    async def _is_even(value: int) -> bool:
+        return value % 2 == 0
+
+    with pytest.raises(ValueError, match="stop must be an integer when provided"):
+        run_async_find(_is_even, [1, 2, 3], stop=1.5)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="stop cannot be negative"):
+        run_async_find(_is_even, [1, 2, 3], stop=-1)
 
 
 @pytest.mark.asyncio
@@ -1211,6 +1302,14 @@ def test_run_async_find_returns_default_when_no_items_match():
         return value % 2 == 0
 
     assert run_async_find(_is_even, [1, 3, 5], default=-1) == -1
+
+
+def test_run_async_find_respects_start_stop_window_when_no_items_match():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_find(_is_even, [2, 4, 6], start=2, stop=2, default=-1) == -1
 
 
 def test_run_async_find_raises_lookup_error_when_no_items_match_and_no_default():
@@ -1245,6 +1344,14 @@ def test_run_async_find_batched_supports_start_offset():
     assert run_async_find_batched(_is_even, [2, 4, 6], batch_size=2, start=1) == 4
 
 
+def test_run_async_find_batched_supports_stop_offset():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_find_batched(_is_even, [1, 3, 4, 6], batch_size=2, stop=3) == 4
+
+
 def test_run_async_find_batched_rejects_invalid_start_offset():
     async def _is_even(value: int) -> bool:
         return value % 2 == 0
@@ -1259,6 +1366,22 @@ def test_run_async_find_batched_rejects_invalid_start_offset():
 
     with pytest.raises(ValueError, match="start cannot be negative"):
         run_async_find_batched(_is_even, [1, 2, 3], batch_size=2, start=-1)
+
+
+def test_run_async_find_batched_rejects_invalid_stop_offset():
+    async def _is_even(value: int) -> bool:
+        return value % 2 == 0
+
+    with pytest.raises(ValueError, match="stop must be an integer when provided"):
+        run_async_find_batched(
+            _is_even,
+            [1, 2, 3],
+            batch_size=2,
+            stop=1.5,  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(ValueError, match="stop cannot be negative"):
+        run_async_find_batched(_is_even, [1, 2, 3], batch_size=2, stop=-1)
 
 
 def test_run_async_find_batched_short_circuits_after_first_match():
@@ -1290,6 +1413,24 @@ def test_run_async_find_batched_returns_default_when_no_items_match():
         return value % 2 == 0
 
     assert run_async_find_batched(_is_even, [1, 3, 5], batch_size=2, default=-1) == -1
+
+
+def test_run_async_find_batched_respects_start_stop_window_when_no_items_match():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert (
+        run_async_find_batched(
+            _is_even,
+            [2, 4, 6],
+            batch_size=2,
+            start=2,
+            stop=2,
+            default=-1,
+        )
+        == -1
+    )
 
 
 def test_run_async_find_batched_raises_lookup_error_when_no_match_and_no_default():

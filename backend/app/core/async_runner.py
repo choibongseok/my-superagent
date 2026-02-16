@@ -70,6 +70,18 @@ def _validate_start_index(start: int) -> None:
         raise ValueError("start cannot be negative")
 
 
+def _validate_stop_index(stop: int | None) -> None:
+    """Validate optional search stop indices used by lookup helpers."""
+    if stop is None:
+        return
+
+    if isinstance(stop, bool) or not isinstance(stop, int):
+        raise ValueError("stop must be an integer when provided")
+
+    if stop < 0:
+        raise ValueError("stop cannot be negative")
+
+
 def _validate_max_attempts(max_attempts: int) -> None:
     """Validate retry attempt values used by retry helpers."""
     if isinstance(max_attempts, bool) or max_attempts <= 0:
@@ -1383,6 +1395,7 @@ def run_async_index(
     timeout: float | None = None,
     max_concurrency: int | None = None,
     start: int = 0,
+    stop: int | None = None,
 ) -> int:
     ...
 
@@ -1395,6 +1408,7 @@ def run_async_index(
     timeout: float | None = None,
     max_concurrency: int | None = None,
     start: int = 0,
+    stop: int | None = None,
     default: D,
 ) -> int | D:
     ...
@@ -1407,6 +1421,7 @@ def run_async_index(
     timeout: float | None = None,
     max_concurrency: int | None = None,
     start: int = 0,
+    stop: int | None = None,
     default: Any = _MISSING,
 ) -> int | D:
     """Return the first index matching an async predicate.
@@ -1417,11 +1432,12 @@ def run_async_index(
         timeout: Optional timeout in seconds for the full predicate run.
         max_concurrency: Optional cap on predicate concurrency.
         start: Optional zero-based index to begin searching from.
+        stop: Optional zero-based index where searching stops (exclusive).
         default: Fallback value returned when no items match.
 
     Raises:
         TypeError: If predicate is not callable or returns non-bool values.
-        ValueError: If timeout/max_concurrency/start are invalid.
+        ValueError: If timeout/max_concurrency/start/stop are invalid.
         LookupError: If no items match and ``default`` is not provided.
         TimeoutError: If execution exceeds ``timeout``.
     """
@@ -1429,9 +1445,10 @@ def run_async_index(
         raise TypeError("run_async_index expects a callable coro_predicate")
 
     _validate_start_index(start)
+    _validate_stop_index(stop)
 
     materialized_items = list(items)
-    searchable_items = materialized_items[start:]
+    searchable_items = materialized_items[start:stop]
 
     if not searchable_items:
         if default is _MISSING:
@@ -1464,6 +1481,7 @@ def run_async_index_batched(
     timeout: float | None = None,
     max_concurrency: int | None = None,
     start: int = 0,
+    stop: int | None = None,
 ) -> int:
     ...
 
@@ -1477,6 +1495,7 @@ def run_async_index_batched(
     timeout: float | None = None,
     max_concurrency: int | None = None,
     start: int = 0,
+    stop: int | None = None,
     default: D,
 ) -> int | D:
     ...
@@ -1490,21 +1509,23 @@ def run_async_index_batched(
     timeout: float | None = None,
     max_concurrency: int | None = None,
     start: int = 0,
+    stop: int | None = None,
     default: Any = _MISSING,
 ) -> int | D:
     """Batch-oriented variant of :func:`run_async_index`.
 
     This implementation short-circuits batch processing once the first
-    matching index is found. The optional ``start`` offset mirrors
+    matching index is found. The optional ``start``/``stop`` offsets mirror
     :func:`run_async_index`.
     """
     if not callable(coro_predicate):
         raise TypeError("run_async_index_batched expects a callable coro_predicate")
 
     _validate_start_index(start)
+    _validate_stop_index(stop)
 
     materialized_items = list(items)
-    searchable_items = materialized_items[start:]
+    searchable_items = materialized_items[start:stop]
     if not searchable_items:
         _validate_batch_size(batch_size)
         if default is _MISSING:
@@ -1581,6 +1602,7 @@ def run_async_find(
     timeout: float | None = None,
     max_concurrency: int | None = None,
     start: int = 0,
+    stop: int | None = None,
 ) -> I:
     ...
 
@@ -1593,6 +1615,7 @@ def run_async_find(
     timeout: float | None = None,
     max_concurrency: int | None = None,
     start: int = 0,
+    stop: int | None = None,
     default: D,
 ) -> I | D:
     ...
@@ -1605,6 +1628,7 @@ def run_async_find(
     timeout: float | None = None,
     max_concurrency: int | None = None,
     start: int = 0,
+    stop: int | None = None,
     default: Any = _MISSING,
 ) -> I | D:
     """Return the first item matching an async predicate.
@@ -1615,11 +1639,12 @@ def run_async_find(
         timeout: Optional timeout in seconds for the full predicate run.
         max_concurrency: Optional cap on predicate concurrency.
         start: Optional zero-based index to begin searching from.
+        stop: Optional zero-based index where searching stops (exclusive).
         default: Fallback value returned when no items match.
 
     Raises:
         TypeError: If predicate is not callable or returns non-bool values.
-        ValueError: If timeout/max_concurrency/start are invalid.
+        ValueError: If timeout/max_concurrency/start/stop are invalid.
         LookupError: If no items match and ``default`` is not provided.
         TimeoutError: If execution exceeds ``timeout``.
     """
@@ -1627,9 +1652,10 @@ def run_async_find(
         raise TypeError("run_async_find expects a callable coro_predicate")
 
     _validate_start_index(start)
+    _validate_stop_index(stop)
 
     materialized_items = list(items)
-    searchable_items = materialized_items[start:]
+    searchable_items = materialized_items[start:stop]
     if not searchable_items:
         if default is _MISSING:
             raise LookupError("run_async_find did not match any items")
@@ -1661,6 +1687,7 @@ def run_async_find_batched(
     timeout: float | None = None,
     max_concurrency: int | None = None,
     start: int = 0,
+    stop: int | None = None,
 ) -> I:
     ...
 
@@ -1674,6 +1701,7 @@ def run_async_find_batched(
     timeout: float | None = None,
     max_concurrency: int | None = None,
     start: int = 0,
+    stop: int | None = None,
     default: D,
 ) -> I | D:
     ...
@@ -1687,21 +1715,23 @@ def run_async_find_batched(
     timeout: float | None = None,
     max_concurrency: int | None = None,
     start: int = 0,
+    stop: int | None = None,
     default: Any = _MISSING,
 ) -> I | D:
     """Batch-oriented variant of :func:`run_async_find`.
 
     This implementation short-circuits batch processing once the first
     matching item is found, avoiding unnecessary predicate calls.
-    The optional ``start`` offset mirrors :func:`run_async_find`.
+    The optional ``start``/``stop`` offsets mirror :func:`run_async_find`.
     """
     if not callable(coro_predicate):
         raise TypeError("run_async_find_batched expects a callable coro_predicate")
 
     _validate_start_index(start)
+    _validate_stop_index(stop)
 
     materialized_items = list(items)
-    searchable_items = materialized_items[start:]
+    searchable_items = materialized_items[start:stop]
     if not searchable_items:
         _validate_batch_size(batch_size)
         if default is _MISSING:
