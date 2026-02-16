@@ -41,6 +41,8 @@ from app.core.async_runner import (
     run_async_sort_batched,
     run_async_starmap,
     run_async_starmap_batched,
+    run_async_unique_by,
+    run_async_unique_by_batched,
 )
 
 
@@ -2032,6 +2034,111 @@ def test_run_async_group_by_batched_timeout_applies_to_entire_run():
 
     with pytest.raises(TimeoutError, match="run_async_map_batched timed out"):
         run_async_group_by_batched(_slow, [1, 2], batch_size=1, timeout=0.01)
+
+
+def test_run_async_unique_by_returns_first_item_per_async_key():
+    async def _dedupe_key(task: dict[str, object]) -> str:
+        await asyncio.sleep(0.01)
+        return str(task["team"])
+
+    tasks = [
+        {"id": "a", "team": "platform"},
+        {"id": "b", "team": "search"},
+        {"id": "c", "team": "platform"},
+        {"id": "d", "team": "infra"},
+    ]
+
+    unique_tasks = run_async_unique_by(_dedupe_key, tasks)
+
+    assert unique_tasks == [tasks[0], tasks[1], tasks[3]]
+
+
+@pytest.mark.asyncio
+async def test_run_async_unique_by_with_existing_event_loop_returns_results():
+    async def _dedupe_key(value: str) -> str:
+        await asyncio.sleep(0.01)
+        return value.split("-", 1)[0]
+
+    assert run_async_unique_by(_dedupe_key, ["agent-1", "task-2", "agent-3"]) == [
+        "agent-1",
+        "task-2",
+    ]
+
+
+def test_run_async_unique_by_rejects_non_callable_selector():
+    with pytest.raises(TypeError, match="expects a callable coro_key_selector"):
+        run_async_unique_by(123, [1, 2])  # type: ignore[arg-type]
+
+
+def test_run_async_unique_by_rejects_unhashable_selector_results():
+    async def _invalid_key(value: int) -> list[int]:
+        await asyncio.sleep(0.01)
+        return [value]
+
+    with pytest.raises(TypeError, match="key selector must return hashable values"):
+        run_async_unique_by(_invalid_key, [1])
+
+
+def test_run_async_unique_by_supports_start_and_stop_offsets():
+    async def _dedupe_key(value: int) -> str:
+        await asyncio.sleep(0.01)
+        return "even" if value % 2 == 0 else "odd"
+
+    unique_values = run_async_unique_by(
+        _dedupe_key,
+        [1, 2, 3, 4, 5],
+        start=1,
+        stop=5,
+    )
+
+    assert unique_values == [2, 3]
+
+
+def test_run_async_unique_by_batched_deduplicates_across_batches():
+    async def _dedupe_key(value: int) -> str:
+        await asyncio.sleep(0.01)
+        return "even" if value % 2 == 0 else "odd"
+
+    unique_values = run_async_unique_by_batched(
+        _dedupe_key,
+        [1, 2, 3, 4, 5],
+        batch_size=2,
+    )
+
+    assert unique_values == [1, 2]
+
+
+def test_run_async_unique_by_batched_rejects_non_positive_batch_size_for_empty_items():
+    async def _selector(_: int) -> str:
+        return "any"
+
+    with pytest.raises(ValueError, match="batch_size must be greater than 0"):
+        run_async_unique_by_batched(_selector, [], batch_size=0)
+
+
+def test_run_async_unique_by_batched_supports_start_and_stop_offsets():
+    async def _dedupe_key(value: int) -> str:
+        await asyncio.sleep(0.01)
+        return "even" if value % 2 == 0 else "odd"
+
+    unique_values = run_async_unique_by_batched(
+        _dedupe_key,
+        [1, 2, 3, 4, 5],
+        batch_size=2,
+        start=1,
+        stop=5,
+    )
+
+    assert unique_values == [2, 3]
+
+
+def test_run_async_unique_by_batched_rejects_unhashable_selector_results():
+    async def _invalid_key(value: int) -> dict[str, int]:
+        await asyncio.sleep(0.01)
+        return {"value": value}
+
+    with pytest.raises(TypeError, match="key selector must return hashable values"):
+        run_async_unique_by_batched(_invalid_key, [1], batch_size=1)
 
 
 def test_run_async_sort_orders_items_using_async_keys():

@@ -1003,6 +1003,108 @@ def run_async_group_by_batched(
     return grouped
 
 
+def run_async_unique_by(
+    coro_key_selector: Callable[[I], Awaitable[K]],
+    items: Iterable[I],
+    *,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
+) -> list[I]:
+    """Return first-seen unique items using async keys.
+
+    Args:
+        coro_key_selector: Async callable returning a hashable deduplication key.
+        items: Iterable of candidate values.
+        timeout: Optional timeout in seconds for key selection.
+        max_concurrency: Optional cap on selector concurrency.
+        start: Optional zero-based index to begin deduplication from.
+        stop: Optional zero-based index where deduplication stops (exclusive).
+
+    Returns:
+        Deduplicated list preserving first-seen order inside the selected window.
+
+    Raises:
+        TypeError: If selector is not callable or returns unhashable keys.
+        ValueError: If timeout/max_concurrency/start/stop are invalid.
+        TimeoutError: If execution exceeds ``timeout``.
+    """
+    if not callable(coro_key_selector):
+        raise TypeError("run_async_unique_by expects a callable coro_key_selector")
+
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
+        return []
+
+    selected_keys = run_async_map(
+        coro_key_selector,
+        searchable_items,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    seen_keys: set[Hashable] = set()
+    deduplicated_items: list[I] = []
+    for item, selected_key in zip(searchable_items, selected_keys, strict=True):
+        dedupe_key = _coerce_group_key(
+            selected_key,
+            function_name="run_async_unique_by",
+        )
+        if dedupe_key in seen_keys:
+            continue
+
+        seen_keys.add(dedupe_key)
+        deduplicated_items.append(item)
+
+    return deduplicated_items
+
+
+def run_async_unique_by_batched(
+    coro_key_selector: Callable[[I], Awaitable[K]],
+    items: Iterable[I],
+    *,
+    batch_size: int,
+    timeout: float | None = None,
+    max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
+) -> list[I]:
+    """Batch-oriented variant of :func:`run_async_unique_by`."""
+    if not callable(coro_key_selector):
+        raise TypeError(
+            "run_async_unique_by_batched expects a callable coro_key_selector"
+        )
+
+    _validate_batch_size(batch_size)
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
+        return []
+
+    selected_keys = run_async_map_batched(
+        coro_key_selector,
+        searchable_items,
+        batch_size=batch_size,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
+
+    seen_keys: set[Hashable] = set()
+    deduplicated_items: list[I] = []
+    for item, selected_key in zip(searchable_items, selected_keys, strict=True):
+        dedupe_key = _coerce_group_key(
+            selected_key,
+            function_name="run_async_unique_by_batched",
+        )
+        if dedupe_key in seen_keys:
+            continue
+
+        seen_keys.add(dedupe_key)
+        deduplicated_items.append(item)
+
+    return deduplicated_items
+
+
 def run_async_sort(
     coro_key_selector: Callable[[I], Awaitable[S]],
     items: Iterable[I],
