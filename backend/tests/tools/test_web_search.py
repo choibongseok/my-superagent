@@ -1051,8 +1051,57 @@ def test_list_cache_entries_supports_newest_first_and_limit(monkeypatch):
     assert [entry["query"] for entry in entries] == ["gamma", "beta"]
 
 
+def test_list_cache_entries_can_filter_by_status(monkeypatch):
+    """Cache inspection should filter entries by freshness status when requested."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 220.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=10,
+        cache_max_entries=16,
+        stale_cache_ttl_seconds=30,
+    )
+    tool._cache["active query"] = (215.0, "a")
+    tool._cache["stale query"] = (200.0, "bb")
+    tool._cache["expired query"] = (170.0, "ccc")
+
+    entries = tool.list_cache_entries(status=["active", "stale_eligible"])
+
+    assert [entry["query"] for entry in entries] == ["active query", "stale query"]
+
+
+def test_list_cache_entries_can_filter_by_query_contains(monkeypatch):
+    """Cache inspection should support case-insensitive query substring filters."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 120.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=60, cache_max_entries=16)
+    tool._cache["Daily News AI"] = (100.0, "a")
+    tool._cache["breaking news robotics"] = (101.0, "b")
+    tool._cache["weather seoul"] = (102.0, "c")
+
+    entries = tool.list_cache_entries(query_contains="NEWS", case_sensitive=False)
+
+    assert [entry["query"] for entry in entries] == [
+        "Daily News AI",
+        "breaking news robotics",
+    ]
+
+
 def test_list_cache_entries_rejects_invalid_options(monkeypatch):
-    """Cache inspection options should validate limit and newest_first values."""
+    """Cache inspection options should validate selectors and filter options."""
     fake_backend = _FakeSearchBackend(response="payload")
     monkeypatch.setattr(
         "app.tools.web_search.DuckDuckGoSearchRun",
@@ -1064,6 +1113,9 @@ def test_list_cache_entries_rejects_invalid_options(monkeypatch):
     with pytest.raises(ValueError, match="newest_first must be a boolean value"):
         tool.list_cache_entries(newest_first="true")  # type: ignore[arg-type]
 
+    with pytest.raises(ValueError, match="case_sensitive must be a boolean value"):
+        tool.list_cache_entries(case_sensitive="false")  # type: ignore[arg-type]
+
     with pytest.raises(ValueError, match="limit must be a positive integer"):
         tool.list_cache_entries(limit=0)
 
@@ -1072,6 +1124,15 @@ def test_list_cache_entries_rejects_invalid_options(monkeypatch):
 
     with pytest.raises(ValueError, match="limit must be a positive integer"):
         tool.list_cache_entries(limit=1.5)  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="status must contain only: active, stale_eligible, expired, unbounded",
+    ):
+        tool.list_cache_entries(status="fresh")
+
+    with pytest.raises(ValueError, match="query must be a non-empty string"):
+        tool.list_cache_entries(query_contains="   ")
 
 
 def test_prune_cache_removes_entries_outside_retention_window(monkeypatch):

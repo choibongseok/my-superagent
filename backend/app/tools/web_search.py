@@ -714,23 +714,39 @@ class DuckDuckGoSearchTool(BaseTool):
         *,
         limit: int | None = None,
         newest_first: bool = False,
+        status: str | Iterable[str] | None = None,
+        query_contains: str | None = None,
+        case_sensitive: bool = True,
     ) -> list[dict[str, Any]]:
         """Return a deterministic snapshot of cached queries and freshness state.
 
         Args:
             limit: Optional maximum number of cache entries to return.
             newest_first: When ``True``, return entries from newest to oldest.
+            status: Optional cache-status selector used to filter entries.
+                Accepts one status or an iterable of statuses from ``active``,
+                ``stale_eligible``, ``expired``, and ``unbounded``.
+            query_contains: Optional substring matcher applied to cache query
+                keys after optional whitespace normalization.
+            case_sensitive: When ``True`` (default), ``query_contains`` matching
+                is case-sensitive. Set to ``False`` for case-insensitive
+                matching.
 
         Returns:
             List of per-entry diagnostics with query key, age, freshness status,
             and payload size metadata.
 
         Raises:
-            ValueError: If ``limit`` is not a positive integer or if
-                ``newest_first`` is not a boolean value.
+            ValueError: If ``limit`` is not a positive integer, if
+                ``newest_first`` or ``case_sensitive`` is not a boolean value,
+                if ``status`` includes unsupported values, or if
+                ``query_contains`` is not a non-empty string when provided.
         """
         if not isinstance(newest_first, bool):
             raise ValueError("newest_first must be a boolean value")
+
+        if not isinstance(case_sensitive, bool):
+            raise ValueError("case_sensitive must be a boolean value")
 
         if limit is not None:
             if isinstance(limit, bool) or not isinstance(limit, int):
@@ -739,26 +755,54 @@ class DuckDuckGoSearchTool(BaseTool):
             if limit <= 0:
                 raise ValueError("limit must be a positive integer")
 
+        normalized_status_selector = self._normalize_cache_status_selector(status)
+
+        normalized_query_contains: str | None = None
+        normalized_query_contains_casefold: str | None = None
+        if query_contains is not None:
+            normalized_query_contains = self._normalize_query(query_contains)
+            if not case_sensitive:
+                normalized_query_contains_casefold = (
+                    normalized_query_contains.casefold()
+                )
+
         now = time.monotonic()
         cache_entries = list(self._cache.items())
 
         if newest_first:
             cache_entries.reverse()
 
-        if limit is not None:
-            cache_entries = cache_entries[:limit]
-
         inspected_entries: list[dict[str, Any]] = []
         for query, (cached_at, payload) in cache_entries:
             age_seconds = now - cached_at
+            cache_status = self._cache_entry_status(age_seconds)
+
+            if (
+                normalized_status_selector is not None
+                and cache_status not in normalized_status_selector
+            ):
+                continue
+
+            if normalized_query_contains is not None:
+                if case_sensitive:
+                    if normalized_query_contains not in query:
+                        continue
+                else:
+                    assert normalized_query_contains_casefold is not None
+                    if normalized_query_contains_casefold not in query.casefold():
+                        continue
+
             inspected_entries.append(
                 {
                     "query": query,
                     "age_seconds": age_seconds,
-                    "status": self._cache_entry_status(age_seconds),
+                    "status": cache_status,
                     "payload_chars": len(payload),
                 }
             )
+
+        if limit is not None:
+            inspected_entries = inspected_entries[:limit]
 
         return inspected_entries
 
