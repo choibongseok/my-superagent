@@ -1044,6 +1044,28 @@ def test_run_async_index_returns_first_matching_index():
     assert run_async_index(_is_even, [1, 3, 4, 6]) == 2
 
 
+def test_run_async_index_supports_start_offset():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_index(_is_even, [2, 4, 6], start=1) == 1
+
+
+def test_run_async_index_rejects_invalid_start_offset():
+    async def _is_even(value: int) -> bool:
+        return value % 2 == 0
+
+    with pytest.raises(ValueError, match="start must be an integer"):
+        run_async_index(_is_even, [1, 2, 3], start=1.5)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="start must be an integer"):
+        run_async_index(_is_even, [1, 2, 3], start=True)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="start cannot be negative"):
+        run_async_index(_is_even, [1, 2, 3], start=-1)
+
+
 @pytest.mark.asyncio
 async def test_run_async_index_with_existing_event_loop_returns_first_match_index():
     async def _contains_target(value: str) -> bool:
@@ -1083,6 +1105,30 @@ def test_run_async_index_batched_returns_first_match_index_across_batches():
         return value % 2 == 0
 
     assert run_async_index_batched(_is_even, [1, 3, 5, 8], batch_size=2) == 3
+
+
+def test_run_async_index_batched_supports_start_offset():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_index_batched(_is_even, [2, 4, 6], batch_size=2, start=1) == 1
+
+
+def test_run_async_index_batched_rejects_invalid_start_offset():
+    async def _is_even(value: int) -> bool:
+        return value % 2 == 0
+
+    with pytest.raises(ValueError, match="start must be an integer"):
+        run_async_index_batched(
+            _is_even,
+            [1, 2, 3],
+            batch_size=2,
+            start=1.5,  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(ValueError, match="start cannot be negative"):
+        run_async_index_batched(_is_even, [1, 2, 3], batch_size=2, start=-1)
 
 
 def test_run_async_index_batched_short_circuits_after_first_match():
@@ -1129,6 +1175,25 @@ def test_run_async_find_returns_first_item_matching_predicate():
     assert run_async_find(_is_even, [1, 3, 4, 6]) == 4
 
 
+def test_run_async_find_supports_start_offset():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_find(_is_even, [2, 4, 6], start=1) == 4
+
+
+def test_run_async_find_rejects_invalid_start_offset():
+    async def _is_even(value: int) -> bool:
+        return value % 2 == 0
+
+    with pytest.raises(ValueError, match="start must be an integer"):
+        run_async_find(_is_even, [1, 2, 3], start=1.5)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="start cannot be negative"):
+        run_async_find(_is_even, [1, 2, 3], start=-1)
+
+
 @pytest.mark.asyncio
 async def test_run_async_find_with_existing_event_loop_returns_first_match():
     async def _contains_target(value: str) -> bool:
@@ -1170,6 +1235,30 @@ def test_run_async_find_batched_returns_first_match_across_batches():
         return value % 2 == 0
 
     assert run_async_find_batched(_is_even, [1, 3, 5, 8], batch_size=2) == 8
+
+
+def test_run_async_find_batched_supports_start_offset():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_find_batched(_is_even, [2, 4, 6], batch_size=2, start=1) == 4
+
+
+def test_run_async_find_batched_rejects_invalid_start_offset():
+    async def _is_even(value: int) -> bool:
+        return value % 2 == 0
+
+    with pytest.raises(ValueError, match="start must be an integer"):
+        run_async_find_batched(
+            _is_even,
+            [1, 2, 3],
+            batch_size=2,
+            start=True,  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(ValueError, match="start cannot be negative"):
+        run_async_find_batched(_is_even, [1, 2, 3], batch_size=2, start=-1)
 
 
 def test_run_async_find_batched_short_circuits_after_first_match():
