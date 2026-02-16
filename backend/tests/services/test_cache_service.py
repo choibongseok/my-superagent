@@ -2820,6 +2820,19 @@ def test_local_cache_get_where_supports_namespace_filter_with_custom_separator()
     }
 
 
+def test_local_cache_get_where_supports_tag_state_filtering():
+    cache = LocalCacheService()
+    cache.set_tagged("session:tagged", {"v": 1}, tags=["session"])
+    cache.set("session:untagged", {"v": 2})
+
+    assert cache.get_where(prefix="session:", tag_state="tagged") == {
+        "session:tagged": {"v": 1}
+    }
+    assert cache.get_where(prefix="session:", tag_state="untagged") == {
+        "session:untagged": {"v": 2}
+    }
+
+
 def test_local_cache_get_where_ignores_expired_entries_and_tracks_hits_only_for_matches():
     cache = LocalCacheService()
     cache.set_tagged("short", "x", tags=["volatile"], ttl_seconds=1)
@@ -2839,6 +2852,12 @@ def test_local_cache_get_where_rejects_invalid_filter_flags():
 
     with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
         cache.get_where(match_all_tags="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match='tag_state must be one of: "all", "tagged", "untagged"',
+    ):
+        cache.get_where(tag_state="invalid")
 
     with pytest.raises(ValueError, match="descending must be a boolean"):
         cache.get_where(descending="yes")  # type: ignore[arg-type]
@@ -2879,11 +2898,35 @@ def test_local_cache_peek_where_reads_without_mutating_stats_or_lru_order():
     assert cache.get("gamma") == 3
 
 
+def test_local_cache_peek_where_supports_tag_state_filtering_without_stats_mutation():
+    cache = LocalCacheService()
+    cache.set_tagged("session:tagged", {"v": 1}, tags=["session"])
+    cache.set("session:untagged", {"v": 2})
+
+    before_stats = cache.stats().copy()
+
+    assert cache.peek_where(prefix="session:", tag_state="tagged") == {
+        "session:tagged": {"v": 1}
+    }
+    assert cache.peek_where(prefix="session:", tag_state="untagged") == {
+        "session:untagged": {"v": 2}
+    }
+
+    after_stats = cache.stats()
+    assert after_stats == before_stats
+
+
 def test_local_cache_peek_where_rejects_invalid_filter_flags():
     cache = LocalCacheService()
 
     with pytest.raises(ValueError, match="match_all_tags must be a boolean"):
         cache.peek_where(match_all_tags="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match='tag_state must be one of: "all", "tagged", "untagged"',
+    ):
+        cache.peek_where(tag_state="invalid")
 
     with pytest.raises(ValueError, match="descending must be a boolean"):
         cache.peek_where(descending="yes")  # type: ignore[arg-type]

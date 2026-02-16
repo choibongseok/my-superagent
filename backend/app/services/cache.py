@@ -2479,6 +2479,7 @@ class LocalCacheService:
         match_all_tags: bool = False,
         namespace: str | None = None,
         namespace_separator: str = ":",
+        tag_state: str = "all",
         offset: int | None = None,
         limit: int | None = None,
         descending: bool = False,
@@ -2500,6 +2501,10 @@ class LocalCacheService:
             namespace: Optional exact namespace filter.
             namespace_separator: Namespace delimiter used when
                 ``namespace`` filtering is enabled.
+            tag_state: Optional tag-state filter. ``"all"`` (default)
+                returns every matching key, ``"tagged"`` includes only keys
+                with one or more tags, and ``"untagged"`` includes only keys
+                with no associated tags.
             offset: Optional number of sorted matching keys to skip.
             limit: Optional maximum number of keys to return.
             descending: Return keys in descending lexicographic order when
@@ -2519,6 +2524,7 @@ class LocalCacheService:
             match_all_tags=match_all_tags,
             namespace=namespace,
             namespace_separator=namespace_separator,
+            tag_state=tag_state,
             offset=offset,
             limit=limit,
             descending=descending,
@@ -2535,6 +2541,7 @@ class LocalCacheService:
         match_all_tags: bool = False,
         namespace: str | None = None,
         namespace_separator: str = ":",
+        tag_state: str = "all",
         offset: int | None = None,
         limit: int | None = None,
         descending: bool = False,
@@ -2556,6 +2563,10 @@ class LocalCacheService:
             namespace: Optional exact namespace filter.
             namespace_separator: Namespace delimiter used when
                 ``namespace`` filtering is enabled.
+            tag_state: Optional tag-state filter. ``"all"`` (default)
+                returns every matching key, ``"tagged"`` includes only keys
+                with one or more tags, and ``"untagged"`` includes only keys
+                with no associated tags.
             offset: Optional number of sorted matching keys to skip.
             limit: Optional maximum number of keys to return.
             descending: Return keys in descending lexicographic order when
@@ -2571,6 +2582,7 @@ class LocalCacheService:
             match_all_tags=match_all_tags,
             namespace=namespace,
             namespace_separator=namespace_separator,
+            tag_state=tag_state,
             offset=offset,
             limit=limit,
             descending=descending,
