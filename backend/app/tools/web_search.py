@@ -332,6 +332,7 @@ class DuckDuckGoSearchTool(BaseTool):
         pattern: str | None = None,
         regex: str | None = None,
         regex_flags: str | None = None,
+        older_than_seconds: float | None = None,
     ) -> int:
         """Invalidate selected cache entries or clear the full cache.
 
@@ -348,6 +349,8 @@ class DuckDuckGoSearchTool(BaseTool):
                 normalized query keys.
             regex_flags: Optional regular-expression flags (``i``, ``m``,
                 ``s``, ``x``) used only when ``regex`` is provided.
+            older_than_seconds: Optional age threshold that removes cache
+                entries older than the provided number of seconds.
 
         Returns:
             Number of entries removed from cache.
@@ -355,20 +358,40 @@ class DuckDuckGoSearchTool(BaseTool):
         Raises:
             ValueError: If more than one selector argument is provided, if
                 ``queries`` is not an iterable of non-empty strings, if
-                ``regex`` is not a valid regular expression, or if
-                ``regex_flags`` is invalid.
+                ``regex`` is not a valid regular expression, if
+                ``regex_flags`` is invalid, or if ``older_than_seconds`` is
+                not a positive number.
         """
         selector_count = sum(
             candidate is not None
-            for candidate in (query, queries, prefix, pattern, regex)
+            for candidate in (
+                query,
+                queries,
+                prefix,
+                pattern,
+                regex,
+                older_than_seconds,
+            )
         )
         if selector_count > 1:
             raise ValueError(
-                "query, queries, prefix, pattern, and regex are mutually exclusive"
+                "query, queries, prefix, pattern, regex, and older_than_seconds "
+                "are mutually exclusive"
             )
 
         if regex_flags is not None and regex is None:
             raise ValueError("regex_flags can only be used with regex selector")
+
+        if older_than_seconds is not None:
+            if isinstance(older_than_seconds, bool) or not isinstance(
+                older_than_seconds,
+                (int, float),
+            ):
+                raise ValueError("older_than_seconds must be a positive number")
+
+            normalized_age_threshold = float(older_than_seconds)
+            if normalized_age_threshold <= 0:
+                raise ValueError("older_than_seconds must be a positive number")
 
         if selector_count == 0:
             removed_entries = len(self._cache)
@@ -402,6 +425,20 @@ class DuckDuckGoSearchTool(BaseTool):
                     removed_entries += 1
 
             return removed_entries
+
+        if older_than_seconds is not None:
+            now = time.monotonic()
+            normalized_age_threshold = float(older_than_seconds)
+            matching_queries = [
+                cached_query
+                for cached_query, (cached_at, _payload) in self._cache.items()
+                if now - cached_at > normalized_age_threshold
+            ]
+
+            for cached_query in matching_queries:
+                self._cache.pop(cached_query, None)
+
+            return len(matching_queries)
 
         if prefix is not None:
             normalized_prefix = self._normalize_query(prefix)
