@@ -514,6 +514,60 @@ def test_invalidate_cache_can_remove_entries_by_regex(monkeypatch):
     assert list(tool._cache.keys()) == ["weather seoul"]
 
 
+def test_invalidate_cache_can_remove_entries_by_regex_with_flags(monkeypatch):
+    """Regex invalidation should honor optional regex_flags selectors."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("News AI") == "payload"
+    assert tool._run("NEWS robotics") == "payload"
+    assert tool._run("weather seoul") == "payload"
+
+    removed_entries = tool.invalidate_cache(regex=r"^news\s", regex_flags="I")
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["weather seoul"]
+
+
+def test_invalidate_cache_rejects_regex_flags_without_regex(monkeypatch):
+    """regex_flags should be accepted only when regex selector is used."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    with pytest.raises(
+        ValueError,
+        match="regex_flags can only be used with regex selector",
+    ):
+        tool.invalidate_cache(regex_flags="i")
+
+
+def test_invalidate_cache_rejects_invalid_regex_flags(monkeypatch):
+    """regex_flags should reject unsupported flag tokens."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    with pytest.raises(
+        ValueError,
+        match="regex_flags must contain only supported flags: i, m, s, x",
+    ):
+        tool.invalidate_cache(regex=r"news", regex_flags="izq")
+
+
 def test_invalidate_cache_rejects_invalid_regex_selector(monkeypatch):
     """Regex selector should fail fast on invalid patterns."""
     fake_backend = _FakeSearchBackend(response="payload")

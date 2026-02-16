@@ -180,6 +180,37 @@ class DuckDuckGoSearchTool(BaseTool):
 
         return value
 
+    @staticmethod
+    def _parse_regex_flags(raw_flags: str | None) -> int:
+        """Parse optional regex flag strings into ``re`` bitmasks."""
+        if raw_flags is None:
+            return 0
+
+        if not isinstance(raw_flags, str):
+            raise ValueError("regex_flags must be a string containing only i, m, s, x")
+
+        normalized_flags = raw_flags.strip().lower()
+        if normalized_flags == "":
+            return 0
+
+        supported_flags = {
+            "i": re.IGNORECASE,
+            "m": re.MULTILINE,
+            "s": re.DOTALL,
+            "x": re.VERBOSE,
+        }
+
+        parsed_flags = 0
+        for flag in normalized_flags:
+            mapped_flag = supported_flags.get(flag)
+            if mapped_flag is None:
+                raise ValueError(
+                    "regex_flags must contain only supported flags: i, m, s, x"
+                )
+            parsed_flags |= mapped_flag
+
+        return parsed_flags
+
     def _normalize_query(self, query: str) -> str:
         """Normalize and validate incoming search queries."""
         if not isinstance(query, str):
@@ -300,6 +331,7 @@ class DuckDuckGoSearchTool(BaseTool):
         prefix: str | None = None,
         pattern: str | None = None,
         regex: str | None = None,
+        regex_flags: str | None = None,
     ) -> int:
         """Invalidate selected cache entries or clear the full cache.
 
@@ -314,14 +346,17 @@ class DuckDuckGoSearchTool(BaseTool):
                 query keys (for example, ``"news *"``).
             regex: Optional regular-expression matcher applied against
                 normalized query keys.
+            regex_flags: Optional regular-expression flags (``i``, ``m``,
+                ``s``, ``x``) used only when ``regex`` is provided.
 
         Returns:
             Number of entries removed from cache.
 
         Raises:
             ValueError: If more than one selector argument is provided, if
-                ``queries`` is not an iterable of non-empty strings, or if
-                ``regex`` is not a valid regular expression.
+                ``queries`` is not an iterable of non-empty strings, if
+                ``regex`` is not a valid regular expression, or if
+                ``regex_flags`` is invalid.
         """
         selector_count = sum(
             candidate is not None
@@ -331,6 +366,9 @@ class DuckDuckGoSearchTool(BaseTool):
             raise ValueError(
                 "query, queries, prefix, pattern, and regex are mutually exclusive"
             )
+
+        if regex_flags is not None and regex is None:
+            raise ValueError("regex_flags can only be used with regex selector")
 
         if selector_count == 0:
             removed_entries = len(self._cache)
@@ -381,8 +419,9 @@ class DuckDuckGoSearchTool(BaseTool):
             ]
         else:
             assert regex is not None
+            regex_flag_bits = self._parse_regex_flags(regex_flags)
             try:
-                compiled_pattern = re.compile(regex)
+                compiled_pattern = re.compile(regex, flags=regex_flag_bits)
             except re.error as exc:
                 raise ValueError("regex must be a valid regular expression") from exc
 
