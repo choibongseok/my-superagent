@@ -455,6 +455,56 @@ def _extract_token_audiences(payload: Mapping[str, Any]) -> tuple[str, ...] | No
     return None
 
 
+def _normalize_expected_issuers(
+    expected_issuer: str | Iterable[str] | None,
+) -> tuple[str, ...]:
+    """Normalize expected issuer requirements for ``decode_token``."""
+    if expected_issuer is None:
+        return ()
+
+    if isinstance(expected_issuer, str):
+        normalized_issuer = expected_issuer.strip()
+        if not normalized_issuer:
+            raise ValueError("expected_issuer cannot be blank")
+
+        return (normalized_issuer,)
+
+    try:
+        issuer_values = iter(expected_issuer)
+    except TypeError as exc:
+        raise TypeError(
+            "expected_issuer must be a string or iterable of strings"
+        ) from exc
+
+    normalized_issuers: list[str] = []
+    for issuer in issuer_values:
+        if not isinstance(issuer, str):
+            raise TypeError("expected_issuer must contain only strings")
+
+        normalized_issuer = issuer.strip()
+        if not normalized_issuer:
+            raise ValueError("expected_issuer cannot contain blank values")
+
+        normalized_issuers.append(normalized_issuer)
+
+    if not normalized_issuers:
+        raise ValueError("expected_issuer cannot be an empty iterable")
+
+    return tuple(dict.fromkeys(normalized_issuers))
+
+
+def _issuer_requirement_matches(required_issuer: str, token_issuer: str) -> bool:
+    """Return whether a token issuer satisfies one issuer requirement.
+
+    Required issuer values support glob patterns (for example,
+    ``"agenthq-*"``).
+    """
+    if any(token in required_issuer for token in "*?["):
+        return fnmatchcase(token_issuer, required_issuer)
+
+    return token_issuer == required_issuer
+
+
 def _normalize_leeway_seconds(leeway_seconds: int | float | None) -> float:
     """Normalize optional JWT leeway seconds for clock-skew tolerance."""
     if leeway_seconds is None:
@@ -514,7 +564,7 @@ def decode_token(
     expected_type: str | Iterable[str] | None = None,
     expected_subject: str | Iterable[str] | None = None,
     expected_jti: str | Iterable[str] | None = None,
-    expected_issuer: str | None = None,
+    expected_issuer: str | Iterable[str] | None = None,
     expected_audience: str | Iterable[str] | None = None,
     required_claims: Iterable[str] | None = None,
     required_claim_values: Mapping[str, Any] | None = None,
@@ -538,7 +588,10 @@ def decode_token(
         expected_jti: Optional token ``jti`` claim value(s) to enforce.
             Accepts either a single token ID string or an iterable of allowed
             token IDs.
-        expected_issuer: Optional token ``iss`` claim value to enforce.
+        expected_issuer: Optional token ``iss`` claim value(s) to enforce.
+            Accepts either a single issuer string or an iterable of allowed
+            issuer values. Issuer requirements support glob patterns
+            (for example, ``"agenthq-*"``).
         expected_audience: Optional token ``aud`` claim value(s) to enforce.
             Accepts either a single audience string or an iterable of allowed
             audience values.
@@ -569,20 +622,13 @@ def decode_token(
     Returns:
         Decoded payload when valid, otherwise ``None``.
     """
-    if expected_issuer is not None:
-        if not isinstance(expected_issuer, str):
-            raise TypeError("expected_issuer must be a string when provided")
-
-        expected_issuer = expected_issuer.strip()
-        if not expected_issuer:
-            raise ValueError("expected_issuer cannot be blank")
-
     if not isinstance(match_any_scopes, bool):
         raise TypeError("match_any_scopes must be a boolean")
 
     normalized_expected_types = _normalize_expected_types(expected_type)
     normalized_expected_subjects = _normalize_expected_subjects(expected_subject)
     normalized_expected_jtis = _normalize_expected_jtis(expected_jti)
+    normalized_expected_issuers = _normalize_expected_issuers(expected_issuer)
     normalized_expected_audiences = _normalize_expected_audiences(expected_audience)
     normalized_required_claims = _normalize_required_claims(required_claims)
     normalized_required_claim_values = _normalize_required_claim_values(
@@ -646,8 +692,20 @@ def decode_token(
         if normalized_token_id_claim not in normalized_expected_jtis:
             return None
 
-    if expected_issuer is not None and payload.get("iss") != expected_issuer:
-        return None
+    if normalized_expected_issuers:
+        token_issuer = payload.get("iss")
+        if not isinstance(token_issuer, str):
+            return None
+
+        normalized_token_issuer = token_issuer.strip()
+        if not normalized_token_issuer:
+            return None
+
+        if not any(
+            _issuer_requirement_matches(required_issuer, normalized_token_issuer)
+            for required_issuer in normalized_expected_issuers
+        ):
+            return None
 
     if normalized_expected_audiences:
         token_audiences = _extract_token_audiences(payload)

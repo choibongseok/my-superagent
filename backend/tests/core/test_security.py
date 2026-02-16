@@ -411,6 +411,22 @@ def test_decode_token_accepts_expected_issuer() -> None:
     assert payload["iss"] == "agenthq-auth"
 
 
+def test_decode_token_accepts_expected_issuer_allowlist_and_glob_patterns() -> None:
+    token = create_access_token({"sub": "user-123", "iss": "agenthq-auth-prod"})
+
+    allowlist_payload = decode_token(
+        token,
+        expected_issuer=["agenthq-auth-dev", "agenthq-auth-prod"],
+    )
+    assert allowlist_payload is not None
+
+    glob_payload = decode_token(
+        token,
+        expected_issuer=["agenthq-*", "other-issuer"],
+    )
+    assert glob_payload is not None
+
+
 def test_decode_token_rejects_missing_or_mismatched_expected_issuer() -> None:
     token = create_access_token({"sub": "user-123", "iss": "agenthq-auth"})
 
@@ -426,11 +442,26 @@ def test_decode_token_rejects_missing_or_mismatched_expected_issuer() -> None:
 def test_decode_token_validates_expected_issuer_input() -> None:
     token = create_access_token({"sub": "user-123", "iss": "agenthq-auth"})
 
-    with pytest.raises(TypeError, match="expected_issuer must be a string"):
+    with pytest.raises(
+        TypeError,
+        match="expected_issuer must be a string or iterable of strings",
+    ):
         decode_token(token, expected_issuer=123)  # type: ignore[arg-type]
 
     with pytest.raises(ValueError, match="expected_issuer cannot be blank"):
         decode_token(token, expected_issuer="   ")
+
+    with pytest.raises(ValueError, match="expected_issuer cannot be an empty iterable"):
+        decode_token(token, expected_issuer=[])
+
+    with pytest.raises(TypeError, match="expected_issuer must contain only strings"):
+        decode_token(token, expected_issuer=["agenthq-auth", 123])
+
+    with pytest.raises(
+        ValueError,
+        match="expected_issuer cannot contain blank values",
+    ):
+        decode_token(token, expected_issuer=["agenthq-auth", "   "])
 
 
 def test_decode_token_accepts_expected_audience_string_match() -> None:
