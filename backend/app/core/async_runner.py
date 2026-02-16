@@ -672,6 +672,8 @@ def run_async_filter(
     *,
     timeout: float | None = None,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> list[I]:
     """Filter items using an async predicate from synchronous code.
 
@@ -680,6 +682,8 @@ def run_async_filter(
         items: Iterable of candidate values.
         timeout: Optional timeout in seconds for the entire predicate run.
         max_concurrency: Optional cap on predicate concurrency.
+        start: Optional zero-based index to begin filtering from.
+        stop: Optional zero-based index where filtering stops (exclusive).
 
     Returns:
         Filtered list preserving input order.
@@ -692,20 +696,20 @@ def run_async_filter(
     if not callable(coro_predicate):
         raise TypeError("run_async_filter expects a callable coro_predicate")
 
-    materialized_items = list(items)
-    if not materialized_items:
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
         return []
 
     predicate_results = run_async_map(
         coro_predicate,
-        materialized_items,
+        searchable_items,
         timeout=timeout,
         max_concurrency=max_concurrency,
     )
 
     return [
         item
-        for item, include in zip(materialized_items, predicate_results, strict=True)
+        for item, include in zip(searchable_items, predicate_results, strict=True)
         if _coerce_filter_result(include, function_name="run_async_filter")
     ]
 
@@ -717,6 +721,8 @@ def run_async_filter_batched(
     batch_size: int,
     timeout: float | None = None,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> list[I]:
     """Batch-oriented variant of :func:`run_async_filter`.
 
@@ -726,14 +732,14 @@ def run_async_filter_batched(
     if not callable(coro_predicate):
         raise TypeError("run_async_filter_batched expects a callable coro_predicate")
 
-    materialized_items = list(items)
-    if not materialized_items:
-        _validate_batch_size(batch_size)
+    _validate_batch_size(batch_size)
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
         return []
 
     predicate_results = run_async_map_batched(
         coro_predicate,
-        materialized_items,
+        searchable_items,
         batch_size=batch_size,
         timeout=timeout,
         max_concurrency=max_concurrency,
@@ -741,7 +747,7 @@ def run_async_filter_batched(
 
     return [
         item
-        for item, include in zip(materialized_items, predicate_results, strict=True)
+        for item, include in zip(searchable_items, predicate_results, strict=True)
         if _coerce_filter_result(include, function_name="run_async_filter_batched")
     ]
 
@@ -752,6 +758,8 @@ def run_async_count(
     *,
     timeout: float | None = None,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> int:
     """Count items matching an async predicate from synchronous code.
 
@@ -760,6 +768,8 @@ def run_async_count(
         items: Iterable of candidate values.
         timeout: Optional timeout in seconds for the full predicate run.
         max_concurrency: Optional cap on predicate concurrency.
+        start: Optional zero-based index to begin counting from.
+        stop: Optional zero-based index where counting stops (exclusive).
 
     Returns:
         Number of items whose predicate result is ``True``.
@@ -774,7 +784,7 @@ def run_async_count(
 
     predicate_results = run_async_map(
         coro_predicate,
-        list(items),
+        _slice_items_with_offsets(items, start=start, stop=stop),
         timeout=timeout,
         max_concurrency=max_concurrency,
     )
@@ -792,6 +802,8 @@ def run_async_count_batched(
     batch_size: int,
     timeout: float | None = None,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> int:
     """Batch-oriented variant of :func:`run_async_count`.
 
@@ -803,7 +815,7 @@ def run_async_count_batched(
 
     predicate_results = run_async_map_batched(
         coro_predicate,
-        list(items),
+        _slice_items_with_offsets(items, start=start, stop=stop),
         batch_size=batch_size,
         timeout=timeout,
         max_concurrency=max_concurrency,
@@ -821,6 +833,8 @@ def run_async_partition(
     *,
     timeout: float | None = None,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> tuple[list[I], list[I]]:
     """Partition items into matching/non-matching groups via async predicate.
 
@@ -830,20 +844,20 @@ def run_async_partition(
     if not callable(coro_predicate):
         raise TypeError("run_async_partition expects a callable coro_predicate")
 
-    materialized_items = list(items)
-    if not materialized_items:
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
         return [], []
 
     predicate_results = run_async_map(
         coro_predicate,
-        materialized_items,
+        searchable_items,
         timeout=timeout,
         max_concurrency=max_concurrency,
     )
 
     matched: list[I] = []
     rejected: list[I] = []
-    for item, include in zip(materialized_items, predicate_results, strict=True):
+    for item, include in zip(searchable_items, predicate_results, strict=True):
         if _coerce_filter_result(include, function_name="run_async_partition"):
             matched.append(item)
         else:
@@ -859,19 +873,21 @@ def run_async_partition_batched(
     batch_size: int,
     timeout: float | None = None,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> tuple[list[I], list[I]]:
     """Batch-oriented variant of :func:`run_async_partition`."""
     if not callable(coro_predicate):
         raise TypeError("run_async_partition_batched expects a callable coro_predicate")
 
-    materialized_items = list(items)
-    if not materialized_items:
-        _validate_batch_size(batch_size)
+    _validate_batch_size(batch_size)
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
         return [], []
 
     predicate_results = run_async_map_batched(
         coro_predicate,
-        materialized_items,
+        searchable_items,
         batch_size=batch_size,
         timeout=timeout,
         max_concurrency=max_concurrency,
@@ -879,7 +895,7 @@ def run_async_partition_batched(
 
     matched: list[I] = []
     rejected: list[I] = []
-    for item, include in zip(materialized_items, predicate_results, strict=True):
+    for item, include in zip(searchable_items, predicate_results, strict=True):
         if _coerce_filter_result(
             include,
             function_name="run_async_partition_batched",
@@ -897,6 +913,8 @@ def run_async_group_by(
     *,
     timeout: float | None = None,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> dict[K, list[I]]:
     """Group items by keys produced from an async selector.
 
@@ -905,6 +923,8 @@ def run_async_group_by(
         items: Iterable of values to bucket.
         timeout: Optional timeout in seconds for the full selector run.
         max_concurrency: Optional cap on selector concurrency.
+        start: Optional zero-based index to begin grouping from.
+        stop: Optional zero-based index where grouping stops (exclusive).
 
     Returns:
         Dictionary keyed by selector results with grouped items preserving
@@ -918,19 +938,19 @@ def run_async_group_by(
     if not callable(coro_key_selector):
         raise TypeError("run_async_group_by expects a callable coro_key_selector")
 
-    materialized_items = list(items)
-    if not materialized_items:
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
         return {}
 
     selected_keys = run_async_map(
         coro_key_selector,
-        materialized_items,
+        searchable_items,
         timeout=timeout,
         max_concurrency=max_concurrency,
     )
 
     grouped: dict[K, list[I]] = {}
-    for item, selected_key in zip(materialized_items, selected_keys, strict=True):
+    for item, selected_key in zip(searchable_items, selected_keys, strict=True):
         group_key = cast(
             K,
             _coerce_group_key(selected_key, function_name="run_async_group_by"),
@@ -947,6 +967,8 @@ def run_async_group_by_batched(
     batch_size: int,
     timeout: float | None = None,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> dict[K, list[I]]:
     """Batch-oriented variant of :func:`run_async_group_by`."""
     if not callable(coro_key_selector):
@@ -954,21 +976,21 @@ def run_async_group_by_batched(
             "run_async_group_by_batched expects a callable coro_key_selector"
         )
 
-    materialized_items = list(items)
-    if not materialized_items:
-        _validate_batch_size(batch_size)
+    _validate_batch_size(batch_size)
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
         return {}
 
     selected_keys = run_async_map_batched(
         coro_key_selector,
-        materialized_items,
+        searchable_items,
         batch_size=batch_size,
         timeout=timeout,
         max_concurrency=max_concurrency,
     )
 
     grouped: dict[K, list[I]] = {}
-    for item, selected_key in zip(materialized_items, selected_keys, strict=True):
+    for item, selected_key in zip(searchable_items, selected_keys, strict=True):
         group_key = cast(
             K,
             _coerce_group_key(
@@ -988,6 +1010,8 @@ def run_async_sort(
     timeout: float | None = None,
     reverse: bool = False,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> list[I]:
     """Sort items using keys produced by an async selector.
 
@@ -997,6 +1021,8 @@ def run_async_sort(
         timeout: Optional timeout in seconds for key selection.
         reverse: Mirror of ``sorted(..., reverse=...)``.
         max_concurrency: Optional cap on selector concurrency.
+        start: Optional zero-based index to begin sorting from.
+        stop: Optional zero-based index where sorting stops (exclusive).
 
     Returns:
         Sorted list preserving original order when keys are equal.
@@ -1014,18 +1040,18 @@ def run_async_sort(
     if not isinstance(reverse, bool):
         raise ValueError("reverse must be a boolean")
 
-    materialized_items = list(items)
-    if not materialized_items:
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
         return []
 
     selected_keys = run_async_map(
         coro_key_selector,
-        materialized_items,
+        searchable_items,
         timeout=timeout,
         max_concurrency=max_concurrency,
     )
 
-    sortable_pairs = list(zip(materialized_items, selected_keys, strict=True))
+    sortable_pairs = list(zip(searchable_items, selected_keys, strict=True))
 
     try:
         sortable_pairs.sort(key=lambda pair: pair[1], reverse=reverse)
@@ -1045,6 +1071,8 @@ def run_async_sort_batched(
     timeout: float | None = None,
     reverse: bool = False,
     max_concurrency: int | None = None,
+    start: int = 0,
+    stop: int | None = None,
 ) -> list[I]:
     """Batch-oriented variant of :func:`run_async_sort`.
 
@@ -1057,20 +1085,20 @@ def run_async_sort_batched(
     if not isinstance(reverse, bool):
         raise ValueError("reverse must be a boolean")
 
-    materialized_items = list(items)
-    if not materialized_items:
-        _validate_batch_size(batch_size)
+    _validate_batch_size(batch_size)
+    searchable_items = _slice_items_with_offsets(items, start=start, stop=stop)
+    if not searchable_items:
         return []
 
     selected_keys = run_async_map_batched(
         coro_key_selector,
-        materialized_items,
+        searchable_items,
         batch_size=batch_size,
         timeout=timeout,
         max_concurrency=max_concurrency,
     )
 
-    sortable_pairs = list(zip(materialized_items, selected_keys, strict=True))
+    sortable_pairs = list(zip(searchable_items, selected_keys, strict=True))
 
     try:
         sortable_pairs.sort(key=lambda pair: pair[1], reverse=reverse)

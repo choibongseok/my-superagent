@@ -908,6 +908,26 @@ def test_run_async_filter_timeout_applies_to_entire_run():
         run_async_filter(_slow, [1, 2, 3], timeout=0.01)
 
 
+def test_run_async_filter_supports_start_and_stop_offsets():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_filter(_is_even, [2, 3, 4, 5], start=1) == [4]
+    assert run_async_filter(_is_even, [2, 3, 4, 5], stop=2) == [2]
+
+
+def test_run_async_filter_rejects_invalid_offsets():
+    async def _is_even(value: int) -> bool:
+        return value % 2 == 0
+
+    with pytest.raises(ValueError, match="start must be an integer"):
+        run_async_filter(_is_even, [1, 2, 3], start=True)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="stop cannot be negative"):
+        run_async_filter(_is_even, [1, 2, 3], stop=-1)
+
+
 def test_run_async_filter_batched_returns_items_matching_predicate():
     async def _is_even(value: int) -> bool:
         await asyncio.sleep(0.01)
@@ -930,6 +950,17 @@ def test_run_async_filter_batched_rejects_non_positive_batch_size_for_empty_item
 
     with pytest.raises(ValueError, match="batch_size must be greater than 0"):
         run_async_filter_batched(_always_true, [], batch_size=0)
+
+
+def test_run_async_filter_batched_supports_start_and_stop_offsets():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_filter_batched(_is_even, [2, 3, 4, 5], batch_size=2, start=1) == [
+        4
+    ]
+    assert run_async_filter_batched(_is_even, [2, 3, 4, 5], batch_size=2, stop=2) == [2]
 
 
 def test_run_async_count_returns_number_of_matching_items():
@@ -957,6 +988,15 @@ def test_run_async_count_rejects_non_bool_predicate_results():
         run_async_count(_invalid, [1])
 
 
+def test_run_async_count_supports_start_and_stop_offsets():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_count(_is_even, [2, 3, 4, 5], start=1) == 1
+    assert run_async_count(_is_even, [2, 3, 4, 5], stop=2) == 1
+
+
 def test_run_async_count_batched_returns_number_of_matching_items():
     async def _is_even(value: int) -> bool:
         await asyncio.sleep(0.01)
@@ -979,6 +1019,15 @@ def test_run_async_count_batched_rejects_non_positive_batch_size_for_empty_items
 
     with pytest.raises(ValueError, match="batch_size must be greater than 0"):
         run_async_count_batched(_always_true, [], batch_size=0)
+
+
+def test_run_async_count_batched_supports_start_and_stop_offsets():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    assert run_async_count_batched(_is_even, [2, 3, 4, 5], batch_size=2, start=1) == 1
+    assert run_async_count_batched(_is_even, [2, 3, 4, 5], batch_size=2, stop=2) == 1
 
 
 def test_run_async_any_returns_true_when_predicate_matches_any_item():
@@ -1801,6 +1850,17 @@ def test_run_async_partition_rejects_non_bool_predicate_results():
         run_async_partition(_invalid, [1])
 
 
+def test_run_async_partition_supports_start_and_stop_offsets():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    matched, rejected = run_async_partition(_is_even, [2, 3, 4, 5], start=1, stop=3)
+
+    assert matched == [4]
+    assert rejected == [3]
+
+
 def test_run_async_partition_batched_returns_matched_and_rejected_lists():
     async def _is_positive(value: int) -> bool:
         await asyncio.sleep(0.01)
@@ -1822,6 +1882,23 @@ def test_run_async_partition_batched_rejects_non_positive_batch_size_for_empty_i
 
     with pytest.raises(ValueError, match="batch_size must be greater than 0"):
         run_async_partition_batched(_always_true, [], batch_size=0)
+
+
+def test_run_async_partition_batched_supports_start_and_stop_offsets():
+    async def _is_even(value: int) -> bool:
+        await asyncio.sleep(0.01)
+        return value % 2 == 0
+
+    matched, rejected = run_async_partition_batched(
+        _is_even,
+        [2, 3, 4, 5],
+        batch_size=2,
+        start=1,
+        stop=4,
+    )
+
+    assert matched == [4]
+    assert rejected == [3, 5]
 
 
 def test_run_async_group_by_groups_items_using_async_selector():
@@ -1869,6 +1946,16 @@ def test_run_async_group_by_rejects_unhashable_selector_results():
 
     with pytest.raises(TypeError, match="key selector must return hashable values"):
         run_async_group_by(_invalid_key, [1])
+
+
+def test_run_async_group_by_supports_start_and_stop_offsets():
+    async def _group(value: int) -> str:
+        await asyncio.sleep(0.01)
+        return "even" if value % 2 == 0 else "odd"
+
+    grouped = run_async_group_by(_group, [1, 2, 3, 4], start=1, stop=3)
+
+    assert grouped == {"even": [2], "odd": [3]}
 
 
 def test_run_async_group_by_batched_groups_items_across_batches():
@@ -1920,6 +2007,22 @@ def test_run_async_group_by_batched_rejects_non_positive_batch_size_for_empty_it
 
     with pytest.raises(ValueError, match="batch_size must be greater than 0"):
         run_async_group_by_batched(_selector, [], batch_size=0)
+
+
+def test_run_async_group_by_batched_supports_start_and_stop_offsets():
+    async def _group(value: int) -> str:
+        await asyncio.sleep(0.01)
+        return "even" if value % 2 == 0 else "odd"
+
+    grouped = run_async_group_by_batched(
+        _group,
+        [1, 2, 3, 4],
+        batch_size=2,
+        start=1,
+        stop=4,
+    )
+
+    assert grouped == {"even": [2, 4], "odd": [3]}
 
 
 def test_run_async_group_by_batched_timeout_applies_to_entire_run():
@@ -1978,6 +2081,15 @@ def test_run_async_sort_validates_reverse_flag():
         run_async_sort(_sort_key, [1, 2, 3], reverse="yes")  # type: ignore[arg-type]
 
 
+def test_run_async_sort_supports_start_and_stop_offsets():
+    async def _sort_key(value: int) -> int:
+        await asyncio.sleep(0.01)
+        return value
+
+    assert run_async_sort(_sort_key, [4, 1, 3, 2], start=1) == [1, 2, 3]
+    assert run_async_sort(_sort_key, [4, 1, 3, 2], stop=3) == [1, 3, 4]
+
+
 def test_run_async_sort_rejects_non_comparable_keys():
     async def _invalid_key(value: int) -> dict[str, int]:
         return {"value": value}
@@ -2015,6 +2127,25 @@ def test_run_async_sort_batched_rejects_non_positive_batch_size_for_empty_items(
 
     with pytest.raises(ValueError, match="batch_size must be greater than 0"):
         run_async_sort_batched(_sort_key, [], batch_size=0)
+
+
+def test_run_async_sort_batched_supports_start_and_stop_offsets():
+    async def _sort_key(value: int) -> int:
+        await asyncio.sleep(0.01)
+        return value
+
+    assert run_async_sort_batched(
+        _sort_key,
+        [4, 1, 3, 2],
+        batch_size=2,
+        start=1,
+    ) == [1, 2, 3]
+    assert run_async_sort_batched(
+        _sort_key,
+        [4, 1, 3, 2],
+        batch_size=2,
+        stop=3,
+    ) == [1, 3, 4]
 
 
 def test_run_async_sort_batched_rejects_non_comparable_keys():
