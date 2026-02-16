@@ -1,5 +1,6 @@
 """Autonomous Task Planner with goal-oriented planning and resource estimation."""
 
+import heapq
 import json
 import logging
 from dataclasses import dataclass, field
@@ -297,10 +298,111 @@ class TaskPlanner:
 
         return finish_times, predecessor
 
-    def estimate_makespan(self, plan: ExecutionPlan) -> int:
-        """Estimate wall-clock duration when steps run with maximum safe parallelism."""
-        finish_times, _ = self._build_dependency_timeline(plan)
-        return max(finish_times.values(), default=0)
+    @staticmethod
+    def _validate_parallelism_limit(max_parallel_steps: Optional[int]) -> Optional[int]:
+        """Validate optional parallelism limits used for schedule simulation."""
+        if max_parallel_steps is None:
+            return None
+
+        if isinstance(max_parallel_steps, bool) or not isinstance(
+            max_parallel_steps, int
+        ):
+            raise ValueError("max_parallel_steps must be a positive integer")
+
+        if max_parallel_steps <= 0:
+            raise ValueError("max_parallel_steps must be a positive integer")
+
+        return max_parallel_steps
+
+    def _estimate_makespan_with_parallelism_limit(
+        self,
+        plan: ExecutionPlan,
+        *,
+        max_parallel_steps: int,
+    ) -> int:
+        """Estimate makespan with dependency and worker-capacity constraints."""
+        self._validate_step_dependencies(plan.steps)
+
+        if not plan.steps:
+            return 0
+
+        step_by_id = {step.step_id: step for step in plan.steps}
+        order_index = {step.step_id: index for index, step in enumerate(plan.steps)}
+
+        unresolved_dependency_counts = {
+            step.step_id: len(step.dependencies) for step in plan.steps
+        }
+        dependents: Dict[str, List[str]] = {step.step_id: [] for step in plan.steps}
+        for step in plan.steps:
+            for dependency_id in step.dependencies:
+                dependents[dependency_id].append(step.step_id)
+
+        ready_queue = [
+            step.step_id
+            for step in plan.steps
+            if unresolved_dependency_counts[step.step_id] == 0
+        ]
+
+        running_steps: list[tuple[int, int, str]] = []
+        completed: set[str] = set()
+        current_time = 0
+
+        while len(completed) < len(plan.steps):
+            ready_queue.sort(key=lambda step_id: order_index[step_id])
+
+            while ready_queue and len(running_steps) < max_parallel_steps:
+                step_id = ready_queue.pop(0)
+                step = step_by_id[step_id]
+                finish_time = current_time + step.estimated_time
+                heapq.heappush(
+                    running_steps, (finish_time, order_index[step_id], step_id)
+                )
+
+            if not running_steps:
+                raise ValueError(
+                    "No runnable steps available during schedule simulation"
+                )
+
+            finish_time, _, finished_step_id = heapq.heappop(running_steps)
+            finished_step_ids = [finished_step_id]
+
+            while running_steps and running_steps[0][0] == finish_time:
+                _, _, tied_step_id = heapq.heappop(running_steps)
+                finished_step_ids.append(tied_step_id)
+
+            current_time = finish_time
+
+            for step_id in finished_step_ids:
+                completed.add(step_id)
+                for dependent_id in dependents[step_id]:
+                    unresolved_dependency_counts[dependent_id] -= 1
+                    if unresolved_dependency_counts[dependent_id] == 0:
+                        ready_queue.append(dependent_id)
+
+        return current_time
+
+    def estimate_makespan(
+        self,
+        plan: ExecutionPlan,
+        *,
+        max_parallel_steps: Optional[int] = None,
+    ) -> int:
+        """Estimate wall-clock duration with optional parallelism constraints.
+
+        Args:
+            plan: Plan to evaluate.
+            max_parallel_steps: Optional worker-capacity limit. When omitted,
+                assumes all dependency-safe steps can run in parallel.
+        """
+        validated_limit = self._validate_parallelism_limit(max_parallel_steps)
+        if validated_limit is None:
+            finish_times, _ = self._build_dependency_timeline(plan)
+            return max(finish_times.values(), default=0)
+
+        return self._estimate_makespan_with_parallelism_limit(
+            plan,
+            max_parallel_steps=validated_limit,
+        )
 
     def get_critical_path(self, plan: ExecutionPlan) -> List[str]:
         """Return the critical path (longest dependency chain) for a plan."""
@@ -324,13 +426,27 @@ class TaskPlanner:
         critical_path.reverse()
         return critical_path
 
-    def get_execution_summary(self, plan: ExecutionPlan) -> Dict[str, Any]:
-        """Return dependency-aware schedule metrics for execution planning."""
+    def get_execution_summary(
+        self,
+        plan: ExecutionPlan,
+        *,
+        max_parallel_steps: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Return dependency-aware schedule metrics for execution planning.
+
+        Args:
+            plan: Plan to summarize.
+            max_parallel_steps: Optional worker-capacity limit used for
+                makespan and parallelism-gain estimation.
+        """
         batches = self.get_execution_batches(plan)
-        makespan = self.estimate_makespan(plan)
+        makespan = self.estimate_makespan(
+            plan,
+            max_parallel_steps=max_parallel_steps,
+        )
         total_work = sum(step.estimated_time for step in plan.steps)
 
-        return {
+        summary: Dict[str, Any] = {
             "total_steps": len(plan.steps),
             "batch_count": len(batches),
             "batch_sizes": [len(batch) for batch in batches],
@@ -339,6 +455,13 @@ class TaskPlanner:
             "parallelism_gain": round(total_work / makespan, 2) if makespan else 0.0,
             "critical_path_step_ids": self.get_critical_path(plan),
         }
+
+        if max_parallel_steps is not None:
+            summary["max_parallel_steps"] = self._validate_parallelism_limit(
+                max_parallel_steps
+            )
+
+        return summary
 
     def _get_ready_and_blocked_steps(
         self,
@@ -397,9 +520,9 @@ class TaskPlanner:
                 if dependency_id not in completed_ids
             ]
             if incomplete_dependencies:
-                blocked_by_incomplete_dependencies[step.step_id] = (
-                    incomplete_dependencies
-                )
+                blocked_by_incomplete_dependencies[
+                    step.step_id
+                ] = incomplete_dependencies
                 continue
 
             ready_steps.append(step)

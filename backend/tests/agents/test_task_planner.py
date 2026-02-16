@@ -120,6 +120,76 @@ def test_estimate_makespan_accounts_for_parallelism(planner_stub):
     assert planner_stub.estimate_makespan(plan) == 70
 
 
+def test_estimate_makespan_supports_optional_parallelism_limits(planner_stub):
+    """Makespan estimation should support explicit worker-capacity constraints."""
+    steps = [
+        PlanStep("step_1", "Collect market data", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Collect user feedback", "research", 30, 0.02, 2000),
+        PlanStep("step_3", "Collect competitor data", "research", 30, 0.02, 2000),
+        PlanStep(
+            "step_4",
+            "Synthesize findings",
+            "docs",
+            10,
+            0.03,
+            3000,
+            ["step_1", "step_2", "step_3"],
+        ),
+    ]
+
+    plan = _build_plan(steps)
+
+    assert planner_stub.estimate_makespan(plan) == 40
+    assert planner_stub.estimate_makespan(plan, max_parallel_steps=2) == 70
+    assert planner_stub.estimate_makespan(plan, max_parallel_steps=1) == 100
+
+
+def test_estimate_makespan_rejects_invalid_parallelism_limits(planner_stub):
+    """Parallelism limit should be validated before schedule simulation."""
+    plan = _build_plan(
+        [
+            PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        ]
+    )
+
+    with pytest.raises(
+        ValueError, match="max_parallel_steps must be a positive integer"
+    ):
+        planner_stub.estimate_makespan(plan, max_parallel_steps=0)
+
+    with pytest.raises(
+        ValueError, match="max_parallel_steps must be a positive integer"
+    ):
+        planner_stub.estimate_makespan(plan, max_parallel_steps=True)  # type: ignore[arg-type]
+
+
+def test_get_execution_summary_includes_parallelism_limit_when_provided(planner_stub):
+    """Execution summary should report the worker-capacity limit when set."""
+    steps = [
+        PlanStep("step_1", "Collect market data", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Collect user feedback", "research", 30, 0.02, 2000),
+        PlanStep("step_3", "Collect competitor data", "research", 30, 0.02, 2000),
+        PlanStep(
+            "step_4",
+            "Synthesize findings",
+            "docs",
+            10,
+            0.03,
+            3000,
+            ["step_1", "step_2", "step_3"],
+        ),
+    ]
+
+    summary = planner_stub.get_execution_summary(
+        _build_plan(steps),
+        max_parallel_steps=2,
+    )
+
+    assert summary["makespan_seconds"] == 70
+    assert summary["parallelism_gain"] == 1.43
+    assert summary["max_parallel_steps"] == 2
+
+
 def test_get_critical_path_prefers_longest_dependency_chain(planner_stub):
     """Critical path should follow dependencies that determine makespan."""
     steps = [
