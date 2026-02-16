@@ -463,7 +463,12 @@ class BasePlugin(ABC):
             schema=schema,
             expected_type=expected_type,
         )
-        cls._validate_length_bounds(key=key, value=value, schema=schema)
+        cls._validate_length_bounds(
+            key=key,
+            value=value,
+            schema=schema,
+            expected_type=expected_type,
+        )
         cls._validate_pattern_constraint(
             key=key,
             value=value,
@@ -645,19 +650,52 @@ class BasePlugin(ABC):
         key: str,
         value: Any,
         schema: Dict[str, Any],
+        expected_type: Optional[str],
     ) -> None:
-        """Validate optional min/max length constraints for sized values."""
+        """Validate optional length/item/property constraints for sized values."""
+        if expected_type == "array":
+            min_aliases = ("min_items", "minItems", "min_length", "minLength")
+            max_aliases = ("max_items", "maxItems", "max_length", "maxLength")
+            min_label = "min_items"
+            max_label = "max_items"
+            min_error = "must include at least {limit} items"
+            max_error = "must include at most {limit} items"
+        elif expected_type == "object":
+            min_aliases = (
+                "min_properties",
+                "minProperties",
+                "min_length",
+                "minLength",
+            )
+            max_aliases = (
+                "max_properties",
+                "maxProperties",
+                "max_length",
+                "maxLength",
+            )
+            min_label = "min_properties"
+            max_label = "max_properties"
+            min_error = "must include at least {limit} properties"
+            max_error = "must include at most {limit} properties"
+        else:
+            min_aliases = ("min_length", "minLength")
+            max_aliases = ("max_length", "maxLength")
+            min_label = "min_length"
+            max_label = "max_length"
+            min_error = "length must be at least {limit}"
+            max_error = "length must be at most {limit}"
+
         min_length = cls._coerce_length_constraint(
             schema,
             key=key,
-            aliases=("min_length", "minLength"),
-            label="min_length",
+            aliases=min_aliases,
+            label=min_label,
         )
         max_length = cls._coerce_length_constraint(
             schema,
             key=key,
-            aliases=("max_length", "maxLength"),
-            label="max_length",
+            aliases=max_aliases,
+            label=max_label,
         )
 
         if min_length is None and max_length is None:
@@ -669,7 +707,7 @@ class BasePlugin(ABC):
             and min_length > max_length
         ):
             raise ValueError(
-                f"Invalid schema for input '{key}': min_length cannot be greater than max_length"
+                f"Invalid schema for input '{key}': {min_label} cannot be greater than {max_label}"
             )
 
         try:
@@ -681,12 +719,12 @@ class BasePlugin(ABC):
 
         if min_length is not None and value_length < min_length:
             raise ValueError(
-                f"Invalid value for input '{key}': length must be at least {min_length}"
+                f"Invalid value for input '{key}': {min_error.format(limit=min_length)}"
             )
 
         if max_length is not None and value_length > max_length:
             raise ValueError(
-                f"Invalid value for input '{key}': length must be at most {max_length}"
+                f"Invalid value for input '{key}': {max_error.format(limit=max_length)}"
             )
 
     @staticmethod

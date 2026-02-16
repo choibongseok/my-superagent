@@ -105,6 +105,18 @@ class ConstrainedSchemaPlugin(BasePlugin):
                     "required": False,
                     "max_length": 3,
                 },
+                "reviewers": {
+                    "type": "array",
+                    "required": False,
+                    "min_items": 1,
+                    "max_items": 2,
+                },
+                "metadata": {
+                    "type": "object",
+                    "required": False,
+                    "min_properties": 1,
+                    "max_properties": 2,
+                },
                 "temperature": {
                     "type": "number",
                     "required": False,
@@ -206,6 +218,39 @@ class JsonSchemaConfigPlugin(BasePlugin):
                     },
                 },
                 "required": ["api_key"],
+            },
+        )
+
+
+class ConfigLengthConstraintPlugin(BasePlugin):
+    """Plugin with array/object config length constraints."""
+
+    async def initialize(self) -> None:
+        return None
+
+    async def execute(self, inputs):
+        return inputs
+
+    def get_manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="config-length-constraints",
+            version="1.0.0",
+            description="Config length constraints plugin",
+            author="tests",
+            permissions=[],
+            inputs={"query": "string (required)"},
+            outputs={"ok": "boolean"},
+            config_schema={
+                "labels": {
+                    "type": "array",
+                    "min_items": 1,
+                    "max_items": 2,
+                },
+                "limits": {
+                    "type": "object",
+                    "min_properties": 1,
+                    "max_properties": 2,
+                },
             },
         )
 
@@ -336,12 +381,70 @@ async def test_validate_inputs_rejects_values_outside_length_bounds():
 
     with pytest.raises(
         ValueError,
-        match="Invalid value for input 'tags': length must be at most 3",
+        match="Invalid value for input 'tags': must include at most 3 items",
     ):
         await plugin.validate_inputs(
             {
                 "slug": "agenthq-release-1",
                 "tags": ["ops", "release", "qa", "infra"],
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_array_item_bounds_when_using_min_max_items():
+    plugin = ConstrainedSchemaPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'reviewers': must include at least 1 items",
+    ):
+        await plugin.validate_inputs(
+            {
+                "slug": "agenthq-release-1",
+                "reviewers": [],
+            }
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'reviewers': must include at most 2 items",
+    ):
+        await plugin.validate_inputs(
+            {
+                "slug": "agenthq-release-1",
+                "reviewers": ["alice", "bob", "charlie"],
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_validate_inputs_rejects_object_property_bounds_when_using_min_max_properties():
+    plugin = ConstrainedSchemaPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'metadata': must include at least 1 properties",
+    ):
+        await plugin.validate_inputs(
+            {
+                "slug": "agenthq-release-1",
+                "metadata": {},
+            }
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'metadata': must include at most 2 properties",
+    ):
+        await plugin.validate_inputs(
+            {
+                "slug": "agenthq-release-1",
+                "metadata": {
+                    "owner": "ops",
+                    "stage": "prod",
+                    "region": "kr",
+                },
             }
         )
 
@@ -434,3 +537,49 @@ def test_validate_config_supports_json_schema_style_required_and_defaults():
         "api_key": "abc123",
         "retry_count": 2,
     }
+
+
+def test_validate_config_supports_array_and_object_size_constraints():
+    plugin = ConfigLengthConstraintPlugin()
+
+    validated_config = plugin.validate_config(
+        {
+            "labels": ["release"],
+            "limits": {"max": 5},
+        }
+    )
+
+    assert validated_config == {
+        "labels": ["release"],
+        "limits": {"max": 5},
+    }
+
+
+def test_validate_config_rejects_array_and_object_size_constraint_violations():
+    plugin = ConfigLengthConstraintPlugin()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'labels': must include at least 1 items",
+    ):
+        plugin.validate_config(
+            {
+                "labels": [],
+                "limits": {"max": 5},
+            }
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid value for input 'limits': must include at most 2 properties",
+    ):
+        plugin.validate_config(
+            {
+                "labels": ["release"],
+                "limits": {
+                    "a": 1,
+                    "b": 2,
+                    "c": 3,
+                },
+            }
+        )
