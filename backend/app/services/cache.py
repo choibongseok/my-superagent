@@ -2694,8 +2694,9 @@ class LocalCacheService:
                 active key, ``"expiring"`` returns only TTL-bound keys, and
                 ``"persistent"`` returns only non-expiring keys.
             sort_by: Entry sort strategy. ``"key"`` (default) sorts by key,
-                ``"ttl_seconds"`` sorts by remaining TTL, and
-                ``"expires_at"`` sorts by absolute expiration time.
+                ``"namespace"`` groups by extracted namespace, ``"ttl_seconds"``
+                sorts by remaining TTL, and ``"expires_at"`` sorts by
+                absolute expiration time.
             min_ttl_seconds: Optional lower bound (inclusive) for entry TTL.
                 When provided, only expiring entries with remaining TTL at or
                 above this value are returned.
@@ -2723,9 +2724,9 @@ class LocalCacheService:
                 'expiration must be one of: "all", "expiring", "persistent"'
             )
 
-        if sort_by not in {"key", "ttl_seconds", "expires_at"}:
+        if sort_by not in {"key", "namespace", "ttl_seconds", "expires_at"}:
             raise ValueError(
-                'sort_by must be one of: "key", "ttl_seconds", "expires_at"'
+                'sort_by must be one of: "key", "namespace", "ttl_seconds", "expires_at"'
             )
 
         normalized_min_ttl: float | None = None
@@ -2758,7 +2759,7 @@ class LocalCacheService:
             raise ValueError("min_ttl_seconds cannot be greater than max_ttl_seconds")
 
         normalized_namespace_separator: str | None = None
-        if include_namespace:
+        if include_namespace or sort_by == "namespace":
             normalized_namespace_separator = self._normalize_namespace_separator(
                 namespace_separator
             )
@@ -2790,10 +2791,18 @@ class LocalCacheService:
                 if normalized_max_ttl is not None and ttl_seconds > normalized_max_ttl:
                     continue
 
+            namespace_value: str | None = None
+            if normalized_namespace_separator is not None:
+                namespace_value = self._extract_namespace(
+                    key,
+                    separator=normalized_namespace_separator,
+                )
+
             entry: dict[str, Any] = {
                 "key": key,
                 "ttl_seconds": ttl_seconds,
                 "_expires_at": expires_at,
+                "_namespace": namespace_value,
             }
             if include_values:
                 entry["value"] = value
@@ -2801,15 +2810,17 @@ class LocalCacheService:
                 entry["tags"] = sorted(self._tags_by_key.get(key, set()))
             if include_expires_at:
                 entry["expires_at"] = expires_at
-            if include_namespace and normalized_namespace_separator is not None:
-                entry["namespace"] = self._extract_namespace(
-                    key,
-                    separator=normalized_namespace_separator,
-                )
+            if include_namespace:
+                entry["namespace"] = namespace_value
             entries.append(entry)
 
         if sort_by == "key":
             entries.sort(key=lambda entry: entry["key"], reverse=descending)
+        elif sort_by == "namespace":
+            entries.sort(
+                key=lambda entry: (entry["_namespace"] or "", entry["key"]),
+                reverse=descending,
+            )
         elif sort_by == "ttl_seconds":
             entries.sort(
                 key=lambda entry: (
@@ -2839,6 +2850,7 @@ class LocalCacheService:
 
         for entry in entries:
             entry.pop("_expires_at", None)
+            entry.pop("_namespace", None)
 
         return entries
 

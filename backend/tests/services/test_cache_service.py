@@ -3192,6 +3192,63 @@ def test_local_cache_list_entries_supports_ttl_and_expiration_sorting():
     ]
 
 
+def test_local_cache_list_entries_supports_namespace_sorting():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "team:zeta": 1,
+            "orphan": 2,
+            "session:beta": 3,
+            "session:alpha": 4,
+            "team:alpha": 5,
+        }
+    )
+
+    by_namespace = cache.list_entries(sort_by="namespace", include_namespace=True)
+    assert [entry["key"] for entry in by_namespace] == [
+        "orphan",
+        "session:alpha",
+        "session:beta",
+        "team:alpha",
+        "team:zeta",
+    ]
+    assert [entry["namespace"] for entry in by_namespace] == [
+        "orphan",
+        "session",
+        "session",
+        "team",
+        "team",
+    ]
+
+    by_namespace_desc = cache.list_entries(sort_by="namespace", descending=True)
+    assert [entry["key"] for entry in by_namespace_desc] == [
+        "team:zeta",
+        "team:alpha",
+        "session:beta",
+        "session:alpha",
+        "orphan",
+    ]
+
+
+def test_local_cache_list_entries_namespace_sorting_supports_custom_separator():
+    cache = LocalCacheService()
+    cache.set_many(
+        {
+            "team/omega": 1,
+            "project/alpha": 2,
+            "project/zeta": 3,
+        }
+    )
+
+    entries = cache.list_entries(sort_by="namespace", namespace_separator="/")
+
+    assert [entry["key"] for entry in entries] == [
+        "project/alpha",
+        "project/zeta",
+        "team/omega",
+    ]
+
+
 def test_local_cache_list_entries_can_include_tags_and_absolute_expiration():
     cache = LocalCacheService()
     cache.set_tagged("persistent", {"v": 1}, tags=["stable", "alpha"])
@@ -3332,7 +3389,7 @@ def test_local_cache_list_entries_rejects_invalid_expiration_and_sort_options():
 
     with pytest.raises(
         ValueError,
-        match='sort_by must be one of: "key", "ttl_seconds", "expires_at"',
+        match='sort_by must be one of: "key", "namespace", "ttl_seconds", "expires_at"',
     ):
         cache.list_entries(sort_by="recency")
 
