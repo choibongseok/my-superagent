@@ -776,6 +776,92 @@ async def test_reload_plugins_supports_selectors_and_config_overrides(
 
 
 @pytest.mark.asyncio
+async def test_reload_plugins_filters_by_required_permissions(tmp_path, monkeypatch):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+
+    alpha_lifecycle: dict[str, int] = {}
+    beta_lifecycle: dict[str, int] = {}
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"], alpha_lifecycle),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class("beta-plugin", ["filesystem.read"], beta_lifecycle),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    reloaded = await manager.reload_plugins(required_permissions=["network.*"])
+
+    assert reloaded == ["alpha-plugin"]
+    assert alpha_lifecycle == {"initialized": 2, "cleaned": 1}
+    assert beta_lifecycle == {"initialized": 1}
+
+
+@pytest.mark.asyncio
+async def test_reload_plugins_required_permissions_support_any_matching(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "network_only.py").write_text("# network", encoding="utf-8")
+    (tmp_path / "filesystem_only.py").write_text("# filesystem", encoding="utf-8")
+
+    network_lifecycle: dict[str, int] = {}
+    filesystem_lifecycle: dict[str, int] = {}
+
+    modules = {
+        "app.plugins.network_only": _plugin_module(
+            "app.plugins.network_only",
+            _build_plugin_class(
+                "network-only",
+                ["network.http"],
+                network_lifecycle,
+            ),
+        ),
+        "app.plugins.filesystem_only": _plugin_module(
+            "app.plugins.filesystem_only",
+            _build_plugin_class(
+                "filesystem-only",
+                ["filesystem.read"],
+                filesystem_lifecycle,
+            ),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    reloaded = await manager.reload_plugins(
+        required_permissions=["network.http", "filesystem.read"],
+        match_any_permissions=True,
+    )
+
+    assert reloaded == ["filesystem-only", "network-only"]
+    assert network_lifecycle == {"initialized": 2, "cleaned": 1}
+    assert filesystem_lifecycle == {"initialized": 2, "cleaned": 1}
+
+
+@pytest.mark.asyncio
 async def test_reload_plugins_validates_selector_overlap_and_config_payload(tmp_path):
     manager = PluginManager(plugin_dir=str(tmp_path))
 
@@ -796,6 +882,37 @@ async def test_reload_plugins_validates_selector_overlap_and_config_payload(tmp_
         match="plugin_configs values must be mapping configuration objects",
     ):
         await manager.reload_plugins(plugin_configs={"weather": "metric"})
+
+
+@pytest.mark.asyncio
+async def test_reload_and_unload_plugins_validate_required_permissions_payload(
+    tmp_path,
+):
+    manager = PluginManager(plugin_dir=str(tmp_path))
+
+    with pytest.raises(
+        ValueError,
+        match="required_permissions must contain only strings",
+    ):
+        await manager.reload_plugins(required_permissions=["network.http", 1])
+
+    with pytest.raises(
+        ValueError,
+        match="required_permissions cannot contain blank values",
+    ):
+        await manager.reload_plugins(required_permissions=["   "])
+
+    with pytest.raises(
+        ValueError,
+        match="required_permissions must contain only strings",
+    ):
+        await manager.unload_plugins(required_permissions=["network.http", 1])
+
+    with pytest.raises(
+        ValueError,
+        match="required_permissions cannot contain blank values",
+    ):
+        await manager.unload_plugins(required_permissions=["   "])
 
 
 @pytest.mark.asyncio
@@ -880,6 +997,96 @@ async def test_unload_plugins_supports_selectors(tmp_path, monkeypatch):
 
     remaining = manager.list_plugins(sort_by="name")
     assert [item["name"] for item in remaining] == ["slack-plugin"]
+
+
+@pytest.mark.asyncio
+async def test_unload_plugins_filters_by_required_permissions(tmp_path, monkeypatch):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+
+    alpha_lifecycle: dict[str, int] = {}
+    beta_lifecycle: dict[str, int] = {}
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"], alpha_lifecycle),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class("beta-plugin", ["filesystem.read"], beta_lifecycle),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    unloaded = await manager.unload_plugins(required_permissions=["network.*"])
+
+    assert unloaded == ["alpha-plugin"]
+    assert alpha_lifecycle == {"initialized": 1, "cleaned": 1}
+    assert beta_lifecycle == {"initialized": 1}
+
+    remaining = manager.list_plugins(sort_by="name")
+    assert [item["name"] for item in remaining] == ["beta-plugin"]
+
+
+@pytest.mark.asyncio
+async def test_unload_plugins_required_permissions_support_any_matching(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "network_only.py").write_text("# network", encoding="utf-8")
+    (tmp_path / "filesystem_only.py").write_text("# filesystem", encoding="utf-8")
+
+    network_lifecycle: dict[str, int] = {}
+    filesystem_lifecycle: dict[str, int] = {}
+
+    modules = {
+        "app.plugins.network_only": _plugin_module(
+            "app.plugins.network_only",
+            _build_plugin_class(
+                "network-only",
+                ["network.http"],
+                network_lifecycle,
+            ),
+        ),
+        "app.plugins.filesystem_only": _plugin_module(
+            "app.plugins.filesystem_only",
+            _build_plugin_class(
+                "filesystem-only",
+                ["filesystem.read"],
+                filesystem_lifecycle,
+            ),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    unloaded = await manager.unload_plugins(
+        required_permissions=["network.http", "filesystem.read"],
+        match_any_permissions=True,
+    )
+
+    assert unloaded == ["filesystem-only", "network-only"]
+    assert network_lifecycle == {"initialized": 1, "cleaned": 1}
+    assert filesystem_lifecycle == {"initialized": 1, "cleaned": 1}
+    assert manager.list_plugins() == []
 
 
 @pytest.mark.asyncio
@@ -1040,6 +1247,18 @@ async def test_required_permission_any_matching_flag_must_be_boolean(tmp_path):
 
     with pytest.raises(ValueError, match="match_any_permissions must be a boolean"):
         manager.list_plugins(
+            required_permissions=["network.http"],
+            match_any_permissions="yes",  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(ValueError, match="match_any_permissions must be a boolean"):
+        await manager.reload_plugins(
+            required_permissions=["network.http"],
+            match_any_permissions="yes",  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(ValueError, match="match_any_permissions must be a boolean"):
+        await manager.unload_plugins(
             required_permissions=["network.http"],
             match_any_permissions="yes",  # type: ignore[arg-type]
         )

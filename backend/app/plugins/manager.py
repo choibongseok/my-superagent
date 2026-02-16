@@ -1068,6 +1068,8 @@ class PluginManager:
         *,
         include_plugins: Optional[Sequence[str]] = None,
         exclude_plugins: Optional[Sequence[str]] = None,
+        required_permissions: Optional[Sequence[str]] = None,
+        match_any_permissions: bool = False,
         plugin_configs: Optional[Mapping[str, Mapping[str, Any]]] = None,
         stop_on_error: bool = False,
     ) -> List[str]:
@@ -1078,6 +1080,12 @@ class PluginManager:
                 module stem/path, filename, or glob pattern).
             exclude_plugins: Optional denylist of selectors in the same format
                 as ``include_plugins``.
+            required_permissions: Optional permission filter. When provided,
+                only plugins matching required permissions are reloaded. Exact
+                names and glob patterns are supported.
+            match_any_permissions: When ``True``, permission filtering uses OR
+                semantics (any required permission). Defaults to ``False`` for
+                AND semantics.
             plugin_configs: Optional configuration overrides applied per plugin.
                 Keys may reference manifest name (e.g. ``"weather-plugin"``),
                 normalized manifest name (``"weather_plugin"``), module path
@@ -1097,6 +1105,12 @@ class PluginManager:
             self._normalize_module_selector(selector)
             for selector in (exclude_plugins or [])
         }
+        normalized_required_permissions = self._normalize_required_permissions(
+            required_permissions
+        )
+
+        if not isinstance(match_any_permissions, bool):
+            raise ValueError("match_any_permissions must be a boolean")
 
         if include_selectors is not None:
             overlap = include_selectors & exclude_selectors
@@ -1130,6 +1144,13 @@ class PluginManager:
             ):
                 continue
 
+            if not self._has_required_permissions(
+                manifest.permissions,
+                normalized_required_permissions,
+                match_any_permissions=match_any_permissions,
+            ):
+                continue
+
             override_config = self._resolve_plugin_override_config(
                 manifest_name=manifest.name,
                 module_path=module_path,
@@ -1156,6 +1177,8 @@ class PluginManager:
         *,
         include_plugins: Optional[Sequence[str]] = None,
         exclude_plugins: Optional[Sequence[str]] = None,
+        required_permissions: Optional[Sequence[str]] = None,
+        match_any_permissions: bool = False,
         stop_on_error: bool = False,
     ) -> List[str]:
         """Unload loaded plugins in bulk with optional selectors.
@@ -1165,6 +1188,12 @@ class PluginManager:
                 module stem/path, filename, or glob pattern).
             exclude_plugins: Optional denylist of selectors in the same format
                 as ``include_plugins``.
+            required_permissions: Optional permission filter. When provided,
+                only plugins matching required permissions are unloaded. Exact
+                names and glob patterns are supported.
+            match_any_permissions: When ``True``, permission filtering uses OR
+                semantics (any required permission). Defaults to ``False`` for
+                AND semantics.
             stop_on_error: If ``True``, re-raise the first unload failure.
 
         Returns:
@@ -1179,6 +1208,12 @@ class PluginManager:
             self._normalize_module_selector(selector)
             for selector in (exclude_plugins or [])
         }
+        normalized_required_permissions = self._normalize_required_permissions(
+            required_permissions
+        )
+
+        if not isinstance(match_any_permissions, bool):
+            raise ValueError("match_any_permissions must be a boolean")
 
         if include_selectors is not None:
             overlap = include_selectors & exclude_selectors
@@ -1206,6 +1241,13 @@ class PluginManager:
                 manifest.name,
                 module_path,
                 exclude_selectors,
+            ):
+                continue
+
+            if not self._has_required_permissions(
+                manifest.permissions,
+                normalized_required_permissions,
+                match_any_permissions=match_any_permissions,
             ):
                 continue
 
