@@ -98,6 +98,58 @@ def test_replace_template_variables_supports_custom_delimiters_and_value_coercio
     )
 
 
+@pytest.mark.parametrize(
+    "variable_order,expected_placeholders",
+    [
+        ("asc", ["{{alpha}}", "{{middle}}", "{{zeta}}"]),
+        ("desc", ["{{zeta}}", "{{middle}}", "{{alpha}}"]),
+    ],
+)
+def test_replace_template_variables_supports_variable_order_sorting(
+    docs_api,
+    variable_order,
+    expected_placeholders,
+):
+    """Template replacements can be sorted deterministically by placeholder name."""
+    api, mocked_service = docs_api
+
+    api.replace_template_variables(
+        "doc-order",
+        {
+            "zeta": "last",
+            "alpha": "first",
+            "middle": "middle",
+        },
+        variable_order=variable_order,
+    )
+
+    requests = mocked_service.documents.return_value.batchUpdate.call_args.kwargs[
+        "body"
+    ]["requests"]
+    assert [
+        request["replaceAllText"]["containsText"]["text"] for request in requests
+    ] == expected_placeholders
+
+
+@pytest.mark.parametrize("variable_order", [None, "", "random", 1])
+def test_replace_template_variables_rejects_invalid_variable_order(
+    docs_api, variable_order
+):
+    """variable_order should only accept input/asc/desc strings."""
+    api, mocked_service = docs_api
+
+    with pytest.raises(
+        ValueError, match="variable_order must be one of: input, asc, desc"
+    ):
+        api.replace_template_variables(
+            "doc-invalid-order",
+            {"name": "AgentHQ"},
+            variable_order=variable_order,  # type: ignore[arg-type]
+        )
+
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
 def test_replace_template_variables_supports_custom_value_serializer(docs_api):
     """Custom value serializers should transform non-None replacements."""
     api, mocked_service = docs_api

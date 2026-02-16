@@ -178,6 +178,18 @@ class GoogleDocsAPI:
         return value
 
     @staticmethod
+    def _normalize_variable_order(value: Any) -> str:
+        """Normalize variable ordering strategies for replacement requests."""
+        if not isinstance(value, str):
+            raise ValueError("variable_order must be one of: input, asc, desc")
+
+        normalized_order = value.strip().lower()
+        if normalized_order not in {"input", "asc", "desc"}:
+            raise ValueError("variable_order must be one of: input, asc, desc")
+
+        return normalized_order
+
+    @staticmethod
     def _normalize_nested_key_separator(value: Any) -> str:
         """Normalize nested-variable key separators used during flattening."""
         if not isinstance(value, str):
@@ -274,6 +286,7 @@ class GoogleDocsAPI:
         flatten_nested_sequences: bool = False,
         nested_key_separator: str = ".",
         value_serializer: Callable[[Any], Any] | None = None,
+        variable_order: str = "input",
     ) -> dict[str, Any]:
         """Replace template placeholders (e.g. ``{{name}}``) in a document.
 
@@ -309,6 +322,10 @@ class GoogleDocsAPI:
                 replacement values before string coercion.
                 Serializer return values of ``None`` are treated as empty
                 replacement strings.
+            variable_order: Placeholder request ordering strategy.
+                ``"input"`` preserves incoming mapping order,
+                ``"asc"`` sorts normalized placeholder names ascending, and
+                ``"desc"`` sorts them descending.
 
         Returns:
             API response dictionary from ``documents().batchUpdate``.
@@ -326,7 +343,7 @@ class GoogleDocsAPI:
             ValueError: If variables/prefix/suffix/match_case/batch size,
                 flattening options, duplicate flattened keys, or
                 ``dry_run``/``skip_none_values``/``skip_blank_values``/
-                ``value_serializer`` are invalid.
+                ``value_serializer``/``variable_order`` are invalid.
             HttpError: If Google Docs replacement request fails.
         """
         if not isinstance(variables, Mapping):
@@ -351,6 +368,7 @@ class GoogleDocsAPI:
             nested_key_separator
         )
         normalized_value_serializer = self._normalize_value_serializer(value_serializer)
+        normalized_variable_order = self._normalize_variable_order(variable_order)
         normalized_max_requests_per_batch = self._normalize_max_requests_per_batch(
             max_requests_per_batch
         )
@@ -398,6 +416,13 @@ class GoogleDocsAPI:
                     "flattened variables contain duplicate placeholder keys; "
                     "adjust nested keys or disable flatten_nested_variables"
                 )
+
+        if normalized_variable_order != "input":
+            variable_items = sorted(
+                variable_items,
+                key=lambda item: item[0],
+                reverse=normalized_variable_order == "desc",
+            )
 
         requests: list[dict[str, Any]] = []
         for normalized_name, replacement_value in variable_items:
