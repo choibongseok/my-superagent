@@ -915,6 +915,93 @@ def test_invalidate_cache_case_insensitive_regex_matching(monkeypatch):
     assert list(tool._cache.keys()) == ["weather seoul"]
 
 
+def test_list_cache_entries_reports_status_and_payload_metadata(monkeypatch):
+    """Cache inspection should expose age/status and payload size diagnostics."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 200.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=10,
+        cache_max_entries=16,
+        stale_cache_ttl_seconds=30,
+    )
+
+    tool._cache["active query"] = (195.0, "a")
+    tool._cache["stale query"] = (180.0, "bb")
+    tool._cache["expired query"] = (150.0, "ccc")
+
+    assert tool.list_cache_entries() == [
+        {
+            "query": "active query",
+            "age_seconds": 5.0,
+            "status": "active",
+            "payload_chars": 1,
+        },
+        {
+            "query": "stale query",
+            "age_seconds": 20.0,
+            "status": "stale_eligible",
+            "payload_chars": 2,
+        },
+        {
+            "query": "expired query",
+            "age_seconds": 50.0,
+            "status": "expired",
+            "payload_chars": 3,
+        },
+    ]
+
+
+def test_list_cache_entries_supports_newest_first_and_limit(monkeypatch):
+    """Cache inspection should support ordering and deterministic limit capping."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 120.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=60, cache_max_entries=16)
+    tool._cache["alpha"] = (100.0, "a")
+    tool._cache["beta"] = (101.0, "b")
+    tool._cache["gamma"] = (102.0, "c")
+
+    entries = tool.list_cache_entries(newest_first=True, limit=2)
+
+    assert [entry["query"] for entry in entries] == ["gamma", "beta"]
+
+
+def test_list_cache_entries_rejects_invalid_options(monkeypatch):
+    """Cache inspection options should validate limit and newest_first values."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=60, cache_max_entries=16)
+
+    with pytest.raises(ValueError, match="newest_first must be a boolean value"):
+        tool.list_cache_entries(newest_first="true")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="limit must be a positive integer"):
+        tool.list_cache_entries(limit=0)
+
+    with pytest.raises(ValueError, match="limit must be a positive integer"):
+        tool.list_cache_entries(limit=True)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="limit must be a positive integer"):
+        tool.list_cache_entries(limit=1.5)  # type: ignore[arg-type]
+
+
 def test_prune_cache_removes_entries_outside_retention_window(monkeypatch):
     """prune_cache should drop entries older than TTL/stale retention windows."""
     fake_backend = _FakeSearchBackend(response="payload")

@@ -622,6 +622,75 @@ class DuckDuckGoSearchTool(BaseTool):
         for metric_name in self._cache_metrics:
             self._cache_metrics[metric_name] = 0
 
+    def _cache_entry_status(self, age_seconds: float) -> str:
+        """Classify cache-entry freshness for diagnostics and observability."""
+        if self._cache_ttl_seconds is None:
+            return "unbounded"
+
+        if age_seconds <= self._cache_ttl_seconds:
+            return "active"
+
+        if (
+            self._stale_cache_ttl_seconds is not None
+            and age_seconds <= self._stale_cache_ttl_seconds
+        ):
+            return "stale_eligible"
+
+        return "expired"
+
+    def list_cache_entries(
+        self,
+        *,
+        limit: int | None = None,
+        newest_first: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Return a deterministic snapshot of cached queries and freshness state.
+
+        Args:
+            limit: Optional maximum number of cache entries to return.
+            newest_first: When ``True``, return entries from newest to oldest.
+
+        Returns:
+            List of per-entry diagnostics with query key, age, freshness status,
+            and payload size metadata.
+
+        Raises:
+            ValueError: If ``limit`` is not a positive integer or if
+                ``newest_first`` is not a boolean value.
+        """
+        if not isinstance(newest_first, bool):
+            raise ValueError("newest_first must be a boolean value")
+
+        if limit is not None:
+            if isinstance(limit, bool) or not isinstance(limit, int):
+                raise ValueError("limit must be a positive integer")
+
+            if limit <= 0:
+                raise ValueError("limit must be a positive integer")
+
+        now = time.monotonic()
+        cache_entries = list(self._cache.items())
+
+        if newest_first:
+            cache_entries.reverse()
+
+        if limit is not None:
+            cache_entries = cache_entries[:limit]
+
+        inspected_entries: list[dict[str, Any]] = []
+        for query, (cached_at, payload) in cache_entries:
+            age_seconds = now - cached_at
+            inspected_entries.append(
+                {
+                    "query": query,
+                    "age_seconds": age_seconds,
+                    "status": self._cache_entry_status(age_seconds),
+                    "payload_chars": len(payload),
+                }
+            )
+
+        return inspected_entries
+
     def get_cache_stats(self) -> dict[str, Any]:
         """Return cache health and retention metrics for diagnostics."""
         retention_seconds = self._cache_retention_seconds()
