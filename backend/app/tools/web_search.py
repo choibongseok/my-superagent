@@ -328,6 +328,7 @@ class DuckDuckGoSearchTool(BaseTool):
         query: str | None = None,
         *,
         queries: Iterable[str] | None = None,
+        contains: str | None = None,
         prefix: str | None = None,
         pattern: str | None = None,
         regex: str | None = None,
@@ -341,6 +342,8 @@ class DuckDuckGoSearchTool(BaseTool):
             queries: Optional iterable of query strings to invalidate in one
                 call. Normalization and de-duplication are applied before
                 deletion.
+            contains: Optional substring matcher applied against normalized
+                query keys.
             prefix: Optional normalized-query prefix used to invalidate all
                 matching cache entries.
             pattern: Optional glob-style matcher applied against normalized
@@ -367,6 +370,7 @@ class DuckDuckGoSearchTool(BaseTool):
             for candidate in (
                 query,
                 queries,
+                contains,
                 prefix,
                 pattern,
                 regex,
@@ -375,8 +379,8 @@ class DuckDuckGoSearchTool(BaseTool):
         )
         if selector_count > 1:
             raise ValueError(
-                "query, queries, prefix, pattern, regex, and older_than_seconds "
-                "are mutually exclusive"
+                "query, queries, contains, prefix, pattern, regex, and "
+                "older_than_seconds are mutually exclusive"
             )
 
         if regex_flags is not None and regex is None:
@@ -440,7 +444,14 @@ class DuckDuckGoSearchTool(BaseTool):
 
             return len(matching_queries)
 
-        if prefix is not None:
+        if contains is not None:
+            normalized_contains = self._normalize_query(contains)
+            matching_queries = [
+                cached_query
+                for cached_query in self._cache
+                if normalized_contains in cached_query
+            ]
+        elif prefix is not None:
             normalized_prefix = self._normalize_query(prefix)
             matching_queries = [
                 cached_query

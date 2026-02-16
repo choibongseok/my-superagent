@@ -406,6 +406,9 @@ def test_invalidate_cache_rejects_multiple_selectors(monkeypatch):
         tool.invalidate_cache(pattern="a*", regex="a.*")
 
     with pytest.raises(ValueError, match="mutually exclusive"):
+        tool.invalidate_cache(contains="alpha", prefix="a")
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
         tool.invalidate_cache(query="alpha", older_than_seconds=10)
 
 
@@ -528,6 +531,26 @@ def test_invalidate_cache_can_remove_entries_by_prefix(monkeypatch):
 
     assert removed_entries == 2
     assert list(tool._cache.keys()) == ["beta one"]
+
+
+def test_invalidate_cache_can_remove_entries_by_contains(monkeypatch):
+    """Contains invalidation should remove keys containing normalized substrings."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("weekly ai news") == "payload"
+    assert tool._run("breaking ai update") == "payload"
+    assert tool._run("weather seoul") == "payload"
+
+    removed_entries = tool.invalidate_cache(contains=" ai\n")
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["weather seoul"]
 
 
 def test_invalidate_cache_can_remove_entries_by_pattern(monkeypatch):
