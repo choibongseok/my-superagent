@@ -2406,6 +2406,30 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_ascii_transform(self, service_with_mock_db):
+        """ascii should remove non-ASCII glyphs while preserving readable text."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="ASCII: {title->ascii->compact}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"title": "  Crème brûlée launch №42 🚀 東京  "},
+                user_id,
+            )
+
+        assert result["prompt"] == "ASCII: Creme brulee launch No42"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_compact_transform(self, service_with_mock_db):
         """compact should normalize repeated whitespace into single spaces."""
         service, db = service_with_mock_db

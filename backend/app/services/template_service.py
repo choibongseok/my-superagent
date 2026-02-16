@@ -92,6 +92,12 @@ def _to_slug(value: object) -> str:
     return slug.strip("-")
 
 
+def _to_ascii(value: object) -> str:
+    """Normalize text to an ASCII-only representation."""
+    normalized = unicodedata.normalize("NFKD", str(value))
+    return normalized.encode("ascii", "ignore").decode("ascii")
+
+
 def _truncate_text(value: object, max_length_spec: str) -> str:
     """Truncate text to a max length using an ellipsis when needed."""
     try:
@@ -1377,6 +1383,7 @@ class TemplateService:
         - ``{notes->dedent->indent("  ")->strip}``
         - ``{search_query->urlencode}``, ``{search_query->urldecode}``
         - ``{title->slug}``
+        - ``{title->ascii}``
         - ``{summary->compact}``
         - ``{notes->trim_lines}``
         - ``{ticket->prepend("#")}``, ``{title->append(" ✅")}``
@@ -1444,6 +1451,7 @@ class TemplateService:
             "urlencode": lambda raw: quote_plus(str(raw), safe=""),
             "urldecode": lambda raw: unquote_plus(str(raw)),
             "slug": _to_slug,
+            "ascii": _to_ascii,
             "split": lambda raw: _split_text(raw, ""),
             "natural_join": lambda raw: _natural_join_values(raw, ""),
             "flatten": _flatten_values,
@@ -1539,6 +1547,7 @@ class TemplateService:
                 "split([separator[,maxsplit]])",
                 "flatten",
                 "flat",
+                "ascii",
                 "sort([asc|desc])",
                 "distinct_count",
                 "slice(<start>[,<end>[,<step>]])",
@@ -1843,7 +1852,7 @@ class TemplateService:
         ``{notes->dedent->indent("> ")->strip}``,
         ``{payload->json}``, ``{payload->json_pretty}``,
         ``{search_query->urlencode}``, ``{search_query->urldecode}``,
-        ``{title->slug}``,
+        ``{title->slug}``, ``{title->ascii}``,
         ``{summary->compact}``, ``{notes->trim_lines}``,
         ``{ticket->prepend("#")}``,
         ``{title->append(" ✅")}``, ``{score->round(2)}``,
