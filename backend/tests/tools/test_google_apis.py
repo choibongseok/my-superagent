@@ -98,6 +98,157 @@ def test_replace_template_variables_supports_custom_delimiters_and_value_coercio
     )
 
 
+def test_replace_template_variables_can_flatten_nested_mappings(docs_api):
+    """Nested mappings should be flattened into dotted placeholder names."""
+    api, mocked_service = docs_api
+
+    api.replace_template_variables(
+        "doc-flat",
+        {
+            "customer": {
+                "name": "Ada",
+                "account": {
+                    "tier": "pro",
+                },
+            },
+            "summary": "ready",
+        },
+        flatten_nested_variables=True,
+    )
+
+    mocked_service.documents.return_value.batchUpdate.assert_called_once_with(
+        documentId="doc-flat",
+        body={
+            "requests": [
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{customer.name}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "Ada",
+                    }
+                },
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{customer.account.tier}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "pro",
+                    }
+                },
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{summary}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "ready",
+                    }
+                },
+            ]
+        },
+    )
+
+
+def test_replace_template_variables_flattening_honors_custom_separator(docs_api):
+    """Flattened key separators should be configurable for placeholder naming."""
+    api, mocked_service = docs_api
+
+    api.replace_template_variables(
+        "doc-flat-sep",
+        {
+            "user": {
+                "name": "Grace",
+            }
+        },
+        flatten_nested_variables=True,
+        nested_key_separator="__",
+    )
+
+    mocked_service.documents.return_value.batchUpdate.assert_called_once_with(
+        documentId="doc-flat-sep",
+        body={
+            "requests": [
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{user__name}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "Grace",
+                    }
+                }
+            ]
+        },
+    )
+
+
+def test_replace_template_variables_rejects_duplicate_flattened_keys(docs_api):
+    """Flattening should reject ambiguous placeholder collisions."""
+    api, mocked_service = docs_api
+
+    with pytest.raises(
+        ValueError,
+        match="flattened variables contain duplicate placeholder keys",
+    ):
+        api.replace_template_variables(
+            "doc-collision",
+            {
+                "user.name": "Ada",
+                "user": {
+                    "name": "Grace",
+                },
+            },
+            flatten_nested_variables=True,
+        )
+
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
+@pytest.mark.parametrize("flatten_nested_variables", [None, "yes", 1])
+def test_replace_template_variables_rejects_invalid_flatten_nested_variables(
+    docs_api,
+    flatten_nested_variables,
+):
+    """flatten_nested_variables must be explicitly provided as a boolean."""
+    api, mocked_service = docs_api
+
+    with pytest.raises(
+        ValueError,
+        match="flatten_nested_variables must be a boolean",
+    ):
+        api.replace_template_variables(
+            "doc-invalid-flat",
+            {"name": "AgentHQ"},
+            flatten_nested_variables=flatten_nested_variables,  # type: ignore[arg-type]
+        )
+
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
+@pytest.mark.parametrize("nested_key_separator", [None, "", "   ", 123])
+def test_replace_template_variables_rejects_invalid_nested_key_separator(
+    docs_api,
+    nested_key_separator,
+):
+    """nested_key_separator must be a non-empty string when provided."""
+    api, mocked_service = docs_api
+
+    with pytest.raises(
+        ValueError,
+        match="nested_key_separator must be a non-empty string",
+    ):
+        api.replace_template_variables(
+            "doc-invalid-separator",
+            {"name": "AgentHQ"},
+            nested_key_separator=nested_key_separator,  # type: ignore[arg-type]
+        )
+
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "variables,error",
     [

@@ -153,6 +153,62 @@ class GoogleDocsAPI:
 
         return value
 
+    @staticmethod
+    def _normalize_flatten_nested_variables(value: Any) -> bool:
+        """Normalize nested-variable flattening flags."""
+        if not isinstance(value, bool):
+            raise ValueError("flatten_nested_variables must be a boolean")
+
+        return value
+
+    @staticmethod
+    def _normalize_nested_key_separator(value: Any) -> str:
+        """Normalize nested-variable key separators used during flattening."""
+        if not isinstance(value, str):
+            raise ValueError("nested_key_separator must be a non-empty string")
+
+        normalized_separator = value.strip()
+        if not normalized_separator:
+            raise ValueError("nested_key_separator must be a non-empty string")
+
+        return normalized_separator
+
+    @classmethod
+    def _flatten_template_variables(
+        cls,
+        variables: Mapping[str, Any],
+        *,
+        nested_key_separator: str,
+        path: tuple[str, ...] = (),
+    ) -> list[tuple[str, Any]]:
+        """Flatten nested template variables into dotted placeholder keys."""
+        flattened_variables: list[tuple[str, Any]] = []
+
+        for variable_name, replacement_value in variables.items():
+            if not isinstance(variable_name, str):
+                raise ValueError("variables keys must be non-empty strings")
+
+            normalized_name = variable_name.strip()
+            if not normalized_name:
+                raise ValueError("variables keys must be non-empty strings")
+
+            variable_path = (*path, normalized_name)
+            normalized_key = nested_key_separator.join(variable_path)
+
+            if isinstance(replacement_value, Mapping):
+                flattened_variables.extend(
+                    cls._flatten_template_variables(
+                        replacement_value,
+                        nested_key_separator=nested_key_separator,
+                        path=variable_path,
+                    )
+                )
+                continue
+
+            flattened_variables.append((normalized_key, replacement_value))
+
+        return flattened_variables
+
     def replace_template_variables(
         self,
         document_id: str,
@@ -164,6 +220,8 @@ class GoogleDocsAPI:
         max_requests_per_batch: int | None = 100,
         dry_run: bool = False,
         skip_none_values: bool = False,
+        flatten_nested_variables: bool = False,
+        nested_key_separator: str = ".",
     ) -> dict[str, Any]:
         """Replace template placeholders (e.g. ``{{name}}``) in a document.
 
@@ -182,6 +240,12 @@ class GoogleDocsAPI:
                 describes the generated request batches.
             skip_none_values: When ``True``, variables with ``None`` values are
                 ignored instead of being replaced with an empty string.
+            flatten_nested_variables: When ``True``, nested mapping values are
+                flattened into placeholder names joined by
+                ``nested_key_separator`` (for example,
+                ``{"user": {"name": "Ada"}}`` -> ``{{user.name}}``).
+            nested_key_separator: Separator used when flattening nested
+                variable keys.
 
         Returns:
             API response dictionary from ``documents().batchUpdate``.
@@ -195,7 +259,8 @@ class GoogleDocsAPI:
             empty deterministic payload without issuing API calls.
 
         Raises:
-            ValueError: If variables/prefix/suffix/match_case/batch size or
+            ValueError: If variables/prefix/suffix/match_case/batch size,
+                flattening options, duplicate flattened keys, or
                 ``dry_run``/``skip_none_values`` are invalid.
             HttpError: If Google Docs replacement request fails.
         """
@@ -207,8 +272,12 @@ class GoogleDocsAPI:
             raise ValueError("match_case must be a boolean")
 
         normalized_dry_run = self._normalize_dry_run(dry_run)
-        normalized_skip_none_values = self._normalize_skip_none_values(
-            skip_none_values
+        normalized_skip_none_values = self._normalize_skip_none_values(skip_none_values)
+        normalized_flatten_nested_variables = self._normalize_flatten_nested_variables(
+            flatten_nested_variables
+        )
+        normalized_nested_key_separator = self._normalize_nested_key_separator(
+            nested_key_separator
         )
         normalized_max_requests_per_batch = self._normalize_max_requests_per_batch(
             max_requests_per_batch
@@ -223,15 +292,34 @@ class GoogleDocsAPI:
             field_name="placeholder_suffix",
         )
 
+        variable_items: list[tuple[str, Any]]
+        if normalized_flatten_nested_variables:
+            variable_items = self._flatten_template_variables(
+                variables,
+                nested_key_separator=normalized_nested_key_separator,
+            )
+        else:
+            variable_items = []
+            for variable_name, replacement_value in variables.items():
+                if not isinstance(variable_name, str):
+                    raise ValueError("variables keys must be non-empty strings")
+
+                normalized_name = variable_name.strip()
+                if not normalized_name:
+                    raise ValueError("variables keys must be non-empty strings")
+
+                variable_items.append((normalized_name, replacement_value))
+
+        if normalized_flatten_nested_variables:
+            normalized_names = [variable_name for variable_name, _ in variable_items]
+            if len(normalized_names) != len(set(normalized_names)):
+                raise ValueError(
+                    "flattened variables contain duplicate placeholder keys; "
+                    "adjust nested keys or disable flatten_nested_variables"
+                )
+
         requests: list[dict[str, Any]] = []
-        for variable_name, replacement_value in variables.items():
-            if not isinstance(variable_name, str):
-                raise ValueError("variables keys must be non-empty strings")
-
-            normalized_name = variable_name.strip()
-            if not normalized_name:
-                raise ValueError("variables keys must be non-empty strings")
-
+        for normalized_name, replacement_value in variable_items:
             if replacement_value is None and normalized_skip_none_values:
                 continue
 
