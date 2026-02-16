@@ -76,6 +76,12 @@ class DuckDuckGoSearchTool(BaseTool):
             retry_backoff_seconds
         )
         self._cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
+        self._cache_metrics = {
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "cache_writes": 0,
+            "stale_fallback_hits": 0,
+        }
         self._search = DuckDuckGoSearchRun()
 
     @staticmethod
@@ -391,9 +397,18 @@ class DuckDuckGoSearchTool(BaseTool):
 
         return len(matching_queries)
 
+    def _increment_cache_metric(self, metric_name: str) -> None:
+        """Increment one in-memory cache metric counter."""
+        self._cache_metrics[metric_name] += 1
+
     def clear_cache(self) -> None:
         """Clear in-memory cached search results."""
         self.invalidate_cache()
+
+    def reset_cache_metrics(self) -> None:
+        """Reset cache diagnostic counters to zero."""
+        for metric_name in self._cache_metrics:
+            self._cache_metrics[metric_name] = 0
 
     def get_cache_stats(self) -> dict[str, Any]:
         """Return cache health and retention metrics for diagnostics."""
@@ -421,6 +436,15 @@ class DuckDuckGoSearchTool(BaseTool):
             ):
                 stale_eligible_entries += 1
 
+        cache_lookups = (
+            self._cache_metrics["cache_hits"] + self._cache_metrics["cache_misses"]
+        )
+        hit_ratio = (
+            self._cache_metrics["cache_hits"] / cache_lookups
+            if cache_lookups > 0
+            else None
+        )
+
         return {
             "enabled": self._cache_ttl_seconds is not None,
             "entries": len(self._cache),
@@ -431,6 +455,11 @@ class DuckDuckGoSearchTool(BaseTool):
             "active_entries": active_entries,
             "expired_entries": expired_entries,
             "stale_eligible_entries": stale_eligible_entries,
+            "cache_hits": self._cache_metrics["cache_hits"],
+            "cache_misses": self._cache_metrics["cache_misses"],
+            "cache_writes": self._cache_metrics["cache_writes"],
+            "stale_fallback_hits": self._cache_metrics["stale_fallback_hits"],
+            "hit_ratio": hit_ratio,
         }
 
     def _run_search_with_retries(self, query: str) -> Any:
@@ -478,15 +507,21 @@ class DuckDuckGoSearchTool(BaseTool):
 
             cached_results = self._get_cached_results(normalized_query)
             if cached_results is not None:
+                self._increment_cache_metric("cache_hits")
                 logger.debug(
                     "Returning cached DuckDuckGo results: %s", normalized_query
                 )
                 return cached_results
 
+            if self._cache_ttl_seconds is not None:
+                self._increment_cache_metric("cache_misses")
+
             logger.debug("Running DuckDuckGo search: %s", normalized_query)
             results = self._run_search_with_retries(normalized_query)
             normalized_results = self._truncate_results(results)
             self._set_cached_results(normalized_query, normalized_results)
+            if self._cache_ttl_seconds is not None:
+                self._increment_cache_metric("cache_writes")
             logger.debug("Search completed: %d characters", len(normalized_results))
             return normalized_results
 
@@ -494,6 +529,7 @@ class DuckDuckGoSearchTool(BaseTool):
             if normalized_query is not None:
                 stale_results = self._get_stale_cached_results(normalized_query)
                 if stale_results is not None:
+                    self._increment_cache_metric("stale_fallback_hits")
                     logger.warning(
                         "Search failed for '%s'; returning stale cached response: %s",
                         normalized_query,

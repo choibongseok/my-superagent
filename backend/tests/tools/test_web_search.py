@@ -608,7 +608,75 @@ def test_get_cache_stats_reports_active_expired_and_stale_entries(monkeypatch):
         "active_entries": 1,
         "expired_entries": 2,
         "stale_eligible_entries": 1,
+        "cache_hits": 0,
+        "cache_misses": 0,
+        "cache_writes": 0,
+        "stale_fallback_hits": 0,
+        "hit_ratio": None,
     }
+
+
+def test_get_cache_stats_tracks_hit_miss_write_and_hit_ratio(monkeypatch):
+    """Cache stats should expose lookup/write counters and hit ratio."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=60, cache_max_entries=16)
+
+    assert tool._run("alpha") == "payload"
+    assert tool._run("alpha") == "payload"
+
+    stats = tool.get_cache_stats()
+
+    assert stats["cache_hits"] == 1
+    assert stats["cache_misses"] == 1
+    assert stats["cache_writes"] == 1
+    assert stats["stale_fallback_hits"] == 0
+    assert stats["hit_ratio"] == pytest.approx(0.5)
+
+
+def test_cache_stats_tracks_stale_fallback_hits_and_can_reset_metrics(monkeypatch):
+    """Stale fallback usage should be measurable and resettable."""
+    priming_backend = _FakeSearchBackend(response="fresh snapshot")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: priming_backend,
+    )
+
+    now = {"value": 10.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=5,
+        cache_max_entries=16,
+        stale_cache_ttl_seconds=40,
+    )
+
+    assert tool._run("agent") == "fresh snapshot"
+
+    now["value"] = 20.0
+    tool._search = _FailingSearchBackend(message="still down")
+
+    result = tool._run("agent")
+    assert result.startswith("fresh snapshot")
+
+    stats = tool.get_cache_stats()
+    assert stats["cache_hits"] == 0
+    assert stats["cache_misses"] == 2
+    assert stats["cache_writes"] == 1
+    assert stats["stale_fallback_hits"] == 1
+    assert stats["hit_ratio"] == 0.0
+
+    tool.reset_cache_metrics()
+    reset_stats = tool.get_cache_stats()
+    assert reset_stats["cache_hits"] == 0
+    assert reset_stats["cache_misses"] == 0
+    assert reset_stats["cache_writes"] == 0
+    assert reset_stats["stale_fallback_hits"] == 0
+    assert reset_stats["hit_ratio"] is None
 
 
 def test_run_rejects_overly_long_queries_without_backend_calls(monkeypatch):
