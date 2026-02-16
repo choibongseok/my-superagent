@@ -83,6 +83,27 @@ def test_init_rejects_invalid_max_result_chars():
         DuckDuckGoSearchTool(max_result_chars=12.5)  # type: ignore[arg-type]
 
 
+def test_init_rejects_invalid_max_query_length():
+    """Query-length guards should only allow positive integers or None."""
+    with pytest.raises(
+        ValueError,
+        match="max_query_length must be a positive integer or None",
+    ):
+        DuckDuckGoSearchTool(max_query_length=0)
+
+    with pytest.raises(
+        ValueError,
+        match="max_query_length must be a positive integer or None",
+    ):
+        DuckDuckGoSearchTool(max_query_length=True)  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="max_query_length must be a positive integer or None",
+    ):
+        DuckDuckGoSearchTool(max_query_length=10.5)  # type: ignore[arg-type]
+
+
 def test_init_rejects_invalid_cache_options():
     """Cache guards should enforce positive TTL and positive entry caps."""
     with pytest.raises(
@@ -150,7 +171,7 @@ def test_init_rejects_invalid_retry_options():
 
 
 def test_run_normalizes_query_and_returns_backend_results(monkeypatch):
-    """_run should trim query whitespace before delegating to backend."""
+    """_run should normalize whitespace before delegating to backend."""
     fake_backend = _FakeSearchBackend(response="result payload")
     monkeypatch.setattr(
         "app.tools.web_search.DuckDuckGoSearchRun",
@@ -159,7 +180,7 @@ def test_run_normalizes_query_and_returns_backend_results(monkeypatch):
 
     tool = DuckDuckGoSearchTool(max_result_chars=None)
 
-    result = tool._run("  agentic workflow  ")
+    result = tool._run("  agentic\n\t workflow   ")
 
     assert result == "result payload"
     assert fake_backend.queries == ["agentic workflow"]
@@ -202,8 +223,8 @@ def test_run_uses_cache_for_normalized_duplicate_queries(monkeypatch):
 
     tool = DuckDuckGoSearchTool(cache_ttl_seconds=60, cache_max_entries=16)
 
-    first = tool._run("   agentic workflow")
-    second = tool._run("agentic workflow   ")
+    first = tool._run("   agentic   workflow")
+    second = tool._run("agentic\nworkflow   ")
 
     assert first == "first payload"
     assert second == "first payload"
@@ -340,6 +361,22 @@ def test_run_cache_evicts_oldest_entry_when_capacity_exceeded(monkeypatch):
     assert tool._run("alpha") == "alpha-2"
 
     assert fake_backend.queries == ["alpha", "beta", "alpha"]
+
+
+def test_run_rejects_overly_long_queries_without_backend_calls(monkeypatch):
+    """Configured query-length limits should fail fast before backend calls."""
+    fake_backend = _FakeSearchBackend(response="should not be used")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(max_query_length=12)
+
+    result = tool._run("agentic workflow")
+
+    assert result == "Search failed: query exceeds max_query_length (16 > 12)"
+    assert fake_backend.queries == []
 
 
 def test_run_rejects_blank_queries_without_backend_calls(monkeypatch):

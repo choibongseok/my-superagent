@@ -1,6 +1,7 @@
 """Web search tool using DuckDuckGo."""
 
 import logging
+import re
 import time
 from collections import OrderedDict
 from typing import Any, Optional
@@ -33,6 +34,7 @@ class DuckDuckGoSearchTool(BaseTool):
     def __init__(
         self,
         max_result_chars: Optional[int] = 4000,
+        max_query_length: Optional[int] = 512,
         cache_ttl_seconds: Optional[float] = 300.0,
         cache_max_entries: int = 128,
         stale_cache_ttl_seconds: Optional[float] = None,
@@ -45,6 +47,8 @@ class DuckDuckGoSearchTool(BaseTool):
             max_result_chars: Optional max length for returned search text.
                 When configured, oversized results are truncated with a
                 deterministic suffix indicating omitted characters.
+            max_query_length: Optional max query length after whitespace
+                normalization. Set to ``None`` to disable query-length guards.
             cache_ttl_seconds: Optional in-memory cache TTL in seconds.
                 Set to ``None`` to disable caching.
             cache_max_entries: Maximum number of cached query results.
@@ -60,6 +64,7 @@ class DuckDuckGoSearchTool(BaseTool):
         """
         super().__init__()
         self._max_result_chars = self._normalize_max_result_chars(max_result_chars)
+        self._max_query_length = self._normalize_max_query_length(max_query_length)
         self._cache_ttl_seconds = self._normalize_cache_ttl(cache_ttl_seconds)
         self._cache_max_entries = self._normalize_cache_max_entries(cache_max_entries)
         self._stale_cache_ttl_seconds = self._normalize_stale_cache_ttl(
@@ -155,14 +160,36 @@ class DuckDuckGoSearchTool(BaseTool):
         return normalized_value
 
     @staticmethod
-    def _normalize_query(query: str) -> str:
+    def _normalize_max_query_length(value: Optional[int]) -> Optional[int]:
+        """Validate optional query-length limits."""
+        if value is None:
+            return None
+
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("max_query_length must be a positive integer or None")
+
+        if value <= 0:
+            raise ValueError("max_query_length must be a positive integer or None")
+
+        return value
+
+    def _normalize_query(self, query: str) -> str:
         """Normalize and validate incoming search queries."""
         if not isinstance(query, str):
             raise ValueError("query must be a non-empty string")
 
-        normalized_query = query.strip()
+        normalized_query = re.sub(r"\s+", " ", query).strip()
         if not normalized_query:
             raise ValueError("query must be a non-empty string")
+
+        if (
+            self._max_query_length is not None
+            and len(normalized_query) > self._max_query_length
+        ):
+            raise ValueError(
+                "query exceeds max_query_length "
+                f"({len(normalized_query)} > {self._max_query_length})"
+            )
 
         return normalized_query
 
