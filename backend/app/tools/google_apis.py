@@ -154,6 +154,14 @@ class GoogleDocsAPI:
         return value
 
     @staticmethod
+    def _normalize_skip_blank_values(value: Any) -> bool:
+        """Normalize blank-string skipping flags for template replacement."""
+        if not isinstance(value, bool):
+            raise ValueError("skip_blank_values must be a boolean")
+
+        return value
+
+    @staticmethod
     def _normalize_flatten_nested_variables(value: Any) -> bool:
         """Normalize nested-variable flattening flags."""
         if not isinstance(value, bool):
@@ -220,6 +228,7 @@ class GoogleDocsAPI:
         max_requests_per_batch: int | None = 100,
         dry_run: bool = False,
         skip_none_values: bool = False,
+        skip_blank_values: bool = False,
         flatten_nested_variables: bool = False,
         nested_key_separator: str = ".",
     ) -> dict[str, Any]:
@@ -240,6 +249,8 @@ class GoogleDocsAPI:
                 describes the generated request batches.
             skip_none_values: When ``True``, variables with ``None`` values are
                 ignored instead of being replaced with an empty string.
+            skip_blank_values: When ``True``, variables with string values that
+                become blank after ``strip()`` are ignored.
             flatten_nested_variables: When ``True``, nested mapping values are
                 flattened into placeholder names joined by
                 ``nested_key_separator`` (for example,
@@ -255,13 +266,15 @@ class GoogleDocsAPI:
             When ``dry_run`` is enabled, returns a deterministic preview
             payload containing ``documentId``, ``requestCount``,
             ``batchCount``, and ``requestBatches``.
-            When ``skip_none_values`` filters out all replacements, returns an
-            empty deterministic payload without issuing API calls.
+            When ``skip_none_values``/``skip_blank_values`` filter out all
+            replacements, returns an empty deterministic payload without
+            issuing API calls.
 
         Raises:
             ValueError: If variables/prefix/suffix/match_case/batch size,
                 flattening options, duplicate flattened keys, or
-                ``dry_run``/``skip_none_values`` are invalid.
+                ``dry_run``/``skip_none_values``/``skip_blank_values`` are
+                invalid.
             HttpError: If Google Docs replacement request fails.
         """
         if not isinstance(variables, Mapping):
@@ -273,6 +286,9 @@ class GoogleDocsAPI:
 
         normalized_dry_run = self._normalize_dry_run(dry_run)
         normalized_skip_none_values = self._normalize_skip_none_values(skip_none_values)
+        normalized_skip_blank_values = self._normalize_skip_blank_values(
+            skip_blank_values
+        )
         normalized_flatten_nested_variables = self._normalize_flatten_nested_variables(
             flatten_nested_variables
         )
@@ -321,6 +337,13 @@ class GoogleDocsAPI:
         requests: list[dict[str, Any]] = []
         for normalized_name, replacement_value in variable_items:
             if replacement_value is None and normalized_skip_none_values:
+                continue
+
+            if (
+                normalized_skip_blank_values
+                and isinstance(replacement_value, str)
+                and not replacement_value.strip()
+            ):
                 continue
 
             placeholder = f"{normalized_prefix}{normalized_name}{normalized_suffix}"

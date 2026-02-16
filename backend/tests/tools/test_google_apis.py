@@ -593,3 +593,83 @@ def test_replace_template_variables_rejects_invalid_skip_none_values_flags(
         )
 
     mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
+def test_replace_template_variables_skip_blank_values_omits_blank_strings(docs_api):
+    """skip_blank_values should exclude empty/whitespace-only string replacements."""
+    api, mocked_service = docs_api
+
+    result = api.replace_template_variables(
+        "doc-10",
+        {
+            "name": "AgentHQ",
+            "empty": "",
+            "spaces": "   ",
+            "count": 3,
+        },
+        skip_blank_values=True,
+    )
+
+    assert result == {"replies": [{}, {}]}
+    mocked_service.documents.return_value.batchUpdate.assert_called_once_with(
+        documentId="doc-10",
+        body={
+            "requests": [
+                {
+                    "replaceAllText": {
+                        "containsText": {"text": "{{name}}", "matchCase": True},
+                        "replaceText": "AgentHQ",
+                    }
+                },
+                {
+                    "replaceAllText": {
+                        "containsText": {"text": "{{count}}", "matchCase": True},
+                        "replaceText": "3",
+                    }
+                },
+            ]
+        },
+    )
+
+
+def test_replace_template_variables_skip_blank_values_short_circuits_empty_requests(
+    docs_api,
+):
+    """All-blank string payloads should return deterministic no-op metadata."""
+    api, mocked_service = docs_api
+
+    result = api.replace_template_variables(
+        "doc-11",
+        {
+            "optional_a": "",
+            "optional_b": "  ",
+        },
+        skip_blank_values=True,
+    )
+
+    assert result == {
+        "documentId": "doc-11",
+        "requestCount": 0,
+        "batchCount": 0,
+        "batchResponses": [],
+        "replies": [],
+    }
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
+@pytest.mark.parametrize("skip_blank_values", [None, "yes", 1])
+def test_replace_template_variables_rejects_invalid_skip_blank_values_flags(
+    docs_api,
+    skip_blank_values,
+):
+    """skip_blank_values must be explicitly provided as a boolean."""
+    api, mocked_service = docs_api
+
+    with pytest.raises(ValueError, match="skip_blank_values must be a boolean"):
+        api.replace_template_variables(
+            "doc-12",
+            {"name": "AgentHQ"},
+            skip_blank_values=skip_blank_values,  # type: ignore[arg-type]
+        )
+
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()
