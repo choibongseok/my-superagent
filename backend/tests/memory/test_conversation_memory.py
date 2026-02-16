@@ -282,6 +282,31 @@ class TestConversationMemory:
             "project plan delivered",
         ]
 
+    def test_search_messages_supports_user_and_assistant_role_aliases(self):
+        """Role aliases should map user->human and assistant/bot->ai."""
+        memory = ConversationMemory(
+            user_id="test_user",
+            session_id="test_session",
+        )
+
+        memory.add_user_message("project request")
+        memory.add_ai_message("project response")
+        memory.add_system_message("project policy")
+
+        user_matches = memory.search_messages("project", role="user")
+        assistant_matches = memory.search_messages(
+            "project",
+            role="assistant,system",
+        )
+        bot_matches = memory.search_messages("project", role=["bot"])
+
+        assert [message.content for message in user_matches] == ["project request"]
+        assert [message.content for message in assistant_matches] == [
+            "project response",
+            "project policy",
+        ]
+        assert [message.content for message in bot_matches] == ["project response"]
+
     def test_search_messages_role_filter_any_in_iterable_matches_all_roles(self):
         """Including 'any' in role filters should include all message roles."""
         memory = ConversationMemory(

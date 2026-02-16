@@ -93,6 +93,24 @@ class TestMemoryManagerContext:
             "project summary",
         ]
 
+    def test_search_conversation_supports_role_alias_filters(self):
+        manager = MemoryManager(
+            user_id="test_user",
+            session_id="test_session",
+            use_vector_memory=False,
+        )
+
+        manager.add_user_message("project kickoff")
+        manager.add_ai_message("project summary")
+
+        user_matches = manager.search_conversation("project", role="user")
+        assistant_matches = manager.search_conversation("project", role="assistant")
+
+        assert [message.content for message in user_matches] == ["project kickoff"]
+        assert [message.content for message in assistant_matches] == [
+            "project summary"
+        ]
+
     def test_add_system_message_is_included_in_context(self):
         manager = MemoryManager(
             user_id="test_user",

@@ -175,6 +175,8 @@ class ConversationMemory:
         Args:
             role: Either a single role (``"human"``), a comma-separated role
                 string (``"human,ai"``), or an iterable of role strings.
+                Alias roles are supported: ``user`` -> ``human`` and
+                ``assistant``/``bot`` -> ``ai``.
 
         Returns:
             ``None`` when all roles should be included (``"any"``), otherwise
@@ -183,6 +185,20 @@ class ConversationMemory:
         Raises:
             ValueError: If provided roles are invalid.
         """
+        role_aliases = {
+            "any": "any",
+            "human": "human",
+            "user": "human",
+            "ai": "ai",
+            "assistant": "ai",
+            "bot": "ai",
+            "system": "system",
+        }
+
+        invalid_role_message = (
+            "role must be one of: any, human/user, ai/assistant/bot, system"
+        )
+
         normalized_roles: set[str] = set()
 
         if isinstance(role, str):
@@ -192,22 +208,23 @@ class ConversationMemory:
 
         for raw_role in raw_roles:
             if not isinstance(raw_role, str):
-                raise ValueError("role must be one of: any, human, ai, system")
+                raise ValueError(invalid_role_message)
 
             normalized_role = raw_role.strip().lower()
             if not normalized_role:
-                raise ValueError("role must be one of: any, human, ai, system")
+                raise ValueError(invalid_role_message)
 
-            if normalized_role == "any":
+            resolved_role = role_aliases.get(normalized_role)
+            if resolved_role is None:
+                raise ValueError(invalid_role_message)
+
+            if resolved_role == "any":
                 return None
 
-            if normalized_role not in {"human", "ai", "system"}:
-                raise ValueError("role must be one of: any, human, ai, system")
-
-            normalized_roles.add(normalized_role)
+            normalized_roles.add(resolved_role)
 
         if not normalized_roles:
-            raise ValueError("role must be one of: any, human, ai, system")
+            raise ValueError(invalid_role_message)
 
         return normalized_roles
 
@@ -238,8 +255,9 @@ class ConversationMemory:
         Args:
             query: Query string used for matching message content
             role: Restrict results to role(s): "human", "ai", "system", or
-                "any". Accepts a single value, comma-separated values, or an
-                iterable of roles.
+                "any". Accepts aliases ("user" -> "human",
+                "assistant"/"bot" -> "ai"), a single value,
+                comma-separated values, or an iterable of roles.
             case_sensitive: Whether to match query with exact case
             last_n: Restrict search to the last N messages
             limit: Maximum number of matched messages to return

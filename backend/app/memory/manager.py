@@ -226,8 +226,10 @@ class MemoryManager:
         Args:
             query: Query string used for matching
             role: Restrict results to one or more roles: "human", "ai",
-                "system", or "any". Accepts a single value, comma-separated
-                values, or an iterable of role strings.
+                "system", or "any". Also accepts aliases
+                ("user" -> "human", "assistant"/"bot" -> "ai").
+                Role filters can be passed as a single value,
+                comma-separated values, or an iterable of strings.
             case_sensitive: Whether search should be case-sensitive
             last_n: Restrict search to the last N messages
             limit: Maximum number of matched messages to return
