@@ -1005,6 +1005,60 @@ async def test_invalidate_cache_can_ignore_selected_positional_args(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_invalidate_cache_can_skip_first_arg_when_requested(monkeypatch):
+    deleted_keys: list[str] = []
+
+    async def fake_delete(key: str):
+        deleted_keys.append(key)
+        return True
+
+    monkeypatch.setattr(cache, "delete", fake_delete)
+
+    class ExampleService:
+        pass
+
+    service = ExampleService()
+
+    await invalidate_cache(
+        "example",
+        service,
+        21,
+        skip_first_arg=True,
+    )
+
+    assert deleted_keys == ["example:21"]
+
+
+@pytest.mark.asyncio
+async def test_invalidate_cache_applies_ignored_positions_after_skip_first_arg(
+    monkeypatch,
+):
+    deleted_keys: list[str] = []
+
+    async def fake_delete(key: str):
+        deleted_keys.append(key)
+        return True
+
+    monkeypatch.setattr(cache, "delete", fake_delete)
+
+    class ExampleService:
+        pass
+
+    service = ExampleService()
+
+    await invalidate_cache(
+        "example",
+        service,
+        21,
+        "trace-a",
+        skip_first_arg=True,
+        ignored_arg_positions=[1],
+    )
+
+    assert deleted_keys == ["example:21"]
+
+
+@pytest.mark.asyncio
 async def test_invalidate_cache_rejects_invalid_key_builder_configuration():
     with pytest.raises(ValueError, match="key_builder must be callable"):
         await invalidate_cache("example", 21, key_builder="value:21")  # type: ignore[arg-type]
@@ -1038,6 +1092,12 @@ async def test_invalidate_cache_rejects_invalid_ignored_arg_positions_configurat
         match="ignored_arg_positions must be an iterable of non-negative integers",
     ):
         await invalidate_cache("example", 21, "trace", ignored_arg_positions=[-1])
+
+
+@pytest.mark.asyncio
+async def test_invalidate_cache_rejects_invalid_skip_first_arg_configuration():
+    with pytest.raises(ValueError, match="skip_first_arg must be a boolean"):
+        await invalidate_cache("example", 21, skip_first_arg="yes")  # type: ignore[arg-type]
 
 
 def test_cached_rejects_invalid_refresh_ttl_configuration():

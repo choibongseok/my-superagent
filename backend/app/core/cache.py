@@ -707,6 +707,7 @@ async def invalidate_cache(
     key_builder: Optional[Callable[..., str | Awaitable[str]]] = None,
     ignored_kwargs: Optional[Iterable[str]] = None,
     ignored_arg_positions: Optional[Iterable[int]] = None,
+    skip_first_arg: bool = False,
     **kwargs: Any,
 ) -> None:
     """
@@ -721,6 +722,9 @@ async def invalidate_cache(
         ignored_kwargs: Optional kwarg names excluded from key generation.
         ignored_arg_positions: Optional zero-based positional indexes excluded
             from key generation.
+        skip_first_arg: When ``True``, omit the first positional argument
+            before applying ``ignored_arg_positions``. Useful when
+            invalidating method caches that skip ``self`` in key generation.
         **kwargs: Keyword arguments for key building
     """
     namespace = _build_cache_namespace(prefix, key_version)
@@ -729,14 +733,18 @@ async def invalidate_cache(
     if key_builder is not None and not callable(key_builder):
         raise ValueError("key_builder must be callable when provided")
 
+    if not isinstance(skip_first_arg, bool):
+        raise ValueError("skip_first_arg must be a boolean")
+
     normalized_ignored_kwargs = _normalize_ignored_kwargs(ignored_kwargs)
     normalized_ignored_arg_positions = _normalize_ignored_arg_positions(
         ignored_arg_positions
     )
 
     if args or kwargs:
+        key_args = args[1:] if skip_first_arg and args else args
         filtered_args = _drop_ignored_arg_positions(
-            args,
+            key_args,
             normalized_ignored_arg_positions,
         )
 
