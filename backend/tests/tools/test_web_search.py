@@ -706,6 +706,39 @@ def test_invalidate_cache_clears_full_cache_and_returns_removed_count(monkeypatc
     assert tool.get_cache_stats()["entries"] == 0
 
 
+def test_invalidate_cache_dry_run_reports_matches_without_deletion(monkeypatch):
+    """dry_run should count matches while preserving cache entries."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    assert tool._run("alpha one") == "payload"
+    assert tool._run("beta one") == "payload"
+
+    removed_entries = tool.invalidate_cache(prefix="alpha", dry_run=True)
+
+    assert removed_entries == 1
+    assert list(tool._cache.keys()) == ["alpha one", "beta one"]
+
+
+def test_invalidate_cache_rejects_invalid_dry_run_selector(monkeypatch):
+    """dry_run selector should accept only boolean values."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=300, cache_max_entries=16)
+
+    with pytest.raises(ValueError, match="dry_run must be a boolean value"):
+        tool.invalidate_cache(dry_run="true")  # type: ignore[arg-type]
+
+
 def test_prune_cache_removes_entries_outside_retention_window(monkeypatch):
     """prune_cache should drop entries older than TTL/stale retention windows."""
     fake_backend = _FakeSearchBackend(response="payload")

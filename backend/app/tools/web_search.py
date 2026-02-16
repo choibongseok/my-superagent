@@ -335,6 +335,7 @@ class DuckDuckGoSearchTool(BaseTool):
         regex: str | None = None,
         regex_flags: str | None = None,
         older_than_seconds: float | None = None,
+        dry_run: bool = False,
     ) -> int:
         """Invalidate selected cache entries or clear the full cache.
 
@@ -357,16 +358,18 @@ class DuckDuckGoSearchTool(BaseTool):
                 ``s``, ``x``) used only when ``regex`` is provided.
             older_than_seconds: Optional age threshold that removes cache
                 entries older than the provided number of seconds.
+            dry_run: When ``True``, returns the number of matching cache
+                entries without deleting them.
 
         Returns:
-            Number of entries removed from cache.
+            Number of cache entries matching the invalidation selector.
 
         Raises:
             ValueError: If more than one selector argument is provided, if
                 ``queries`` is not an iterable of non-empty strings, if
                 ``regex`` is not a valid regular expression, if
-                ``regex_flags`` is invalid, or if ``older_than_seconds`` is
-                not a positive number.
+                ``regex_flags`` is invalid, if ``older_than_seconds`` is not
+                a positive number, or if ``dry_run`` is not a boolean.
         """
         selector_count = sum(
             candidate is not None
@@ -387,6 +390,9 @@ class DuckDuckGoSearchTool(BaseTool):
                 "older_than_seconds are mutually exclusive"
             )
 
+        if not isinstance(dry_run, bool):
+            raise ValueError("dry_run must be a boolean value")
+
         if regex_flags is not None and regex is None:
             raise ValueError("regex_flags can only be used with regex selector")
 
@@ -403,13 +409,15 @@ class DuckDuckGoSearchTool(BaseTool):
 
         if selector_count == 0:
             removed_entries = len(self._cache)
-            self._cache.clear()
+            if not dry_run:
+                self._cache.clear()
             return removed_entries
 
         if query is not None:
             normalized_query = self._normalize_query(query)
             if normalized_query in self._cache:
-                self._cache.pop(normalized_query, None)
+                if not dry_run:
+                    self._cache.pop(normalized_query, None)
                 return 1
             return 0
 
@@ -429,7 +437,8 @@ class DuckDuckGoSearchTool(BaseTool):
             removed_entries = 0
             for normalized_query in dict.fromkeys(normalized_queries):
                 if normalized_query in self._cache:
-                    self._cache.pop(normalized_query, None)
+                    if not dry_run:
+                        self._cache.pop(normalized_query, None)
                     removed_entries += 1
 
             return removed_entries
@@ -443,8 +452,9 @@ class DuckDuckGoSearchTool(BaseTool):
                 if now - cached_at > normalized_age_threshold
             ]
 
-            for cached_query in matching_queries:
-                self._cache.pop(cached_query, None)
+            if not dry_run:
+                for cached_query in matching_queries:
+                    self._cache.pop(cached_query, None)
 
             return len(matching_queries)
 
@@ -490,8 +500,9 @@ class DuckDuckGoSearchTool(BaseTool):
                 if compiled_pattern.search(cached_query)
             ]
 
-        for cached_query in matching_queries:
-            self._cache.pop(cached_query, None)
+        if not dry_run:
+            for cached_query in matching_queries:
+                self._cache.pop(cached_query, None)
 
         return len(matching_queries)
 
