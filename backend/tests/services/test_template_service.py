@@ -2866,6 +2866,116 @@ class TestTemplateServiceUseTemplate:
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_use_template_supports_natural_join_transform_with_default_conjunction(
+        self, service_with_mock_db
+    ):
+        """natural_join should render human-readable lists with Oxford commas."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Owners: {owners->natural_join}",
+            category="docs",
+            usage_count=0,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"owners": ["Mina", "Jin", "Alex"]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Owners: Mina, Jin, and Alex"
+        assert template.usage_count == 1
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_supports_natural_join_transform_with_custom_conjunction(
+        self, service_with_mock_db
+    ):
+        """natural_join(conjunction) should support alternate conjunction words."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Owners: {owners->natural_join("or")}',
+            category="docs",
+            usage_count=1,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            result = await service.use_template(
+                template_id,
+                {"owners": ["Mina", "Jin", "Alex"]},
+                user_id,
+            )
+
+        assert result["prompt"] == "Owners: Mina, Jin, or Alex"
+        assert template.usage_count == 2
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_natural_join_transform_for_string_values(
+        self, service_with_mock_db
+    ):
+        """natural_join should reject plain strings to avoid character-level joins."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template="Owners: {owners->natural_join()}",
+            category="docs",
+            usage_count=2,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match=r"Failed to apply template transform 'natural_join\(\)'",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"owners": "Mina"},
+                    user_id,
+                )
+
+        assert template.usage_count == 2
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_use_template_rejects_natural_join_transform_with_too_many_arguments(
+        self, service_with_mock_db
+    ):
+        """natural_join should accept at most one conjunction argument."""
+        service, db = service_with_mock_db
+        template_id = uuid4()
+        user_id = uuid4()
+        template = SimpleNamespace(
+            id=template_id,
+            prompt_template='Owners: {owners->natural_join("and", "or")}',
+            category="docs",
+            usage_count=3,
+        )
+
+        with patch.object(service, "get_template", AsyncMock(return_value=template)):
+            with pytest.raises(
+                ValueError,
+                match="Failed to apply template transform 'natural_join",
+            ):
+                await service.use_template(
+                    template_id,
+                    {"owners": ["Mina", "Jin"]},
+                    user_id,
+                )
+
+        assert template.usage_count == 3
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_use_template_supports_split_transform_with_whitespace_defaults(
         self, service_with_mock_db
     ):

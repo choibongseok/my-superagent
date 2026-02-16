@@ -296,6 +296,43 @@ def _join_values(value: object, argument_spec: str) -> str:
     return separator.join(str(item) for item in iterator)
 
 
+def _natural_join_values(value: object, argument_spec: str) -> str:
+    """Join iterable values using natural-language list formatting.
+
+    ``natural_join()`` defaults to ``and`` conjunction with an Oxford comma.
+    ``natural_join("or")`` customizes the conjunction.
+    """
+    args: list[str] = []
+    if argument_spec.strip():
+        args = _parse_transform_args(argument_spec)
+
+    if len(args) > 1:
+        raise ValueError("natural_join expects zero or one argument: conjunction")
+
+    conjunction = args[0].strip() if args else "and"
+    if conjunction == "":
+        raise ValueError("natural_join conjunction must not be empty")
+
+    if isinstance(value, (str, bytes, bytearray)):
+        raise ValueError("natural_join expects an iterable value, not a string")
+
+    try:
+        items = [str(item) for item in iter(value)]
+    except TypeError as exc:
+        raise ValueError("natural_join expects an iterable value") from exc
+
+    if not items:
+        return ""
+
+    if len(items) == 1:
+        return items[0]
+
+    if len(items) == 2:
+        return f"{items[0]} {conjunction} {items[1]}"
+
+    return f"{', '.join(items[:-1])}, {conjunction} {items[-1]}"
+
+
 def _split_text(value: object, argument_spec: str) -> list[str]:
     """Split string values into token lists for downstream transforms.
 
@@ -1309,6 +1346,7 @@ class TemplateService:
         - ``{path->strip_prefix("/tmp/")->strip_suffix(".txt")}``
         - ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``
         - ``{owner_groups->flatten->unique->sort->join(", ")}``
+        - ``{owners->natural_join}``, ``{owners->natural_join("or")}``
         - ``{items->length}``
         - ``{owners->distinct_count}``
         - ``{backlog->first}``, ``{backlog->last}``
@@ -1385,6 +1423,7 @@ class TemplateService:
             "urldecode": lambda raw: unquote_plus(str(raw)),
             "slug": _to_slug,
             "split": lambda raw: _split_text(raw, ""),
+            "natural_join": lambda raw: _natural_join_values(raw, ""),
             "flatten": _flatten_values,
             "flat": _flatten_values,
             "unique": _unique_values,
@@ -1468,6 +1507,7 @@ class TemplateService:
                 "prepend(<prefix>)",
                 "append(<suffix>)",
                 "join([separator])",
+                "natural_join([conjunction])",
                 "split([separator[,maxsplit]])",
                 "flatten",
                 "flat",
@@ -1564,6 +1604,11 @@ class TemplateService:
                     )
                 elif transform_name == "join":
                     operation = lambda raw, spec=argument_spec: _join_values(raw, spec)
+                elif transform_name == "natural_join":
+                    operation = lambda raw, spec=argument_spec: _natural_join_values(
+                        raw,
+                        spec,
+                    )
                 elif transform_name == "split":
                     operation = lambda raw, spec=argument_spec: _split_text(raw, spec)
                 elif transform_name in {"flatten", "flat"}:
@@ -1753,7 +1798,9 @@ class TemplateService:
         ``{title->replace_regex("agent","assistant","i")}``,
         ``{path->strip_prefix("/tmp/")->strip_suffix(".txt")}``,
         ``{tags_csv->split(",")->unique->sort(desc)->join(" | ")}``,
-        ``{owner_groups->flatten->unique->sort->join(", ")}``, ``{items->length}``,
+        ``{owner_groups->flatten->unique->sort->join(", ")}``,
+        ``{owners->natural_join}``, ``{owners->natural_join("or")}``,
+        ``{items->length}``,
         ``{owners->distinct_count}``, ``{queue->first}``, ``{queue->last}``,
         ``{tasks->reverse}``,
         ``{milestones->slice(0,2)}``, ``{items->slice(0,10,2)}``,
