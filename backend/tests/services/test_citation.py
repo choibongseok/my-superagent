@@ -2410,9 +2410,36 @@ class TestCitationTracker:
         bibliography = tracker.get_bibliography(style="ieee")
 
         assert len(bibliography) == 1
-        assert bibliography[0].startswith('Bob Johnson, "Machine Learning Basics," 2023.')
+        assert bibliography[0].startswith(
+            'Bob Johnson, "Machine Learning Basics," 2023.'
+        )
         assert "[Online]. Available: https://example.com/ml." in bibliography[0]
         assert "[Accessed: Feb 14, 2026]." in bibliography[0]
+
+    def test_get_bibliography_bibtex(self):
+        """Bibliography generation should support BibTeX entries."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(
+            title="Machine Learning Basics",
+            url="https://example.com/ml",
+            author="Bob Johnson",
+            published_date=datetime(2023, 4, 15),
+            type=SourceType.ARTICLE,
+        )
+        source = tracker.get_source(source_id)
+        assert source is not None
+        source.accessed_date = datetime(2026, 2, 14)
+
+        bibliography = tracker.get_bibliography(style="bibtex")
+
+        assert len(bibliography) == 1
+        assert bibliography[0].startswith("@article{johnson2023machine,")
+        assert "title = {Machine Learning Basics}" in bibliography[0]
+        assert "author = {Bob Johnson}" in bibliography[0]
+        assert "year = {2023}" in bibliography[0]
+        assert "url = {https://example.com/ml}" in bibliography[0]
+        assert "urldate = {2026-02-14}" in bibliography[0]
 
     def test_get_bibliography_sorted(self):
         """Test bibliography sorting."""
@@ -2527,6 +2554,26 @@ class TestCitationTracker:
         )
 
         assert rendered == "Evidence is documented [2]."
+
+    def test_get_inline_citations_supports_bibtex_style(self):
+        """Inline placeholder rendering should support LaTeX/BibTeX cite output."""
+        tracker = CitationTracker()
+
+        source_id = tracker.add_source(
+            title="AI Reliability Guide",
+            author="Jane Doe",
+            published_date=datetime(2025, 6, 1),
+            type=SourceType.DOCUMENT,
+        )
+        citation = tracker.cite(source_id, quoted_text="Verify every claim")
+        assert citation is not None
+
+        rendered = tracker.get_inline_citations(
+            f"Evidence is documented [[cite:{citation.id}]].",
+            style="bibtex",
+        )
+
+        assert rendered == r"Evidence is documented \cite{doe2025ai}."
 
     def test_get_inline_citations_keeps_unknown_placeholders(self):
         """Unknown placeholders should remain unchanged for safer debugging."""
@@ -3204,9 +3251,10 @@ class TestCitationTracker:
         assert report["metrics"]["filters_applied"] is True
         assert report["metrics"]["total_sources"] == 2
         assert report["metrics"]["unique_domains"] == 1
-        assert {
-            item["source_id"] for item in report["source_breakdown"]
-        } == {allowed_source_id, url_less_source_id}
+        assert {item["source_id"] for item in report["source_breakdown"]} == {
+            allowed_source_id,
+            url_less_source_id,
+        }
 
     def test_get_validation_report_supports_cited_only_scope(self):
         """cited_only should limit validation to sources used in citations."""
@@ -3428,6 +3476,43 @@ class TestSource:
 
         assert citation.startswith('Jane Doe, "AI Reliability in Production," 2024.')
 
+    def test_citation_format_bibtex(self):
+        """BibTeX format should emit deterministic entry type, key, and fields."""
+        source = Source(
+            id="test_id",
+            type=SourceType.ARTICLE,
+            title="AI Reliability in Production",
+            url="https://example.com/ai-reliability",
+            author="Jane Doe",
+            published_date=datetime(2024, 1, 1),
+            accessed_date=datetime(2026, 2, 14),
+        )
+
+        citation = source.to_citation_format(style="bibtex")
+
+        assert citation.startswith("@article{doe2024ai,")
+        assert "title = {AI Reliability in Production}" in citation
+        assert "author = {Jane Doe}" in citation
+        assert "year = {2024}" in citation
+        assert "url = {https://example.com/ai-reliability}" in citation
+        assert "urldate = {2026-02-14}" in citation
+
+    def test_citation_format_bib_alias_supports_case_insensitive_names(self):
+        """Bib alias should map to BibTeX formatter regardless of case."""
+        source = Source(
+            id="test_id",
+            type=SourceType.ARTICLE,
+            title="AI Reliability in Production",
+            url="https://example.com/ai-reliability",
+            author="Jane Doe",
+            published_date=datetime(2024, 1, 1),
+            accessed_date=datetime(2026, 2, 14),
+        )
+
+        citation = source.to_citation_format(style="BIB")
+
+        assert citation.startswith("@article{doe2024ai,")
+
     def test_inline_citation_harvard(self):
         """Inline citation rendering should support Harvard style."""
         source = Source(
@@ -3487,6 +3572,21 @@ class TestSource:
         inline = citation.to_inline_citation(style="ieee")
 
         assert inline == "[12]"
+
+    def test_inline_citation_bibtex_uses_source_bibtex_key(self):
+        """BibTeX inline citations should emit LaTeX cite commands."""
+        source = Source(
+            id="source_id",
+            type=SourceType.ARTICLE,
+            title="Reliable Systems",
+            author="Alex Kim",
+            published_date=datetime(2023, 5, 1),
+        )
+        citation = Citation(id="cite_12", source=source)
+
+        inline = citation.to_inline_citation(style="bib")
+
+        assert inline == r"\cite{kim2023reliable}"
 
 
 if __name__ == "__main__":

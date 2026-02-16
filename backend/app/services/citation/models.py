@@ -45,7 +45,7 @@ class Source(BaseModel):
         Format source as citation string.
 
         Args:
-            style: Citation style (apa, mla, chicago, harvard, vancouver, ieee)
+            style: Citation style (apa, mla, chicago, harvard, vancouver, ieee, bibtex)
 
         Returns:
             Formatted citation string
@@ -64,6 +64,8 @@ class Source(BaseModel):
             return self._format_vancouver()
         elif normalized_style == "ieee":
             return self._format_ieee()
+        elif normalized_style in {"bibtex", "bib"}:
+            return self._format_bibtex()
         else:
             return self._format_simple()
 
@@ -186,6 +188,97 @@ class Source(BaseModel):
 
         return " ".join(parts)
 
+    @staticmethod
+    def _escape_bibtex_value(value: str) -> str:
+        """Escape special characters for safe BibTeX field values."""
+        return (
+            value.replace("\\", "\\\\")
+            .replace("{", "\\{")
+            .replace("}", "\\}")
+            .replace("\n", " ")
+        )
+
+    @staticmethod
+    def _sanitize_bibtex_key_component(value: str) -> str:
+        """Normalize strings into lowercase alphanumeric BibTeX key parts."""
+        return re.sub(r"[^0-9a-z]+", "", value.casefold())
+
+    @classmethod
+    def _default_bibtex_key_author_token(
+        cls, author: Optional[str], source_id: str
+    ) -> str:
+        """Resolve deterministic author token used for BibTeX citation keys."""
+        if author:
+            normalized_author = author.strip()
+            if "," in normalized_author:
+                candidate = normalized_author.split(",", maxsplit=1)[0].strip()
+            else:
+                candidate = normalized_author.split()[-1] if normalized_author else ""
+
+            normalized_candidate = cls._sanitize_bibtex_key_component(candidate)
+            if normalized_candidate:
+                return normalized_candidate
+
+        fallback_id = cls._sanitize_bibtex_key_component(source_id)
+        return fallback_id or "source"
+
+    @classmethod
+    def _default_bibtex_key_title_token(cls, title: str) -> str:
+        """Resolve deterministic title token used for BibTeX citation keys."""
+        for token in re.findall(r"[A-Za-z0-9]+", title):
+            normalized_token = cls._sanitize_bibtex_key_component(token)
+            if normalized_token:
+                return normalized_token
+
+        return "reference"
+
+    def to_bibtex_key(self) -> str:
+        """Return deterministic citation key used by BibTeX outputs."""
+        author_token = self._default_bibtex_key_author_token(self.author, self.id)
+        year_token = str(self.published_date.year) if self.published_date else "nd"
+        title_token = self._default_bibtex_key_title_token(self.title)
+        return f"{author_token}{year_token}{title_token}"
+
+    @staticmethod
+    def _bibtex_entry_type(source_type: SourceType) -> str:
+        """Map source types to BibTeX entry kinds."""
+        if source_type == SourceType.BOOK:
+            return "book"
+        if source_type == SourceType.ARTICLE:
+            return "article"
+
+        return "misc"
+
+    def _format_bibtex(self) -> str:
+        """Format source as a BibTeX entry for LaTeX workflows."""
+        fields: list[tuple[str, str]] = [("title", self.title)]
+
+        if self.author:
+            fields.append(("author", self.author))
+
+        if self.published_date:
+            fields.append(("year", str(self.published_date.year)))
+
+        if self.url:
+            fields.append(("url", str(self.url)))
+
+        fields.append(("urldate", self.accessed_date.strftime("%Y-%m-%d")))
+
+        if self.description:
+            fields.append(("note", self.description))
+
+        serialized_fields = ",\n".join(
+            f"  {field_name} = {{{self._escape_bibtex_value(field_value)}}}"
+            for field_name, field_value in fields
+        )
+
+        return (
+            f"@{self._bibtex_entry_type(self.type)}"
+            f"{{{self.to_bibtex_key()},\n"
+            f"{serialized_fields}\n"
+            "}"
+        )
+
     def _format_simple(self) -> str:
         """Simple format with basic info."""
         parts = [self.title]
@@ -229,7 +322,7 @@ class Citation(BaseModel):
         Format as inline citation.
 
         Args:
-            style: Citation style (apa, mla, harvard, vancouver, ieee)
+            style: Citation style (apa, mla, harvard, vancouver, ieee, bibtex)
 
         Returns:
             Inline citation string
@@ -265,6 +358,9 @@ class Citation(BaseModel):
 
         elif normalized_style in {"vancouver", "ieee"}:
             return f"[{self._vancouver_label(self.id)}]"
+
+        elif normalized_style in {"bibtex", "bib"}:
+            return f"\\cite{{{self.source.to_bibtex_key()}}}"
 
         else:
             # Simple numbered citation
