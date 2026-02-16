@@ -88,3 +88,78 @@ def test_ping_can_include_uptime(
         "message": "pong",
         "uptime_seconds": 0.75,
     }
+
+
+def test_status_can_include_service_summary(health_client: TestClient) -> None:
+    """Summary mode should expose categorized service health counters."""
+    response = health_client.get("/status", params={"include_summary": True})
+
+    assert response.status_code == 200
+    assert response.json()["summary"] == {
+        "total": 3,
+        "healthy": 3,
+        "degraded": 0,
+        "unhealthy": 0,
+        "unknown": 0,
+    }
+
+
+def test_status_derives_degraded_when_any_service_is_unhealthy(
+    health_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Aggregate status should downgrade when selected services are unhealthy."""
+    monkeypatch.setattr(
+        "app.api.v1.health._SERVICE_STATUSES",
+        {
+            "api": "healthy",
+            "database": "down",
+            "redis": "healthy",
+        },
+    )
+
+    response = health_client.get(
+        "/status",
+        params={"services": "database,api", "include_summary": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "degraded",
+        "services": {
+            "database": "down",
+            "api": "healthy",
+        },
+        "summary": {
+            "total": 2,
+            "healthy": 1,
+            "degraded": 0,
+            "unhealthy": 1,
+            "unknown": 0,
+        },
+    }
+
+
+def test_status_derives_unknown_when_only_unknown_statuses_present(
+    health_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unknown service states should produce an unknown aggregate status."""
+    monkeypatch.setattr(
+        "app.api.v1.health._SERVICE_STATUSES",
+        {
+            "api": "maintenance",
+            "database": "maintenance",
+            "redis": "maintenance",
+        },
+    )
+
+    response = health_client.get("/status", params={"services": "redis"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "unknown",
+        "services": {
+            "redis": "maintenance",
+        },
+    }
