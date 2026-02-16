@@ -414,6 +414,9 @@ def test_invalidate_cache_rejects_multiple_selectors(monkeypatch):
     with pytest.raises(ValueError, match="mutually exclusive"):
         tool.invalidate_cache(query="alpha", older_than_seconds=10)
 
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        tool.invalidate_cache(status="expired", pattern="*alpha*")
+
 
 def test_invalidate_cache_rejects_invalid_older_than_selector(monkeypatch):
     """Age selector should accept only positive numeric values."""
@@ -489,6 +492,75 @@ def test_invalidate_cache_can_remove_entries_older_than_threshold(monkeypatch):
 
     assert removed_entries == 2
     assert list(tool._cache.keys()) == ["fresh"]
+
+
+def test_invalidate_cache_can_remove_entries_by_status(monkeypatch):
+    """Status selector should remove entries matching freshness classifications."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 200.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=10,
+        cache_max_entries=16,
+        stale_cache_ttl_seconds=30,
+    )
+    tool._cache["active query"] = (195.0, "a")
+    tool._cache["stale query"] = (180.0, "b")
+    tool._cache["expired query"] = (150.0, "c")
+
+    removed_entries = tool.invalidate_cache(status="expired")
+
+    assert removed_entries == 1
+    assert list(tool._cache.keys()) == ["active query", "stale query"]
+
+
+def test_invalidate_cache_status_selector_supports_iterables(monkeypatch):
+    """Status selector should support multiple statuses in one call."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    now = {"value": 200.0}
+    monkeypatch.setattr("app.tools.web_search.time.monotonic", lambda: now["value"])
+
+    tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=10,
+        cache_max_entries=16,
+        stale_cache_ttl_seconds=30,
+    )
+    tool._cache["active query"] = (195.0, "a")
+    tool._cache["stale query"] = (180.0, "b")
+    tool._cache["expired query"] = (150.0, "c")
+
+    removed_entries = tool.invalidate_cache(status=["ACTIVE", "stale_eligible"])
+
+    assert removed_entries == 2
+    assert list(tool._cache.keys()) == ["expired query"]
+
+
+def test_invalidate_cache_rejects_invalid_status_selector(monkeypatch):
+    """Status selector should reject unsupported cache-state values."""
+    fake_backend = _FakeSearchBackend(response="payload")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=60, cache_max_entries=16)
+
+    with pytest.raises(
+        ValueError,
+        match="status must contain only: active, stale_eligible, expired, unbounded",
+    ):
+        tool.invalidate_cache(status="fresh")
 
 
 def test_invalidate_cache_limit_caps_age_based_invalidation(monkeypatch):

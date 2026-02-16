@@ -211,6 +211,53 @@ class DuckDuckGoSearchTool(BaseTool):
 
         return parsed_flags
 
+    @staticmethod
+    def _normalize_cache_status_selector(
+        status: str | Iterable[str] | None,
+    ) -> set[str] | None:
+        """Normalize optional cache-status selectors used by invalidation."""
+        if status is None:
+            return None
+
+        raw_statuses: list[object]
+        if isinstance(status, str):
+            raw_statuses = [status]
+        else:
+            try:
+                raw_statuses = list(status)
+            except TypeError as exc:
+                raise ValueError(
+                    "status must be a string or iterable of strings"
+                ) from exc
+
+        if not raw_statuses:
+            raise ValueError("status must include at least one value")
+
+        supported_statuses = {
+            "active",
+            "stale_eligible",
+            "expired",
+            "unbounded",
+        }
+        normalized_statuses: set[str] = set()
+
+        for raw_status in raw_statuses:
+            if not isinstance(raw_status, str):
+                raise ValueError("status must contain only string values")
+
+            normalized_status = raw_status.strip().lower()
+            if normalized_status not in supported_statuses:
+                raise ValueError(
+                    "status must contain only: active, stale_eligible, expired, unbounded"
+                )
+
+            normalized_statuses.add(normalized_status)
+
+        if not normalized_statuses:
+            raise ValueError("status must include at least one value")
+
+        return normalized_statuses
+
     def _normalize_query(self, query: str) -> str:
         """Normalize and validate incoming search queries."""
         if not isinstance(query, str):
@@ -335,6 +382,7 @@ class DuckDuckGoSearchTool(BaseTool):
         regex: str | None = None,
         regex_flags: str | None = None,
         older_than_seconds: float | None = None,
+        status: str | Iterable[str] | None = None,
         limit: int | None = None,
         newest_first: bool = False,
         case_sensitive: bool = True,
@@ -361,6 +409,9 @@ class DuckDuckGoSearchTool(BaseTool):
                 ``s``, ``x``) used only when ``regex`` is provided.
             older_than_seconds: Optional age threshold that removes cache
                 entries older than the provided number of seconds.
+            status: Optional cache-status selector. Accepts one status or an
+                iterable of statuses from ``active``, ``stale_eligible``,
+                ``expired``, and ``unbounded``.
             limit: Optional maximum number of matching cache entries to
                 invalidate. Matches are processed in deterministic cache
                 order.
@@ -382,10 +433,13 @@ class DuckDuckGoSearchTool(BaseTool):
                 ``queries`` is not an iterable of non-empty strings, if
                 ``regex`` is not a valid regular expression, if
                 ``regex_flags`` is invalid, if ``older_than_seconds`` is not
-                a positive number, if ``limit`` is not a positive integer, if
-                ``newest_first`` is not a boolean, if ``case_sensitive`` is
-                not a boolean, or if ``dry_run`` is not a boolean.
+                a positive number, if ``status`` is invalid, if ``limit`` is
+                not a positive integer, if ``newest_first`` is not a boolean,
+                if ``case_sensitive`` is not a boolean, or if ``dry_run`` is
+                not a boolean.
         """
+        normalized_status_selector = self._normalize_cache_status_selector(status)
+
         selector_count = sum(
             candidate is not None
             for candidate in (
@@ -397,12 +451,13 @@ class DuckDuckGoSearchTool(BaseTool):
                 pattern,
                 regex,
                 older_than_seconds,
+                normalized_status_selector,
             )
         )
         if selector_count > 1:
             raise ValueError(
                 "query, queries, contains, prefix, suffix, pattern, regex, and "
-                "older_than_seconds are mutually exclusive"
+                "older_than_seconds, and status are mutually exclusive"
             )
 
         if not isinstance(dry_run, bool):
@@ -516,6 +571,22 @@ class DuckDuckGoSearchTool(BaseTool):
                 cached_query
                 for cached_query, (cached_at, _payload) in self._cache.items()
                 if now - cached_at > normalized_age_threshold
+            ]
+            matching_queries = _apply_limit(matching_queries)
+
+            if not dry_run:
+                for cached_query in matching_queries:
+                    self._cache.pop(cached_query, None)
+
+            return len(matching_queries)
+
+        if normalized_status_selector is not None:
+            now = time.monotonic()
+            matching_queries = [
+                cached_query
+                for cached_query, (cached_at, _payload) in self._cache.items()
+                if self._cache_entry_status(now - cached_at)
+                in normalized_status_selector
             ]
             matching_queries = _apply_limit(matching_queries)
 
