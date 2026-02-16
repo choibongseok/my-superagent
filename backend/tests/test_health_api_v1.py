@@ -73,6 +73,19 @@ def test_status_includes_uptime_when_requested(
     assert response.json()["uptime_seconds"] == 2.346
 
 
+def test_status_can_include_timestamp(
+    health_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Status endpoint should optionally expose a deterministic UTC timestamp."""
+    monkeypatch.setattr("app.api.v1.health.time.time", lambda: 1700000000.123)
+
+    response = health_client.get("/status", params={"include_timestamp": True})
+
+    assert response.status_code == 200
+    assert response.json()["timestamp_utc"] == "2023-11-14T22:13:20.123Z"
+
+
 def test_ping_can_include_uptime(
     health_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -87,6 +100,22 @@ def test_ping_can_include_uptime(
     assert response.json() == {
         "message": "pong",
         "uptime_seconds": 0.75,
+    }
+
+
+def test_ping_can_include_timestamp(
+    health_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ping endpoint should optionally expose a deterministic UTC timestamp."""
+    monkeypatch.setattr("app.api.v1.health.time.time", lambda: 1700000000.123)
+
+    response = health_client.get("/ping", params={"include_timestamp": True})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "message": "pong",
+        "timestamp_utc": "2023-11-14T22:13:20.123Z",
     }
 
 

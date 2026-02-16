@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -49,6 +50,13 @@ _STATUS_FILTER_ALIASES: dict[str, str] = {
 def _uptime_seconds() -> float:
     """Return process uptime in seconds based on monotonic clock."""
     return max(0.0, time.monotonic() - _START_TIME_MONOTONIC)
+
+
+def _current_timestamp_utc() -> str:
+    """Return current UTC timestamp in ISO-8601 format."""
+    return datetime.fromtimestamp(time.time(), tz=timezone.utc).isoformat(
+        timespec="milliseconds"
+    ).replace("+00:00", "Z")
 
 
 def _parse_requested_services(raw_services: str | None) -> list[str]:
@@ -197,11 +205,18 @@ async def ping(
         default=False,
         description="Include process uptime in the ping payload",
     ),
+    include_timestamp: bool = Query(
+        default=False,
+        description="Include current UTC timestamp in ISO-8601 format",
+    ),
 ) -> dict[str, Any]:
-    """Simple ping endpoint with optional uptime diagnostics."""
+    """Simple ping endpoint with optional uptime and timestamp diagnostics."""
     payload: dict[str, Any] = {"message": "pong"}
     if include_uptime:
         payload["uptime_seconds"] = round(_uptime_seconds(), 3)
+
+    if include_timestamp:
+        payload["timestamp_utc"] = _current_timestamp_utc()
 
     return payload
 
@@ -216,6 +231,10 @@ async def status(
     include_uptime: bool = Query(
         default=False,
         description="Include process uptime in the status payload",
+    ),
+    include_timestamp: bool = Query(
+        default=False,
+        description="Include current UTC timestamp in ISO-8601 format",
     ),
     include_summary: bool = Query(
         default=False,
@@ -259,5 +278,8 @@ async def status(
 
     if include_uptime:
         payload["uptime_seconds"] = round(_uptime_seconds(), 3)
+
+    if include_timestamp:
+        payload["timestamp_utc"] = _current_timestamp_utc()
 
     return payload
