@@ -431,6 +431,7 @@ class TaskPlanner:
         plan: ExecutionPlan,
         *,
         max_parallel_steps: Optional[int] = None,
+        include_agent_workload: bool = False,
     ) -> Dict[str, Any]:
         """Return dependency-aware schedule metrics for execution planning.
 
@@ -438,7 +439,12 @@ class TaskPlanner:
             plan: Plan to summarize.
             max_parallel_steps: Optional worker-capacity limit used for
                 makespan and parallelism-gain estimation.
+            include_agent_workload: When ``True``, include per-agent workload
+                totals (steps, time, cost, tokens, and share metrics).
         """
+        if not isinstance(include_agent_workload, bool):
+            raise ValueError("include_agent_workload must be a boolean")
+
         batches = self.get_execution_batches(plan)
         makespan = self.estimate_makespan(
             plan,
@@ -461,7 +467,66 @@ class TaskPlanner:
                 max_parallel_steps
             )
 
+        if include_agent_workload:
+            summary["agent_workload"] = self.get_agent_workload_breakdown(plan)
+
         return summary
+
+    def get_agent_workload_breakdown(
+        self,
+        plan: ExecutionPlan,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return estimated workload grouped by ``agent_type``.
+
+        Each bucket includes absolute totals and fractional contribution values
+        (``*_share``) between 0 and 1.
+        """
+        total_work_seconds = sum(step.estimated_time for step in plan.steps)
+        total_estimated_cost = sum(step.estimated_cost for step in plan.steps)
+        total_estimated_tokens = sum(step.estimated_tokens for step in plan.steps)
+
+        grouped_workload: Dict[str, Dict[str, Any]] = {}
+        for step in plan.steps:
+            bucket = grouped_workload.setdefault(
+                step.agent_type,
+                {
+                    "step_count": 0,
+                    "total_work_seconds": 0,
+                    "total_estimated_cost": 0.0,
+                    "total_estimated_tokens": 0,
+                },
+            )
+            bucket["step_count"] += 1
+            bucket["total_work_seconds"] += step.estimated_time
+            bucket["total_estimated_cost"] += step.estimated_cost
+            bucket["total_estimated_tokens"] += step.estimated_tokens
+
+        breakdown: Dict[str, Dict[str, Any]] = {}
+        for agent_type in sorted(grouped_workload):
+            bucket = grouped_workload[agent_type]
+            bucket_cost = float(bucket["total_estimated_cost"])
+
+            breakdown[agent_type] = {
+                **bucket,
+                "total_estimated_cost": round(bucket_cost, 4),
+                "time_share": round(
+                    bucket["total_work_seconds"] / total_work_seconds,
+                    4,
+                )
+                if total_work_seconds
+                else 0.0,
+                "cost_share": round(bucket_cost / total_estimated_cost, 4)
+                if total_estimated_cost
+                else 0.0,
+                "token_share": round(
+                    bucket["total_estimated_tokens"] / total_estimated_tokens,
+                    4,
+                )
+                if total_estimated_tokens
+                else 0.0,
+            }
+
+        return breakdown
 
     def _get_ready_and_blocked_steps(
         self,

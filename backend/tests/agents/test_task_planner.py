@@ -233,6 +233,86 @@ def test_get_execution_summary_reports_schedule_metrics(planner_stub):
     }
 
 
+def test_get_agent_workload_breakdown_groups_resource_estimates(planner_stub):
+    """Workload breakdown should aggregate execution estimates by agent type."""
+    steps = [
+        PlanStep("step_1", "Research market", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Research users", "research", 30, 0.02, 2000),
+        PlanStep("step_3", "Draft report", "docs", 20, 0.03, 3000),
+        PlanStep("step_4", "Publish summary", "docs", 20, 0.03, 3000),
+        PlanStep("step_5", "Build table", "sheets", 10, 0.01, 1000),
+    ]
+
+    breakdown = planner_stub.get_agent_workload_breakdown(_build_plan(steps))
+
+    assert breakdown == {
+        "docs": {
+            "step_count": 2,
+            "total_work_seconds": 40,
+            "total_estimated_cost": 0.06,
+            "total_estimated_tokens": 6000,
+            "time_share": 0.3636,
+            "cost_share": 0.5455,
+            "token_share": 0.5455,
+        },
+        "research": {
+            "step_count": 2,
+            "total_work_seconds": 60,
+            "total_estimated_cost": 0.04,
+            "total_estimated_tokens": 4000,
+            "time_share": 0.5455,
+            "cost_share": 0.3636,
+            "token_share": 0.3636,
+        },
+        "sheets": {
+            "step_count": 1,
+            "total_work_seconds": 10,
+            "total_estimated_cost": 0.01,
+            "total_estimated_tokens": 1000,
+            "time_share": 0.0909,
+            "cost_share": 0.0909,
+            "token_share": 0.0909,
+        },
+    }
+
+
+def test_get_execution_summary_can_include_agent_workload_breakdown(planner_stub):
+    """Execution summary should optionally include per-agent workload metrics."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Draft", "docs", 20, 0.03, 3000, ["step_1"]),
+    ]
+
+    summary = planner_stub.get_execution_summary(
+        _build_plan(steps),
+        include_agent_workload=True,
+    )
+
+    assert "agent_workload" in summary
+    assert summary["agent_workload"]["research"] == {
+        "step_count": 1,
+        "total_work_seconds": 30,
+        "total_estimated_cost": 0.02,
+        "total_estimated_tokens": 2000,
+        "time_share": 0.6,
+        "cost_share": 0.4,
+        "token_share": 0.4,
+    }
+
+
+def test_get_execution_summary_validates_include_agent_workload_flag(planner_stub):
+    """include_agent_workload should require a strict boolean value."""
+    with pytest.raises(ValueError, match="include_agent_workload must be a boolean"):
+        planner_stub.get_execution_summary(
+            _build_plan(
+                [
+                    PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+                ]
+            ),
+            include_agent_workload=1,  # type: ignore[arg-type]
+        )
+
+
 def test_get_ready_steps_returns_only_dependency_satisfied_planned_steps(planner_stub):
     """Ready-queue helper should skip steps with unmet or terminally failed dependencies."""
     steps = [
