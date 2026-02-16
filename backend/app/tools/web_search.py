@@ -1,6 +1,7 @@
 """Web search tool using DuckDuckGo."""
 
 import logging
+import math
 import re
 import time
 from collections import Counter, OrderedDict
@@ -1135,7 +1136,7 @@ class DuckDuckGoSearchTool(BaseTool):
         Returns:
             Dictionary containing ``results`` (per-query diagnostics payloads)
             and ``summary`` (aggregate success/cache/latency metrics,
-            source distribution, and latency extrema).
+            source distribution, latency extrema, and percentile latencies).
         """
         normalized_queries = self._normalize_query_batch(queries)
         diagnostics_rows = [
@@ -1155,18 +1156,14 @@ class DuckDuckGoSearchTool(BaseTool):
 
         latency_values = [float(row["latency_ms"]) for row in diagnostics_rows]
         average_latency_ms = sum(latency_values) / total_queries
-        min_latency_ms = min(latency_values)
-        max_latency_ms = max(latency_values)
 
         sorted_latency_values = sorted(latency_values)
-        median_index = total_queries // 2
-        if total_queries % 2 == 1:
-            median_latency_ms = sorted_latency_values[median_index]
-        else:
-            median_latency_ms = (
-                sorted_latency_values[median_index - 1]
-                + sorted_latency_values[median_index]
-            ) / 2
+        min_latency_ms = sorted_latency_values[0]
+        max_latency_ms = sorted_latency_values[-1]
+        median_latency_ms = self._calculate_percentile(sorted_latency_values, 50)
+        p90_latency_ms = self._calculate_percentile(sorted_latency_values, 90)
+        p95_latency_ms = self._calculate_percentile(sorted_latency_values, 95)
+        p99_latency_ms = self._calculate_percentile(sorted_latency_values, 99)
 
         source_counts = Counter(str(row["source"]) for row in diagnostics_rows)
 
@@ -1183,6 +1180,9 @@ class DuckDuckGoSearchTool(BaseTool):
                 "min_latency_ms": min_latency_ms,
                 "max_latency_ms": max_latency_ms,
                 "median_latency_ms": median_latency_ms,
+                "p90_latency_ms": p90_latency_ms,
+                "p95_latency_ms": p95_latency_ms,
+                "p99_latency_ms": p99_latency_ms,
                 "success_rate": success_count / total_queries,
                 "source_counts": {
                     "fresh_search": source_counts.get("fresh_search", 0),
@@ -1195,6 +1195,42 @@ class DuckDuckGoSearchTool(BaseTool):
                 },
             },
         }
+
+    @staticmethod
+    def _calculate_percentile(sorted_values: list[float], percentile: float) -> float:
+        """Calculate a percentile using linear interpolation.
+
+        Args:
+            sorted_values: Sorted list of numeric values.
+            percentile: Percentile to compute in the inclusive range [0, 100].
+
+        Returns:
+            The interpolated percentile value.
+
+        Raises:
+            ValueError: If ``sorted_values`` is empty or ``percentile`` is
+                outside [0, 100].
+        """
+        if not sorted_values:
+            raise ValueError("sorted_values must include at least one value")
+
+        if percentile < 0 or percentile > 100:
+            raise ValueError("percentile must be between 0 and 100")
+
+        if len(sorted_values) == 1:
+            return sorted_values[0]
+
+        position = (len(sorted_values) - 1) * (percentile / 100)
+        lower_index = math.floor(position)
+        upper_index = math.ceil(position)
+
+        if lower_index == upper_index:
+            return sorted_values[lower_index]
+
+        lower_value = sorted_values[lower_index]
+        upper_value = sorted_values[upper_index]
+        interpolation_weight = position - lower_index
+        return lower_value + (upper_value - lower_value) * interpolation_weight
 
     def _run(self, query: str) -> str:
         """

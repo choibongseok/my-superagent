@@ -1589,6 +1589,9 @@ def test_search_many_with_diagnostics_reports_per_query_rows_and_summary(monkeyp
     assert (
         diagnostics["summary"]["min_latency_ms"]
         <= diagnostics["summary"]["median_latency_ms"]
+        <= diagnostics["summary"]["p90_latency_ms"]
+        <= diagnostics["summary"]["p95_latency_ms"]
+        <= diagnostics["summary"]["p99_latency_ms"]
         <= diagnostics["summary"]["max_latency_ms"]
     )
     assert diagnostics["summary"]["success_rate"] == pytest.approx(2 / 3)
@@ -1598,6 +1601,96 @@ def test_search_many_with_diagnostics_reports_per_query_rows_and_summary(monkeyp
         "stale_cache_fallback": 0,
         "error": 1,
     }
+
+
+def test_search_many_with_diagnostics_reports_percentile_latencies(monkeypatch):
+    """Batch diagnostics should expose deterministic percentile latencies."""
+    fake_backend = _FakeSearchBackend(response="unused")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool()
+
+    diagnostics_rows = iter(
+        [
+            {
+                "query": "q1",
+                "normalized_query": "q1",
+                "result": "r1",
+                "source": "fresh_search",
+                "latency_ms": 10.0,
+                "success": True,
+                "cache_hit": False,
+                "stale_fallback": False,
+            },
+            {
+                "query": "q2",
+                "normalized_query": "q2",
+                "result": "r2",
+                "source": "fresh_search",
+                "latency_ms": 20.0,
+                "success": True,
+                "cache_hit": False,
+                "stale_fallback": False,
+            },
+            {
+                "query": "q3",
+                "normalized_query": "q3",
+                "result": "r3",
+                "source": "cache_hit",
+                "latency_ms": 30.0,
+                "success": True,
+                "cache_hit": True,
+                "stale_fallback": False,
+            },
+            {
+                "query": "q4",
+                "normalized_query": "q4",
+                "result": "r4",
+                "source": "error",
+                "latency_ms": 40.0,
+                "success": False,
+                "cache_hit": False,
+                "stale_fallback": False,
+                "error": "backend timeout",
+            },
+        ]
+    )
+
+    monkeypatch.setattr(
+        DuckDuckGoSearchTool,
+        "search_with_diagnostics",
+        lambda self, _query: next(diagnostics_rows),
+    )
+
+    diagnostics = tool.search_many_with_diagnostics(["q1", "q2", "q3", "q4"])
+
+    assert diagnostics["summary"]["median_latency_ms"] == pytest.approx(25.0)
+    assert diagnostics["summary"]["p90_latency_ms"] == pytest.approx(37.0)
+    assert diagnostics["summary"]["p95_latency_ms"] == pytest.approx(38.5)
+    assert diagnostics["summary"]["p99_latency_ms"] == pytest.approx(39.7)
+
+
+def test_calculate_percentile_rejects_invalid_arguments(monkeypatch):
+    """Percentile helper should guard against empty values and bad ranges."""
+    fake_backend = _FakeSearchBackend(response="unused")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool()
+
+    with pytest.raises(
+        ValueError,
+        match="sorted_values must include at least one value",
+    ):
+        tool._calculate_percentile([], 50)
+
+    with pytest.raises(ValueError, match="percentile must be between 0 and 100"):
+        tool._calculate_percentile([1.0, 2.0], 101)
 
 
 def test_search_many_with_diagnostics_rejects_invalid_query_batches(monkeypatch):
