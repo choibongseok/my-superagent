@@ -343,7 +343,7 @@ class TaskPlanner:
     def _get_ready_and_blocked_steps(
         self,
         plan: ExecutionPlan,
-    ) -> tuple[List[PlanStep], Dict[str, List[str]]]:
+    ) -> tuple[List[PlanStep], Dict[str, List[str]], Dict[str, List[str]]]:
         """Return ready planned steps and dependency blockers for non-runnable steps.
 
         A step is considered *ready* when:
@@ -352,9 +352,16 @@ class TaskPlanner:
         - none of its dependencies are in a terminal failed state
 
         Returns:
-            Tuple of ``(ready_steps, blocked_by_failed_dependencies)`` where
-            ``blocked_by_failed_dependencies`` maps ``step_id`` to dependency IDs
-            that are currently ``FAILED`` or ``CANCELLED``.
+            Tuple of ``(
+                ready_steps,
+                blocked_by_failed_dependencies,
+                blocked_by_incomplete_dependencies,
+            )``.
+
+            - ``blocked_by_failed_dependencies`` maps ``step_id`` to dependency IDs
+              that are currently ``FAILED`` or ``CANCELLED``.
+            - ``blocked_by_incomplete_dependencies`` maps ``step_id`` to dependency
+              IDs that are not completed yet (excluding terminal failures).
         """
         self._validate_step_dependencies(plan.steps)
 
@@ -369,26 +376,39 @@ class TaskPlanner:
 
         ready_steps: List[PlanStep] = []
         blocked_by_failed_dependencies: Dict[str, List[str]] = {}
+        blocked_by_incomplete_dependencies: Dict[str, List[str]] = {}
 
         for step in plan.steps:
             if step.status != TaskStatus.PLANNED:
                 continue
 
-            blocking_dependencies = [
+            failed_dependencies = [
                 dependency_id
                 for dependency_id in step.dependencies
                 if dependency_id in failed_dependency_ids
             ]
-            if blocking_dependencies:
-                blocked_by_failed_dependencies[step.step_id] = blocking_dependencies
+            if failed_dependencies:
+                blocked_by_failed_dependencies[step.step_id] = failed_dependencies
                 continue
 
-            if all(
-                dependency_id in completed_ids for dependency_id in step.dependencies
-            ):
-                ready_steps.append(step)
+            incomplete_dependencies = [
+                dependency_id
+                for dependency_id in step.dependencies
+                if dependency_id not in completed_ids
+            ]
+            if incomplete_dependencies:
+                blocked_by_incomplete_dependencies[step.step_id] = (
+                    incomplete_dependencies
+                )
+                continue
 
-        return ready_steps, blocked_by_failed_dependencies
+            ready_steps.append(step)
+
+        return (
+            ready_steps,
+            blocked_by_failed_dependencies,
+            blocked_by_incomplete_dependencies,
+        )
 
     def get_ready_steps(self, plan: ExecutionPlan) -> List[PlanStep]:
         """Return PLANNED steps that can be executed immediately.
@@ -396,8 +416,26 @@ class TaskPlanner:
         This helper is useful for scheduler/runner loops that repeatedly pull
         the next dependency-safe execution batch from an evolving plan state.
         """
-        ready_steps, _ = self._get_ready_and_blocked_steps(plan)
+        ready_steps, _, _ = self._get_ready_and_blocked_steps(plan)
         return ready_steps
+
+    def get_blocked_steps(self, plan: ExecutionPlan) -> Dict[str, Dict[str, List[str]]]:
+        """Return dependency blockers for planned steps that are not runnable.
+
+        Returns a dictionary with two dependency blocker maps:
+        - ``failed_dependencies``: blockers that are terminally failed/cancelled
+        - ``incomplete_dependencies``: blockers still waiting on completion
+        """
+        (
+            _,
+            blocked_by_failed_dependencies,
+            blocked_by_incomplete_dependencies,
+        ) = self._get_ready_and_blocked_steps(plan)
+
+        return {
+            "failed_dependencies": blocked_by_failed_dependencies,
+            "incomplete_dependencies": blocked_by_incomplete_dependencies,
+        }
 
     async def plan(
         self,
@@ -721,9 +759,11 @@ Create an updated execution plan. Output JSON only."""
         failed = sum(1 for s in plan.steps if s.status == TaskStatus.FAILED)
         blocked = sum(1 for s in plan.steps if s.status == TaskStatus.BLOCKED)
 
-        ready_steps, blocked_by_failed_dependencies = self._get_ready_and_blocked_steps(
-            plan
-        )
+        (
+            ready_steps,
+            blocked_by_failed_dependencies,
+            blocked_by_incomplete_dependencies,
+        ) = self._get_ready_and_blocked_steps(plan)
 
         # Calculate actual vs estimated
         actual_time = sum(s.actual_time or 0 for s in plan.steps if s.actual_time)
@@ -740,6 +780,7 @@ Create an updated execution plan. Output JSON only."""
             "ready": len(ready_steps),
             "ready_step_ids": [step.step_id for step in ready_steps],
             "blocked_by_failed_dependencies": blocked_by_failed_dependencies,
+            "blocked_by_incomplete_dependencies": blocked_by_incomplete_dependencies,
             "progress_percentage": round(progress_pct, 1),
             "estimated_time": plan.total_estimated_time,
             "actual_time": actual_time,

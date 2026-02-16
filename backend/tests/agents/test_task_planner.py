@@ -185,6 +185,26 @@ def test_get_ready_steps_returns_only_dependency_satisfied_planned_steps(planner
     assert [step.step_id for step in ready_steps] == ["step_3"]
 
 
+def test_get_blocked_steps_reports_failed_and_incomplete_dependencies(planner_stub):
+    """Blocked-step helper should separate terminal failures from pending blockers."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Collect metrics", "research", 30, 0.02, 2000),
+        PlanStep("step_3", "Draft summary", "docs", 20, 0.03, 3000, ["step_1"]),
+        PlanStep("step_4", "Build table", "sheets", 15, 0.02, 1500, ["step_2"]),
+    ]
+
+    steps[1].status = TaskStatus.CANCELLED
+
+    plan = _build_plan(steps)
+    blocked = planner_stub.get_blocked_steps(plan)
+
+    assert blocked == {
+        "failed_dependencies": {"step_4": ["step_2"]},
+        "incomplete_dependencies": {"step_3": ["step_1"]},
+    }
+
+
 def test_get_progress_reports_ready_queue_and_failed_dependency_blockers(planner_stub):
     """Progress payload should expose runnable steps and failed-dependency blockers."""
     steps = [
@@ -204,6 +224,28 @@ def test_get_progress_reports_ready_queue_and_failed_dependency_blockers(planner
     assert progress["ready"] == 1
     assert progress["ready_step_ids"] == ["step_3"]
     assert progress["blocked_by_failed_dependencies"] == {"step_4": ["step_2"]}
+    assert progress["blocked_by_incomplete_dependencies"] == {}
+
+
+def test_get_progress_reports_incomplete_dependency_blockers(planner_stub):
+    """Progress payload should expose blockers waiting on unfinished dependencies."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Draft summary", "docs", 20, 0.03, 3000, ["step_1"]),
+        PlanStep("step_3", "Finalize", "docs", 20, 0.03, 3000, ["step_2"]),
+    ]
+
+    steps[0].status = TaskStatus.IN_PROGRESS
+
+    plan = _build_plan(steps)
+    progress = planner_stub.get_progress(plan)
+
+    assert progress["ready"] == 0
+    assert progress["blocked_by_failed_dependencies"] == {}
+    assert progress["blocked_by_incomplete_dependencies"] == {
+        "step_2": ["step_1"],
+        "step_3": ["step_2"],
+    }
 
 
 @pytest.mark.asyncio
