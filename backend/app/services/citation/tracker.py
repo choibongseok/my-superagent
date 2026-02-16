@@ -2262,6 +2262,7 @@ class CitationTracker:
         include_source_breakdown: bool = False,
         source_types: Optional[SourceType | str | Iterable[SourceType | str]] = None,
         domains: Optional[str | Iterable[str]] = None,
+        exclude_domains: Optional[str | Iterable[str]] = None,
         include_source_ids: Optional[str | Iterable[str]] = None,
         exclude_source_ids: Optional[str | Iterable[str]] = None,
         cited_only: bool = False,
@@ -2286,6 +2287,8 @@ class CitationTracker:
                 source type or iterable of source types.
             domains: Optional domain allow-list. Matching is case-insensitive
                 and includes subdomains.
+            exclude_domains: Optional domain deny-list. Matching is
+                case-insensitive and includes subdomains.
             include_source_ids: Optional source-id allow-list.
             exclude_source_ids: Optional source-id deny-list.
             cited_only: When ``True``, include only sources that are cited at
@@ -2313,6 +2316,7 @@ class CitationTracker:
             argument_name="source_types",
         )
         normalized_domains = self._normalize_domains(domains)
+        normalized_exclude_domains = self._normalize_domains(exclude_domains)
         normalized_include_source_ids = self._normalize_source_ids(
             include_source_ids,
             argument_name="include_source_ids",
@@ -2356,18 +2360,31 @@ class CitationTracker:
             ):
                 continue
 
-            if normalized_domains is not None:
-                if not source.url:
-                    continue
+            source_hostname: str | None = None
+            if (
+                normalized_domains is not None
+                or normalized_exclude_domains is not None
+            ):
+                if source.url:
+                    try:
+                        source_hostname = self._normalize_domain(str(source.url))
+                    except ValueError:
+                        source_hostname = None
 
-                try:
-                    source_hostname = self._normalize_domain(str(source.url))
-                except ValueError:
-                    continue
+                if normalized_domains is not None:
+                    if source_hostname is None or not self._domain_matches_allowed(
+                        source_hostname,
+                        normalized_domains,
+                    ):
+                        continue
 
-                if not self._domain_matches_allowed(
-                    source_hostname,
-                    normalized_domains,
+                if (
+                    normalized_exclude_domains is not None
+                    and source_hostname is not None
+                    and self._domain_matches_allowed(
+                        source_hostname,
+                        normalized_exclude_domains,
+                    )
                 ):
                     continue
 
@@ -2393,6 +2410,7 @@ class CitationTracker:
                         [
                             normalized_source_types,
                             normalized_domains,
+                            normalized_exclude_domains,
                             normalized_include_source_ids,
                             normalized_exclude_source_ids,
                             cited_only,
@@ -2514,6 +2532,7 @@ class CitationTracker:
                     [
                         normalized_source_types,
                         normalized_domains,
+                        normalized_exclude_domains,
                         normalized_include_source_ids,
                         normalized_exclude_source_ids,
                         cited_only,

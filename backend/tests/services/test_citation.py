@@ -3173,6 +3173,41 @@ class TestCitationTracker:
         assert report["metrics"]["unique_domains"] == 1
         assert report["source_breakdown"][0]["source_id"] == api_source_id
 
+    def test_get_validation_report_supports_exclude_domains_filter(self):
+        """exclude_domains should drop matching hosts while keeping URL-less sources."""
+        tracker = CitationTracker()
+
+        allowed_source_id = tracker.add_source(
+            title="Allowed API Docs",
+            url="https://docs.example.com/api",
+            type=SourceType.API,
+        )
+        tracker.add_source(
+            title="Excluded Blog Post",
+            url="https://blog.example.com/post",
+            type=SourceType.WEB,
+        )
+        url_less_source_id = tracker.add_source(
+            title="Internal Meeting Notes",
+            type=SourceType.DOCUMENT,
+        )
+
+        tracker.cite(allowed_source_id, quoted_text="Primary source")
+        tracker.cite(url_less_source_id, quoted_text="Internal context")
+
+        report = tracker.get_validation_report(
+            min_sources=1,
+            exclude_domains="blog.example.com",
+            include_source_breakdown=True,
+        )
+
+        assert report["metrics"]["filters_applied"] is True
+        assert report["metrics"]["total_sources"] == 2
+        assert report["metrics"]["unique_domains"] == 1
+        assert {
+            item["source_id"] for item in report["source_breakdown"]
+        } == {allowed_source_id, url_less_source_id}
+
     def test_get_validation_report_supports_cited_only_scope(self):
         """cited_only should limit validation to sources used in citations."""
         tracker = CitationTracker()
