@@ -672,6 +672,26 @@ class LocalCacheService:
         self.set(key, value, ttl_seconds=ttl_seconds)
         return True
 
+    def set_many_if_absent(
+        self,
+        items: Mapping[str, Any],
+        ttl_seconds: int | None = None,
+    ) -> dict[str, bool]:
+        """Store many key/value pairs only when each key is currently missing.
+
+        Existing active keys are preserved. The returned mapping keeps input
+        order and reports whether each key was inserted.
+        """
+        inserted_by_key: dict[str, bool] = {}
+        for key, value in items.items():
+            inserted_by_key[key] = self.set_if_absent(
+                key,
+                value,
+                ttl_seconds=ttl_seconds,
+            )
+
+        return inserted_by_key
+
     def get(self, key: str) -> Any | None:
         """Return cached value or ``None`` when missing/expired."""
         item = self._get_entry(key)

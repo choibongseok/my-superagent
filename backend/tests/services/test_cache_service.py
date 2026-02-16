@@ -651,6 +651,78 @@ def test_local_cache_set_if_absent_treats_expired_entry_as_missing():
     assert cache.get("otp") == "5678"
 
 
+def test_local_cache_set_many_if_absent_inserts_missing_keys_only():
+    cache = LocalCacheService()
+    cache.set("alpha", 1)
+
+    inserted = cache.set_many_if_absent(
+        {
+            "alpha": 99,
+            "beta": 2,
+            "gamma": 3,
+        }
+    )
+
+    assert inserted == {
+        "alpha": False,
+        "beta": True,
+        "gamma": True,
+    }
+    assert cache.get_many(["alpha", "beta", "gamma"]) == {
+        "alpha": 1,
+        "beta": 2,
+        "gamma": 3,
+    }
+
+
+def test_local_cache_set_many_if_absent_treats_expired_keys_as_missing():
+    cache = LocalCacheService()
+    cache.set("otp", "1234", ttl_seconds=1)
+
+    time.sleep(1.05)
+
+    inserted = cache.set_many_if_absent(
+        {
+            "otp": "5678",
+            "session": "token",
+        },
+        ttl_seconds=1,
+    )
+
+    assert inserted == {
+        "otp": True,
+        "session": True,
+    }
+    assert cache.get("otp") == "5678"
+    assert cache.get("session") == "token"
+
+    time.sleep(1.05)
+
+    assert cache.get("otp") is None
+    assert cache.get("session") is None
+
+
+def test_local_cache_set_many_if_absent_tracks_lookup_stats_per_key():
+    cache = LocalCacheService()
+    cache.set("present", 1)
+
+    inserted = cache.set_many_if_absent(
+        {
+            "present": 2,
+            "missing": 3,
+        }
+    )
+
+    assert inserted == {
+        "present": False,
+        "missing": True,
+    }
+
+    stats = cache.stats()
+    assert stats["hits"] == 1
+    assert stats["misses"] == 1
+
+
 def test_local_cache_has_respects_expiration():
     cache = LocalCacheService()
 
