@@ -460,6 +460,49 @@ class PluginManager:
         return normalized_query_fields
 
     @staticmethod
+    def _normalize_output_fields(
+        output_fields: Optional[Sequence[str]],
+    ) -> Optional[set[str]]:
+        """Normalize optional output projection fields for list responses."""
+        if output_fields is None:
+            return None
+
+        if isinstance(output_fields, str):
+            raise ValueError("output_fields must be an iterable of field names")
+
+        allowed_output_fields = {
+            "name",
+            "version",
+            "description",
+            "author",
+            "permissions",
+            "config_schema",
+            "inputs",
+            "outputs",
+            "initialized",
+            "module_path",
+            "config",
+            "loaded_order",
+        }
+
+        normalized_output_fields: set[str] = set()
+        for field in output_fields:
+            if not isinstance(field, str) or not field.strip():
+                raise ValueError("output_fields must contain non-empty strings")
+
+            normalized_field = field.strip().lower()
+            if normalized_field not in allowed_output_fields:
+                allowed = ", ".join(sorted(allowed_output_fields))
+                raise ValueError(f"output_fields must be subset of: {allowed}")
+
+            normalized_output_fields.add(normalized_field)
+
+        if not normalized_output_fields:
+            raise ValueError("output_fields must include at least one field")
+
+        return normalized_output_fields
+
+    @staticmethod
     def _tokenize_query(query: str) -> list[str]:
         """Tokenize a query string while supporting quoted phrases.
 
@@ -646,6 +689,7 @@ class PluginManager:
         sort_order: str = "asc",
         offset: int = 0,
         limit: Optional[int] = None,
+        output_fields: Optional[Sequence[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         List loaded plugins with optional selector and permission filters.
@@ -701,6 +745,13 @@ class PluginManager:
                 returning results. Defaults to ``0``.
             limit: Optional maximum number of plugin entries to return after
                 applying ``offset``. ``None`` returns all remaining entries.
+            output_fields: Optional output projection. When provided, only
+                selected fields are returned for each plugin entry. Supports
+                manifest fields (``name``, ``version``, ``description``,
+                ``author``, ``permissions``, ``config_schema``, ``inputs``,
+                ``outputs``) plus runtime fields (``initialized``,
+                ``module_path``, ``config``, ``loaded_order``). Runtime
+                fields require ``include_runtime=True``.
 
         Returns:
             List of plugin manifests.
@@ -771,6 +822,22 @@ class PluginManager:
                     normalized_query = normalized_query.casefold()
 
         normalized_query_fields = self._normalize_query_fields(query_fields)
+        normalized_output_fields = self._normalize_output_fields(output_fields)
+
+        runtime_only_output_fields = {
+            "initialized",
+            "module_path",
+            "config",
+            "loaded_order",
+        }
+        if (
+            normalized_output_fields is not None
+            and not include_runtime
+            and normalized_output_fields & runtime_only_output_fields
+        ):
+            raise ValueError(
+                "output_fields includes runtime fields; set include_runtime=True"
+            )
 
         allowed_sort_fields = {
             "name",
@@ -967,6 +1034,13 @@ class PluginManager:
                         ),
                     }
                 )
+
+            if normalized_output_fields is not None:
+                manifest_payload = {
+                    field_name: field_value
+                    for field_name, field_value in manifest_payload.items()
+                    if field_name in normalized_output_fields
+                }
 
             plugin_entries.append(manifest_payload)
 

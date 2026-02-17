@@ -2177,3 +2177,98 @@ def test_list_plugins_validates_query_options(tmp_path):
 
     with pytest.raises(ValueError, match="query cannot contain empty quoted tokens"):
         manager.list_plugins(query='weather ""', query_match_mode="all")
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_supports_output_field_projection(tmp_path, monkeypatch):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+
+    module = _plugin_module(
+        "app.plugins.weather_tool",
+        _build_plugin_class("weather-plugin", ["network.http"]),
+    )
+
+    def _import_module(name: str):
+        if name == "app.plugins.weather_tool":
+            return module
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory()
+
+    projected = manager.list_plugins(output_fields=["name", "version"])
+
+    assert projected == [{"name": "weather-plugin", "version": "1.0.0"}]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_output_projection_supports_runtime_fields(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "weather_tool.py").write_text("# weather", encoding="utf-8")
+
+    module = _plugin_module(
+        "app.plugins.weather_tool",
+        _build_plugin_class("weather-plugin", ["network.http"]),
+    )
+
+    def _import_module(name: str):
+        if name == "app.plugins.weather_tool":
+            return module
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory(
+        plugin_configs={"weather_tool": {"units": "metric"}}
+    )
+
+    projected = manager.list_plugins(
+        include_runtime=True,
+        output_fields=["name", "initialized", "module_path", "loaded_order"],
+    )
+
+    assert projected == [
+        {
+            "name": "weather-plugin",
+            "initialized": True,
+            "module_path": "app.plugins.weather_tool",
+            "loaded_order": 1,
+        }
+    ]
+
+
+def test_list_plugins_output_projection_validates_runtime_requirements(tmp_path):
+    manager = PluginManager(plugin_dir=str(tmp_path))
+
+    with pytest.raises(
+        ValueError,
+        match="output_fields includes runtime fields; set include_runtime=True",
+    ):
+        manager.list_plugins(output_fields=["name", "initialized"])
+
+
+def test_list_plugins_output_projection_validates_field_payload(tmp_path):
+    manager = PluginManager(plugin_dir=str(tmp_path))
+
+    with pytest.raises(
+        ValueError,
+        match="output_fields must be an iterable of field names",
+    ):
+        manager.list_plugins(output_fields="name")
+
+    with pytest.raises(
+        ValueError,
+        match="output_fields must be subset of:",
+    ):
+        manager.list_plugins(output_fields=["name", "priority"])
+
+    with pytest.raises(
+        ValueError,
+        match="output_fields must contain non-empty strings",
+    ):
+        manager.list_plugins(output_fields=["name", "  "])
