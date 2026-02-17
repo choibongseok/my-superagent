@@ -48,6 +48,69 @@ def test_status_can_filter_requested_services(health_client: TestClient) -> None
     }
 
 
+def test_status_can_exclude_services_from_default_selection(
+    health_client: TestClient,
+) -> None:
+    """exclude_services should remove matching services from the default list."""
+    response = health_client.get("/status", params={"exclude_services": "database"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "operational",
+        "services": {
+            "api": "healthy",
+            "redis": "healthy",
+        },
+    }
+
+
+def test_status_can_apply_include_and_exclude_filters_together(
+    health_client: TestClient,
+) -> None:
+    """exclude_services should run after include filters while preserving order."""
+    response = health_client.get(
+        "/status",
+        params={
+            "services": "redis,api,database",
+            "exclude_services": "api",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "operational",
+        "services": {
+            "redis": "healthy",
+            "database": "healthy",
+        },
+    }
+
+
+def test_status_rejects_unknown_excluded_services(health_client: TestClient) -> None:
+    """Unknown exclude_services entries should return clear validation errors."""
+    response = health_client.get(
+        "/status",
+        params={"exclude_services": "redis,search"},
+    )
+
+    assert response.status_code == 400
+    assert (
+        response.json()["detail"]
+        == "Unknown exclude_services: search. Supported services: api, database, redis."
+    )
+
+
+def test_status_rejects_blank_exclude_services(health_client: TestClient) -> None:
+    """exclude_services should reject empty or separator-only selectors."""
+    response = health_client.get("/status", params={"exclude_services": ",,,"})
+
+    assert response.status_code == 400
+    assert (
+        response.json()["detail"]
+        == "exclude_services must include at least one service name"
+    )
+
+
 def test_status_rejects_unknown_service_filters(health_client: TestClient) -> None:
     """Unknown services should return a clear validation error."""
     response = health_client.get("/status", params={"services": "api,search"})

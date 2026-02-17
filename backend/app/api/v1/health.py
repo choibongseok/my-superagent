@@ -59,10 +59,15 @@ def _current_timestamp_utc() -> str:
     ).replace("+00:00", "Z")
 
 
-def _parse_requested_services(raw_services: str | None) -> list[str]:
-    """Parse and validate optional comma-delimited service filters."""
+def _parse_service_selector(
+    raw_services: str | None,
+    *,
+    argument_name: str,
+    default_to_all: bool,
+) -> list[str]:
+    """Parse and validate comma-delimited service selectors."""
     if raw_services is None:
-        return list(_SERVICE_STATUSES)
+        return list(_SERVICE_STATUSES) if default_to_all else []
 
     normalized_services = [
         service.strip().lower()
@@ -72,7 +77,7 @@ def _parse_requested_services(raw_services: str | None) -> list[str]:
     if not normalized_services:
         raise HTTPException(
             status_code=400,
-            detail="services must include at least one service name",
+            detail=f"{argument_name} must include at least one service name",
         )
 
     requested_services = list(dict.fromkeys(normalized_services))
@@ -85,12 +90,30 @@ def _parse_requested_services(raw_services: str | None) -> list[str]:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Unknown services: {unknown_list}. "
+                f"Unknown {argument_name}: {unknown_list}. "
                 f"Supported services: {supported_list}."
             ),
         )
 
     return requested_services
+
+
+def _parse_requested_services(raw_services: str | None) -> list[str]:
+    """Parse and validate optional comma-delimited service filters."""
+    return _parse_service_selector(
+        raw_services,
+        argument_name="services",
+        default_to_all=True,
+    )
+
+
+def _parse_excluded_services(raw_services: str | None) -> list[str]:
+    """Parse and validate optional service exclusions."""
+    return _parse_service_selector(
+        raw_services,
+        argument_name="exclude_services",
+        default_to_all=False,
+    )
 
 
 def _classify_service_status(raw_status: str) -> str:
@@ -228,6 +251,11 @@ async def status(
         default=None,
         description="Comma-delimited service filter (e.g., api,redis)",
     ),
+    exclude_services: str
+    | None = Query(
+        default=None,
+        description="Comma-delimited service exclusion filter (e.g., redis)",
+    ),
     include_uptime: bool = Query(
         default=False,
         description="Include process uptime in the status payload",
@@ -255,6 +283,14 @@ async def status(
 ) -> dict[str, Any]:
     """Detailed status endpoint with optional service filtering."""
     selected_services = _parse_requested_services(services)
+    excluded_services = set(_parse_excluded_services(exclude_services))
+    if excluded_services:
+        selected_services = [
+            service_name
+            for service_name in selected_services
+            if service_name not in excluded_services
+        ]
+
     selected_statuses = {
         service_name: _SERVICE_STATUSES[service_name]
         for service_name in selected_services
