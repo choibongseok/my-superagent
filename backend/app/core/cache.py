@@ -430,6 +430,9 @@ def cached(
     key_version: Optional[str | int] = None,
     refresh_ttl_on_hit: bool = False,
     hit_ttl: Optional[int] = None,
+    hit_ttl_resolver: Optional[
+        Callable[[Any], int | None | Awaitable[int | None]]
+    ] = None,
 ):
     """
     Decorator for caching function results.
@@ -481,6 +484,10 @@ def cached(
         hit_ttl: Optional TTL override (seconds) used only when
             ``refresh_ttl_on_hit`` is enabled. Defaults to ``ttl`` or
             ``settings.REDIS_DEFAULT_TTL``.
+        hit_ttl_resolver: Optional callable that receives the decoded cached
+            value on cache hits and returns a positive integer TTL override
+            (seconds) or ``None`` to fall back to ``hit_ttl``/``ttl``.
+            The resolver may be synchronous or asynchronous.
 
     Example:
         @cached(prefix="user", ttl=300)
@@ -516,6 +523,9 @@ def cached(
 
     if ttl_resolver is not None and not callable(ttl_resolver):
         raise ValueError("ttl_resolver must be callable when provided")
+
+    if hit_ttl_resolver is not None and not callable(hit_ttl_resolver):
+        raise ValueError("hit_ttl_resolver must be callable when provided")
 
     if not isinstance(coalesce_inflight, bool):
         raise ValueError("coalesce_inflight must be a boolean")
@@ -666,11 +676,40 @@ def cached(
             # Backward compatibility for values cached before envelope support.
             return True, payload
 
-        async def _refresh_ttl_for_cache_hit(key: str) -> None:
+        async def _resolve_hit_ttl_for_cache_hit(cached_value: Any) -> Optional[int]:
+            if hit_ttl_resolver is None:
+                return None
+
+            resolved_hit_ttl = hit_ttl_resolver(cached_value)
+            if inspect.isawaitable(resolved_hit_ttl):
+                resolved_hit_ttl = await resolved_hit_ttl
+
+            if resolved_hit_ttl is None:
+                return None
+
+            if isinstance(resolved_hit_ttl, bool) or not isinstance(
+                resolved_hit_ttl,
+                int,
+            ):
+                raise ValueError(
+                    "hit_ttl_resolver must return a positive integer or None"
+                )
+
+            if resolved_hit_ttl <= 0:
+                raise ValueError(
+                    "hit_ttl_resolver must return a positive integer or None"
+                )
+
+            return resolved_hit_ttl
+
+        async def _refresh_ttl_for_cache_hit(key: str, cached_value: Any) -> None:
             if not refresh_ttl_on_hit:
                 return
 
-            effective_hit_ttl = hit_ttl if hit_ttl is not None else ttl
+            resolved_hit_ttl = await _resolve_hit_ttl_for_cache_hit(cached_value)
+            effective_hit_ttl = resolved_hit_ttl
+            if effective_hit_ttl is None:
+                effective_hit_ttl = hit_ttl if hit_ttl is not None else ttl
             if effective_hit_ttl is None:
                 effective_hit_ttl = settings.REDIS_DEFAULT_TTL
 
@@ -738,7 +777,7 @@ def cached(
                 cached_payload = await cache.get(key)
                 has_cached_value, cached_value = _decode_cached_payload(cached_payload)
                 if has_cached_value:
-                    await _refresh_ttl_for_cache_hit(key)
+                    await _refresh_ttl_for_cache_hit(key, cached_value)
                     return cached_value
 
             if not coalesce_inflight:

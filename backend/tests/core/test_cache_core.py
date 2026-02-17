@@ -1151,6 +1151,12 @@ def test_cached_rejects_invalid_refresh_ttl_configuration():
     ):
         cached(prefix="example", ttl_resolver="60")  # type: ignore[arg-type]
 
+    with pytest.raises(
+        ValueError,
+        match="hit_ttl_resolver must be callable when provided",
+    ):
+        cached(prefix="example", hit_ttl_resolver="10")  # type: ignore[arg-type]
+
 
 @pytest.mark.asyncio
 async def test_cached_applies_ttl_jitter_to_cache_writes(monkeypatch):
@@ -1441,3 +1447,103 @@ async def test_cached_refreshes_ttl_for_hits_using_settings_default_when_ttl_omi
 
     assert await compute(21) == 42
     assert expire_events == [("example:21", settings.REDIS_DEFAULT_TTL)]
+
+
+@pytest.mark.asyncio
+async def test_cached_refreshes_ttl_for_hits_using_hit_ttl_resolver(monkeypatch):
+    cached_values = {"example:21": 42}
+    expire_events: list[tuple[str, int]] = []
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(_: str, __: int, ttl=None):
+        raise AssertionError("cache.set should not run on cache hits")
+
+    async def fake_expire(key: str, ttl: int):
+        expire_events.append((key, ttl))
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+    monkeypatch.setattr(cache, "expire", fake_expire)
+
+    @cached(
+        prefix="example",
+        ttl=120,
+        hit_ttl=10,
+        refresh_ttl_on_hit=True,
+        hit_ttl_resolver=lambda cached_value: cached_value // 2,
+    )
+    async def compute(value: int) -> int:
+        raise AssertionError("wrapped function should not execute on cache hit")
+
+    assert await compute(21) == 42
+    assert expire_events == [("example:21", 21)]
+
+
+@pytest.mark.asyncio
+async def test_cached_hit_ttl_resolver_can_fallback_to_hit_ttl(monkeypatch):
+    cached_values = {"example:21": 42}
+    expire_events: list[tuple[str, int]] = []
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(_: str, __: int, ttl=None):
+        raise AssertionError("cache.set should not run on cache hits")
+
+    async def fake_expire(key: str, ttl: int):
+        expire_events.append((key, ttl))
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+    monkeypatch.setattr(cache, "expire", fake_expire)
+
+    async def resolve_hit_ttl(_: int) -> int | None:
+        return None
+
+    @cached(
+        prefix="example",
+        refresh_ttl_on_hit=True,
+        hit_ttl=15,
+        hit_ttl_resolver=resolve_hit_ttl,
+    )
+    async def compute(value: int) -> int:
+        raise AssertionError("wrapped function should not execute on cache hit")
+
+    assert await compute(21) == 42
+    assert expire_events == [("example:21", 15)]
+
+
+@pytest.mark.asyncio
+async def test_cached_hit_ttl_resolver_rejects_invalid_resolved_values(monkeypatch):
+    cached_values = {"example:21": 42}
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(_: str, __: int, ttl=None):
+        raise AssertionError("cache.set should not run on cache hits")
+
+    async def fake_expire(_: str, __: int):
+        raise AssertionError("cache.expire should not run for invalid resolver values")
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+    monkeypatch.setattr(cache, "expire", fake_expire)
+
+    @cached(
+        prefix="example",
+        refresh_ttl_on_hit=True,
+        hit_ttl_resolver=lambda _cached_value: 0,
+    )
+    async def compute(value: int) -> int:
+        raise AssertionError("wrapped function should not execute on cache hit")
+
+    with pytest.raises(
+        ValueError,
+        match="hit_ttl_resolver must return a positive integer or None",
+    ):
+        await compute(21)
