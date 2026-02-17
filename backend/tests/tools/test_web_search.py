@@ -191,6 +191,15 @@ def test_init_rejects_invalid_retry_options():
         DuckDuckGoSearchTool(retry_backoff_seconds=True)  # type: ignore[arg-type]
 
 
+def test_init_rejects_invalid_cache_case_sensitive_option():
+    """cache_case_sensitive should accept only boolean values."""
+    with pytest.raises(
+        ValueError,
+        match="cache_case_sensitive must be a boolean value",
+    ):
+        DuckDuckGoSearchTool(cache_case_sensitive="false")  # type: ignore[arg-type]
+
+
 def test_run_normalizes_query_and_returns_backend_results(monkeypatch):
     """_run should normalize whitespace before delegating to backend."""
     fake_backend = _FakeSearchBackend(response="result payload")
@@ -250,6 +259,41 @@ def test_run_uses_cache_for_normalized_duplicate_queries(monkeypatch):
     assert first == "first payload"
     assert second == "first payload"
     assert fake_backend.queries == ["agentic workflow"]
+
+
+def test_run_cache_case_sensitivity_is_configurable(monkeypatch):
+    """cache_case_sensitive should control cache reuse across casing variants."""
+    fake_backend = _SequencedSearchBackend(
+        [
+            "sensitive-first",
+            "sensitive-second",
+            "insensitive-first",
+            "insensitive-second",
+        ]
+    )
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    sensitive_tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=60,
+        cache_max_entries=16,
+        cache_case_sensitive=True,
+    )
+    insensitive_tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=60,
+        cache_max_entries=16,
+        cache_case_sensitive=False,
+    )
+
+    assert sensitive_tool._run("News AI") == "sensitive-first"
+    assert sensitive_tool._run("news ai") == "sensitive-second"
+
+    assert insensitive_tool._run("News AI") == "insensitive-first"
+    assert insensitive_tool._run("news ai") == "insensitive-first"
+
+    assert fake_backend.queries == ["News AI", "news ai", "News AI"]
 
 
 def test_run_cache_entry_expires_after_ttl(monkeypatch):
@@ -1597,6 +1641,44 @@ def test_search_many_can_deduplicate_normalized_queries(monkeypatch):
     assert fake_backend.queries == ["alpha one", "beta"]
 
 
+def test_search_many_deduplication_respects_cache_case_sensitivity(monkeypatch):
+    """Batch deduplication should mirror cache_case_sensitive behavior."""
+    fake_backend = _SequencedSearchBackend(
+        [
+            "sensitive-first",
+            "sensitive-second",
+            "insensitive-first",
+            "insensitive-second",
+        ]
+    )
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    sensitive_tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=None,
+        cache_case_sensitive=True,
+    )
+    insensitive_tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=None,
+        cache_case_sensitive=False,
+    )
+
+    sensitive_results = sensitive_tool.search_many(
+        ["News AI", "news ai"],
+        deduplicate=True,
+    )
+    insensitive_results = insensitive_tool.search_many(
+        ["News AI", "news ai"],
+        deduplicate=True,
+    )
+
+    assert sensitive_results == ["sensitive-first", "sensitive-second"]
+    assert insensitive_results == ["insensitive-first", "insensitive-first"]
+    assert fake_backend.queries == ["News AI", "news ai", "News AI"]
+
+
 def test_search_many_rejects_invalid_deduplicate_option(monkeypatch):
     """deduplicate option should accept only boolean values."""
     fake_backend = _FakeSearchBackend(response="payload")
@@ -1642,6 +1724,55 @@ def test_search_many_with_diagnostics_can_deduplicate_normalized_queries(monkeyp
     assert diagnostics["summary"]["deduplicated_results"] == 1
     assert diagnostics["summary"]["deduplication_rate"] == pytest.approx(1 / 3)
     assert fake_backend.queries == ["alpha one", "beta"]
+
+
+def test_search_many_with_diagnostics_deduplication_respects_case_setting(
+    monkeypatch,
+):
+    """Diagnostics deduplication should follow cache_case_sensitive setting."""
+    fake_backend = _SequencedSearchBackend(
+        [
+            "sensitive-first",
+            "sensitive-second",
+            "insensitive-first",
+            "insensitive-second",
+        ]
+    )
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    sensitive_tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=None,
+        cache_case_sensitive=True,
+    )
+    insensitive_tool = DuckDuckGoSearchTool(
+        cache_ttl_seconds=None,
+        cache_case_sensitive=False,
+    )
+
+    sensitive_diagnostics = sensitive_tool.search_many_with_diagnostics(
+        ["News AI", "news ai"],
+        deduplicate=True,
+    )
+    insensitive_diagnostics = insensitive_tool.search_many_with_diagnostics(
+        ["News AI", "news ai"],
+        deduplicate=True,
+    )
+
+    assert sensitive_diagnostics["summary"]["executed_queries"] == 2
+    assert sensitive_diagnostics["summary"]["deduplicated_results"] == 0
+
+    assert insensitive_diagnostics["summary"]["executed_queries"] == 1
+    assert insensitive_diagnostics["summary"]["deduplicated_results"] == 1
+    assert insensitive_diagnostics["results"][1]["deduplicated"] is True
+    assert (
+        insensitive_diagnostics["results"][1]["deduplicated_from_query"]
+        == "News AI"
+    )
+
+    assert fake_backend.queries == ["News AI", "news ai", "News AI"]
 
 
 def test_search_many_with_diagnostics_rejects_invalid_deduplicate_option(monkeypatch):

@@ -43,6 +43,7 @@ class DuckDuckGoSearchTool(BaseTool):
         retry_attempts: int = 0,
         retry_backoff_seconds: float = 0.0,
         max_batch_queries: Optional[int] = None,
+        cache_case_sensitive: bool = True,
     ):
         """Initialize DuckDuckGo search tool.
 
@@ -67,6 +68,10 @@ class DuckDuckGoSearchTool(BaseTool):
             max_batch_queries: Optional upper bound for
                 ``search_many_with_diagnostics`` batch size. Set to
                 ``None`` (default) to allow any batch length.
+            cache_case_sensitive: When ``True`` (default), cache keys and
+                batch-level deduplication treat query casing as distinct.
+                Set to ``False`` to reuse cache entries across case variants
+                (for example, ``"News AI"`` and ``"news ai"``).
         """
         super().__init__()
         self._max_result_chars = self._normalize_max_result_chars(max_result_chars)
@@ -81,6 +86,9 @@ class DuckDuckGoSearchTool(BaseTool):
             retry_backoff_seconds
         )
         self._max_batch_queries = self._normalize_max_batch_queries(max_batch_queries)
+        self._cache_case_sensitive = self._normalize_cache_case_sensitive(
+            cache_case_sensitive
+        )
         self._cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
         self._cache_metrics = {
             "cache_hits": 0,
@@ -199,6 +207,21 @@ class DuckDuckGoSearchTool(BaseTool):
             raise ValueError("max_batch_queries must be a positive integer or None")
 
         return value
+
+    @staticmethod
+    def _normalize_cache_case_sensitive(value: bool) -> bool:
+        """Validate cache-key case-sensitivity configuration."""
+        if not isinstance(value, bool):
+            raise ValueError("cache_case_sensitive must be a boolean value")
+
+        return value
+
+    def _cache_query_key(self, normalized_query: str) -> str:
+        """Return canonical cache key for a normalized query string."""
+        if self._cache_case_sensitive:
+            return normalized_query
+
+        return normalized_query.casefold()
 
     @staticmethod
     def _parse_regex_flags(raw_flags: str | None) -> int:
@@ -1027,15 +1050,17 @@ class DuckDuckGoSearchTool(BaseTool):
             or ``"error"``.
         """
         normalized_query: str | None = None
+        cache_query_key: str | None = None
 
         try:
             normalized_query = self._normalize_query(query)
+            cache_query_key = self._cache_query_key(normalized_query)
 
-            cached_results = self._get_cached_results(normalized_query)
+            cached_results = self._get_cached_results(cache_query_key)
             if cached_results is not None:
                 self._increment_cache_metric("cache_hits")
                 logger.debug(
-                    "Returning cached DuckDuckGo results: %s", normalized_query
+                    "Returning cached DuckDuckGo results: %s", cache_query_key
                 )
                 return cached_results, "cache_hit", normalized_query
 
@@ -1045,15 +1070,15 @@ class DuckDuckGoSearchTool(BaseTool):
             logger.debug("Running DuckDuckGo search: %s", normalized_query)
             results = self._run_search_with_retries(normalized_query)
             normalized_results = self._truncate_results(results)
-            self._set_cached_results(normalized_query, normalized_results)
+            self._set_cached_results(cache_query_key, normalized_results)
             if self._cache_ttl_seconds is not None:
                 self._increment_cache_metric("cache_writes")
             logger.debug("Search completed: %d characters", len(normalized_results))
             return normalized_results, "fresh_search", normalized_query
 
         except Exception as error:
-            if normalized_query is not None:
-                stale_results = self._get_stale_cached_results(normalized_query)
+            if cache_query_key is not None:
+                stale_results = self._get_stale_cached_results(cache_query_key)
                 if stale_results is not None:
                     self._increment_cache_metric("stale_fallback_hits")
                     logger.warning(
@@ -1139,6 +1164,7 @@ class DuckDuckGoSearchTool(BaseTool):
             queries: Iterable of query strings processed in order.
             deduplicate: When ``True``, normalize each query and reuse the
                 first result for subsequent duplicates within the same batch.
+                Duplicate detection respects ``cache_case_sensitive``.
                 This optimization works even when cache is disabled.
 
         Returns:
@@ -1163,16 +1189,17 @@ class DuckDuckGoSearchTool(BaseTool):
         for query in normalized_queries:
             try:
                 normalized_query = self._normalize_query(query)
+                dedupe_key = self._cache_query_key(normalized_query)
             except ValueError:
-                normalized_query = None
+                dedupe_key = None
 
-            if normalized_query is not None and normalized_query in seen_results:
-                results.append(seen_results[normalized_query])
+            if dedupe_key is not None and dedupe_key in seen_results:
+                results.append(seen_results[dedupe_key])
                 continue
 
             search_result = self._run(query)
-            if normalized_query is not None:
-                seen_results[normalized_query] = search_result
+            if dedupe_key is not None:
+                seen_results[dedupe_key] = search_result
             results.append(search_result)
 
         return results
@@ -1189,7 +1216,8 @@ class DuckDuckGoSearchTool(BaseTool):
             queries: Iterable of query strings processed in order.
             deduplicate: When ``True``, repeated normalized queries within the
                 same batch reuse the first diagnostics payload instead of
-                issuing duplicate backend lookups.
+                issuing duplicate backend lookups. Duplicate detection
+                respects ``cache_case_sensitive``.
 
         Returns:
             Dictionary containing ``results`` (per-query diagnostics payloads)
@@ -1215,26 +1243,25 @@ class DuckDuckGoSearchTool(BaseTool):
                 diagnostics_rows.append(diagnostics_row)
             executed_queries = len(diagnostics_rows)
         else:
-            seen_diagnostics_by_query: dict[str, dict[str, Any]] = {}
+            seen_diagnostics_by_key: dict[str, dict[str, Any]] = {}
             seen_original_queries: dict[str, str] = {}
 
             for query in normalized_queries:
                 try:
                     normalized_query = self._normalize_query(query)
+                    dedupe_key = self._cache_query_key(normalized_query)
                 except ValueError:
                     normalized_query = None
+                    dedupe_key = None
 
-                if (
-                    normalized_query is not None
-                    and normalized_query in seen_diagnostics_by_query
-                ):
-                    deduplicated_row = dict(seen_diagnostics_by_query[normalized_query])
+                if dedupe_key is not None and dedupe_key in seen_diagnostics_by_key:
+                    deduplicated_row = dict(seen_diagnostics_by_key[dedupe_key])
                     deduplicated_row["query"] = query
                     deduplicated_row["normalized_query"] = normalized_query
                     deduplicated_row["latency_ms"] = 0.0
                     deduplicated_row["deduplicated"] = True
                     deduplicated_row["deduplicated_from_query"] = seen_original_queries[
-                        normalized_query
+                        dedupe_key
                     ]
                     diagnostics_rows.append(deduplicated_row)
                     continue
@@ -1247,10 +1274,11 @@ class DuckDuckGoSearchTool(BaseTool):
 
                 normalized_diagnostics_query = diagnostics_row.get("normalized_query")
                 if isinstance(normalized_diagnostics_query, str):
-                    seen_diagnostics_by_query[
+                    diagnostics_key = self._cache_query_key(
                         normalized_diagnostics_query
-                    ] = diagnostics_row
-                    seen_original_queries[normalized_diagnostics_query] = query
+                    )
+                    seen_diagnostics_by_key[diagnostics_key] = diagnostics_row
+                    seen_original_queries[diagnostics_key] = query
 
         total_queries = len(diagnostics_rows)
         success_count = sum(1 for row in diagnostics_rows if row["success"])
