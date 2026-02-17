@@ -799,6 +799,73 @@ def test_decode_token_supports_scope_claim_fallbacks_as_single_string() -> None:
     assert payload is not None
 
 
+def test_decode_token_supports_nested_scope_claim_path() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "context": {
+                "auth": {
+                    "scope": "chat:read chat:write",
+                }
+            },
+        }
+    )
+
+    payload = decode_token(
+        token,
+        required_scopes="chat:write",
+        scope_claim="context.auth.scope",
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_supports_nested_scope_claim_fallback_paths() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "context": {
+                "auth": {
+                    "scp": "chat:read chat:write",
+                }
+            },
+        }
+    )
+
+    payload = decode_token(
+        token,
+        required_scopes="chat:write",
+        scope_claim="scope",
+        scope_claim_fallbacks=["context.auth.scp"],
+    )
+
+    assert payload is not None
+
+
+def test_decode_token_rejects_invalid_nested_primary_scope_claim_before_fallbacks() -> None:
+    token = create_access_token(
+        {
+            "sub": "user-123",
+            "context": {
+                "auth": {
+                    "scope": ["chat:read", 42],
+                }
+            },
+            "scp": "chat:read chat:write",
+        }
+    )
+
+    assert (
+        decode_token(
+            token,
+            required_scopes="chat:write",
+            scope_claim="context.auth.scope",
+            scope_claim_fallbacks=["scp"],
+        )
+        is None
+    )
+
+
 def test_decode_token_rejects_invalid_primary_scope_claim_before_fallbacks() -> None:
     token = create_access_token(
         {

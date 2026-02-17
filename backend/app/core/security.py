@@ -355,12 +355,10 @@ def _normalize_scope_claim_fallbacks(
     return tuple(dict.fromkeys(normalized_scope_claims))
 
 
-def _extract_token_scopes(
-    payload: Mapping[str, Any],
-    scope_claim: str,
+def _extract_token_scopes_from_claim_value(
+    claim_value: Any,
 ) -> tuple[str, ...] | None:
-    """Extract normalized token scopes from one decoded payload claim."""
-    claim_value = payload.get(scope_claim)
+    """Extract normalized token scopes from one decoded claim value."""
     if claim_value is None:
         return None
 
@@ -388,6 +386,18 @@ def _extract_token_scopes(
     return None
 
 
+def _extract_token_scopes(
+    payload: Mapping[str, Any],
+    scope_claim: str,
+) -> tuple[str, ...] | None:
+    """Extract normalized token scopes from one decoded payload claim."""
+    claim_exists, claim_value = _resolve_claim_value(payload, scope_claim)
+    if not claim_exists:
+        return None
+
+    return _extract_token_scopes_from_claim_value(claim_value)
+
+
 def _extract_token_scopes_with_fallbacks(
     payload: Mapping[str, Any],
     scope_claims: tuple[str, ...],
@@ -399,10 +409,11 @@ def _extract_token_scopes_with_fallbacks(
     accepting malformed payloads.
     """
     for scope_claim in scope_claims:
-        if scope_claim not in payload:
+        claim_exists, claim_value = _resolve_claim_value(payload, scope_claim)
+        if not claim_exists:
             continue
 
-        return _extract_token_scopes(payload, scope_claim)
+        return _extract_token_scopes_from_claim_value(claim_value)
 
     return None
 
@@ -729,11 +740,12 @@ def decode_token(
             Required scope values support glob patterns (for example,
             ``"chat:*"``).
         scope_claim: Primary token claim name containing scopes.
-            Defaults to ``"scope"``.
+            Defaults to ``"scope"``. Supports dotted claim paths
+            (for example, ``"context.auth.scope"``).
         scope_claim_fallbacks: Optional fallback claim name(s) checked in
-            order when ``scope_claim`` is missing (for example, ``"scp"``).
-            If a selected claim exists but has an invalid payload shape,
-            decoding fails.
+            order when ``scope_claim`` is missing (for example, ``"scp"`` or
+            ``"realm.scope"``). If a selected claim exists but has an invalid
+            payload shape, decoding fails.
         match_any_scopes: Scope matching mode. ``False`` (default) requires
             every ``required_scopes`` entry to be present. ``True`` requires
             at least one matching scope.
