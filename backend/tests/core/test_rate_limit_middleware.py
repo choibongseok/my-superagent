@@ -662,6 +662,44 @@ def test_rate_limit_middleware_uses_first_non_empty_configured_client_header(
         assert first_other_primary.status_code == 200
 
 
+def test_rate_limit_middleware_excludes_configured_client_ids(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+        client_id_header="X-API-Key",
+        exclude_client_ids=["header:internal-*"],
+    )
+
+    with TestClient(app) as client:
+        internal_first = client.get("/limited", headers={"X-API-Key": "internal-a"})
+        internal_second = client.get(
+            "/limited",
+            headers={"X-API-Key": "internal-a"},
+        )
+        external_first = client.get("/limited", headers={"X-API-Key": "external"})
+        external_second = client.get("/limited", headers={"X-API-Key": "external"})
+
+        assert internal_first.status_code == 200
+        assert internal_second.status_code == 200
+        assert "X-RateLimit-Remaining" not in internal_first.headers
+
+        assert external_first.status_code == 200
+        assert external_first.headers["X-RateLimit-Remaining"] == "0"
+        assert external_second.status_code == 429
+
+
 def test_rate_limit_middleware_uses_forwarded_header_for_bucket_isolation(
     fake_cache: InMemoryAsyncCache,
     frozen_time: dict[str, float],
@@ -830,6 +868,22 @@ def test_rate_limit_middleware_rejects_invalid_client_id_header_iterables() -> N
         RateLimitMiddleware(app, client_id_header=["X-API-Key", ""])
 
 
+def test_rate_limit_middleware_rejects_invalid_exclude_client_ids() -> None:
+    app = FastAPI()
+
+    with pytest.raises(
+        ValueError,
+        match="exclude_client_ids must contain non-empty client-id selectors",
+    ):
+        RateLimitMiddleware(app, exclude_client_ids=[""])
+
+    with pytest.raises(
+        ValueError,
+        match="exclude_client_ids must contain non-empty client-id selectors",
+    ):
+        RateLimitMiddleware(app, exclude_client_ids=[123])  # type: ignore[list-item]
+
+
 def test_rate_limit_middleware_rejects_invalid_exclude_paths() -> None:
     app = FastAPI()
 
@@ -909,6 +963,7 @@ def test_get_rate_limit_middleware_forwards_custom_burst_size() -> None:
         requests_per_minute=30,
         burst_size=7,
         request_costs={"POST": 2},
+        exclude_client_ids=["header:internal-*"],
     )
 
     middleware = middleware_factory(app)
@@ -919,6 +974,7 @@ def test_get_rate_limit_middleware_forwards_custom_burst_size() -> None:
     assert middleware.bucket.capacity == 7
     assert middleware.bucket.refill_rate == pytest.approx(0.5)
     assert middleware.request_costs == {"POST": 2}
+    assert middleware.exclude_client_ids == ("header:internal-*",)
 
 
 def test_get_rate_limit_middleware_uses_default_burst_size_when_unset() -> None:

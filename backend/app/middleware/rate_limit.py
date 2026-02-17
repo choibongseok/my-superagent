@@ -135,6 +135,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         exclude_paths: Optional[Iterable[str]] = None,
         exclude_methods: Optional[Iterable[str]] = None,
         client_id_header: Optional[str | Iterable[str]] = None,
+        exclude_client_ids: Optional[Iterable[str]] = None,
     ):
         """
         Initialize rate limit middleware.
@@ -163,6 +164,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 present on a request, the first non-empty header value takes
                 precedence over ``request.state.user_id`` and IP-based
                 identification.
+            exclude_client_ids: Optional client-id selectors that bypass
+                rate limiting entirely. Selectors support exact matches and
+                glob patterns against normalized client IDs such as
+                ``"header:internal-*"``, ``"user:admin"``, or
+                ``"ip:10.0.*"``.
         """
         super().__init__(app)
 
@@ -179,6 +185,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.path_request_costs = self._normalize_path_request_costs(path_request_costs)
         self.exclude_methods = self._normalize_exclude_methods(exclude_methods)
         self.client_id_headers = self._normalize_client_id_headers(client_id_header)
+        self.exclude_client_ids = self._normalize_exclude_client_ids(exclude_client_ids)
         # Backward-compatible alias for callers that still access this attribute.
         self.client_id_header = (
             self.client_id_headers[0] if self.client_id_headers else None
@@ -272,6 +279,27 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             normalized_methods.add(normalized_method)
 
         return normalized_methods
+
+    @staticmethod
+    def _normalize_exclude_client_ids(
+        exclude_client_ids: Optional[Iterable[str]],
+    ) -> tuple[str, ...]:
+        """Normalize optional client-id bypass selectors."""
+        if exclude_client_ids is None:
+            return ()
+
+        normalized_patterns: list[str] = []
+        for raw_pattern in exclude_client_ids:
+            if not isinstance(raw_pattern, str) or not raw_pattern.strip():
+                raise ValueError(
+                    "exclude_client_ids must contain non-empty client-id selectors"
+                )
+
+            normalized_pattern = raw_pattern.strip()
+            if normalized_pattern not in normalized_patterns:
+                normalized_patterns.append(normalized_pattern)
+
+        return tuple(normalized_patterns)
 
     def _normalize_request_costs(
         self,
@@ -548,6 +576,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         client_ip = self._extract_client_ip(request)
         return f"ip:{client_ip}"
 
+    def _is_excluded_client_id(self, client_id: str) -> bool:
+        """Return whether one normalized client ID bypasses rate limiting."""
+        return any(
+            fnmatchcase(client_id, selector) for selector in self.exclude_client_ids
+        )
+
     def _resolve_path_request_cost(
         self,
         path: str,
@@ -640,6 +674,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # Get client identifier and method-specific token cost
         client_id = self._get_client_id(request)
+        if self._is_excluded_client_id(client_id):
+            return await call_next(request)
+
         request_cost = self._get_request_cost(request)
 
         # Try to consume token budget for this request
@@ -701,6 +738,7 @@ def get_rate_limit_middleware(
     exclude_paths: Optional[Iterable[str]] = None,
     exclude_methods: Optional[Iterable[str]] = None,
     client_id_header: Optional[str | Iterable[str]] = None,
+    exclude_client_ids: Optional[Iterable[str]] = None,
 ):
     """
     Create rate limit middleware factory.
@@ -715,6 +753,8 @@ def get_rate_limit_middleware(
         exclude_methods: Optional HTTP methods that bypass rate limiting
         client_id_header: Optional HTTP header name (or ordered header list)
             used for client identity
+        exclude_client_ids: Optional exact/glob selectors that bypass
+            rate limiting for matching client IDs
 
     Returns:
         Callable middleware factory compatible with ``add_middleware``
@@ -730,4 +770,5 @@ def get_rate_limit_middleware(
         exclude_paths=exclude_paths,
         exclude_methods=exclude_methods,
         client_id_header=client_id_header,
+        exclude_client_ids=exclude_client_ids,
     )
