@@ -1135,6 +1135,18 @@ def test_cached_rejects_invalid_refresh_ttl_configuration():
 
     with pytest.raises(
         ValueError,
+        match="ttl_jitter_mode must be one of: increase, symmetric",
+    ):
+        cached(prefix="example", ttl_jitter_mode="")
+
+    with pytest.raises(
+        ValueError,
+        match="ttl_jitter_mode must be one of: increase, symmetric",
+    ):
+        cached(prefix="example", ttl_jitter_mode="decrease")
+
+    with pytest.raises(
+        ValueError,
         match="ttl_resolver must be callable when provided",
     ):
         cached(prefix="example", ttl_resolver="60")  # type: ignore[arg-type]
@@ -1164,6 +1176,64 @@ async def test_cached_applies_ttl_jitter_to_cache_writes(monkeypatch):
 
     assert await compute(21) == 42
     assert set_events == [("example:21", 34)]
+
+
+@pytest.mark.asyncio
+async def test_cached_supports_symmetric_ttl_jitter_mode(monkeypatch):
+    cached_values: dict[str, int] = {}
+    set_events: list[tuple[str, int]] = []
+    randint_ranges: list[tuple[int, int]] = []
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        assert ttl is not None
+        set_events.append((key, ttl))
+        cached_values[key] = value
+        return True
+
+    def fake_randint(start: int, end: int) -> int:
+        randint_ranges.append((start, end))
+        return -3
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+    monkeypatch.setattr("app.core.cache.random.randint", fake_randint)
+
+    @cached(prefix="example", ttl=30, ttl_jitter=10, ttl_jitter_mode="symmetric")
+    async def compute(value: int) -> int:
+        return value * 2
+
+    assert await compute(21) == 42
+    assert set_events == [("example:21", 27)]
+    assert randint_ranges == [(-10, 10)]
+
+
+@pytest.mark.asyncio
+async def test_cached_symmetric_ttl_jitter_clamps_to_minimum_one(monkeypatch):
+    cached_values: dict[str, int] = {}
+    set_events: list[tuple[str, int]] = []
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: int, ttl=None):
+        assert ttl is not None
+        set_events.append((key, ttl))
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+    monkeypatch.setattr("app.core.cache.random.randint", lambda _start, _end: -10)
+
+    @cached(prefix="example", ttl=2, ttl_jitter=10, ttl_jitter_mode="symmetric")
+    async def compute(value: int) -> int:
+        return value
+
+    assert await compute(7) == 7
+    assert set_events == [("example:7", 1)]
 
 
 @pytest.mark.asyncio

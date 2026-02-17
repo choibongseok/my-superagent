@@ -415,6 +415,7 @@ def cached(
     prefix: str,
     ttl: Optional[int] = None,
     ttl_jitter: Optional[int] = None,
+    ttl_jitter_mode: str = "increase",
     ttl_resolver: Optional[Callable[[Any], int | None | Awaitable[int | None]]] = None,
     key_builder: Optional[Callable] = None,
     skip_first_arg: Optional[bool] = None,
@@ -439,8 +440,12 @@ def cached(
     Args:
         prefix: Cache key prefix
         ttl: Time to live in seconds
-        ttl_jitter: Optional random positive jitter window in seconds added
-            to cache writes. Helps spread expirations to reduce herd effects.
+        ttl_jitter: Optional random jitter window in seconds added to cache
+            writes. Helps spread expirations to reduce herd effects.
+        ttl_jitter_mode: Strategy used when ``ttl_jitter`` is configured.
+            ``"increase"`` (default) adds jitter in the ``[0, ttl_jitter]``
+            range. ``"symmetric"`` adds jitter in
+            ``[-ttl_jitter, +ttl_jitter]`` and clamps final TTL to ``>= 1``.
         ttl_resolver: Optional callable that receives the computed result and
             returns a positive integer TTL override (seconds) or ``None`` to
             keep the configured ``ttl`` behavior. The resolver may be
@@ -526,6 +531,13 @@ def cached(
             raise ValueError("hit_ttl must be a positive integer when provided")
         if hit_ttl <= 0:
             raise ValueError("hit_ttl must be a positive integer when provided")
+
+    if not isinstance(ttl_jitter_mode, str) or not ttl_jitter_mode.strip():
+        raise ValueError("ttl_jitter_mode must be one of: increase, symmetric")
+
+    normalized_ttl_jitter_mode = ttl_jitter_mode.strip().lower()
+    if normalized_ttl_jitter_mode not in {"increase", "symmetric"}:
+        raise ValueError("ttl_jitter_mode must be one of: increase, symmetric")
 
     if ttl_jitter is not None:
         if isinstance(ttl_jitter, bool) or not isinstance(ttl_jitter, int):
@@ -691,7 +703,12 @@ def cached(
                         if effective_ttl is not None
                         else settings.REDIS_DEFAULT_TTL
                     )
-                    effective_ttl = base_ttl + random.randint(0, ttl_jitter)
+                    if normalized_ttl_jitter_mode == "increase":
+                        jitter_delta = random.randint(0, ttl_jitter)
+                        effective_ttl = base_ttl + jitter_delta
+                    else:
+                        jitter_delta = random.randint(-ttl_jitter, ttl_jitter)
+                        effective_ttl = max(1, base_ttl + jitter_delta)
 
                 await cache.set(key, _encode_cached_payload(result), effective_ttl)
 
