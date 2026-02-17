@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
+from fnmatch import fnmatchcase
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -65,27 +66,54 @@ def _parse_service_selector(
     argument_name: str,
     default_to_all: bool,
 ) -> list[str]:
-    """Parse and validate comma-delimited service selectors."""
+    """Parse and validate comma-delimited service selectors.
+
+    Selectors support exact service names (e.g., ``api``) and glob patterns
+    (e.g., ``data*`` or ``*is``).
+    """
     if raw_services is None:
         return list(_SERVICE_STATUSES) if default_to_all else []
 
-    normalized_services = [
+    normalized_selectors = [
         service.strip().lower()
         for service in raw_services.split(",")
         if service.strip()
     ]
-    if not normalized_services:
+    if not normalized_selectors:
         raise HTTPException(
             status_code=400,
             detail=f"{argument_name} must include at least one service name",
         )
 
-    requested_services = list(dict.fromkeys(normalized_services))
-    unknown_services = [
-        service for service in requested_services if service not in _SERVICE_STATUSES
-    ]
-    if unknown_services:
-        unknown_list = ", ".join(unknown_services)
+    selector_tokens = list(dict.fromkeys(normalized_selectors))
+    resolved_services: list[str] = []
+    unknown_selectors: list[str] = []
+
+    for selector in selector_tokens:
+        if any(token in selector for token in "*?["):
+            matches = [
+                service_name
+                for service_name in _SERVICE_STATUSES
+                if fnmatchcase(service_name, selector)
+            ]
+            if not matches:
+                unknown_selectors.append(selector)
+                continue
+
+            for matched_service in matches:
+                if matched_service not in resolved_services:
+                    resolved_services.append(matched_service)
+            continue
+
+        if selector not in _SERVICE_STATUSES:
+            unknown_selectors.append(selector)
+            continue
+
+        if selector not in resolved_services:
+            resolved_services.append(selector)
+
+    if unknown_selectors:
+        unknown_list = ", ".join(unknown_selectors)
         supported_list = ", ".join(sorted(_SERVICE_STATUSES))
         raise HTTPException(
             status_code=400,
@@ -95,7 +123,7 @@ def _parse_service_selector(
             ),
         )
 
-    return requested_services
+    return resolved_services
 
 
 def _parse_requested_services(raw_services: str | None) -> list[str]:
@@ -249,12 +277,18 @@ async def status(
     services: str
     | None = Query(
         default=None,
-        description="Comma-delimited service filter (e.g., api,redis)",
+        description=(
+            "Comma-delimited service filter (e.g., api,redis). "
+            "Supports glob selectors such as data* or *is."
+        ),
     ),
     exclude_services: str
     | None = Query(
         default=None,
-        description="Comma-delimited service exclusion filter (e.g., redis)",
+        description=(
+            "Comma-delimited service exclusion filter (e.g., redis). "
+            "Supports glob selectors such as data* or *is."
+        ),
     ),
     include_uptime: bool = Query(
         default=False,

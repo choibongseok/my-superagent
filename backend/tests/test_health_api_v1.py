@@ -48,6 +48,22 @@ def test_status_can_filter_requested_services(health_client: TestClient) -> None
     }
 
 
+def test_status_services_filter_supports_glob_patterns(
+    health_client: TestClient,
+) -> None:
+    """services should support glob selectors while preserving selector order."""
+    response = health_client.get("/status", params={"services": "data*,*is"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "operational",
+        "services": {
+            "database": "healthy",
+            "redis": "healthy",
+        },
+    }
+
+
 def test_status_can_exclude_services_from_default_selection(
     health_client: TestClient,
 ) -> None:
@@ -86,6 +102,24 @@ def test_status_can_apply_include_and_exclude_filters_together(
     }
 
 
+def test_status_exclude_services_supports_glob_patterns(
+    health_client: TestClient,
+) -> None:
+    """exclude_services should support glob selectors against known services."""
+    response = health_client.get(
+        "/status",
+        params={"exclude_services": "data*,*is"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "operational",
+        "services": {
+            "api": "healthy",
+        },
+    }
+
+
 def test_status_rejects_unknown_excluded_services(health_client: TestClient) -> None:
     """Unknown exclude_services entries should return clear validation errors."""
     response = health_client.get(
@@ -119,6 +153,19 @@ def test_status_rejects_unknown_service_filters(health_client: TestClient) -> No
     assert (
         response.json()["detail"]
         == "Unknown services: search. Supported services: api, database, redis."
+    )
+
+
+def test_status_rejects_unmatched_service_glob_filters(
+    health_client: TestClient,
+) -> None:
+    """Glob selectors must match at least one known service."""
+    response = health_client.get("/status", params={"services": "cache*"})
+
+    assert response.status_code == 400
+    assert (
+        response.json()["detail"]
+        == "Unknown services: cache*. Supported services: api, database, redis."
     )
 
 
