@@ -399,6 +399,18 @@ def _drop_ignored_kwargs(
     return filtered_kwargs
 
 
+def _drop_none_kwargs(
+    key_kwargs: dict[str, Any],
+    *,
+    drop_none_kwargs: bool,
+) -> dict[str, Any]:
+    """Optionally omit ``None``-valued kwargs from cache-key generation."""
+    if not drop_none_kwargs:
+        return key_kwargs
+
+    return {key: value for key, value in key_kwargs.items() if value is not None}
+
+
 def _normalize_ignored_arg_positions(
     ignored_arg_positions: Optional[Iterable[int]],
 ) -> frozenset[int]:
@@ -472,6 +484,7 @@ def cached(
     ignored_kwargs: Optional[Iterable[str]] = None,
     ignored_kwarg_patterns: Optional[Iterable[str]] = None,
     ignored_arg_positions: Optional[Iterable[int]] = None,
+    drop_none_kwargs: bool = False,
     cache_none: bool = False,
     max_key_length: Optional[int] = None,
     key_version: Optional[str | int] = None,
@@ -522,6 +535,9 @@ def cached(
         ignored_arg_positions: Optional iterable of zero-based positional
             argument indexes excluded from cache key generation after
             ``skip_first_arg`` processing.
+        drop_none_kwargs: When ``True``, kwargs whose values are ``None`` are
+            excluded from cache-key generation while still being passed to the
+            wrapped function.
         cache_none: When ``True``, cache and replay ``None`` results by
             storing an internal envelope payload.
         max_key_length: Optional maximum cache-key length. Keys longer than
@@ -582,6 +598,9 @@ def cached(
 
     if not isinstance(cache_none, bool):
         raise ValueError("cache_none must be a boolean")
+
+    if not isinstance(drop_none_kwargs, bool):
+        raise ValueError("drop_none_kwargs must be a boolean")
 
     if not isinstance(refresh_ttl_on_hit, bool):
         raise ValueError("refresh_ttl_on_hit must be a boolean")
@@ -820,6 +839,10 @@ def cached(
                 normalized_ignored_kwargs,
                 normalized_ignored_kwarg_patterns,
             )
+            key_kwargs = _drop_none_kwargs(
+                key_kwargs,
+                drop_none_kwargs=drop_none_kwargs,
+            )
 
             key_args = _drop_ignored_arg_positions(
                 _resolve_key_args(args),
@@ -868,6 +891,7 @@ async def invalidate_cache(
     ignored_kwarg_patterns: Optional[Iterable[str]] = None,
     ignored_arg_positions: Optional[Iterable[int]] = None,
     skip_first_arg: bool = False,
+    drop_none_kwargs: bool = False,
     **kwargs: Any,
 ) -> None:
     """
@@ -887,6 +911,9 @@ async def invalidate_cache(
         skip_first_arg: When ``True``, omit the first positional argument
             before applying ``ignored_arg_positions``. Useful when
             invalidating method caches that skip ``self`` in key generation.
+        drop_none_kwargs: When ``True``, kwargs whose values are ``None`` are
+            excluded from key generation while still being accepted by the
+            invalidation API.
         **kwargs: Keyword arguments for key building
     """
     namespace = _build_cache_namespace(prefix, key_version)
@@ -897,6 +924,9 @@ async def invalidate_cache(
 
     if not isinstance(skip_first_arg, bool):
         raise ValueError("skip_first_arg must be a boolean")
+
+    if not isinstance(drop_none_kwargs, bool):
+        raise ValueError("drop_none_kwargs must be a boolean")
 
     normalized_ignored_kwargs = _normalize_ignored_kwargs(ignored_kwargs)
     normalized_ignored_kwarg_patterns = _normalize_ignored_kwarg_patterns(
@@ -917,6 +947,10 @@ async def invalidate_cache(
             dict(kwargs),
             normalized_ignored_kwargs,
             normalized_ignored_kwarg_patterns,
+        )
+        key_kwargs = _drop_none_kwargs(
+            key_kwargs,
+            drop_none_kwargs=drop_none_kwargs,
         )
 
         if key_builder is not None:

@@ -350,6 +350,11 @@ def test_cached_rejects_invalid_cache_none_flag():
         cached(prefix="example", cache_none="yes")  # type: ignore[arg-type]
 
 
+def test_cached_rejects_invalid_drop_none_kwargs_configuration():
+    with pytest.raises(ValueError, match="drop_none_kwargs must be a boolean"):
+        cached(prefix="example", drop_none_kwargs="yes")  # type: ignore[arg-type]
+
+
 def test_cached_rejects_invalid_ignored_kwargs_configuration():
     with pytest.raises(
         ValueError,
@@ -459,6 +464,61 @@ async def test_cached_ignored_kwargs_still_reach_function_when_recomputing(monke
     assert await compute(10, trace_id="first") == "10:first"
     assert await compute(10, trace_id="second", refresh_cache=True) == "10:second"
     assert await compute(10, trace_id="third") == "10:second"
+
+
+@pytest.mark.asyncio
+async def test_cached_can_drop_none_kwargs_from_cache_key(monkeypatch):
+    cached_values: dict[str, str] = {}
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: str, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    calls = {"count": 0}
+
+    @cached(prefix="example", drop_none_kwargs=True)
+    async def compute(value: int, *, locale: str | None = None) -> str:
+        calls["count"] += 1
+        return f"{value}:{locale}:{calls['count']}"
+
+    assert await compute(10, locale=None) == "10:None:1"
+    assert await compute(10) == "10:None:1"
+
+    assert calls["count"] == 1
+    assert cached_values == {"example:10": "10:None:1"}
+
+
+@pytest.mark.asyncio
+async def test_cached_drop_none_kwargs_keeps_non_none_values_in_key(monkeypatch):
+    cached_values: dict[str, str] = {}
+
+    async def fake_get(key: str):
+        return cached_values.get(key)
+
+    async def fake_set(key: str, value: str, ttl=None):
+        cached_values[key] = value
+        return True
+
+    monkeypatch.setattr(cache, "get", fake_get)
+    monkeypatch.setattr(cache, "set", fake_set)
+
+    @cached(prefix="example", drop_none_kwargs=True)
+    async def compute(value: int, *, locale: str | None = None) -> str:
+        return f"{value}:{locale}"
+
+    assert await compute(10) == "10:None"
+    assert await compute(10, locale="ko-KR") == "10:ko-KR"
+
+    assert cached_values == {
+        "example:10": "10:None",
+        "example:10:locale=\"ko-KR\"": "10:ko-KR",
+    }
 
 
 @pytest.mark.asyncio
@@ -1048,6 +1108,26 @@ async def test_invalidate_cache_can_ignore_selected_kwargs(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_invalidate_cache_can_drop_none_kwargs(monkeypatch):
+    deleted_keys: list[str] = []
+
+    async def fake_delete(key: str):
+        deleted_keys.append(key)
+        return True
+
+    monkeypatch.setattr(cache, "delete", fake_delete)
+
+    await invalidate_cache(
+        "example",
+        21,
+        locale=None,
+        drop_none_kwargs=True,
+    )
+
+    assert deleted_keys == ["example:21"]
+
+
+@pytest.mark.asyncio
 async def test_invalidate_cache_can_ignore_selected_kwarg_patterns(monkeypatch):
     deleted_keys: list[str] = []
 
@@ -1201,6 +1281,12 @@ async def test_invalidate_cache_rejects_invalid_ignored_arg_positions_configurat
 async def test_invalidate_cache_rejects_invalid_skip_first_arg_configuration():
     with pytest.raises(ValueError, match="skip_first_arg must be a boolean"):
         await invalidate_cache("example", 21, skip_first_arg="yes")  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_invalidate_cache_rejects_invalid_drop_none_kwargs_configuration():
+    with pytest.raises(ValueError, match="drop_none_kwargs must be a boolean"):
+        await invalidate_cache("example", 21, drop_none_kwargs="yes")  # type: ignore[arg-type]
 
 
 def test_cached_rejects_invalid_refresh_ttl_configuration():
