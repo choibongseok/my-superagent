@@ -1726,6 +1726,81 @@ def test_search_many_with_diagnostics_can_deduplicate_normalized_queries(monkeyp
     assert fake_backend.queries == ["alpha one", "beta"]
 
 
+def test_search_many_with_diagnostics_reports_executed_only_summary_metrics(
+    monkeypatch,
+):
+    """Executed-only summary metrics should ignore deduplicated synthetic rows."""
+    fake_backend = _FakeSearchBackend(response="unused")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool(cache_ttl_seconds=None)
+
+    diagnostics_rows = iter(
+        [
+            {
+                "query": "alpha",
+                "normalized_query": "alpha",
+                "result": "result-alpha",
+                "source": "fresh_search",
+                "latency_ms": 10.0,
+                "success": True,
+                "cache_hit": False,
+                "stale_fallback": False,
+            },
+            {
+                "query": "beta",
+                "normalized_query": "beta",
+                "result": "Search failed: backend timeout",
+                "source": "error",
+                "latency_ms": 40.0,
+                "success": False,
+                "cache_hit": False,
+                "stale_fallback": False,
+                "error": "backend timeout",
+            },
+        ]
+    )
+
+    monkeypatch.setattr(
+        DuckDuckGoSearchTool,
+        "search_with_diagnostics",
+        lambda self, _query: next(diagnostics_rows),
+    )
+
+    diagnostics = tool.search_many_with_diagnostics(
+        ["alpha", " alpha ", "beta"],
+        deduplicate=True,
+    )
+
+    assert diagnostics["summary"]["total_queries"] == 3
+    assert diagnostics["summary"]["executed_queries"] == 2
+    assert diagnostics["summary"]["executed_successes"] == 1
+    assert diagnostics["summary"]["executed_errors"] == 1
+    assert diagnostics["summary"]["executed_success_rate"] == pytest.approx(0.5)
+
+    assert diagnostics["summary"]["average_latency_ms"] == pytest.approx(50 / 3)
+    assert diagnostics["summary"]["executed_average_latency_ms"] == pytest.approx(25.0)
+    assert (
+        diagnostics["summary"]["executed_average_latency_ms"]
+        > diagnostics["summary"]["average_latency_ms"]
+    )
+
+    assert diagnostics["summary"]["executed_median_latency_ms"] == pytest.approx(25.0)
+    assert diagnostics["summary"]["executed_p90_latency_ms"] == pytest.approx(37.0)
+    assert diagnostics["summary"]["executed_p95_latency_ms"] == pytest.approx(38.5)
+    assert diagnostics["summary"]["executed_p99_latency_ms"] == pytest.approx(39.7)
+
+    assert diagnostics["summary"]["executed_source_counts"] == {
+        "fresh_search": 1,
+        "cache_hit": 0,
+        "stale_cache_fallback": 0,
+        "error": 1,
+    }
+
+
 def test_search_many_with_diagnostics_deduplication_respects_case_setting(
     monkeypatch,
 ):
@@ -1767,10 +1842,7 @@ def test_search_many_with_diagnostics_deduplication_respects_case_setting(
     assert insensitive_diagnostics["summary"]["executed_queries"] == 1
     assert insensitive_diagnostics["summary"]["deduplicated_results"] == 1
     assert insensitive_diagnostics["results"][1]["deduplicated"] is True
-    assert (
-        insensitive_diagnostics["results"][1]["deduplicated_from_query"]
-        == "News AI"
-    )
+    assert insensitive_diagnostics["results"][1]["deduplicated_from_query"] == "News AI"
 
     assert fake_backend.queries == ["News AI", "news ai", "News AI"]
 
@@ -1836,6 +1908,75 @@ def test_search_many_with_diagnostics_reports_per_query_rows_and_summary(monkeyp
         "stale_cache_fallback": 0,
         "error": 1,
     }
+
+
+def test_search_many_with_diagnostics_executed_metrics_match_totals_without_dedupe(
+    monkeypatch,
+):
+    """Executed-only metrics should match totals when deduplication is disabled."""
+    fake_backend = _FakeSearchBackend(response="unused")
+    monkeypatch.setattr(
+        "app.tools.web_search.DuckDuckGoSearchRun",
+        lambda: fake_backend,
+    )
+
+    tool = DuckDuckGoSearchTool()
+
+    diagnostics_rows = iter(
+        [
+            {
+                "query": "q1",
+                "normalized_query": "q1",
+                "result": "r1",
+                "source": "fresh_search",
+                "latency_ms": 10.0,
+                "success": True,
+                "cache_hit": False,
+                "stale_fallback": False,
+            },
+            {
+                "query": "q2",
+                "normalized_query": "q2",
+                "result": "r2",
+                "source": "error",
+                "latency_ms": 30.0,
+                "success": False,
+                "cache_hit": False,
+                "stale_fallback": False,
+                "error": "backend timeout",
+            },
+        ]
+    )
+
+    monkeypatch.setattr(
+        DuckDuckGoSearchTool,
+        "search_with_diagnostics",
+        lambda self, _query: next(diagnostics_rows),
+    )
+
+    diagnostics = tool.search_many_with_diagnostics(["q1", "q2"], deduplicate=False)
+    summary = diagnostics["summary"]
+
+    assert summary["executed_queries"] == summary["total_queries"]
+    assert summary["executed_successes"] == summary["successes"]
+    assert summary["executed_errors"] == summary["errors"]
+    assert summary["executed_success_rate"] == pytest.approx(summary["success_rate"])
+    assert summary["executed_average_latency_ms"] == pytest.approx(
+        summary["average_latency_ms"]
+    )
+    assert summary["executed_median_latency_ms"] == pytest.approx(
+        summary["median_latency_ms"]
+    )
+    assert summary["executed_p90_latency_ms"] == pytest.approx(
+        summary["p90_latency_ms"]
+    )
+    assert summary["executed_p95_latency_ms"] == pytest.approx(
+        summary["p95_latency_ms"]
+    )
+    assert summary["executed_p99_latency_ms"] == pytest.approx(
+        summary["p99_latency_ms"]
+    )
+    assert summary["executed_source_counts"] == summary["source_counts"]
 
 
 def test_search_many_with_diagnostics_reports_percentile_latencies(monkeypatch):

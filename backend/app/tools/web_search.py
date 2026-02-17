@@ -1059,9 +1059,7 @@ class DuckDuckGoSearchTool(BaseTool):
             cached_results = self._get_cached_results(cache_query_key)
             if cached_results is not None:
                 self._increment_cache_metric("cache_hits")
-                logger.debug(
-                    "Returning cached DuckDuckGo results: %s", cache_query_key
-                )
+                logger.debug("Returning cached DuckDuckGo results: %s", cache_query_key)
                 return cached_results, "cache_hit", normalized_query
 
             if self._cache_ttl_seconds is not None:
@@ -1292,18 +1290,14 @@ class DuckDuckGoSearchTool(BaseTool):
         error_count = total_queries - success_count
         deduplicated_count = sum(1 for row in diagnostics_rows if row["deduplicated"])
 
-        latency_values = [float(row["latency_ms"]) for row in diagnostics_rows]
-        average_latency_ms = sum(latency_values) / total_queries
+        latency_summary = self._build_latency_summary(diagnostics_rows)
+        source_counts = self._build_source_counts(diagnostics_rows)
 
-        sorted_latency_values = sorted(latency_values)
-        min_latency_ms = sorted_latency_values[0]
-        max_latency_ms = sorted_latency_values[-1]
-        median_latency_ms = self._calculate_percentile(sorted_latency_values, 50)
-        p90_latency_ms = self._calculate_percentile(sorted_latency_values, 90)
-        p95_latency_ms = self._calculate_percentile(sorted_latency_values, 95)
-        p99_latency_ms = self._calculate_percentile(sorted_latency_values, 99)
-
-        source_counts = Counter(str(row["source"]) for row in diagnostics_rows)
+        executed_rows = [row for row in diagnostics_rows if not row["deduplicated"]]
+        executed_success_count = sum(1 for row in executed_rows if row["success"])
+        executed_error_count = executed_queries - executed_success_count
+        executed_latency_summary = self._build_latency_summary(executed_rows)
+        executed_source_counts = self._build_source_counts(executed_rows)
 
         return {
             "results": diagnostics_rows,
@@ -1317,24 +1311,66 @@ class DuckDuckGoSearchTool(BaseTool):
                 "fresh_searches": fresh_search_count,
                 "cache_hits": cache_hit_count,
                 "stale_fallbacks": stale_fallback_count,
-                "average_latency_ms": average_latency_ms,
-                "min_latency_ms": min_latency_ms,
-                "max_latency_ms": max_latency_ms,
-                "median_latency_ms": median_latency_ms,
-                "p90_latency_ms": p90_latency_ms,
-                "p95_latency_ms": p95_latency_ms,
-                "p99_latency_ms": p99_latency_ms,
+                "average_latency_ms": latency_summary["average_latency_ms"],
+                "min_latency_ms": latency_summary["min_latency_ms"],
+                "max_latency_ms": latency_summary["max_latency_ms"],
+                "median_latency_ms": latency_summary["median_latency_ms"],
+                "p90_latency_ms": latency_summary["p90_latency_ms"],
+                "p95_latency_ms": latency_summary["p95_latency_ms"],
+                "p99_latency_ms": latency_summary["p99_latency_ms"],
                 "success_rate": success_count / total_queries,
-                "source_counts": {
-                    "fresh_search": source_counts.get("fresh_search", 0),
-                    "cache_hit": source_counts.get("cache_hit", 0),
-                    "stale_cache_fallback": source_counts.get(
-                        "stale_cache_fallback",
-                        0,
-                    ),
-                    "error": source_counts.get("error", 0),
-                },
+                "source_counts": source_counts,
+                "executed_successes": executed_success_count,
+                "executed_errors": executed_error_count,
+                "executed_success_rate": (
+                    executed_success_count / executed_queries
+                    if executed_queries > 0
+                    else 0.0
+                ),
+                "executed_average_latency_ms": executed_latency_summary[
+                    "average_latency_ms"
+                ],
+                "executed_min_latency_ms": executed_latency_summary["min_latency_ms"],
+                "executed_max_latency_ms": executed_latency_summary["max_latency_ms"],
+                "executed_median_latency_ms": executed_latency_summary[
+                    "median_latency_ms"
+                ],
+                "executed_p90_latency_ms": executed_latency_summary["p90_latency_ms"],
+                "executed_p95_latency_ms": executed_latency_summary["p95_latency_ms"],
+                "executed_p99_latency_ms": executed_latency_summary["p99_latency_ms"],
+                "executed_source_counts": executed_source_counts,
             },
+        }
+
+    def _build_latency_summary(
+        self, diagnostics_rows: list[dict[str, Any]]
+    ) -> dict[str, float]:
+        """Build latency aggregates from diagnostics rows."""
+        latency_values = [float(row["latency_ms"]) for row in diagnostics_rows]
+        sorted_latency_values = sorted(latency_values)
+
+        return {
+            "average_latency_ms": sum(latency_values) / len(latency_values),
+            "min_latency_ms": sorted_latency_values[0],
+            "max_latency_ms": sorted_latency_values[-1],
+            "median_latency_ms": self._calculate_percentile(
+                sorted_latency_values,
+                50,
+            ),
+            "p90_latency_ms": self._calculate_percentile(sorted_latency_values, 90),
+            "p95_latency_ms": self._calculate_percentile(sorted_latency_values, 95),
+            "p99_latency_ms": self._calculate_percentile(sorted_latency_values, 99),
+        }
+
+    @staticmethod
+    def _build_source_counts(diagnostics_rows: list[dict[str, Any]]) -> dict[str, int]:
+        """Build canonical source counters from diagnostics rows."""
+        source_counts = Counter(str(row["source"]) for row in diagnostics_rows)
+        return {
+            "fresh_search": source_counts.get("fresh_search", 0),
+            "cache_hit": source_counts.get("cache_hit", 0),
+            "stale_cache_fallback": source_counts.get("stale_cache_fallback", 0),
+            "error": source_counts.get("error", 0),
         }
 
     @staticmethod
