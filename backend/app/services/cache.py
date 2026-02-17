@@ -255,6 +255,8 @@ class LocalCacheService:
         *,
         prefix: str | None = None,
         pattern: str | None = None,
+        namespace: str | None = None,
+        namespace_separator: str = ":",
         tag_prefix: str | None = None,
         tag_pattern: str | None = None,
         min_count: int | None = None,
@@ -270,6 +272,10 @@ class LocalCacheService:
         Args:
             prefix: Optional key prefix filter applied to keys counted per tag.
             pattern: Optional key glob filter applied with :func:`fnmatchcase`.
+            namespace: Optional exact namespace filter applied to counted
+                keys.
+            namespace_separator: Namespace delimiter used when ``namespace``
+                filtering is enabled.
             tag_prefix: Optional tag-name prefix filter.
             tag_pattern: Optional tag-name glob filter.
             min_count: Optional minimum number of matching keys required
@@ -296,6 +302,16 @@ class LocalCacheService:
 
         if tag_pattern is not None and not isinstance(tag_pattern, str):
             raise ValueError("tag_pattern must be a string")
+
+        normalized_namespace_separator = self._normalize_namespace_separator(
+            namespace_separator
+        )
+        normalized_namespace: str | None = None
+        if namespace is not None:
+            normalized_namespace = self._normalize_namespace(
+                namespace,
+                separator=normalized_namespace_separator,
+            )
 
         if min_count is not None:
             if isinstance(min_count, bool) or not isinstance(min_count, int):
@@ -343,6 +359,15 @@ class LocalCacheService:
                 if prefix is not None and not key.startswith(prefix):
                     continue
                 if pattern is not None and not fnmatchcase(key, pattern):
+                    continue
+                if (
+                    normalized_namespace is not None
+                    and self._extract_namespace(
+                        key,
+                        separator=normalized_namespace_separator,
+                    )
+                    != normalized_namespace
+                ):
                     continue
                 matching_keys.append(key)
 

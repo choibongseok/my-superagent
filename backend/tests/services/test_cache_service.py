@@ -1676,6 +1676,33 @@ def test_local_cache_list_tag_stats_supports_pattern_offset_and_limit():
     ]
 
 
+def test_local_cache_list_tag_stats_supports_namespace_filters():
+    cache = LocalCacheService()
+    cache.set_tagged("session:alpha", 1, tags=["session", "active"])
+    cache.set_tagged("session:beta", 2, tags=["session"])
+    cache.set_tagged("user:alpha", 3, tags=["active", "user"])
+
+    assert cache.list_tag_stats(namespace="session", include_keys=True) == [
+        {"tag": "active", "count": 1, "keys": ["session:alpha"]},
+        {
+            "tag": "session",
+            "count": 2,
+            "keys": ["session:alpha", "session:beta"],
+        },
+    ]
+
+    slash_cache = LocalCacheService()
+    slash_cache.set_tagged("team/alpha", 1, tags=["shared"])
+    slash_cache.set_tagged("team/beta", 2, tags=["shared"])
+    slash_cache.set_tagged("other/alpha", 3, tags=["shared"])
+
+    assert slash_cache.list_tag_stats(
+        namespace="team",
+        namespace_separator="/",
+        include_keys=True,
+    ) == [{"tag": "shared", "count": 2, "keys": ["team/alpha", "team/beta"]}]
+
+
 def test_local_cache_list_tag_stats_supports_tag_name_filters():
     cache = LocalCacheService()
     cache.set_tagged("session:alpha", 1, tags=["scope:session", "active"])
@@ -1749,6 +1776,15 @@ def test_local_cache_list_tag_stats_rejects_invalid_pagination_and_flags():
 
     with pytest.raises(ValueError, match="tag_pattern must be a string"):
         cache.list_tag_stats(tag_pattern=123)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="separator cannot be empty"):
+        cache.list_tag_stats(namespace_separator="   ")
+
+    with pytest.raises(ValueError, match="namespace cannot be empty"):
+        cache.list_tag_stats(namespace="   ")
+
+    with pytest.raises(ValueError, match="namespace cannot contain separator"):
+        cache.list_tag_stats(namespace="session:alpha")
 
     with pytest.raises(ValueError, match="min_count must be a non-negative integer"):
         cache.list_tag_stats(min_count=-1)
