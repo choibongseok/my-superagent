@@ -503,6 +503,91 @@ class PluginManager:
         return normalized_output_fields
 
     @staticmethod
+    def _normalize_config_filters(
+        config_filters: Optional[Mapping[str, Any]],
+    ) -> Optional[dict[str, Any]]:
+        """Normalize optional runtime-config filters for ``list_plugins``."""
+        if config_filters is None:
+            return None
+
+        if not isinstance(config_filters, Mapping):
+            raise ValueError("config_filters must be a mapping")
+
+        normalized_filters: dict[str, Any] = {}
+        for field_path, expected_value in config_filters.items():
+            if not isinstance(field_path, str) or not field_path.strip():
+                raise ValueError("config_filters keys must be non-empty strings")
+
+            if isinstance(expected_value, (list, tuple, set, frozenset)) and not tuple(
+                expected_value
+            ):
+                raise ValueError("config_filters values cannot be empty collections")
+
+            normalized_filters[field_path.strip()] = expected_value
+
+        if not normalized_filters:
+            raise ValueError("config_filters must include at least one entry")
+
+        return normalized_filters
+
+    @staticmethod
+    def _resolve_config_filter_value(
+        config: Mapping[str, Any],
+        field_path: str,
+    ) -> tuple[bool, Any]:
+        """Resolve config values using exact keys or dotted field paths."""
+        if field_path in config:
+            return True, config[field_path]
+
+        if "." not in field_path:
+            return False, None
+
+        current_value: Any = config
+        for segment in field_path.split("."):
+            if not isinstance(current_value, Mapping) or segment not in current_value:
+                return False, None
+
+            current_value = current_value[segment]
+
+        return True, current_value
+
+    @staticmethod
+    def _config_filter_value_matches(actual_value: Any, expected_value: Any) -> bool:
+        """Return whether one runtime config value satisfies a filter value."""
+        if isinstance(expected_value, (list, tuple, set, frozenset)):
+            return any(actual_value == candidate for candidate in expected_value)
+
+        return actual_value == expected_value
+
+    @classmethod
+    def _matches_config_filters(
+        cls,
+        config: Mapping[str, Any],
+        config_filters: Optional[Mapping[str, Any]],
+        *,
+        match_any_config_filters: bool,
+    ) -> bool:
+        """Return whether runtime config satisfies configured filter rules."""
+        if config_filters is None:
+            return True
+
+        filter_matches: list[bool] = []
+        for field_path, expected_value in config_filters.items():
+            exists, actual_value = cls._resolve_config_filter_value(config, field_path)
+            if not exists:
+                filter_matches.append(False)
+                continue
+
+            filter_matches.append(
+                cls._config_filter_value_matches(actual_value, expected_value)
+            )
+
+        if match_any_config_filters:
+            return any(filter_matches)
+
+        return all(filter_matches)
+
+    @staticmethod
     def _tokenize_query(query: str) -> list[str]:
         """Tokenize a query string while supporting quoted phrases.
 
@@ -690,6 +775,8 @@ class PluginManager:
         offset: int = 0,
         limit: Optional[int] = None,
         output_fields: Optional[Sequence[str]] = None,
+        config_filters: Optional[Mapping[str, Any]] = None,
+        match_any_config_filters: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         List loaded plugins with optional selector and permission filters.
@@ -752,6 +839,15 @@ class PluginManager:
                 ``outputs``) plus runtime fields (``initialized``,
                 ``module_path``, ``config``, ``loaded_order``). Runtime
                 fields require ``include_runtime=True``.
+            config_filters: Optional runtime configuration filters.
+                Keys may reference direct config keys (for example,
+                ``"units"``) or dotted paths for nested config objects
+                (for example, ``"slack.channel"``). Values use exact
+                matching; iterable values (list/tuple/set/frozenset) act as
+                allow-lists where any candidate match passes.
+            match_any_config_filters: Runtime config matching mode. ``False``
+                (default) requires all ``config_filters`` rules to match,
+                while ``True`` requires at least one matching rule.
 
         Returns:
             List of plugin manifests.
@@ -823,6 +919,10 @@ class PluginManager:
 
         normalized_query_fields = self._normalize_query_fields(query_fields)
         normalized_output_fields = self._normalize_output_fields(output_fields)
+        normalized_config_filters = self._normalize_config_filters(config_filters)
+
+        if not isinstance(match_any_config_filters, bool):
+            raise ValueError("match_any_config_filters must be a boolean")
 
         runtime_only_output_fields = {
             "initialized",
@@ -920,6 +1020,20 @@ class PluginManager:
                     manifest.permissions,
                     normalized_required_permissions,
                     match_any_permissions=match_any_permissions,
+                )
+            ]
+
+        if normalized_config_filters is not None:
+            manifests = [
+                manifest
+                for manifest in manifests
+                if (
+                    (plugin := self.plugins.get(manifest.name)) is not None
+                    and self._matches_config_filters(
+                        plugin.config,
+                        normalized_config_filters,
+                        match_any_config_filters=match_any_config_filters,
+                    )
                 )
             ]
 
@@ -1029,9 +1143,7 @@ class PluginManager:
                         "initialized": plugin.is_initialized() if plugin else False,
                         "module_path": plugin.__class__.__module__ if plugin else None,
                         "config": dict(plugin.config) if plugin else None,
-                        "loaded_order": self._plugin_load_sequence.get(
-                            manifest.name
-                        ),
+                        "loaded_order": self._plugin_load_sequence.get(manifest.name),
                     }
                 )
 

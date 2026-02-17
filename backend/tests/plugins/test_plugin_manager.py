@@ -606,6 +606,131 @@ async def test_list_plugins_required_permissions_validates_payload(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_list_plugins_filters_by_runtime_config_values_and_dotted_paths(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"]),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class("beta-plugin", ["filesystem.read"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory(
+        plugin_configs={
+            "alpha": {"region": "kr", "slack": {"channel": "ops"}},
+            "beta": {"region": "us", "slack": {"channel": "eng"}},
+        }
+    )
+
+    region_filtered = manager.list_plugins(config_filters={"region": "kr"})
+    nested_filtered = manager.list_plugins(config_filters={"slack.channel": "eng"})
+
+    assert [item["name"] for item in region_filtered] == ["alpha-plugin"]
+    assert [item["name"] for item in nested_filtered] == ["beta-plugin"]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_runtime_config_filters_support_any_matching(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "alpha.py").write_text("# alpha", encoding="utf-8")
+    (tmp_path / "beta.py").write_text("# beta", encoding="utf-8")
+
+    modules = {
+        "app.plugins.alpha": _plugin_module(
+            "app.plugins.alpha",
+            _build_plugin_class("alpha-plugin", ["network.http"]),
+        ),
+        "app.plugins.beta": _plugin_module(
+            "app.plugins.beta",
+            _build_plugin_class("beta-plugin", ["filesystem.read"]),
+        ),
+    }
+
+    def _import_module(name: str):
+        if name in modules:
+            return modules[name]
+        raise ImportError(name)
+
+    monkeypatch.setattr("app.plugins.manager.importlib.import_module", _import_module)
+
+    manager = PluginManager(plugin_dir=str(tmp_path))
+    await manager.load_plugins_from_directory(
+        plugin_configs={
+            "alpha": {"region": "kr", "slack": {"channel": "ops"}},
+            "beta": {"region": "us", "slack": {"channel": "eng"}},
+        }
+    )
+
+    all_filters = {"region": "kr", "slack.channel": "eng"}
+
+    assert manager.list_plugins(config_filters=all_filters) == []
+
+    matched_any = manager.list_plugins(
+        config_filters=all_filters,
+        match_any_config_filters=True,
+        sort_by="name",
+    )
+
+    assert [item["name"] for item in matched_any] == [
+        "alpha-plugin",
+        "beta-plugin",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_plugins_runtime_config_filters_validate_payload(tmp_path):
+    manager = PluginManager(plugin_dir=str(tmp_path))
+
+    with pytest.raises(ValueError, match="config_filters must be a mapping"):
+        manager.list_plugins(config_filters=[("region", "kr")])  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ValueError,
+        match="config_filters keys must be non-empty strings",
+    ):
+        manager.list_plugins(config_filters={"   ": "kr"})
+
+    with pytest.raises(
+        ValueError,
+        match="config_filters values cannot be empty collections",
+    ):
+        manager.list_plugins(config_filters={"region": []})
+
+    with pytest.raises(
+        ValueError, match="config_filters must include at least one entry"
+    ):
+        manager.list_plugins(config_filters={})
+
+    with pytest.raises(
+        ValueError,
+        match="match_any_config_filters must be a boolean",
+    ):
+        manager.list_plugins(
+            config_filters={"region": "kr"},
+            match_any_config_filters="yes",  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.asyncio
 async def test_reload_plugin_reuses_existing_config_and_cleans_up_old_instance(
     tmp_path,
     monkeypatch,
