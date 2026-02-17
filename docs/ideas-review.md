@@ -303,3 +303,27 @@ def test_create_spreadsheet():
 현재 개발 속도가 빠르므로 (**Week 1-2 목표 75% 조기 달성**), Phase 7-8에서 이 두 기능을 추가하면 **엔터프라이즈 시장 진출 가능**합니다.
 
 다음 단계: 설계자 에이전트의 기술 검토를 기다립니다. 🚀
+
+---
+
+## 🔍 Phase 18 기술 타당성 검토 (2026-02-17 11:25 UTC)
+**검토자**: Planner Agent (설계자 에이전트 타임아웃 대신 직접 작성)
+
+### #154 AI Contract Negotiation Copilot
+- **타당성**: 🟡 조건부 가능
+- **권장 구현**: Claude 3.5 Sonnet (legal reasoning 우위) + 조항 분류는 rule-based 우선, LLM은 설명 생성용
+- **핵심 리스크**: Hallucination → "이 분석은 참고용이며 법적 조언이 아닙니다" 면책 조항 필수. 조항 DB는 공개 계약서 크라우드소싱(Phase 1) → CourtListener API(Phase 2) 단계적 접근 권장
+- **우선순위**: 8주 개발, CRITICAL 유지
+
+### #155 Automated Employee Onboarding Packet  
+- **타당성**: 🟢 즉시 가능
+- **권장 구현**: BambooHR webhook은 REST polling 우선(Webhook 설정 복잡), 기존 Multi-agent orchestration으로 Docs+Sheets+Slides 병렬 생성. 개인정보는 온보딩 완료 후 90일 후 자동 삭제(GDPR)
+- **핵심 리스크**: 낮음 — 기존 인프라로 대부분 커버 가능
+- **우선순위**: 6주, HIGH 유지. **가장 빠른 구현 가능 아이디어**
+
+### #156 SOP Intelligence Engine
+- **타당성**: 🟡 조건부 가능  
+- **권장 구현**: PrefixSpan(LSTM보다 해석 가능성 높음), 임계값 5회 반복(3회는 노이즈 많음), 준수율 측정은 배치(Celery Beat 15분) → 실시간은 Phase 2
+- **핵심 리스크**: 패턴 false positive 높음 → 사용자 확인 단계 필수("이걸 SOP로 등록할까요?")
+- **우선순위**: 9주, HIGH. #155 완료 후 착수 권장
+
