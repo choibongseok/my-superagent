@@ -17,7 +17,7 @@ from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import getaddresses
-from typing import Optional
+from typing import Literal, Optional, cast
 
 from app.core.config import settings
 
@@ -31,6 +31,8 @@ class EmailAttachment:
     filename: str
     content: bytes
     mime_type: str = "application/octet-stream"
+    disposition: Literal["attachment", "inline"] = "attachment"
+    content_id: str | None = None
 
 
 class EmailService:
@@ -44,6 +46,8 @@ class EmailService:
         flags=re.IGNORECASE,
     )
     _HEADER_NAME_PATTERN = re.compile(r"^[!-9;-~]+$")
+    _CONTENT_ID_PATTERN = re.compile(r"^[^\s<>]+$")
+    _ATTACHMENT_DISPOSITIONS = {"attachment", "inline"}
     _PROTECTED_HEADERS = {
         "bcc",
         "cc",
@@ -311,6 +315,41 @@ class EmailService:
         return normalized_headers
 
     @classmethod
+    def _normalize_attachment_disposition(cls, disposition: object) -> str:
+        """Normalize attachment disposition values."""
+        if not isinstance(disposition, str):
+            raise TypeError("attachments disposition must be a string")
+
+        normalized_disposition = disposition.strip().lower()
+        if normalized_disposition not in cls._ATTACHMENT_DISPOSITIONS:
+            raise ValueError(
+                "attachments disposition must be either 'attachment' or 'inline'"
+            )
+
+        return normalized_disposition
+
+    @classmethod
+    def _normalize_attachment_content_id(cls, content_id: object) -> str | None:
+        """Normalize optional attachment Content-ID values."""
+        if content_id is None:
+            return None
+        if not isinstance(content_id, str):
+            raise TypeError("attachments content_id must be a string")
+
+        sanitized_content_id = cls._sanitize_header_value(
+            content_id,
+            field_name="attachments content_id",
+        ).strip("<>")
+        if not sanitized_content_id:
+            raise ValueError("attachments content_id must not be empty")
+        if not cls._CONTENT_ID_PATTERN.fullmatch(sanitized_content_id):
+            raise ValueError(
+                "attachments content_id must not contain spaces or angle brackets"
+            )
+
+        return sanitized_content_id
+
+    @classmethod
     def _normalize_attachments(
         cls,
         attachments: Sequence[Mapping[str, object]] | None,
@@ -326,6 +365,9 @@ class EmailService:
         for path-based attachments (defaults to the path basename). When
         ``content_base64`` uses a ``data:*;base64,`` URL payload and
         ``mime_type`` is omitted, the media type from the data URL is used.
+        Optional ``disposition`` can be ``"attachment"`` (default) or
+        ``"inline"``. Inline attachments require ``content_id`` so callers can
+        reference them from HTML bodies (for example, ``cid:logo``).
         """
         if attachments is None:
             return []
@@ -460,11 +502,22 @@ class EmailService:
                     f"attachments[{index}] mime_type must be in 'type/subtype' format"
                 )
 
+            disposition = cls._normalize_attachment_disposition(
+                attachment.get("disposition", "attachment")
+            )
+            content_id = cls._normalize_attachment_content_id(
+                attachment.get("content_id")
+            )
+            if disposition == "inline" and content_id is None:
+                raise ValueError("inline attachments require content_id")
+
             normalized_attachments.append(
                 EmailAttachment(
                     filename=filename,
                     content=payload,
                     mime_type=mime_type,
+                    disposition=cast(Literal["attachment", "inline"], disposition),
+                    content_id=content_id,
                 )
             )
 
@@ -478,8 +531,12 @@ class EmailService:
         part.set_payload(attachment.content)
         encoders.encode_base64(part)
         part.add_header(
-            "Content-Disposition", "attachment", filename=attachment.filename
+            "Content-Disposition",
+            attachment.disposition,
+            filename=attachment.filename,
         )
+        if attachment.content_id is not None:
+            part.add_header("Content-ID", f"<{attachment.content_id}>")
         return part
 
     def _create_message(
@@ -578,6 +635,11 @@ class EmailService:
                   file type for path-based attachments, data-URL media type
                   for ``content_base64`` payloads that include one, otherwise
                   "application/octet-stream"
+                - disposition (str, optional): Either ``"attachment"``
+                  (default) or ``"inline"`` for CID-referenced assets
+                - content_id (str, optional): Content-ID token used for
+                  inline attachments (required when
+                  ``disposition="inline"``)
             headers: Optional custom message headers. Header names are
                 validated and cannot override core delivery headers such as
                 Subject, From, To, Cc, Bcc, Reply-To, Content-Type,

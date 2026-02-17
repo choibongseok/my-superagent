@@ -502,6 +502,92 @@ class TestEmailService:
         ]
 
     @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_supports_inline_attachments_with_content_id(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Inline attachments should expose Content-ID headers for cid: references."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Inline attachment",
+            html_body='<p><img src="cid:logo-image"></p>',
+            attachments=[
+                {
+                    "filename": "logo.png",
+                    "content": b"\x89PNG\r\n\x1a\n",
+                    "mime_type": "image/png",
+                    "disposition": "inline",
+                    "content_id": "logo-image",
+                }
+            ],
+        )
+
+        assert result is True
+
+        sent_message = mock_server.send_message.call_args[0][0]
+        attachments = [
+            part
+            for part in sent_message.walk()
+            if part.get_content_disposition() in {"attachment", "inline"}
+        ]
+
+        assert len(attachments) == 1
+        assert attachments[0].get_content_disposition() == "inline"
+        assert attachments[0]["Content-ID"] == "<logo-image>"
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_rejects_inline_attachments_without_content_id(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Inline attachments require explicit content IDs for safe referencing."""
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Inline attachment",
+            html_body="<p>inline</p>",
+            attachments=[
+                {
+                    "filename": "logo.png",
+                    "content": b"\x89PNG\r\n\x1a\n",
+                    "mime_type": "image/png",
+                    "disposition": "inline",
+                }
+            ],
+        )
+
+        assert result is False
+        mock_smtp.assert_not_called()
+
+    @patch("app.services.email_service.smtplib.SMTP")
+    def test_send_email_rejects_invalid_attachment_disposition(
+        self,
+        mock_smtp,
+        email_service,
+    ):
+        """Attachment disposition values should be limited to attachment/inline."""
+        result = email_service.send_email(
+            to_email="recipient@test.com",
+            subject="Invalid attachment",
+            html_body="<p>fail</p>",
+            attachments=[
+                {
+                    "filename": "payload.txt",
+                    "content": "hello",
+                    "mime_type": "text/plain",
+                    "disposition": "embed",
+                }
+            ],
+        )
+
+        assert result is False
+        mock_smtp.assert_not_called()
+
+    @patch("app.services.email_service.smtplib.SMTP")
     def test_send_email_supports_base64_and_data_url_attachments(
         self,
         mock_smtp,
