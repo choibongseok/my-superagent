@@ -190,6 +190,18 @@ class GoogleDocsAPI:
         return normalized_order
 
     @staticmethod
+    def _normalize_duplicate_strategy(value: Any) -> str:
+        """Normalize duplicate placeholder handling strategies."""
+        if not isinstance(value, str):
+            raise ValueError("duplicate_strategy must be one of: error, first, last")
+
+        normalized_strategy = value.strip().lower()
+        if normalized_strategy not in {"error", "first", "last"}:
+            raise ValueError("duplicate_strategy must be one of: error, first, last")
+
+        return normalized_strategy
+
+    @staticmethod
     def _normalize_nested_key_separator(value: Any) -> str:
         """Normalize nested-variable key separators used during flattening."""
         if not isinstance(value, str):
@@ -270,6 +282,49 @@ class GoogleDocsAPI:
 
         return flattened_variables
 
+    @staticmethod
+    def _resolve_duplicate_variable_items(
+        variable_items: Sequence[tuple[str, Any]],
+        *,
+        duplicate_strategy: str,
+    ) -> list[tuple[str, Any]]:
+        """Resolve duplicate placeholder keys according to ``duplicate_strategy``."""
+        name_counts: dict[str, int] = {}
+        for name, _ in variable_items:
+            name_counts[name] = name_counts.get(name, 0) + 1
+
+        duplicate_names = {name for name, count in name_counts.items() if count > 1}
+
+        if duplicate_strategy == "error":
+            if duplicate_names:
+                duplicate_list = ", ".join(sorted(duplicate_names))
+                raise ValueError(
+                    "variables contain duplicate placeholder keys after normalization: "
+                    f"{duplicate_list}"
+                )
+            return list(variable_items)
+
+        if duplicate_strategy == "first":
+            deduplicated_items: list[tuple[str, Any]] = []
+            seen_names: set[str] = set()
+            for name, value in variable_items:
+                if name in seen_names:
+                    continue
+                seen_names.add(name)
+                deduplicated_items.append((name, value))
+
+            return deduplicated_items
+
+        # duplicate_strategy == "last" (validated by _normalize_duplicate_strategy)
+        last_occurrence_index = {
+            name: index for index, (name, _) in enumerate(variable_items)
+        }
+        return [
+            (name, value)
+            for index, (name, value) in enumerate(variable_items)
+            if last_occurrence_index[name] == index
+        ]
+
     def replace_template_variables(
         self,
         document_id: str,
@@ -287,6 +342,7 @@ class GoogleDocsAPI:
         nested_key_separator: str = ".",
         value_serializer: Callable[[Any], Any] | None = None,
         variable_order: str = "input",
+        duplicate_strategy: str = "error",
     ) -> dict[str, Any]:
         """Replace template placeholders (e.g. ``{{name}}``) in a document.
 
@@ -326,6 +382,10 @@ class GoogleDocsAPI:
                 ``"input"`` preserves incoming mapping order,
                 ``"asc"`` sorts normalized placeholder names ascending, and
                 ``"desc"`` sorts them descending.
+            duplicate_strategy: How to handle duplicate placeholder keys after
+                normalization/flattening. ``"error"`` (default) raises a
+                ``ValueError`` on collisions, ``"first"`` keeps the first
+                occurrence, and ``"last"`` keeps the last occurrence.
 
         Returns:
             API response dictionary from ``documents().batchUpdate``.
@@ -341,9 +401,10 @@ class GoogleDocsAPI:
 
         Raises:
             ValueError: If variables/prefix/suffix/match_case/batch size,
-                flattening options, duplicate flattened keys, or
+                flattening options, duplicate placeholder keys, or
                 ``dry_run``/``skip_none_values``/``skip_blank_values``/
-                ``value_serializer``/``variable_order`` are invalid.
+                ``value_serializer``/``variable_order``/
+                ``duplicate_strategy`` are invalid.
             HttpError: If Google Docs replacement request fails.
         """
         if not isinstance(variables, Mapping):
@@ -369,6 +430,9 @@ class GoogleDocsAPI:
         )
         normalized_value_serializer = self._normalize_value_serializer(value_serializer)
         normalized_variable_order = self._normalize_variable_order(variable_order)
+        normalized_duplicate_strategy = self._normalize_duplicate_strategy(
+            duplicate_strategy
+        )
         normalized_max_requests_per_batch = self._normalize_max_requests_per_batch(
             max_requests_per_batch
         )
@@ -409,13 +473,22 @@ class GoogleDocsAPI:
 
                 variable_items.append((normalized_name, replacement_value))
 
-        if normalized_flatten_nested_variables:
-            normalized_names = [variable_name for variable_name, _ in variable_items]
-            if len(normalized_names) != len(set(normalized_names)):
+        try:
+            variable_items = self._resolve_duplicate_variable_items(
+                variable_items,
+                duplicate_strategy=normalized_duplicate_strategy,
+            )
+        except ValueError as error:
+            if normalized_flatten_nested_variables:
                 raise ValueError(
                     "flattened variables contain duplicate placeholder keys; "
-                    "adjust nested keys or disable flatten_nested_variables"
-                )
+                    "adjust nested keys or set duplicate_strategy to 'first' or 'last'"
+                ) from error
+
+            raise ValueError(
+                "variables contain duplicate placeholder keys after normalization; "
+                "rename keys or set duplicate_strategy to 'first' or 'last'"
+            ) from error
 
         if normalized_variable_order != "input":
             variable_items = sorted(

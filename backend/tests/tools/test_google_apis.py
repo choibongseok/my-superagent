@@ -482,6 +482,92 @@ def test_replace_template_variables_rejects_duplicate_flattened_keys(docs_api):
     mocked_service.documents.return_value.batchUpdate.assert_not_called()
 
 
+def test_replace_template_variables_duplicate_strategy_can_keep_first_value(docs_api):
+    """duplicate_strategy='first' should keep the first normalized placeholder."""
+    api, mocked_service = docs_api
+
+    api.replace_template_variables(
+        "doc-duplicate-first",
+        {
+            " name ": "Ada",
+            "name": "Grace",
+        },
+        duplicate_strategy="first",
+    )
+
+    mocked_service.documents.return_value.batchUpdate.assert_called_once_with(
+        documentId="doc-duplicate-first",
+        body={
+            "requests": [
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{name}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "Ada",
+                    }
+                }
+            ]
+        },
+    )
+
+
+def test_replace_template_variables_duplicate_strategy_can_keep_last_value(docs_api):
+    """duplicate_strategy='last' should keep the last normalized placeholder."""
+    api, mocked_service = docs_api
+
+    api.replace_template_variables(
+        "doc-duplicate-last",
+        {
+            "user": {
+                "name": "Ada",
+            },
+            "user.name": "Grace",
+        },
+        flatten_nested_variables=True,
+        duplicate_strategy="last",
+    )
+
+    mocked_service.documents.return_value.batchUpdate.assert_called_once_with(
+        documentId="doc-duplicate-last",
+        body={
+            "requests": [
+                {
+                    "replaceAllText": {
+                        "containsText": {
+                            "text": "{{user.name}}",
+                            "matchCase": True,
+                        },
+                        "replaceText": "Grace",
+                    }
+                }
+            ]
+        },
+    )
+
+
+@pytest.mark.parametrize("duplicate_strategy", [None, "", "merge", 1])
+def test_replace_template_variables_rejects_invalid_duplicate_strategy(
+    docs_api,
+    duplicate_strategy,
+):
+    """duplicate_strategy should only accept error/first/last values."""
+    api, mocked_service = docs_api
+
+    with pytest.raises(
+        ValueError,
+        match="duplicate_strategy must be one of: error, first, last",
+    ):
+        api.replace_template_variables(
+            "doc-invalid-duplicate-strategy",
+            {"name": "AgentHQ"},
+            duplicate_strategy=duplicate_strategy,  # type: ignore[arg-type]
+        )
+
+    mocked_service.documents.return_value.batchUpdate.assert_not_called()
+
+
 @pytest.mark.parametrize("flatten_nested_variables", [None, "yes", 1])
 def test_replace_template_variables_rejects_invalid_flatten_nested_variables(
     docs_api,
