@@ -136,6 +136,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         exclude_methods: Optional[Iterable[str]] = None,
         client_id_header: Optional[str | Iterable[str]] = None,
         exclude_client_ids: Optional[Iterable[str]] = None,
+        exclude_user_agents: Optional[Iterable[str]] = None,
     ):
         """
         Initialize rate limit middleware.
@@ -169,6 +170,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 glob patterns against normalized client IDs such as
                 ``"header:internal-*"``, ``"user:admin"``, or
                 ``"ip:10.0.*"``.
+            exclude_user_agents: Optional user-agent selectors that bypass
+                rate limiting. Selectors support exact matches and glob
+                patterns (case-insensitive), for example
+                ``"kube-probe/*"`` or ``"internal-healthcheck"``.
         """
         super().__init__(app)
 
@@ -186,6 +191,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.exclude_methods = self._normalize_exclude_methods(exclude_methods)
         self.client_id_headers = self._normalize_client_id_headers(client_id_header)
         self.exclude_client_ids = self._normalize_exclude_client_ids(exclude_client_ids)
+        self.exclude_user_agents = self._normalize_exclude_user_agents(
+            exclude_user_agents
+        )
         # Backward-compatible alias for callers that still access this attribute.
         self.client_id_header = (
             self.client_id_headers[0] if self.client_id_headers else None
@@ -296,6 +304,27 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 )
 
             normalized_pattern = raw_pattern.strip()
+            if normalized_pattern not in normalized_patterns:
+                normalized_patterns.append(normalized_pattern)
+
+        return tuple(normalized_patterns)
+
+    @staticmethod
+    def _normalize_exclude_user_agents(
+        exclude_user_agents: Optional[Iterable[str]],
+    ) -> tuple[str, ...]:
+        """Normalize optional user-agent bypass selectors."""
+        if exclude_user_agents is None:
+            return ()
+
+        normalized_patterns: list[str] = []
+        for raw_pattern in exclude_user_agents:
+            if not isinstance(raw_pattern, str) or not raw_pattern.strip():
+                raise ValueError(
+                    "exclude_user_agents must contain non-empty user-agent selectors"
+                )
+
+            normalized_pattern = raw_pattern.strip().lower()
             if normalized_pattern not in normalized_patterns:
                 normalized_patterns.append(normalized_pattern)
 
@@ -477,6 +506,24 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 return True
 
         return False
+
+    def _is_excluded_user_agent(self, request: Request) -> bool:
+        """Return whether request user-agent matches bypass selectors."""
+        if not self.exclude_user_agents:
+            return False
+
+        user_agent = request.headers.get("User-Agent")
+        if user_agent is None:
+            return False
+
+        normalized_user_agent = user_agent.strip().lower()
+        if not normalized_user_agent:
+            return False
+
+        return any(
+            fnmatchcase(normalized_user_agent, pattern)
+            for pattern in self.exclude_user_agents
+        )
 
     @classmethod
     def _extract_ip_from_x_forwarded_for(cls, forwarded_for: str) -> Optional[str]:
@@ -668,8 +715,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         Returns:
             HTTP response
         """
-        # Skip rate limiting for excluded paths
-        if self._is_excluded_path(request):
+        # Skip rate limiting for excluded paths/user agents
+        if self._is_excluded_path(request) or self._is_excluded_user_agent(request):
             return await call_next(request)
 
         # Get client identifier and method-specific token cost
@@ -739,6 +786,7 @@ def get_rate_limit_middleware(
     exclude_methods: Optional[Iterable[str]] = None,
     client_id_header: Optional[str | Iterable[str]] = None,
     exclude_client_ids: Optional[Iterable[str]] = None,
+    exclude_user_agents: Optional[Iterable[str]] = None,
 ):
     """
     Create rate limit middleware factory.
@@ -755,6 +803,8 @@ def get_rate_limit_middleware(
             used for client identity
         exclude_client_ids: Optional exact/glob selectors that bypass
             rate limiting for matching client IDs
+        exclude_user_agents: Optional exact/glob selectors that bypass
+            rate limiting for matching user-agent headers
 
     Returns:
         Callable middleware factory compatible with ``add_middleware``
@@ -771,4 +821,5 @@ def get_rate_limit_middleware(
         exclude_methods=exclude_methods,
         client_id_header=client_id_header,
         exclude_client_ids=exclude_client_ids,
+        exclude_user_agents=exclude_user_agents,
     )

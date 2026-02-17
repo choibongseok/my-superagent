@@ -700,6 +700,97 @@ def test_rate_limit_middleware_excludes_configured_client_ids(
         assert external_second.status_code == 429
 
 
+def test_rate_limit_middleware_excludes_configured_user_agents(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+        exclude_user_agents=["internal-healthcheck"],
+    )
+
+    with TestClient(app) as client:
+        internal_first = client.get(
+            "/limited",
+            headers={"User-Agent": "internal-healthcheck"},
+        )
+        internal_second = client.get(
+            "/limited",
+            headers={"User-Agent": "internal-healthcheck"},
+        )
+        external_first = client.get(
+            "/limited",
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        external_second = client.get(
+            "/limited",
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+
+        assert internal_first.status_code == 200
+        assert internal_second.status_code == 200
+        assert "X-RateLimit-Remaining" not in internal_first.headers
+
+        assert external_first.status_code == 200
+        assert external_first.headers["X-RateLimit-Remaining"] == "0"
+        assert external_second.status_code == 429
+
+
+def test_rate_limit_middleware_supports_case_insensitive_glob_user_agent_bypass(
+    fake_cache: InMemoryAsyncCache,
+    frozen_time: dict[str, float],
+) -> None:
+    del fake_cache, frozen_time
+
+    app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=60,
+        burst_size=1,
+        exclude_user_agents=["kube-probe/*"],
+    )
+
+    with TestClient(app) as client:
+        first_probe = client.get(
+            "/limited",
+            headers={"User-Agent": "Kube-Probe/1.29"},
+        )
+        second_probe = client.get(
+            "/limited",
+            headers={"User-Agent": "kube-probe/1.29"},
+        )
+        first_external = client.get(
+            "/limited",
+            headers={"User-Agent": "curl/8.5.0"},
+        )
+        second_external = client.get(
+            "/limited",
+            headers={"User-Agent": "curl/8.5.0"},
+        )
+
+        assert first_probe.status_code == 200
+        assert second_probe.status_code == 200
+        assert "X-RateLimit-Remaining" not in first_probe.headers
+
+        assert first_external.status_code == 200
+        assert second_external.status_code == 429
+
+
 def test_rate_limit_middleware_uses_forwarded_header_for_bucket_isolation(
     fake_cache: InMemoryAsyncCache,
     frozen_time: dict[str, float],
@@ -884,6 +975,22 @@ def test_rate_limit_middleware_rejects_invalid_exclude_client_ids() -> None:
         RateLimitMiddleware(app, exclude_client_ids=[123])  # type: ignore[list-item]
 
 
+def test_rate_limit_middleware_rejects_invalid_exclude_user_agents() -> None:
+    app = FastAPI()
+
+    with pytest.raises(
+        ValueError,
+        match="exclude_user_agents must contain non-empty user-agent selectors",
+    ):
+        RateLimitMiddleware(app, exclude_user_agents=[""])
+
+    with pytest.raises(
+        ValueError,
+        match="exclude_user_agents must contain non-empty user-agent selectors",
+    ):
+        RateLimitMiddleware(app, exclude_user_agents=[123])  # type: ignore[list-item]
+
+
 def test_rate_limit_middleware_rejects_invalid_exclude_paths() -> None:
     app = FastAPI()
 
@@ -964,6 +1071,7 @@ def test_get_rate_limit_middleware_forwards_custom_burst_size() -> None:
         burst_size=7,
         request_costs={"POST": 2},
         exclude_client_ids=["header:internal-*"],
+        exclude_user_agents=["kube-probe/*"],
     )
 
     middleware = middleware_factory(app)
@@ -975,6 +1083,7 @@ def test_get_rate_limit_middleware_forwards_custom_burst_size() -> None:
     assert middleware.bucket.refill_rate == pytest.approx(0.5)
     assert middleware.request_costs == {"POST": 2}
     assert middleware.exclude_client_ids == ("header:internal-*",)
+    assert middleware.exclude_user_agents == ("kube-probe/*",)
 
 
 def test_get_rate_limit_middleware_uses_default_burst_size_when_unset() -> None:
