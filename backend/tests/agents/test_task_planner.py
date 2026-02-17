@@ -605,6 +605,105 @@ def test_get_execution_summary_validates_include_dependency_diagnostics_flag(
         )
 
 
+def test_get_status_breakdown_reports_counts_rates_and_optional_step_ids(planner_stub):
+    """Status breakdown should expose deterministic counts/rates per status."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Draft", "docs", 20, 0.03, 3000),
+        PlanStep("step_3", "Review", "docs", 15, 0.03, 3000),
+        PlanStep("step_4", "Fix", "docs", 10, 0.03, 3000),
+    ]
+    steps[0].status = TaskStatus.COMPLETED
+    steps[1].status = TaskStatus.IN_PROGRESS
+    steps[2].status = TaskStatus.FAILED
+
+    breakdown = planner_stub.get_status_breakdown(
+        _build_plan(steps),
+        include_step_ids=True,
+    )
+
+    assert breakdown == {
+        "total_steps": 4,
+        "counts": {
+            "planned": 1,
+            "in_progress": 1,
+            "completed": 1,
+            "failed": 1,
+            "blocked": 0,
+            "cancelled": 0,
+        },
+        "completion_rate": 0.25,
+        "terminal_rate": 0.5,
+        "step_ids": {
+            "planned": ["step_4"],
+            "in_progress": ["step_2"],
+            "completed": ["step_1"],
+            "failed": ["step_3"],
+            "blocked": [],
+            "cancelled": [],
+        },
+    }
+
+
+def test_get_status_breakdown_validates_include_step_ids_flag(planner_stub):
+    """include_step_ids should require a strict boolean value."""
+    with pytest.raises(ValueError, match="include_step_ids must be a boolean"):
+        planner_stub.get_status_breakdown(
+            _build_plan(
+                [
+                    PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+                ]
+            ),
+            include_step_ids=1,  # type: ignore[arg-type]
+        )
+
+
+def test_get_execution_summary_can_include_status_breakdown(planner_stub):
+    """Execution summary should optionally include status-distribution metrics."""
+    steps = [
+        PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Draft", "docs", 20, 0.03, 3000, ["step_1"]),
+    ]
+    steps[0].status = TaskStatus.COMPLETED
+
+    summary = planner_stub.get_execution_summary(
+        _build_plan(steps),
+        include_status_breakdown=True,
+    )
+
+    assert summary["status_breakdown"] == {
+        "total_steps": 2,
+        "counts": {
+            "planned": 1,
+            "in_progress": 0,
+            "completed": 1,
+            "failed": 0,
+            "blocked": 0,
+            "cancelled": 0,
+        },
+        "completion_rate": 0.5,
+        "terminal_rate": 0.5,
+    }
+    assert summary["completion_rate"] == 0.5
+    assert summary["terminal_rate"] == 0.5
+
+
+def test_get_execution_summary_validates_include_status_breakdown_flag(planner_stub):
+    """include_status_breakdown should require a strict boolean value."""
+    with pytest.raises(
+        ValueError,
+        match="include_status_breakdown must be a boolean",
+    ):
+        planner_stub.get_execution_summary(
+            _build_plan(
+                [
+                    PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+                ]
+            ),
+            include_status_breakdown="yes",  # type: ignore[arg-type]
+        )
+
+
 def test_get_ready_steps_returns_only_dependency_satisfied_planned_steps(planner_stub):
     """Ready-queue helper should skip steps with unmet or terminally failed dependencies."""
     steps = [

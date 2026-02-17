@@ -652,6 +652,66 @@ class TaskPlanner:
             for step in plan.steps
         ]
 
+    def get_status_breakdown(
+        self,
+        plan: ExecutionPlan,
+        *,
+        include_step_ids: bool = False,
+    ) -> Dict[str, Any]:
+        """Return deterministic execution-status distribution metrics.
+
+        Args:
+            plan: Plan whose step statuses should be summarized.
+            include_step_ids: When ``True``, include step IDs grouped by
+                status in addition to per-status counts.
+        """
+        if not isinstance(include_step_ids, bool):
+            raise ValueError("include_step_ids must be a boolean")
+
+        status_step_ids: Dict[str, List[str]] = {
+            status.value: [] for status in TaskStatus
+        }
+        for step in plan.steps:
+            status_step_ids[step.status.value].append(step.step_id)
+
+        status_counts = {
+            status_name: len(step_ids)
+            for status_name, step_ids in status_step_ids.items()
+        }
+
+        total_steps = len(plan.steps)
+        completed_steps = status_counts[TaskStatus.COMPLETED.value]
+        terminal_steps = sum(
+            status_counts[status.value]
+            for status in (
+                TaskStatus.COMPLETED,
+                TaskStatus.FAILED,
+                TaskStatus.CANCELLED,
+            )
+        )
+
+        breakdown: Dict[str, Any] = {
+            "total_steps": total_steps,
+            "counts": status_counts,
+            "completion_rate": round(
+                completed_steps / total_steps,
+                4,
+            )
+            if total_steps
+            else 0.0,
+            "terminal_rate": round(terminal_steps / total_steps, 4)
+            if total_steps
+            else 0.0,
+        }
+
+        if include_step_ids:
+            breakdown["step_ids"] = {
+                status_name: list(step_ids)
+                for status_name, step_ids in status_step_ids.items()
+            }
+
+        return breakdown
+
     def get_execution_summary(
         self,
         plan: ExecutionPlan,
@@ -661,6 +721,7 @@ class TaskPlanner:
         include_execution_timeline: bool = False,
         include_step_slack: bool = False,
         include_dependency_diagnostics: bool = False,
+        include_status_breakdown: bool = False,
     ) -> Dict[str, Any]:
         """Return dependency-aware schedule metrics for execution planning.
 
@@ -676,6 +737,8 @@ class TaskPlanner:
                 timing windows and per-step float values.
             include_dependency_diagnostics: When ``True``, include per-step DAG
                 diagnostics such as dependency depth and fan-in/fan-out counts.
+            include_status_breakdown: When ``True``, include per-status step
+                counts and completion/terminal rates.
         """
         if not isinstance(include_agent_workload, bool):
             raise ValueError("include_agent_workload must be a boolean")
@@ -685,6 +748,8 @@ class TaskPlanner:
             raise ValueError("include_step_slack must be a boolean")
         if not isinstance(include_dependency_diagnostics, bool):
             raise ValueError("include_dependency_diagnostics must be a boolean")
+        if not isinstance(include_status_breakdown, bool):
+            raise ValueError("include_status_breakdown must be a boolean")
 
         batches = self.get_execution_batches(plan)
         makespan = self.estimate_makespan(
@@ -746,6 +811,12 @@ class TaskPlanner:
                 for step_metrics in dependency_diagnostics
                 if step_metrics["is_terminal"]
             ]
+
+        if include_status_breakdown:
+            status_breakdown = self.get_status_breakdown(plan)
+            summary["status_breakdown"] = status_breakdown
+            summary["completion_rate"] = status_breakdown["completion_rate"]
+            summary["terminal_rate"] = status_breakdown["terminal_rate"]
 
         return summary
 
@@ -1218,11 +1289,14 @@ Create an updated execution plan. Output JSON only."""
         Returns:
             Progress statistics
         """
-        total = len(plan.steps)
-        completed = sum(1 for s in plan.steps if s.status == TaskStatus.COMPLETED)
-        in_progress = sum(1 for s in plan.steps if s.status == TaskStatus.IN_PROGRESS)
-        failed = sum(1 for s in plan.steps if s.status == TaskStatus.FAILED)
-        blocked = sum(1 for s in plan.steps if s.status == TaskStatus.BLOCKED)
+        status_breakdown = self.get_status_breakdown(plan)
+        status_counts = status_breakdown["counts"]
+
+        total = status_breakdown["total_steps"]
+        completed = status_counts[TaskStatus.COMPLETED.value]
+        in_progress = status_counts[TaskStatus.IN_PROGRESS.value]
+        failed = status_counts[TaskStatus.FAILED.value]
+        blocked = status_counts[TaskStatus.BLOCKED.value]
 
         (
             ready_steps,
@@ -1238,10 +1312,14 @@ Create an updated execution plan. Output JSON only."""
 
         return {
             "total_steps": total,
+            "planned": status_counts[TaskStatus.PLANNED.value],
             "completed": completed,
             "in_progress": in_progress,
             "failed": failed,
             "blocked": blocked,
+            "cancelled": status_counts[TaskStatus.CANCELLED.value],
+            "completion_rate": status_breakdown["completion_rate"],
+            "terminal_rate": status_breakdown["terminal_rate"],
             "ready": len(ready_steps),
             "ready_step_ids": [step.step_id for step in ready_steps],
             "blocked_by_failed_dependencies": blocked_by_failed_dependencies,
