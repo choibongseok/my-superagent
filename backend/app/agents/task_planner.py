@@ -712,6 +712,57 @@ class TaskPlanner:
 
         return breakdown
 
+    def get_dependency_blocker_summary(self, plan: ExecutionPlan) -> Dict[str, Any]:
+        """Return dependency-centric blockers for non-runnable planned steps.
+
+        Blockers are grouped by dependency step ID so schedulers can quickly
+        identify which upstream steps are blocking the largest number of
+        downstream planned steps.
+        """
+        (
+            _,
+            blocked_by_failed_dependencies,
+            blocked_by_incomplete_dependencies,
+        ) = self._get_ready_and_blocked_steps(plan)
+
+        def aggregate_blockers(
+            blocked_mapping: Dict[str, List[str]],
+        ) -> List[Dict[str, Any]]:
+            dependency_to_blocked_steps: Dict[str, set[str]] = {}
+            for blocked_step_id, dependency_ids in blocked_mapping.items():
+                for dependency_id in dependency_ids:
+                    dependency_to_blocked_steps.setdefault(dependency_id, set()).add(
+                        blocked_step_id
+                    )
+
+            return [
+                {
+                    "dependency_step_id": dependency_id,
+                    "blocked_step_count": len(blocked_step_ids),
+                    "blocked_step_ids": sorted(blocked_step_ids),
+                }
+                for dependency_id, blocked_step_ids in sorted(
+                    dependency_to_blocked_steps.items(),
+                    key=lambda item: (-len(item[1]), item[0]),
+                )
+            ]
+
+        blocked_step_ids = sorted(
+            set(blocked_by_failed_dependencies)
+            | set(blocked_by_incomplete_dependencies)
+        )
+
+        return {
+            "blocked_step_count": len(blocked_step_ids),
+            "blocked_step_ids": blocked_step_ids,
+            "failed_dependency_blockers": aggregate_blockers(
+                blocked_by_failed_dependencies
+            ),
+            "incomplete_dependency_blockers": aggregate_blockers(
+                blocked_by_incomplete_dependencies
+            ),
+        }
+
     def get_execution_summary(
         self,
         plan: ExecutionPlan,
@@ -721,6 +772,7 @@ class TaskPlanner:
         include_execution_timeline: bool = False,
         include_step_slack: bool = False,
         include_dependency_diagnostics: bool = False,
+        include_dependency_blockers: bool = False,
         include_status_breakdown: bool = False,
     ) -> Dict[str, Any]:
         """Return dependency-aware schedule metrics for execution planning.
@@ -737,6 +789,8 @@ class TaskPlanner:
                 timing windows and per-step float values.
             include_dependency_diagnostics: When ``True``, include per-step DAG
                 diagnostics such as dependency depth and fan-in/fan-out counts.
+            include_dependency_blockers: When ``True``, include dependency
+                blockers grouped by upstream step IDs.
             include_status_breakdown: When ``True``, include per-status step
                 counts and completion/terminal rates.
         """
@@ -748,6 +802,8 @@ class TaskPlanner:
             raise ValueError("include_step_slack must be a boolean")
         if not isinstance(include_dependency_diagnostics, bool):
             raise ValueError("include_dependency_diagnostics must be a boolean")
+        if not isinstance(include_dependency_blockers, bool):
+            raise ValueError("include_dependency_blockers must be a boolean")
         if not isinstance(include_status_breakdown, bool):
             raise ValueError("include_status_breakdown must be a boolean")
 
@@ -811,6 +867,11 @@ class TaskPlanner:
                 for step_metrics in dependency_diagnostics
                 if step_metrics["is_terminal"]
             ]
+
+        if include_dependency_blockers:
+            dependency_blockers = self.get_dependency_blocker_summary(plan)
+            summary["dependency_blockers"] = dependency_blockers
+            summary["blocked_step_count"] = dependency_blockers["blocked_step_count"]
 
         if include_status_breakdown:
             status_breakdown = self.get_status_breakdown(plan)

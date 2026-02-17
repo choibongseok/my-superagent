@@ -605,6 +605,100 @@ def test_get_execution_summary_validates_include_dependency_diagnostics_flag(
         )
 
 
+def test_get_dependency_blocker_summary_groups_blockers_by_dependency_step(planner_stub):
+    """Dependency blocker summary should aggregate blocked planned steps by dependency."""
+    steps = [
+        PlanStep("step_1", "Collect baseline", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Draft intro", "docs", 20, 0.03, 3000),
+        PlanStep("step_3", "Draft analysis", "docs", 20, 0.03, 3000, ["step_1"]),
+        PlanStep("step_4", "Draft appendix", "docs", 20, 0.03, 3000, ["step_2"]),
+        PlanStep(
+            "step_5",
+            "Publish report",
+            "docs",
+            20,
+            0.03,
+            3000,
+            ["step_3", "step_4"],
+        ),
+    ]
+
+    steps[0].status = TaskStatus.FAILED
+    steps[1].status = TaskStatus.COMPLETED
+
+    summary = planner_stub.get_dependency_blocker_summary(_build_plan(steps))
+
+    assert summary == {
+        "blocked_step_count": 2,
+        "blocked_step_ids": ["step_3", "step_5"],
+        "failed_dependency_blockers": [
+            {
+                "dependency_step_id": "step_1",
+                "blocked_step_count": 1,
+                "blocked_step_ids": ["step_3"],
+            }
+        ],
+        "incomplete_dependency_blockers": [
+            {
+                "dependency_step_id": "step_3",
+                "blocked_step_count": 1,
+                "blocked_step_ids": ["step_5"],
+            },
+            {
+                "dependency_step_id": "step_4",
+                "blocked_step_count": 1,
+                "blocked_step_ids": ["step_5"],
+            },
+        ],
+    }
+
+
+def test_get_execution_summary_can_include_dependency_blockers(planner_stub):
+    """Execution summary should optionally expose dependency blocker aggregates."""
+    steps = [
+        PlanStep("step_1", "Collect baseline", "research", 30, 0.02, 2000),
+        PlanStep("step_2", "Draft intro", "docs", 20, 0.03, 3000),
+        PlanStep("step_3", "Draft analysis", "docs", 20, 0.03, 3000, ["step_1"]),
+    ]
+
+    steps[0].status = TaskStatus.CANCELLED
+
+    summary = planner_stub.get_execution_summary(
+        _build_plan(steps),
+        include_dependency_blockers=True,
+    )
+
+    assert summary["blocked_step_count"] == 1
+    assert summary["dependency_blockers"] == {
+        "blocked_step_count": 1,
+        "blocked_step_ids": ["step_3"],
+        "failed_dependency_blockers": [
+            {
+                "dependency_step_id": "step_1",
+                "blocked_step_count": 1,
+                "blocked_step_ids": ["step_3"],
+            }
+        ],
+        "incomplete_dependency_blockers": [],
+    }
+
+
+def test_get_execution_summary_validates_include_dependency_blockers_flag(planner_stub):
+    """include_dependency_blockers should require a strict boolean value."""
+    with pytest.raises(
+        ValueError,
+        match="include_dependency_blockers must be a boolean",
+    ):
+        planner_stub.get_execution_summary(
+            _build_plan(
+                [
+                    PlanStep("step_1", "Research", "research", 30, 0.02, 2000),
+                ]
+            ),
+            include_dependency_blockers="yes",  # type: ignore[arg-type]
+        )
+
+
 def test_get_status_breakdown_reports_counts_rates_and_optional_step_ids(planner_stub):
     """Status breakdown should expose deterministic counts/rates per status."""
     steps = [
