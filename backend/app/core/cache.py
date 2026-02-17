@@ -3,6 +3,7 @@
 import asyncio
 import base64
 from dataclasses import asdict, is_dataclass
+from fnmatch import fnmatchcase
 from functools import wraps
 import hashlib
 import inspect
@@ -353,6 +354,51 @@ def _normalize_ignored_kwargs(
     return frozenset(normalized_values)
 
 
+def _normalize_ignored_kwarg_patterns(
+    ignored_kwarg_patterns: Optional[Iterable[str]],
+) -> tuple[str, ...]:
+    """Normalize optional glob-style kwarg patterns excluded from cache keys."""
+    if ignored_kwarg_patterns is None:
+        return ()
+
+    if isinstance(ignored_kwarg_patterns, str):
+        raise ValueError(
+            "ignored_kwarg_patterns must be an iterable of non-empty strings"
+        )
+
+    normalized_patterns: list[str] = []
+    for pattern in ignored_kwarg_patterns:
+        if not isinstance(pattern, str) or not pattern.strip():
+            raise ValueError(
+                "ignored_kwarg_patterns must be an iterable of non-empty strings"
+            )
+        normalized_patterns.append(pattern)
+
+    return tuple(dict.fromkeys(normalized_patterns))
+
+
+def _drop_ignored_kwargs(
+    key_kwargs: dict[str, Any],
+    ignored_kwargs: frozenset[str],
+    ignored_kwarg_patterns: tuple[str, ...],
+) -> dict[str, Any]:
+    """Return kwargs excluding configured names and glob patterns."""
+    if not ignored_kwargs and not ignored_kwarg_patterns:
+        return key_kwargs
+
+    filtered_kwargs: dict[str, Any] = {}
+    for name, value in key_kwargs.items():
+        if name in ignored_kwargs:
+            continue
+
+        if any(fnmatchcase(name, pattern) for pattern in ignored_kwarg_patterns):
+            continue
+
+        filtered_kwargs[name] = value
+
+    return filtered_kwargs
+
+
 def _normalize_ignored_arg_positions(
     ignored_arg_positions: Optional[Iterable[int]],
 ) -> frozenset[int]:
@@ -424,6 +470,7 @@ def cached(
     cache_condition: Optional[Callable[[Any], bool | Awaitable[bool]]] = None,
     coalesce_inflight: bool = True,
     ignored_kwargs: Optional[Iterable[str]] = None,
+    ignored_kwarg_patterns: Optional[Iterable[str]] = None,
     ignored_arg_positions: Optional[Iterable[int]] = None,
     cache_none: bool = False,
     max_key_length: Optional[int] = None,
@@ -469,6 +516,9 @@ def cached(
             execution instead of triggering duplicate work.
         ignored_kwargs: Optional iterable of kwarg names excluded from cache
             key generation while still being passed to the wrapped function.
+        ignored_kwarg_patterns: Optional iterable of glob-style kwarg
+            patterns (for example, ``"trace_*"``) excluded from cache key
+            generation while still being passed to the wrapped function.
         ignored_arg_positions: Optional iterable of zero-based positional
             argument indexes excluded from cache key generation after
             ``skip_first_arg`` processing.
@@ -559,6 +609,9 @@ def cached(
     _validate_max_key_length(max_key_length, key_namespace=key_namespace)
 
     normalized_ignored_kwargs = _normalize_ignored_kwargs(ignored_kwargs)
+    normalized_ignored_kwarg_patterns = _normalize_ignored_kwarg_patterns(
+        ignored_kwarg_patterns
+    )
     normalized_ignored_arg_positions = _normalize_ignored_arg_positions(
         ignored_arg_positions
     )
@@ -762,9 +815,11 @@ def cached(
             if disable_cache:
                 return await _call_wrapped_function(*args, **runtime_kwargs)
 
-            key_kwargs = dict(runtime_kwargs)
-            for ignored_name in normalized_ignored_kwargs:
-                key_kwargs.pop(ignored_name, None)
+            key_kwargs = _drop_ignored_kwargs(
+                dict(runtime_kwargs),
+                normalized_ignored_kwargs,
+                normalized_ignored_kwarg_patterns,
+            )
 
             key_args = _drop_ignored_arg_positions(
                 _resolve_key_args(args),
@@ -810,6 +865,7 @@ async def invalidate_cache(
     max_key_length: Optional[int] = None,
     key_builder: Optional[Callable[..., str | Awaitable[str]]] = None,
     ignored_kwargs: Optional[Iterable[str]] = None,
+    ignored_kwarg_patterns: Optional[Iterable[str]] = None,
     ignored_arg_positions: Optional[Iterable[int]] = None,
     skip_first_arg: bool = False,
     **kwargs: Any,
@@ -824,6 +880,8 @@ async def invalidate_cache(
         max_key_length: Optional key hashing length used with ``cached``.
         key_builder: Optional key builder used by ``cached``.
         ignored_kwargs: Optional kwarg names excluded from key generation.
+        ignored_kwarg_patterns: Optional glob-style kwarg patterns excluded
+            from key generation.
         ignored_arg_positions: Optional zero-based positional indexes excluded
             from key generation.
         skip_first_arg: When ``True``, omit the first positional argument
@@ -841,6 +899,9 @@ async def invalidate_cache(
         raise ValueError("skip_first_arg must be a boolean")
 
     normalized_ignored_kwargs = _normalize_ignored_kwargs(ignored_kwargs)
+    normalized_ignored_kwarg_patterns = _normalize_ignored_kwarg_patterns(
+        ignored_kwarg_patterns
+    )
     normalized_ignored_arg_positions = _normalize_ignored_arg_positions(
         ignored_arg_positions
     )
@@ -852,9 +913,11 @@ async def invalidate_cache(
             normalized_ignored_arg_positions,
         )
 
-        key_kwargs = dict(kwargs)
-        for ignored_name in normalized_ignored_kwargs:
-            key_kwargs.pop(ignored_name, None)
+        key_kwargs = _drop_ignored_kwargs(
+            dict(kwargs),
+            normalized_ignored_kwargs,
+            normalized_ignored_kwarg_patterns,
+        )
 
         if key_builder is not None:
             built_key = key_builder(*filtered_args, **key_kwargs)
