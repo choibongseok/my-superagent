@@ -15538,3 +15538,216 @@ AgentHQ가 문서를 생성하는 순간, AI가 내용을 분석해서 적절한
 **마지막 업데이트**: 2026-02-18 09:20 UTC
 **총 아이디어**: **189개** (기존 186개 + 신규 3개: #187-189)
 **Phase 29 핵심**: 최소 코드, 최대 임팩트 — 이제 실행할 때입니다 🚀
+
+---
+
+## 2026-02-18 (AM 11:20) | 기획자 에이전트 - Phase 30: 배포 없는 진입, CLI·공유·트리거 🚀
+
+### 💡 Idea #190: "agenthq-cli" - 터미널로 실행하는 Google Workspace AI 🖥️⚡
+
+**날짜**: 2026-02-18 11:20 UTC  
+**우선순위**: 🔥 CRITICAL  
+**개발 기간**: **1주 (400줄 미만)**
+
+**핵심 문제**:
+- **프론트엔드 미배포**: 사용자가 AgentHQ를 '쓸 수' 없는 상태가 수 주째 지속 ❌
+- **개발자는 UI보다 CLI를 선호**: 특히 자동화·CI/CD 파이프라인에서 CLI가 필수 💻
+- **반복 작업 스크립팅 불가**: "매월 1일 리포트 생성"을 cron + curl로 쓰고 싶어도 방법 없음 ⏱️
+- **경쟁사 현황**:
+  - ChatGPT: CLI 없음 (비공식 래퍼만)
+  - Notion AI: CLI 없음
+  - Google Workspace: gcloud CLI 있으나 AI 문서화 기능 없음
+  - **AgentHQ CLI: 아무도 없음** ← 완전 블루오션 ⭐
+
+**제안 솔루션**:
+```bash
+pip install agenthq
+agenthq login  # Google OAuth 브라우저 팝업
+agenthq run "Q4 보고서 작성" --sheet "Sheet3!A1:D100" --output ./reports/
+agenthq templates list
+agenthq run template_id --param "month=February" | jq .doc_url
+```
+
+**핵심 기능**:
+1. **`agenthq login`**: 기존 Google OAuth 흐름 재사용 (새 코드 0줄)
+2. **`agenthq run <prompt>`**: 기존 `/api/v1/tasks` POST 엔드포인트 호출 (래퍼 10줄)
+3. **`agenthq templates`**: 기존 템플릿 CRUD API 호출 (래퍼 10줄)
+4. **stdout/stderr 분리**: `--json` 플래그로 파싱 가능한 JSON 출력 → CI/CD 연동
+5. **`--watch` 플래그**: 태스크 완료까지 대기 후 결과 URL 출력
+
+**기술 구현**:
+- 언어: Python (Click 라이브러리, `pip install agenthq`)
+- 새 백엔드 코드: **0줄** (기존 FastAPI 그대로)
+- 새 CLI 코드: ~350줄 (Click commands + config file + OAuth token 저장)
+- PyPI 등록: 30분
+- CI/CD 예시: `agenthq run $TEMPLATE_ID --param "env=$ENV" >> slack_notif.txt`
+
+**예상 임팩트**:
+- 👨‍💻 **개발자 채널 즉시 확보**: GitHub README → `pip install agenthq` → 최단 사용 경로
+- 🔄 **CI/CD 자동화**: GitHub Actions, GitLab CI에서 문서 자동 생성 (Enterprise 킬러 기능)
+- 🌐 **Product Hunt 런칭**: "AI-powered CLI for Google Workspace" — 차별화 강력
+- 📈 **바이럴**: 개발자 블로그·트위터·Reddit에서 공유 촉진
+
+**경쟁 우위**: **세계 최초 Google Workspace AI CLI** — 프론트엔드가 없어도 당장 출시 가능 ⭐⭐⭐⭐⭐
+
+**개발 난이도**: ⭐☆☆☆☆ (Very Easy) | **ROI**: ⭐⭐⭐⭐⭐
+
+---
+
+### 💡 Idea #191: "Magic Share Link" - 계정 없이 Agent 실행 🔗✨
+
+**날짜**: 2026-02-18 11:20 UTC  
+**우선순위**: 🔥 CRITICAL  
+**개발 기간**: **2주 (~200줄)**
+
+**핵심 문제**:
+- **팀원 온보딩 마찰**: "AgentHQ 써봐"라고 해도 계정 가입·승인·UI 학습 필요 → 이탈률 80%+ 😓
+- **단발성 외부 요청**: 클라이언트에게 제안서 생성 Agent를 쓰게 하려면 계정 발급이 필수 → 현실적으로 불가능 ❌
+- **Viral 루프 없음**: 현재 AgentHQ는 신규 사용자가 다른 사람을 초대할 방법이 없음 💸
+- **경쟁사 현황**:
+  - Typeform: 폼 공유 링크 있음 (AI 자동화 없음)
+  - Notion: 게스트 초대 있음 (AI 태스크 공유 없음)
+  - **AgentHQ: AI 워크플로우 공유 링크 = 아무도 없음** ⭐
+
+**제안 솔루션**:
+```
+사용자가 특정 Agent 워크플로우에 대해 Magic Link 생성
+→ URL: https://app.agenthq.com/run/abc123?token=xyz
+→ 수신자: 브라우저에서 열기 → 파라미터 입력 폼 → [실행] 클릭
+→ AgentHQ가 태스크 실행 → 결과 Google Doc URL을 수신자 이메일로 전송
+→ 수신자는 계정 불필요, 결과만 받음
+```
+
+**핵심 기능**:
+1. **Link Generator**: Token 기반 공유 링크 생성 (`/share/create` 엔드포인트, 20줄)
+2. **Minimal Run UI**: 파라미터 입력 HTML 폼 (React 없이 순수 HTML/Jinja 가능, 50줄)
+3. **Guest Execution**: 로그인 없는 태스크 실행 (기존 Task API에 guest_token 파라미터 추가, 30줄)
+4. **Email Result Delivery**: 결과 Doc URL을 수신자 이메일 발송 (기존 Email Service 재사용, 20줄)
+5. **Usage Limit**: 링크당 실행 횟수 제한 (Max 10회/링크 기본값, 10줄)
+
+**기술 구현**:
+- 신규 백엔드: ~130줄 (FastAPI 엔드포인트 3개)
+- 신규 프론트엔드: ~70줄 (Jinja2 HTML 템플릿, React 불필요)
+- 기존 코드 재사용: Email Service, Task Executor, OAuth (수정 없음)
+- **총 새 코드: ~200줄, 2주 완성 가능**
+
+**예상 임팩트**:
+- 🔗 **바이럴 계수**: 링크 1개 = 최소 5-10명 AgentHQ 첫 경험 → 가입 전환 기대
+- 💼 **B2B 세일즈 데모**: "이 링크로 제안서 바로 생성해보세요" → 설득력 극대화
+- 📈 **신규 가입 전환**: 결과 이메일에 "AgentHQ로 더 많은 자동화 만들기" CTA
+- 🎯 **비용 0**: 기존 인프라 100% 재사용
+
+**경쟁 우위**: **"계정 없는 AI 문서화" — 세계 최초** ⭐⭐⭐⭐⭐
+
+**개발 난이도**: ⭐⭐☆☆☆ (Easy) | **ROI**: ⭐⭐⭐⭐⭐
+
+---
+
+### 💡 Idea #192: "Google Forms → Auto-Document" 트리거 📝➡️📄
+
+**날짜**: 2026-02-18 11:20 UTC  
+**우선순위**: 🔥 HIGH  
+**개발 기간**: **2주 (~150줄)**
+
+**핵심 문제**:
+- **수작업 전환 비용**: Google Forms 응답 → 팀원이 수동으로 문서 작성 → 평균 30-60분/응답 😓
+- **사용 시나리오가 명확함**: HR 온보딩 폼 → 개인별 체크리스트 Doc, 계약 요청 폼 → 계약서 초안, 이벤트 등록 → 참가자 안내 Doc ✅
+- **Google Forms는 이미 널리 사용됨**: 가장 익숙한 입력 채널을 트리거로 사용 → 진입 마찰 0 ❌
+- **경쟁사 현황**:
+  - Zapier: Forms → 알림/이메일만 가능 (AI 문서화 불가)
+  - Notion AI: Forms 연동 없음
+  - **AgentHQ: Forms → AI Document 자동화 = 아무도 없음** ⭐
+
+**제안 솔루션**:
+```
+사용자가 Google Form 선택 + Agent 템플릿 매핑 설정
+→ 폼 응답 도착 시 (polling 5분마다 또는 Push 알림)
+→ AgentHQ가 응답 데이터로 Agent 실행
+→ 결과 Google Doc을 응답자 이메일 주소로 자동 발송
+```
+
+**사용 예시**:
+- HR 온보딩: 신입직원 폼 제출 → 개인 맞춤 온보딩 가이드 Doc 자동 생성 → 이메일 발송
+- 클라이언트 브리핑: 클라이언트 요구사항 폼 → 제안서 초안 자동 생성
+- 이벤트 등록: 참가자 폼 → 개인별 일정 및 자료 Doc 자동 발송
+
+**핵심 기능**:
+1. **Forms Connector**: Google Forms API(formResponses.list)를 5분마다 폴링 (기존 Celery Beat 활용, ~30줄)
+2. **Response Parser**: 폼 응답 필드 → Agent 파라미터 매핑 설정 UI (JSON 설정 파일, ~40줄)
+3. **Auto-Trigger**: 새 응답 감지 시 Task 생성 (기존 Task API 호출, ~20줄)
+4. **Result Delivery**: 완성된 Doc URL을 응답자 이메일로 발송 (기존 Email Service, 10줄)
+5. **Deduplication**: 응답 ID로 중복 처리 방지 (~15줄)
+
+**기술 구현**:
+- Google Forms API 읽기 (기존 Google OAuth 재사용, 새 스코프 1개 추가)
+- Celery Beat 주기적 폴링 (기존 인프라 재사용)
+- 신규 백엔드 코드: ~115줄 (Forms poller + Response mapper + Trigger)
+- **새 인프라: 0** (Forms API는 Google Workspace API 기존 통합에 포함)
+
+**예상 임팩트**:
+- 📝 **즉각적 사용 사례**: HR, 영업, 이벤트팀이 즉시 이해 → 빠른 도입
+- 🔄 **자동화 ROI 가시성**: "폼 응답 1개당 30분 절약" → 명확한 가치 제안
+- 🌐 **B2B 영업 데모**: Google Forms를 이미 쓰는 팀에게 "연결만 하면 됩니다" → 최단 설득 경로
+- 💰 **폼 기반 과금**: 응답 처리 건수 기반 사용량 과금 모델 자연스럽게 적용
+
+**경쟁 우위**: **"폼 응답 → AI 문서" 자동화 — 세계 최초** ⭐⭐⭐⭐
+
+**개발 난이도**: ⭐⭐☆☆☆ (Easy) | **ROI**: ⭐⭐⭐⭐⭐
+
+---
+
+## 📊 Phase 30 요약 및 실행 권고
+
+| ID | 아이디어 | 개발기간 | 신규 코드 | 특징 |
+|----|----------|---------|---------|------|
+| **#190** | agenthq-cli | **1주** | ~350줄 | 프론트엔드 0, 개발자 즉시 사용 |
+| **#191** | Magic Share Link | **2주** | ~200줄 | 바이럴 루프, 계정 불필요 |
+| **#192** | Google Forms → Doc | **2주** | ~150줄 | 명확한 ROI, 기존 인프라 100% 재사용 |
+
+**Phase 30 공통 철학**: "프론트엔드가 활성화될 때까지 기다리지 말고, 백엔드만으로 사용자를 만나라"
+
+**가장 빠른 착수**: #190 agenthq-cli (1주, PyPI 등록만으로 배포 완료)  
+**가장 강한 바이럴**: #191 Magic Share Link  
+**가장 명확한 ROI**: #192 Google Forms 트리거
+
+---
+
+## 💬 기획자 코멘트 (Phase 30 회고 - 2026-02-18 11:20 UTC)
+
+### 🔍 방향성 솔직한 평가
+
+**상황**: 189개 아이디어, 실제 배포 0건, 코드 커밋 2026-02-12 이후 없음
+
+**이번 Phase 30의 차별점 — 진짜 실행 기준으로 선별했다**:
+- ✅ 세 아이디어 모두 **프론트엔드 불필요** (배포 블로커 없음)
+- ✅ 합산 신규 코드 **700줄 미만** (1-2주 안에 셋 다 가능)
+- ✅ 세 아이디어 모두 **기존 백엔드 인프라 100% 재사용**
+- ✅ 사용자 획득 채널 **각각 다름** (개발자 CLI, 바이럴 링크, 폼 트리거)
+
+### ⚠️ 진단: 왜 실행이 안 되는가?
+
+단순한 문제다. **에이전트 루프가 단절**됐다:
+- 기획자: 아이디어 생성 ✅
+- 설계자: 기술 검토 응답 없음 ❌ (세션 비활성)
+- 개발자: 구현 착수 없음 ❌ (지시 없음)
+
+**해결책 제안**:
+1. 설계자 세션을 수동으로 활성화하거나, 기획자가 직접 MVP 스펙을 작성
+2. **#190 agenthq-cli 스펙**: Click + `agenthq login` + `agenthq run` → 이 정도 스펙이면 개발자가 바로 시작 가능
+3. 기획자가 직접 MVP 기술 스펙을 작성하는 것이 맞다 (설계자 기다리지 말고)
+
+### 🚨 Phase 30 강력 권고
+
+> **지금 당장 #190 agenthq-cli를 착수하세요.**
+> - PyPI 등록 30분
+> - Click CLI 프레임워크 설정 2시간
+> - 기존 REST API 래핑 4시간
+> - **하루 안에 `pip install agenthq`가 작동하도록 만들 수 있습니다**
+
+이것이 불가능하다면, 개발 리소스 자체에 대한 근본적 재검토가 필요합니다.
+
+---
+
+**마지막 업데이트**: 2026-02-18 11:20 UTC  
+**총 아이디어**: **192개** (기존 189개 + 신규 3개: #190-192)  
+**Phase 30 핵심**: CLI + 공유 링크 + 폼 트리거 — 프론트엔드 없이 사용자를 만나는 3가지 경로
