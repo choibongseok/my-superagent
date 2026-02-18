@@ -14958,3 +14958,155 @@ AgentHQ 에이전트를 즉시 실행 + 웹 콘텐츠를 자동으로 문서화
 **총 아이디어**: **180개** (기존 177개 + 신규 3개: #178-180)
 **Phase 26 예상 임팩트**: ARR +$4.28M+ (직접 수익 + 이탈 방어)
 **전략 핵심**: 사용자 획득(Extension) + 신뢰 강화(Human Review) + 이탈 방어(Churn AI) = 완전한 성장 엔진
+
+
+---
+
+## 💡 Phase 27: "Frontend Bypass" 전략 - 이미 있는 곳에서 만나라 (2026-02-18 AM 5:20)
+
+> **Phase 27 핵심 철학**: 사용자가 AgentHQ 앱을 여는 것을 기다리지 말고, 사용자가 이미 있는 도구(Google Docs, Zapier, Email)로 찾아가라.
+
+---
+
+### 🔥 Idea #181: Google Workspace Add-on (Native Sidebar)
+
+**전략 포지션**: Frontend Bypass / Zero-friction Entry  
+**우선순위**: 🔥 CRITICAL  
+**예상 개발 기간**: 3주  
+
+**배경 및 핵심 인사이트**:  
+Browser Extension(#178)보다 더 낮은 마찰이 있다. Google Workspace Marketplace에서 "설치" 버튼 한 번으로 Google Docs/Sheets/Slides 사이드바에 AgentHQ가 나타난다. 사용자가 문서를 열면 AgentHQ가 이미 거기 있다. Chrome 설치 필요 없음, 어떤 브라우저에서도 동작.
+
+**주요 기능**:
+- Google Docs 사이드바: 선택한 텍스트 기반으로 에이전트 실행 ("이 데이터로 차트 만들어줘")
+- Google Sheets 사이드바: 선택 셀 범위를 분석하거나 다른 시트 생성
+- Google Slides 사이드바: 현재 슬라이드 개선 또는 새 슬라이드 자동 생성
+- 결과를 즉시 현재 문서에 삽입 (사용자가 아무 것도 복붙할 필요 없음)
+
+**기술 구현**:
+- Google Apps Script + Card-based UI (사이드바)
+- OAuth: 기존 Google OAuth 흐름 재사용
+- API 연결: 기존 FastAPI 백엔드 그대로 호출
+- 배포: Google Workspace Marketplace (무료 등록, 자동 배포)
+
+**예상 임팩트**:
+- 🚀 **유저 획득**: Google Workspace Marketplace 노출 → 유기적 신규 사용자 유입
+- ⚡ **마찰 제거**: 앱 전환 없이 문서 내에서 즉시 AgentHQ 활용
+- 💡 **사용 빈도 증가**: 문서 작업 시마다 AgentHQ 노출 → DAU/MAU 비율 개선
+- 💰 **예상 ARR 기여**: 마켓플레이스 무료 배포 → 유료 전환 기회 (전환율 5% 가정 시 MAU 1만 명 → 500명 × $29 = +$174K/year 기여)
+- 🏆 **차별화**: Notion(별도 앱), Grammarly(문서 교정만) vs **AgentHQ: 문서 안에서 전체 에이전트 실행** = 유일한 Google Workspace Native AI Orchestrator
+
+**ROI**: ⭐⭐⭐⭐⭐ (가장 낮은 마찰 + 기존 코드 최대 재활용 + Google 생태계 자동 배포)
+
+---
+
+### 🔥 Idea #182: Zapier / Make.com 공식 커넥터
+
+**전략 포지션**: 기존 워크플로우 통합 / 비개발자 접근성  
+**우선순위**: 🔥 HIGH  
+**예상 개발 기간**: 2주 (新 백엔드 코드 불필요)  
+
+**배경 및 핵심 인사이트**:  
+Zapier에 5,000개 이상의 앱이 연결되어 있다. AgentHQ Zapier 커넥터를 만들면, 사용자는 "Slack에서 특정 키워드 메시지 수신 → AgentHQ가 자동으로 보고서 생성" 같은 워크플로우를 코드 없이 만들 수 있다. 새로운 UI 없이 기존 REST API만으로 즉시 출시 가능한 가장 빠른 확장 방법.
+
+**주요 Trigger/Action**:
+- **Trigger**: "AgentHQ Task 완료 시" (Zap 트리거)
+- **Action**: "새 Task 생성" (Zap 액션 - 자연어 프롬프트 + output_type)
+- **Action**: "Google Docs 생성" (Zap 액션 - 주제 입력 → 즉시 Doc 생성)
+- **예시 Zap**: Google Form 응답 → AgentHQ → 개인화된 PDF 보고서 → Gmail 자동 발송
+
+**기술 구현**:
+- Zapier Developer Platform에 앱 등록 (JSON 설정 파일)
+- OAuth 2.0 인증 (기존 그대로)
+- Webhook 기반 Trigger (기존 Task 완료 이벤트 활용)
+- Make.com도 동일한 방식으로 동시 등록 (추가 1주)
+
+**예상 임팩트**:
+- 🔗 **생태계 확장**: Zapier 5,000+개 앱 연동 → AgentHQ가 자동화 허브로 포지셔닝
+- 🎯 **비개발자 접근**: 코딩 없이 AgentHQ 활용 → 고객층 확대 (SMB, 개인 사업자)
+- ⚡ **즉시 출시**: 새 백엔드 코드 필요 없음 → 2주 내 Zapier 앱스토어 게재 가능
+- 💰 **예상 ARR**: Zapier 사용자 유입 → 월 100명 전환 × $29 = +$34.8K/year (첫 해 보수적 추정)
+- 🏆 **차별화**: Google Workspace 에이전트 중 Zapier 공식 커넥터 보유 = 기업 IT팀 도입 검토 진입
+
+**ROI**: ⭐⭐⭐⭐⭐ (개발 비용 최소 + 생태계 노출 최대)
+
+---
+
+### 💡 Idea #183: AI Weekly Workspace Digest (자동 주간 인사이트 이메일)
+
+**전략 포지션**: 사용자 Retention + 가치 가시화  
+**우선순위**: 🔥 HIGH  
+**예상 개발 기간**: 2주  
+
+**배경 및 핵심 인사이트**:  
+AgentHQ의 가치는 "보이지 않는다." 사용자가 매주 얼마나 많은 시간을 절약했는지, 몇 개의 문서가 자동 생성됐는지 인식하지 못하면 이탈한다. Grammarly가 매주 "당신은 이번 주에 X개의 오류를 수정했습니다" 이메일을 보내는 것처럼, AgentHQ도 주간 성과 다이제스트를 보내야 한다.
+
+**주요 콘텐츠**:
+- 📊 이번 주 AgentHQ 성과: 완료 Task 수, 생성 문서 수, 예상 절약 시간
+- 🔍 Top Insight: 가장 많이 사용된 기능 / 흥미로운 분석 결과 1개 하이라이트
+- 💡 이번 주 추천 프롬프트: "이런 것도 해봤나요?" (사용하지 않은 기능 소개)
+- 🏆 팀 사용 현황 (팀 플랜 사용자): 멤버별 기여도 리더보드
+
+**기술 구현**:
+- Celery Beat: 매주 월요일 08:00 (사용자 현지 시간) 실행
+- 데이터 소스: 기존 Task DB + LangFuse 메트릭
+- 이메일: 기존 Email Service(389라인) 재활용
+- 템플릿: 반응형 HTML (기존 workspace invitation 템플릿 확장)
+- 절약 시간 계산: Task 유형별 평균 수동 작업 시간 대비 추정
+
+**예상 임팩트**:
+- 📈 **Retention +20-30%**: Grammarly 사례 - 주간 다이제스트 발송 후 MAU +28%
+- 💡 **기능 발견**: "이런 기능이 있는지 몰랐어요" → 미사용 기능 활성화
+- 🎯 **업셀링 기회**: "팀 기능을 사용하면 X배 더 절약할 수 있어요" → 업그레이드 CTA
+- 🔄 **이탈 방어**: #180 Churn AI와 시너지 - 다이제스트 미열람 = 이탈 신호로 활용
+- 💰 **예상 ARR**: 직접 수익 없음 → Retention 개선으로 기존 ARR **+15% 보호 효과**
+
+**ROI**: ⭐⭐⭐⭐⭐ (2주 개발 + 기존 인프라 100% 활용 + 즉각적 Retention 효과)
+
+---
+
+## 📊 Phase 27 요약 (Frontend Bypass 3종 세트)
+
+| ID | 아이디어 | 전략 포지션 | 우선순위 | 기간 | 임팩트 |
+|----|----------|-----------|---------|------|--------|
+| #181 | Google Workspace Add-on | Native 진입 / 마찰 제로 | 🔥 CRITICAL | 3주 | MAU↑ + Marketplace 노출 |
+| #182 | Zapier/Make 커넥터 | 생태계 확장 / 비개발자 | 🔥 HIGH | 2주 | 유입 채널 다변화 |
+| #183 | AI Weekly Digest | Retention + 가치 가시화 | 🔥 HIGH | 2주 | Retention +20-30% |
+
+**Phase 27 핵심 전략**: 프론트엔드 활성화 전에도 사용자가 AgentHQ 가치를 경험할 수 있는 **3개의 우회로** 동시 확보
+
+**공통 장점**: 기존 백엔드 코드 거의 수정 없이 구현 가능 → 2-3주 내 전부 출시 가능
+
+---
+
+## 💬 기획자 코멘트 (Phase 27 - 2026-02-18 05:20 UTC)
+
+### 🎯 Phase 27 선정 이유: "프론트엔드 없이 사용자 만나기"
+
+**AM3 기획자의 인사이트 계승**:
+AM3에서 "이것이 마지막 순수 아이디어 세션이 되어야 한다"고 선언했다. Phase 27은 이 철학을 실천한다. 세 아이디어 모두 **기존 백엔드 API를 그대로 활용하면서 새로운 진입점을 만드는 전략**이다.
+
+**경쟁사 대비 차별화**:
+- Google Workspace Marketplace에 Sheets/Docs/Slides를 모두 아우르는 AI Orchestrator Add-on: **현재 존재하지 않음**
+- Zapier에서 "AI가 Google 문서를 직접 만들어주는" 커넥터: **AgentHQ가 최초**
+- 주간 다이제스트에서 "절약 시간"을 정량화해서 보여주는 B2B SaaS: **차별화 포인트**
+
+### 🚨 Quick Win 실행 제안 (Phase 27이 진짜 마지막)
+
+**즉시 실행 가능한 Top 3 Quick Win** (기존 인프라 활용):
+
+| 순위 | 아이디어 | 이유 | 예상 기간 |
+|------|----------|------|-----------|
+| 1위 | #182 Zapier 커넥터 | 새 코드 불필요, API 문서만 작성 | **1-2주** |
+| 2위 | #183 Weekly Digest | Email Service 이미 존재, Celery Beat 이미 있음 | **2주** |
+| 3위 | #181 Workspace Add-on | Google API 이미 연동됨, 새 OAuth 불필요 | **3주** |
+
+**설계자에게 요청**: 위 3개 중 기술적으로 가장 빠르게 구현 가능한 것을 선정하고 MVP 스펙을 작성해 주세요.
+
+---
+
+**작성 완료**: 2026-02-18 05:20 UTC  
+**총 아이디어**: **183개** (기존 180개 + 신규 3개: #181-183)  
+**Phase 27 예상 임팩트**: Retention +20-30% + 새 유입 채널 3개 확보  
+**핵심 변화**: 이제부터 "Quick Win 실행" 단계 돌입 권고
+
