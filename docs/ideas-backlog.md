@@ -16434,3 +16434,165 @@ POST /v1/quick?api_key={key} — 인증 없이 API 키만으로 Task 실행
 > **📊 Phase 34 아이디어 현황**: 총 204개 (신규 3개)
 > **🚀 Phase 34 실행 현황**: `backend/app/api/v1/share.py` 구현 완료 (#200 Task Result Permalink)
 > **➡️ 다음 단계**: #203 Task Failure Recovery (2일, 80줄) → #202 Activity Feed (3일, 120줄)
+
+---
+
+## 🚀 Phase 35: Execution-First Ideas (2026-02-18 21:20 UTC)
+
+> **Phase 35 배포 카운터**: 이번 주 배포 기능 **1개** (#200 share.py ✅ 출시됨!)
+> 
+> **Phase 35 원칙**: Graduation Gate (#201) 기준 미달 아이디어는 즉시 폐기.
+> 기준: ① 오늘 착수 가능 ② 200줄 이하 ③ 3일 내 배포 날짜 명확
+
+---
+
+### ⚡ Idea #205: "Smart Task Tagging" — AI 없이 태스크를 자동 분류 🏷️
+
+**날짜**: 2026-02-18 21:20 UTC | **우선순위**: 🔥 HIGH | **기간**: 2일
+
+**핵심 문제**:
+- 204개 아이디어 중 태스크 검색·필터링 기능이 없음 😓
+- 태스크 목록이 쌓일수록 "지난 주 만든 매출 분석 어디있지?" → 수동 스크롤
+- 분류 없이는 Analytics(#132)나 ROI Dashboard(#152)도 의미 없는 원시 데이터
+
+**제안 솔루션**:
+```python
+# 태스크 생성 시 프롬프트 키워드 매칭으로 자동 태그 부여
+tag_rules = {
+    "report|보고서|리포트": "report",
+    "analysis|분석|analyze": "analysis", 
+    "slides|발표|presentation": "slides",
+    "sheet|데이터|table": "data",
+    "research|조사|search": "research",
+}
+```
+
+**핵심 기능**:
+1. `Task` 모델에 `tags: list[str]` JSONB 컬럼 추가 (Alembic migration 10줄)
+2. `TaskTagger` 서비스 — 정규식 키워드 매칭, LLM 불필요 (~40줄)
+3. `GET /tasks?tag=report` 필터 파라미터 추가 (~20줄)
+4. 기존 `GET /tasks` 응답에 `tags` 필드 포함
+
+**Graduation Gate**:
+- ✅ 오늘 착수 가능 (Task 모델, Alembic 기존 인프라)
+- ✅ 200줄 이하 (~80줄)
+- ✅ 배포 날짜: 2026-02-21 (3일)
+
+**예상 임팩트**:
+- 검색 시간: "어디있지?" 2분 → 태그 필터 5초
+- Analytics 기반 구축: 태그별 사용 통계 → ROI 계산 첫 번째 건물
+- LLM 비용 $0 (순수 정규식)
+
+**개발 기간**: 2일 | **코드량**: ~80줄 | **AI 비용**: $0
+
+---
+
+### ⚡ Idea #206: "Share Link Expiry & View Count" — #200의 즉각적 확장 🔗📊
+
+**날짜**: 2026-02-18 21:20 UTC | **우선순위**: 🔥 CRITICAL | **기간**: 1일
+
+**핵심 문제**:
+- #200 (share.py) 방금 배포됨 — 그러나 링크가 영구 유효 + 조회 수 모름 😓
+- 클라이언트 제출용 링크는 30일 후 자동 만료 필요
+- "이 링크를 몇 명이 봤지?" → 현재 알 수 없음 (바이럴 효과 측정 불가)
+- **기존 #200 코드 확장 — 새 기능이 아닌 완성도 향상**
+
+**제안 솔루션**:
+```python
+# Task 모델 추가 필드 (share.py 수정)
+share_expires_at: datetime | None = None   # NULL = 영구
+share_view_count: int = 0                   # 조회할 때마다 +1
+```
+
+**핵심 기능**:
+1. `Task.share_expires_at`, `Task.share_view_count` 컬럼 추가 (migration 15줄)
+2. `GET /r/{token}` 에서 만료 확인 + view_count++ (share.py 수정 20줄)
+3. `POST /tasks/{id}/share` 에서 만료일 설정 파라미터 추가 (10줄)
+4. 조회 수 응답 JSON에 포함 (`"view_count": 42`)
+
+**Graduation Gate**:
+- ✅ 오늘 착수 가능 (share.py가 이미 있음, 확장만)
+- ✅ 200줄 이하 (~50줄 추가)
+- ✅ 배포 날짜: 2026-02-20 (내일)
+
+**예상 임팩트**:
+- 바이럴 측정: 링크 공유 후 "37명이 봤습니다" → 소셜 프루프
+- 보안: 30일 만료로 민감한 문서 링크 자동 소멸
+- 사용자 신뢰: "언제까지 유효한지 설정 가능" = Enterprise 필수 기능
+
+**개발 기간**: 1일 | **코드량**: ~50줄 | **AI 비용**: $0
+
+---
+
+### ⚡ Idea #207: "Task Retry Endpoint" — #203을 지금 당장 구현 🔄
+
+**날짜**: 2026-02-18 21:20 UTC | **우선순위**: 🔥🔥🔥 CRITICAL | **기간**: 2일
+
+**핵심 문제**:
+- Phase 34에서 #203을 제안했지만 아직 미착수 😓
+- 매일 발생하는 태스크 실패(네트워크 오류, Rate limit, 권한 문제)에 재시도 없음 ❌
+- 실패 = 사용자 이탈의 첫 번째 원인 (서비스의 신뢰성과 직결)
+
+**제안 솔루션** (#203 즉시 실행):
+```python
+# POST /api/v1/tasks/{task_id}/retry
+@router.post("/{task_id}/retry")
+async def retry_task(task_id: UUID, db: AsyncSession = Depends(get_db), ...):
+    original = await get_task_or_404(task_id, db)
+    if original.status not in (TaskStatus.FAILED, TaskStatus.CANCELLED):
+        raise HTTPException(400, "Only failed/cancelled tasks can be retried")
+    # 동일 파라미터로 새 Task 생성
+    new_task = Task(prompt=original.prompt, task_type=original.task_type, 
+                    parent_retry_id=original.id)
+    ...
+```
+
+**핵심 기능**:
+1. `Task` 모델에 `parent_retry_id` FK 추가 (retry 체인 추적, migration 10줄)
+2. `POST /tasks/{id}/retry` 엔드포인트 (~40줄)
+3. Celery에서 `autoretry_for=(GoogleAPIError, TimeoutError)` + `max_retries=3` + `countdown=exponential_backoff` (~20줄)
+
+**Graduation Gate**:
+- ✅ 오늘 착수 가능 (tasks.py 기존 파일에 엔드포인트 추가)
+- ✅ 200줄 이하 (~80줄)
+- ✅ 배포 날짜: 2026-02-21 (3일)
+
+**예상 임팩트**:
+- 첫 실패 후 이탈률: -50% (재시도 버튼 하나로)
+- 지원 문의 감소: "왜 안 됩니까?" 티켓 -40%
+- 신뢰: "AI가 스스로 다시 시도했습니다 ✅" = 최고의 UX 메시지
+
+**개발 기간**: 2일 | **코드량**: ~80줄 | **AI 비용**: $0
+
+---
+
+## 📊 Phase 35 종합 요약
+
+| ID | 아이디어 | 근거 | 기간 | 코드량 | AI 비용 | Gate |
+|----|----------|------|------|--------|---------|------|
+| #205 | Smart Task Tagging | 검색/분류 기반 구축 | 2일 | ~80줄 | $0 | ✅ |
+| #206 | Share Link Expiry & View Count | #200 즉각 완성도↑ | 1일 | ~50줄 | $0 | ✅ |
+| #207 | Task Retry Endpoint | 이탈 방지 CRITICAL | 2일 | ~80줄 | $0 | ✅ |
+
+**합계**: 5일, 210줄, AI 비용 $0 → 세 개 모두 이번 주 배포 가능
+
+**🏆 Phase 35 우선순위**: #207 (CRITICAL, 이탈 방지) → #206 (1일, #200 즉각 완성) → #205 (유용성)
+
+---
+
+## 🔍 최근 개발 방향성 평가 (2026-02-18 21:20 UTC)
+
+**긍정적 신호**:
+- ✅ #200 share.py 구현 완료 — Phase 12 이후 첫 코드 커밋! 전환점 달성
+- ✅ Phase 34 Graduation Gate (#201) 프로세스 도입 — 아이디어 과잉 문제 구조적 해결
+- ✅ 아이디어 누적 트렌드: 201→204개 (신규 3개, 이전 대비 속도 감소 = 올바른 방향)
+
+**개선 필요**:
+- 🔴 설계자 에이전트 세션 없음 — 기술 검토 루프 단절 (기획자가 직접 기술 스펙 작성 중)
+- 🟡 #203, #204 아직 미착수 — Phase 35 최우선 실행 대상
+
+**전략적 방향성 평가: ⭐⭐⭐⭐☆**
+- 아이디어 → 실행 전환 완료 (드디어!)
+- 단, 설계자-개발자 루프 복구가 지속 성장의 핵심 과제
+
+**작성 완료**: 2026-02-18 21:20 UTC | **총 아이디어**: 207개 | **Phase 35 배포 예정**: 3개 (5일)
