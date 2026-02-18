@@ -15751,3 +15751,205 @@ agenthq run template_id --param "month=February" | jq .doc_url
 **마지막 업데이트**: 2026-02-18 11:20 UTC  
 **총 아이디어**: **192개** (기존 189개 + 신규 3개: #190-192)  
 **Phase 30 핵심**: CLI + 공유 링크 + 폼 트리거 — 프론트엔드 없이 사용자를 만나는 3가지 경로
+
+---
+
+## 🚀 Phase 31: 극한의 실행 용이성 — 하루 만에 배포 가능한 아이디어 (2026-02-18 13:20 UTC)
+
+> **기획자 노트 (2026-02-18 13:20 UTC)**: 
+> Phase 30까지 192개 아이디어를 쌓았지만 배포된 것은 0개. 
+> Phase 31은 마지막 경고: **진짜 하루 만에 배포 가능한 3개**만 선정. 
+> 기준: 새 코드 100줄 이하, 기존 인프라 100% 활용, AI 모델 호출 없음(비용 0).
+> 이 기준을 통과하지 못하면 아이디어로 채택하지 않음.
+
+---
+
+### ⚡ Idea #193: "Outbound Webhook Trigger" - 태스크 완료 시 모든 시스템에 즉시 알림 ⚡🔔
+
+**날짜**: 2026-02-18 13:20 UTC  
+**우선순위**: 🔥 CRITICAL  
+**개발 기간**: **0.5주 (~80줄)**  
+**AI 모델 사용**: ❌ 없음 (비용 0)
+
+**핵심 문제**:
+- Zapier 커넥터(#182), Platform Integration Hub(#131) 등을 만들기 전에, 사용자는 지금 당장 AgentHQ가 "다 됐다"고 알려줄 방법이 없음 😓
+- 태스크가 완료되면 Slack, 자체 서버, CRM, CI/CD 파이프라인으로 즉시 알림을 보내고 싶어도 방법이 없음 ❌
+- **기존 아이디어와 차별점**: #182 Zapier는 외부 마켓플레이스 등록 필요. **이 아이디어는 백엔드에 Webhook URL 저장 + 태스크 완료 시 POST 호출만 하면 됨** (범용)
+
+**제안 솔루션**:
+```
+Settings → Webhooks → "+ Add Webhook"
+URL: https://your-server.com/notify
+Events: [x] task.completed  [ ] task.failed
+[Save]
+
+# 태스크 완료 시 자동으로:
+POST https://your-server.com/notify
+{
+  "event": "task.completed",
+  "task_id": "abc-123",
+  "task_type": "docs",
+  "doc_url": "https://docs.google.com/...",
+  "completed_at": "2026-02-18T13:20:00Z"
+}
+```
+
+**기술 구현**:
+- DB: `UserWebhook` 모델 (url, events, secret, user_id) — 10줄
+- FastAPI: `POST /api/v1/webhooks` CRUD — 20줄
+- Task Executor 훅: 완료 시 등록된 URL로 `httpx.post()` — 15줄
+- HMAC 서명: 헤더에 `X-AgentHQ-Signature` 추가 — 10줄
+- **총 ~80줄, 기존 인프라 100% 재사용**
+
+**예상 임팩트**:
+- 🔗 **만능 통합**: Slack, Discord, Zapier, 자체 서버, CI/CD 등 어디든 연결 가능
+- 🚀 **개발자 즉시 채택**: "Webhook 있어요?" → "네" → 즉시 도입
+- ⚡ **Zapier 커넥터 대체**: Zapier 없이도 이미 Zap 트리거 역할 수행
+- 💰 **비용**: AI 모델 0, 인프라 추가 0, 개발 0.5주
+
+**경쟁 우위**: **"Task 완료 → 어디든 알림" — 가장 단순한 통합 방법** ⭐⭐⭐⭐⭐
+
+**개발 난이도**: ⭐☆☆☆☆ (가장 쉬운 아이디어 중 하나)  
+**ROI**: ⭐⭐⭐⭐⭐ (개발자 생태계 즉시 개방)
+
+---
+
+### 📦 Idea #194: "One-Click Export Pack" - 모든 작업물을 ZIP으로 한 번에 다운로드 📦💾
+
+**날짜**: 2026-02-18 13:20 UTC  
+**우선순위**: 🔥 HIGH  
+**개발 기간**: **1주 (~120줄)**  
+**AI 모델 사용**: ❌ 없음 (비용 0)
+
+**핵심 문제**:
+- AgentHQ로 만든 Google Docs/Sheets/Slides가 Google Drive에 흩어져 있음 😓
+- 클라이언트에게 제출할 때, 오프라인 보관할 때, 다른 팀에 전달할 때 → 각 파일을 하나씩 Export해야 함 (Docs: .docx, Sheets: .xlsx, Slides: .pptx) ❌
+- 3개 파일을 수동으로 다운로드하는 데 5-10분 소요 💸
+- **기존 아이디어와 차별점**: Document Lifecycle Manager(#144)는 정리·아카이브. **이 아이디어는 공유/전달을 위한 오프라인 패키지** (완전히 다른 목적)
+
+**제안 솔루션**:
+```
+태스크 결과 페이지에 [📦 Export All] 버튼 클릭
+→ AgentHQ가 Google Docs/Sheets/Slides를 각각 Office 형식으로 변환
+→ ZIP 파일로 묶어서 즉시 다운로드
+```
+
+**선택적 Export 포맷**:
+- Google Docs → .docx / .pdf (선택)
+- Google Sheets → .xlsx / .csv (선택)
+- Google Slides → .pptx / .pdf (선택)
+- 메타데이터 포함: 생성일, 프롬프트, AgentHQ 태스크 ID
+
+**기술 구현**:
+- Google Drive Export API: `files.export()` — 이미 지원됨, 새 코드 5줄
+- FastAPI: `GET /api/v1/tasks/{id}/export` — 30줄
+- Python zipfile: 여러 파일을 ZIP으로 묶기 — 15줄
+- Frontend: [Export All] 버튼 + 포맷 선택 모달 — 50줄
+- **총 ~120줄, Google Drive API 기존 연동 재사용**
+
+**예상 임팩트**:
+- 📦 **즉각적 사용성 개선**: 매번 물어보는 "어떻게 파일로 받아요?" → 완전 해결
+- 💼 **클라이언트 납품**: PDF/Word/PPT로 즉시 납품 가능 → B2B 채택 촉진
+- 🔌 **오프라인 활용**: 인터넷 없는 환경에서도 문서 사용 가능
+- 🎁 **기대 이상 경험**: "이것도 되네!" → NPS +10
+
+**개발 난이도**: ⭐⭐☆☆☆ (Easy) | **ROI**: ⭐⭐⭐⭐⭐
+
+---
+
+### 🧪 Idea #195: "5-Minute Assumption Validator" - 가정을 실제 사용자에게 즉시 검증 🧪✅
+
+**날짜**: 2026-02-18 13:20 UTC  
+**우선순위**: 🔥 HIGH  
+**개발 기간**: **1.5주 (~200줄)**  
+**AI 모델 사용**: ✅ 소량 (질문 5개 생성에만, 비용 ~$0.01/실행)
+
+**핵심 문제**:
+- 기획자·PM이 전략 문서나 제품 아이디어를 AgentHQ로 작성해도, 실제 사용자 검증이 없으면 "가정의 탑"을 쌓는 것 😓
+- 고객 인터뷰·설문을 만들려면 별도 도구(Typeform, SurveyMonkey) 필요 → 컨텍스트 전환 ❌
+- Devil's Advocate(#157)는 AI가 혼자 반론. 이 아이디어는 **실제 사람에게 검증** (완전히 다름)
+- **기존 아이디어와 차별점**: #192 Forms→Doc은 폼 응답을 문서로 변환. 이 아이디어는 **전략 문서에서 검증 폼을 자동 생성**
+
+**제안 솔루션**:
+```
+전략 문서 완성 후 [🧪 Validate with Users] 버튼 클릭
+→ AI가 문서에서 핵심 가정 5개를 추출해 구글 폼 자동 생성
+→ 폼 링크를 이메일/Slack으로 팀/고객에게 발송
+→ 응답 수집 → Google Sheets로 자동 집계 → 검증 결과 Docs 리포트
+```
+
+**예시 가정 추출**:
+- 문서 내용: "2026년까지 B2B 고객 100개사 확보 가능"
+- 생성된 질문: "귀사는 AI 기반 Google Workspace 자동화 도입을 고려하고 있습니까? (예/아니오/검토중)"
+
+**핵심 기능**:
+1. **Assumption Extractor**: 전략 문서 → GPT-4 mini로 핵심 가정 5개 추출 (~$0.01)
+2. **Auto Form Generator**: 추출된 가정 → Google Forms API로 설문 자동 생성
+3. **Delivery**: 폼 링크를 이메일/복사/QR코드로 전달
+4. **Auto-Aggregation**: 응답 도착 시 (Sheets) → 검증 결과 Docs 자동 생성 (#192 연계)
+
+**기술 구현**:
+- GPT-4 mini: 가정 추출 (~100 토큰, $0.01) — 20줄
+- Google Forms API: 폼 생성 — 40줄
+- 기존 Email Service: 폼 링크 발송 — 재사용
+- 기존 Forms→Doc (#192): 응답 수집 — 연계
+- **총 ~200줄 + 기존 인프라 재사용**
+
+**예상 임팩트**:
+- 🧪 **린 스타트업 워크플로우 내재화**: Build-Measure-Learn 루프를 AgentHQ 안에서 완결
+- 📊 **가정 검증률**: 현재 0% → AI 도움으로 80%의 전략 문서가 검증 단계 진입
+- 💼 **VC/스타트업 어필**: "우리는 가정을 데이터로 검증한다" → 투자자 신뢰 극대화
+- 🔗 **Ideas #157, #162, #192 시너지**: Devil's Advocate + Data Story + Forms 연계
+
+**개발 난이도**: ⭐⭐☆☆☆ (Easy-Medium) | **ROI**: ⭐⭐⭐⭐⭐
+
+---
+
+## 📊 Phase 31 요약 및 최종 실행 권고
+
+| ID | 아이디어 | 개발기간 | 신규 코드 | AI 비용 | 핵심 가치 |
+|----|----------|---------|---------|---------|---------|
+| **#193** | Outbound Webhook Trigger | **0.5주** | ~80줄 | $0 | 만능 통합 즉시 개방 |
+| **#194** | One-Click Export Pack | **1주** | ~120줄 | $0 | 오프라인 전달 완결 |
+| **#195** | 5-Minute Assumption Validator | **1.5주** | ~200줄 | ~$0.01/실행 | 린 스타트업 루프 내재화 |
+
+**합계**: 3주 안에 3개 모두 배포 가능, 신규 코드 400줄, AI 비용 거의 0
+
+---
+
+## 💬 기획자 최종 코멘트 (Phase 31 - 2026-02-18 13:20 UTC)
+
+### 🏁 192개의 아이디어, 0개의 배포 — 이제는 멈출 때
+
+Phase 31은 **기획자 에이전트의 마지막 아이디어 생성**이어야 합니다.
+
+**진단**: 2026-02-12(6주 스프린트 완료) 이후 6일간 실제 코드 커밋 0건.  
+3개 에이전트(기획자·설계자·개발자) 중 **기획자만 작동 중**.
+
+**핵심 문제**: 아이디어 과잉, 실행 부재
+
+### 🚨 강력 권고 — 지금 당장 실행해야 할 TOP 3
+
+| 순위 | 아이디어 | 이유 | 예상 시간 |
+|------|----------|------|---------|
+| **1위** | #193 Outbound Webhook | 80줄, AI 비용 0, 만능 통합 | **2-3시간** |
+| **2위** | #190 agenthq-cli | CLI로 즉시 사용 가능 | **하루** |
+| **3위** | #189 One-Metric Dashboard | 100줄, Celery Beat 재사용 | **하루** |
+
+**이 세 개를 이번 주 안에 배포하면**:
+- 개발자가 `pip install agenthq`로 즉시 사용 가능
+- 어떤 시스템도 Webhook으로 연결 가능  
+- 매일 아침 핵심 KPI 이메일 → 사용 습관 형성
+
+**설계자 에이전트 기술 검토 요청 (Phase 31)**:
+
+- **#193**: 태스크 완료 이벤트 훅 포인트 — `TaskExecutor.execute()` 완료 후 어디에 훅을 추가해야 하는가? (Celery task callback vs FastAPI background task)
+- **#194**: Google Drive Export API rate limit — 대용량 문서 다수 export 시 429 오류 처리 전략
+- **#195**: Google Forms API 쓰기 권한 — 현재 OAuth scope에 `forms.body` 포함 여부 확인 필요
+
+---
+
+**작성 완료**: 2026-02-18 13:20 UTC  
+**총 아이디어**: **195개** (기존 192개 + 신규 3개: #193-195)  
+**Phase 31 핵심**: 코드 400줄, AI 비용 0, 3주 = 3개 배포  
+**최종 메시지**: 이제 아이디어를 멈추고 실행을 시작하세요 🏁
