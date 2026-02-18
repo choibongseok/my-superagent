@@ -14700,3 +14700,261 @@ AgentHQ가 수익을 공유하는 플랫폼 생태계
 
 **작성 완료**: 2026-02-18 01:20 UTC
 **총 아이디어**: **177개** (기존 174개 + 신규 3개: #175-177)
+
+---
+
+## 🌟 Phase 26: Browser Extension, Human-AI Quality Loop & Retention Intelligence (2026-02-18 AM 3:20)
+
+> **기획자 노트 (2026-02-18 03:20 UTC)**: 177개 아이디어를 가진 지금, 세 가지 중요한 전략적 공백이 남아 있다: ① 웹 브라우저에서 AgentHQ로의 직접 진입점 부재 (사용자 마찰 최대 지점), ② AI 결과물에 대한 인간 검증 메커니즘 부재 (신뢰 문제), ③ 사용자 이탈을 사전에 예측하는 Retention AI 부재 (수익 보호).
+
+---
+
+### 🌐 Idea #178: "AgentHQ Browser Extension" - 어떤 웹페이지에서도 AgentHQ 직접 실행 🌐⚡
+
+**날짜**: 2026-02-18 03:20 UTC | **우선순위**: 🔥 CRITICAL | **기간**: 5주
+
+**핵심 문제**:
+- **가장 큰 진입 마찰**: 사용자가 어떤 웹페이지를 보다가 AgentHQ가 필요하면 탭을 전환해야 함 😓
+  - 예: "경쟁사 블로그 읽다가 → AgentHQ 탭으로 이동 → URL 복붙 → Research 시작" = 5번의 클릭 💸
+  - 예: "G2 리뷰 읽다가 → Customer Intelligence 추가 원하면 → 수동 복붙" ❌
+- **Browser-First 세계에서 뒤처짐**: 2026년 대부분의 업무가 브라우저 안에서 → AgentHQ는 외부 앱 ⏱️
+- **경쟁사 현황**:
+  - Grammarly: 브라우저 익스텐션으로 어디서나 작동 → 200M+ 사용자
+  - Notion Web Clipper: 웹 페이지를 Notion에 저장
+  - **AgentHQ: 독립 앱으로만 접근 가능** ❌
+
+**제안 솔루션**:
+```
+"AgentHQ Browser Extension" - 어떤 웹페이지에서든 우클릭 또는 단축키로
+AgentHQ 에이전트를 즉시 실행 + 웹 콘텐츠를 자동으로 문서화
+```
+
+**핵심 기능**:
+1. **Context-Aware Trigger**: 웹페이지에서 텍스트 선택 → 우클릭 → "AgentHQ로 분석" → 즉시 사이드패널 오픈
+2. **Smart Web Capture**:
+   - 현재 페이지 전체 → Research Agent 컨텍스트로 자동 주입
+   - 기사/블로그 → 핵심 인사이트 자동 추출 → Docs 생성 제안
+   - 제품 페이지 → 경쟁사 분석 자동 시작 (CI Sentinel #161 연계)
+3. **Inline Document Creation**: 사이드패널에서 Docs/Sheets/Slides 직접 생성 (탭 전환 없음)
+4. **Floating Quick-Capture**: 어떤 페이지에서든 음성/텍스트 빠른 메모 → AgentHQ 자동 저장
+5. **Smart URL to Task**: URL 붙여넣기 → AI가 콘텐츠 유형 감지 → 적절한 Agent 자동 추천
+
+**기술 구현**:
+- Chrome Extension Manifest V3 (크롬/엣지/브레이브 지원)
+- Content Script: DOM 파싱 + 텍스트 추출
+- Service Worker: AgentHQ API 통신
+- Side Panel API (Chrome 114+): 탭 전환 없는 사이드패널
+- 기존 인프라 활용: ✅ REST API (확장에서 직접 호출), ✅ JWT Auth (저장된 토큰), ✅ Research Agent
+
+**예상 임팩트**:
+- ⚡ **진입 마찰**: 5번 클릭 → 1번 클릭 (-80%)
+- 📊 **일일 활성 사용**: 익스텐션 설치 사용자는 DAU +3배 (Grammarly 사례 참조)
+- 🌐 **배포 채널**: Chrome Web Store → 유기적 신규 사용자 유입 (SEO 대체)
+- 💼 **사용 케이스 확장**: 지금은 "AgentHQ 앱을 열어야만" → "브라우저 = AgentHQ"
+- 💰 **매출**: Extension은 무료 (기존 구독 활성화 도구) → 전환율 +35% → 기존 플랜 ARR +$3.2M/year 기여
+- 🎯 **차별화**: Grammarly (문서 작성 보조) vs **AgentHQ 익스텐션: 웹 콘텐츠 → AI 문서 자동화** ⭐⭐⭐⭐⭐
+
+**개발 기간**: 5주 | **ROI**: ⭐⭐⭐⭐⭐ (직접 수익보다 전환율 향상으로 기존 플랜 ARR 기여)
+
+---
+
+### 👥 Idea #179: "Human-in-the-Loop Quality Marketplace" - AI 결과물을 전문가가 검증하는 신뢰 레이어 👥🏆
+
+**날짜**: 2026-02-18 03:20 UTC | **우선순위**: 🔥 HIGH | **기간**: 9주
+
+**핵심 문제**:
+- **AI 신뢰 위기**: 고가치 문서(법률 계약, 재무 리포트, 의료 문서)에 AI 결과물을 그대로 사용하기 어려움 😓
+  - 예: "AI가 만든 투자 제안서 → 임원이 직접 검토 안 하면 리스크" ❌
+  - 예: "AI 생성 계약서 → 변호사가 검토해야 하지만 비용과 시간 문제" 💸
+- **AI Explainability(#165)의 한계**: 설명 가능성은 제공하지만 인간 전문가의 검증은 불가 ⏱️
+- **경쟁사 현황**:
+  - TaskRabbit, Fiverr: 인간 서비스 (AI 연동 없음) ⚠️
+  - Scale AI: AI 레이블링 + 인간 검증 (B2B, 비쌈) ⚠️
+  - **AgentHQ: 인간 검증 레이어 없음** ❌
+
+**제안 솔루션**:
+```
+"Human-in-the-Loop Quality Marketplace" - AgentHQ 생성 문서를 전문 리뷰어가 검증하는
+신뢰 레이어 + 리뷰어 수익화 플랫폼
+```
+
+**핵심 기능**:
+1. **Expert Reviewer Network**:
+   - 분야별 전문가 등록 (변호사, 공인회계사, 컨설턴트, 의사 등)
+   - 전문성 검증 프로세스 (자격증, 경력 확인)
+   - 평점·리뷰 시스템 (사용자 피드백 기반 품질 관리)
+2. **Smart Review Request**:
+   - AgentHQ 문서 완성 후 "전문가 검토 요청" 버튼
+   - AI가 문서 유형 자동 감지 → 적합한 전문가 카테고리 추천
+   - 검토 범위 설정 (전체 검토 / 핵심 조항만 / 수치 검증만)
+3. **Structured Review Protocol**:
+   - 리뷰어가 사용하는 표준화된 검토 양식
+   - 인라인 코멘트 + 수정 제안
+   - "AI 생성 오류 vs 의도적 표현" 명확한 구분
+4. **Trust Badge System**:
+   - 전문가 검토 완료 문서에 "Verified by Expert" 배지 자동 부착
+   - 검토자 이름·자격·검토 범위 공개 (옵션)
+   - 법적 책임 명확화 (검토 보증 범위 자동 기재)
+5. **Revenue Share**:
+   - 리뷰어 수익: 검토 요청 금액의 80% (AgentHQ 20% 수수료)
+   - 가격 범위: 빠른 검토 $5-$15 / 심층 검토 $50-$200
+   - 기업 계약: 전담 리뷰어 배정 (월정액 $299+)
+
+**기술 구현**:
+- Backend: ReviewerProfile 모델, ReviewRequest 워크플로우, MatchingEngine (AI 기반 전문가-문서 매칭)
+- 기존 인프라 활용: ✅ Approval Workflow(#145) 확장, ✅ Multi-agent Orchestrator, ✅ Email Service (리뷰어 알림)
+- 결제: Stripe Connect (리뷰어 직접 정산)
+- 신원 확인: Persona or Jumio API (자격증 OCR 검증)
+
+**예상 임팩트**:
+- 🏆 **신뢰도**: "AI + 전문가 검증 = 최고 수준 신뢰" → Enterprise 고가치 문서 사용 가능
+- 💼 **고가치 영역 진입**: 법률/의료/재무 문서 자동화 (규제상 인간 검증 필요 영역)
+- 👥 **리뷰어 생태계**: 전문가에게 수익 기회 → AgentHQ 플랫폼 홍보 효과
+- 💰 **매출**: 검토 수수료 20% + Enterprise 전담 리뷰어 $1.08M/year
+- 🎯 **차별화**: 어떤 AI 플랫폼도 "전문가 검증 마켓플레이스" 없음 ⭐⭐⭐⭐⭐
+
+**개발 기간**: 9주 | **ROI**: ⭐⭐⭐⭐⭐ (Trust = Enterprise 계약의 핵심 조건)
+
+---
+
+### 📉 Idea #180: "Predictive Churn Intelligence" - 이탈하기 전에 AI가 먼저 잡아낸다 📉🎯
+
+**날짜**: 2026-02-18 03:20 UTC | **우선순위**: 🔥 CRITICAL | **기간**: 4주
+
+**핵심 문제**:
+- **이탈 후 대응**: 사용자가 구독을 취소하고 나서야 "왜 떠났지?"를 알게 됨 — 너무 늦음 😓
+- **신호는 있는데 못 읽음**: 로그인 감소, 작업 수 감소, 기능 무시 등의 이탈 신호가 이미 DB에 있음 ❌
+- **일률적 리텐션 시도**: 이탈 조짐을 보이는 사용자에게 동일한 이메일 발송 → 효과 미미 💸
+- **ROI Dashboard(#152)와 차이**: #152는 가치를 보여주는 것. 이 아이디어는 이탈 신호를 감지하고 선제 개입 ⏱️
+- **경쟁사 현황**:
+  - Amplitude, Mixpanel: 이탈 분석 (사후, 알림 없음) ⚠️
+  - Intercom: 행동 기반 메시지 (단순 룰 기반) ⚠️
+  - **AgentHQ: 이탈 예측 없음** ❌
+
+**제안 솔루션**:
+```
+"Predictive Churn Intelligence" - ML이 이탈 확률을 매일 계산하고
+이탈 위험 사용자에게 맞춤형 개입(intervention)을 자동 실행
+```
+
+**핵심 기능**:
+1. **Churn Risk Scoring Engine** (매일 자동 실행):
+   - 입력 신호: 로그인 빈도, 작업 수 추이, 기능 사용 다양성, 오류 경험 횟수, 지원 문의 패턴
+   - ML 모델: Gradient Boosting (XGBoost) → 7일/30일 이탈 확률 0-100% 스코어
+   - 위험 세그먼트: 🔴 HIGH (>70%), 🟡 MEDIUM (40-70%), 🟢 LOW (<40%)
+
+2. **Root Cause Identifier**: 이탈 위험 원인 자동 분류
+   - "최근 3회 연속 Sheets Agent 오류 → 실망 이탈 예상"
+   - "30일간 기본 기능만 사용 → 가치 미인지 이탈 예상"
+   - "팀원 3명이 이미 이탈 → 팀 단위 이탈 예상"
+
+3. **Personalized Intervention Engine**:
+   - 실망 이탈 예상 → "불편하신 점이 있으신가요? 담당자가 도와드립니다" + 무료 1:1 세션 제안
+   - 가치 미인지 이탈 예상 → "아직 써보지 않으신 기능이 있어요" + 맞춤 기능 투어
+   - 팀 단위 이탈 예상 → 팀장/관리자에게 ROI 리포트 자동 발송
+   - 개입 채널: 앱 내 알림, 이메일, (설정 시) Slack DM
+
+4. **Health Score Dashboard** (내부 팀용):
+   - 전체 고객베이스의 건강 상태 한눈에 파악
+   - "이번 주 HIGH Risk 사용자 12명, 개입 성공률 67%"
+   - 개입 효과 추적: 개입 후 30일 리텐션 비교
+
+5. **Win-Back Automation**:
+   - 이미 이탈한 사용자에게 최적 시점에 자동 재활성화 메시지
+   - "3개월 만에 다시 오신 것을 환영합니다! 새 기능 소개"
+   - 할인 쿠폰 자동 제공 (이탈 기간·원인 기반 맞춤)
+
+**기술 구현**:
+- Backend: ChurnScorer (Celery Beat 매일 실행), FeatureExtractor (기존 Task Planner 데이터), InterventionEngine
+- ML: XGBoost 모델, Feature engineering (사용 패턴 → 수치화), 주간 모델 재학습
+- 기존 인프라 활용: ✅ Prometheus Metrics (사용 데이터 소스), ✅ Email Service (개입 이메일 발송), ✅ Cache (스코어 캐싱)
+- Frontend: Churn dashboard (CS팀용), 개입 효과 트래커
+
+**예상 임팩트**:
+- 📉 **이탈률**: 월간 Churn -35% (개입 성공률 60-70% 예상)
+- 💰 **수익 보호**: 이탈 1명 = $29-$199/월 × 평균 구독 기간 9개월 = $261-$1,791 LTV 보호
+  - 월 이탈 100명 → 60명 방어 = **$15,660-$107,460/월 수익 보호**
+- 🎯 **CS팀 효율**: 수동 이탈 모니터링 → 완전 자동화 → CS팀 전략적 업무 집중
+- 🔮 **데이터 인사이트**: "어떤 패턴이 이탈과 가장 연관?" → 제품 개선 근거
+- 💰 **예상 ARR**: 직접 수익 $0 (무료 기능) → 이탈 방어로 기존 ARR의 **+12-18% 보호 효과**
+- 🎯 **차별화**: Intercom(룰 기반) vs **AgentHQ: ML 예측 + 맞춤 자동 개입** ⭐⭐⭐⭐⭐
+
+**개발 기간**: 4주 (Metrics 인프라 이미 존재) | **ROI**: ⭐⭐⭐⭐⭐ (가장 빠른 수익 보호 효과)
+
+---
+
+## 📊 Phase 26 요약 (Browser Extension & Human Quality Loop & Churn Intelligence)
+
+| ID | 아이디어 | 전략 포지션 | 우선순위 | 기간 | 임팩트 |
+|----|----------|-----------|---------|------|--------|
+| #178 | AgentHQ Browser Extension | 진입 마찰 제거 / 사용자 확보 | 🔥 CRITICAL | 5주 | 전환율 +35%, ARR +$3.2M 기여 |
+| #179 | Human-in-the-Loop Quality Marketplace | 신뢰 레이어 / 고가치 영역 진입 | 🔥 HIGH | 9주 | $1.08M/year + Enterprise 잠금 |
+| #180 | Predictive Churn Intelligence | 수익 보호 / Retention | 🔥 CRITICAL | 4주 | 기존 ARR +12-18% 보호 |
+
+**Phase 26 전략적 의의**: 신규 사용자 획득(#178) + 신뢰 강화(#179) + 이탈 방어(#180) = 성장 플라이휠의 3요소
+
+---
+
+## 💬 기획자 코멘트 (Phase 26 - 2026-02-18 03:20 UTC)
+
+### 🎯 Phase 26 선정 이유 및 전략적 맥락
+
+**177개 아이디어 분석 후의 성찰**:
+
+1. **Browser Extension 공백** (#178): 
+   - 가장 간과된 유저 마찰 포인트. 모든 도구가 사용자를 자신의 앱으로 끌어오려 하지만, AgentHQ가 사용자의 이미 열린 탭 안으로 들어가야 함.
+   - Grammarly가 200M 사용자를 달성한 핵심: "사용자가 이미 있는 곳에서 작동"
+
+2. **인간 검증 마켓플레이스 공백** (#179):
+   - 177개 아이디어 중 "AI가 만들고 AI가 검증"하는 방식만 있었음.
+   - 하지만 법률·재무·의료 분야에서는 인간 검증이 법적·윤리적 필수 조건.
+   - 이것이 충족되지 않으면 AgentHQ는 영원히 "고위험 문서" 영역에서 배제됨.
+
+3. **이탈 예측 공백** (#180):
+   - 40+ 개의 수익화 아이디어를 만들었지만, 이미 획득한 고객을 지키는 시스템이 없었음.
+   - 새 고객 획득 비용(CAC) = 기존 고객 유지 비용의 5-7배. 가장 ROI 높은 투자는 Retention.
+   - 4주 개발, 즉각적 수익 보호 = Phase 26에서 가장 빠른 임팩트.
+
+### 🔍 전반적 방향성 회고 (Phase 26 관점)
+
+**현재 개발 상태 평가: ⭐⭐⭐⭐⭐ (백엔드) + ⭐⭐☆☆☆ (프론트엔드 활성화)**
+
+백엔드 인프라는 이제 명실상부 Enterprise급. 문제는 여전히 같다: **사용자가 이 가치를 경험할 수 없음**.
+
+**#178 Browser Extension은 이 문제의 직접적 해결책**:
+- 웹앱/Tauri 앱의 UI 활성화를 기다리는 대신
+- 사용자가 이미 있는 브라우저에서 AgentHQ를 경험하게 하는 우회로
+
+### 🚨 긴급 권고 (9회 연속, 이번이 마지막)
+
+> **"더 이상 아이디어를 추가하는 것보다 지금 있는 것을 사용자에게 전달하는 것이 중요하다"**
+
+**제안**: 다음 크론잡부터 아이디어 생성 대신 **"Quick Win 구현 리스트"** 작성으로 전환
+- 기존 177개 아이디어 중 **2주 안에 구현 가능한 5개** 선별
+- 각 아이디어에 대한 **MVP 스펙 1페이지** 작성
+- 설계자에게 구현 우선순위 합의 요청
+
+### 설계자 에이전트 기술 검토 요청 (#178-180)
+
+**Idea #178 (Browser Extension)**:
+- Chrome Extension Manifest V3 vs V2 (V3 Service Worker 제약사항)
+- Side Panel API 사용 시 React 앱 임베딩 방법 (기존 Tauri React 재사용 가능?)
+- 인증 토큰 보안 저장: chrome.storage.local vs IndexedDB (XSS 보안)
+- API CORS 설정: 현재 백엔드가 Extension Origin을 허용하는지 확인 필요
+
+**Idea #179 (Human Review Marketplace)**:
+- 법적 책임 분리: AgentHQ vs 리뷰어 vs 사용자 (면책 조항 설계)
+- 리뷰어 매칭 알고리즘: 규칙 기반(전문 분야 매칭) vs ML 기반(이전 리뷰 품질 학습)
+- Stripe Connect 개인 정산: 국내 사업자의 경우 세금 처리 방안
+
+**Idea #180 (Predictive Churn)**:
+- 현재 Prometheus Metrics에서 사용자별 기능 사용 로그 수집 여부 확인
+- XGBoost 모델 최소 학습 데이터 필요량 (초기 고객 수 부족 시 대안)
+- 개인정보: 사용 패턴 분석이 개인정보처리방침에 포함되어 있는지 확인
+
+---
+
+**작성 완료**: 2026-02-18 03:20 UTC
+**총 아이디어**: **180개** (기존 177개 + 신규 3개: #178-180)
+**Phase 26 예상 임팩트**: ARR +$4.28M+ (직접 수익 + 이탈 방어)
+**전략 핵심**: 사용자 획득(Extension) + 신뢰 강화(Human Review) + 이탈 방어(Churn AI) = 완전한 성장 엔진
