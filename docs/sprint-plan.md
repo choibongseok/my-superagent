@@ -974,4 +974,124 @@ CachedNetworkImage(
 **작성자**: Planner Agent  
 **작성일**: 2026-02-12  
 **버전**: 1.0  
-**상태**: ✅ Ready for Execution
+**상태**: ✅ 6주 스프린트 완료 (2026-02-13 기준)
+
+---
+
+# 🚀 Sprint 2 — Quick Win 구현 (2026-02-19~)
+
+> **작성**: BizManager | **날짜**: 2026-02-19 | **목표**: 아이디어 백로그 → 즉시 배포 가능한 기능으로 전환
+
+## 🎯 이번 스프린트 목표
+
+**배포된 기능 1개(#200 share.py) → 이번 주 5개로 늘리기**
+
+---
+
+## 🔴 오늘 바로 구현 (Quick Win — 코드 ~100줄 이하)
+
+### ✅ Task 1: #218 First Task Celebration (3시간)
+- **파일**: `desktop/src/components/celebration.js`  
+- **내용**: 첫 Task 완료 시 confetti 애니메이션 + 공유 버튼
+- **조건**: localStorage로 첫 Task 여부 체크
+- **기존 연동**: share.py(#200) 공유 링크 자동 연결
+- **백엔드 변경**: 없음
+- **예상 임팩트**: 7일 리텐션 +20%
+
+```javascript
+// desktop/src/components/celebration.js
+function checkFirstTaskCelebration(taskId) {
+  if (!localStorage.getItem('first_task_done')) {
+    localStorage.setItem('first_task_done', 'true');
+    triggerConfetti();
+    showSharePrompt(taskId);
+  }
+}
+```
+
+### ✅ Task 2: #217 PWA Install Prompt (2시간)
+- **파일**: `desktop/src/utils/pwa.js`
+- **내용**: 브라우저 설치 프롬프트 트리거 (3번째 방문 시)
+- **조건**: `beforeinstallprompt` 이벤트 캐치
+- **백엔드 변경**: 없음
+- **예상 임팩트**: 재방문율 +25%
+
+```javascript
+// desktop/src/utils/pwa.js
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  const visitCount = parseInt(localStorage.getItem('visit_count') || '0') + 1;
+  localStorage.setItem('visit_count', visitCount);
+  if (visitCount >= 3) showInstallBanner();
+});
+```
+
+### ✅ Task 3: #210 Usage Nudge Emails (1.5일)
+- **파일**: `backend/app/tasks/nudge_email.py`
+- **내용**: 7일 비활성 사용자 → 재참여 이메일 발송
+- **조건**: `last_task_created_at` 기준
+- **Celery Beat**: 매일 오전 9시 실행
+- **제한**: 주 최대 2통
+
+```python
+# backend/app/tasks/nudge_email.py
+@celery.task
+def send_nudge_emails():
+    cutoff = datetime.now() - timedelta(days=7)
+    inactive_users = db.query(User).filter(
+        User.last_task_created_at < cutoff,
+        User.nudge_email_count < 2
+    ).all()
+    for user in inactive_users:
+        send_email(user.email, template='nudge')
+        user.nudge_email_count += 1
+    db.commit()
+```
+
+---
+
+## 🟡 이번 주 내 구현 (2~3일)
+
+### Task 4: #219 Developer API Mode (2일)
+- **파일**: `backend/app/models/api_key.py`, `backend/app/api/v1/dev.py`
+- **내용**: API Key 기반 개발자 엔드포인트
+- **엔드포인트**: `POST /api/v1/dev/tasks`, `GET /api/v1/dev/tasks/{id}`
+- **인증**: `X-API-Key` 헤더
+
+### Task 5: #209 Task Output Diff Viewer (2일)
+- **파일**: `backend/app/api/v1/share.py` (기존 확장)
+- **내용**: 두 Task 결과 비교
+- **엔드포인트**: `GET /r/compare?a={token1}&b={token2}`
+- **기존 연동**: share.py(#200) 확장
+
+---
+
+## 🟢 다음 스프린트 후보 (설계자 검토 필요)
+
+| ID | 아이디어 | 기간 | 우선순위 |
+|----|----------|------|---------|
+| #208 | Shared Prompt Library | 2일 | HIGH |
+| #203 | Task Retry | 1일 | HIGH |
+| #206 | Share Link Expiry | 1일 | MEDIUM |
+| #214 | One-Metric Dashboard | 5일 | HIGH |
+| #182 | Zapier Connector | 2주 | HIGH |
+
+---
+
+## 📋 구현 순서 (Dev/Implementer 참고)
+
+```
+1순위: #218 (celebration.js) → 오늘 3시간
+2순위: #217 (pwa.js) → 오늘 2시간
+3순위: #210 (nudge_email.py) → 내일~모레
+4순위: #219 (api_key, dev.py) → 이번 주
+5순위: #209 (diff viewer) → 이번 주
+```
+
+**각 Task 완료 후 반드시 커밋 + Evening Review에 알림!**
+
+---
+
+**업데이트**: BizManager | 2026-02-19 06:31 UTC
