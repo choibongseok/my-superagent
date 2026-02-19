@@ -10,9 +10,9 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
-from langchain.embeddings import OpenAIEmbeddings
+from langchain_community.embeddings import OpenAIEmbeddings
 from langchain.memory import VectorStoreRetrieverMemory
-from langchain.vectorstores import PGVector
+from langchain_community.vectorstores import PGVector
 from langchain_core.documents import Document
 
 from app.core.config import settings
