@@ -2,13 +2,16 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import JSON, DateTime, Enum as SQLEnum, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.qa_result import QAResult
 
 
 class TaskStatus(str, Enum):
@@ -85,6 +88,11 @@ class Task(Base, TimestampMixin):
         Index("ix_tasks_user_status", "user_id", "status"),
         Index("ix_tasks_user_type", "user_id", "task_type"),
         Index("ix_tasks_status_created", "status", "created_at"),
+    )
+
+    # Relationships
+    qa_results: Mapped[list["QAResult"]] = relationship(
+        "QAResult", back_populates="task", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
