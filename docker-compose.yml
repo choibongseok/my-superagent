@@ -85,6 +85,12 @@ services:
       - backend_cache:/root/.cache
     env_file:
       - ./backend/.env
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.agents.celery_app inspect ping --timeout=10 2>/dev/null | grep -q pong || exit 1"]
+      interval: 30s
+      timeout: 15s
+      start_period: 30s
+      retries: 3
     command: celery -A app.agents.celery_app worker --loglevel=info --concurrency=2
     networks:
       - agenthq
@@ -105,6 +111,12 @@ services:
       - celery-worker
     env_file:
       - ./backend/.env
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5555/ > /dev/null 2>&1 && exit 0 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
     command: celery -A app.agents.celery_app flower --port=5555
     networks:
       - agenthq
