@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.api_key import ApiKey
     from app.models.chat import Chat
     from app.models.message import Message
     from app.models.workspace import Workspace
@@ -55,6 +56,11 @@ class User(Base, TimestampMixin):
     )
     workspace_memberships: Mapped[List["WorkspaceMember"]] = relationship(
         "WorkspaceMember", back_populates="user", cascade="all, delete-orphan"
+    )
+
+    # Developer API key relationships
+    api_keys: Mapped[List["ApiKey"]] = relationship(
+        "ApiKey", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
