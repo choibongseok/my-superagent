@@ -1,10 +1,11 @@
 """Task model for agent operations."""
 
+from datetime import datetime
 from enum import Enum
 from typing import Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Enum as SQLEnum, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, DateTime, Enum as SQLEnum, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -62,6 +63,21 @@ class Task(Base, TimestampMixin):
     # Celery task ID
     celery_task_id: Mapped[Optional[str]] = mapped_column(
         String(255), nullable=True, index=True
+    )
+
+    # Lifecycle timestamps (completed_at was in the original schema)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
+    # Public share token (generated on demand via POST /tasks/{id}/share)
+    share_token: Mapped[Optional[UUID]] = mapped_column(
+        nullable=True, unique=True, index=True, default=None
+    )
+
+    # Share link expiry (null = never expires unless set by /share endpoint)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
     )
 
     # Composite indexes for common queries

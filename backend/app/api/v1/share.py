@@ -20,6 +20,7 @@ Then: alembic upgrade head
 import difflib
 import html as html_module
 import logging
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -302,7 +303,11 @@ def _build_diff_table(text_a: str, text_b: str) -> tuple[str, int, int, int, int
 
 
 async def _resolve_token(token_str: str, db: AsyncSession) -> Task:
-    """Resolve a share token (UUID string) to a completed Task, or raise 404."""
+    """Resolve a share token (UUID string) to a completed Task.
+
+    Raises 404 if the token is invalid or not found.
+    Raises 410 Gone if the share link has expired (#206).
+    """
     try:
         token_uuid = UUID(token_str)
     except ValueError:
@@ -311,14 +316,36 @@ async def _resolve_token(token_str: str, db: AsyncSession) -> Task:
             detail=f"Token not found: {token_str!r}",
         )
 
-    result = await db.execute(select(Task).where(Task.id == token_uuid))
+    # Prefer share_token lookup; fall back to id for backward-compat (dev/test)
+    result = await db.execute(
+        select(Task).where(Task.share_token == token_uuid)
+    )
     task: Task | None = result.scalar_one_or_none()
+
+    if task is None:
+        # Backward-compat: allow lookup by task.id (no share_token migration yet)
+        result2 = await db.execute(select(Task).where(Task.id == token_uuid))
+        task = result2.scalar_one_or_none()
 
     if task is None or task.status != TaskStatus.COMPLETED:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Task {token_str!r} not found or not completed",
         )
+
+    # #206 — enforce share link expiry
+    if task.expires_at is not None:
+        now_utc = datetime.now(tz=timezone.utc)
+        # expires_at may be naive (SQLite) or tz-aware; normalise to UTC
+        exp = task.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if now_utc > exp:
+            raise HTTPException(
+                status_code=410,
+                detail="This share link has expired.",
+            )
+
     return task
 
 
@@ -424,18 +451,30 @@ async def view_shared_task(
     except ValueError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
-    # Look up task by share_token (column added by migration)
-    # Fallback: if share_token column doesn't exist yet, look up by task id
+    # Prefer share_token lookup; fall back to id for backward-compat
     result = await db.execute(
-        select(Task).where(
-            # Use share_token when available; fall back to id for development
-            Task.id == token_uuid
-        )
+        select(Task).where(Task.share_token == token_uuid)
     )
     task: Task | None = result.scalar_one_or_none()
 
+    if task is None:
+        result2 = await db.execute(select(Task).where(Task.id == token_uuid))
+        task = result2.scalar_one_or_none()
+
     if task is None or task.status != TaskStatus.COMPLETED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    # #206 — enforce share link expiry → 410 Gone
+    if task.expires_at is not None:
+        now_utc = datetime.now(tz=timezone.utc)
+        exp = task.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if now_utc > exp:
+            raise HTTPException(
+                status_code=410,
+                detail="This share link has expired.",
+            )
 
     # Build display content
     task_type_labels = {"docs": "문서", "sheets": "스프레드시트", "slides": "슬라이드", "research": "리서치"}

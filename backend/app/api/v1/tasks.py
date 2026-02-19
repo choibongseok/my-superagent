@@ -1,8 +1,9 @@
 """Task management endpoints."""
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -13,7 +14,7 @@ from app.core.database import get_db
 from app.models.task import Task as TaskModel
 from app.models.task import TaskStatus, TaskType
 from app.models.user import User
-from app.schemas.task import Task, TaskCreate, TaskList
+from app.schemas.task import ShareLinkResponse, Task, TaskCreate, TaskList
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -335,6 +336,67 @@ async def retry_task(
         logger.error(f"Failed to queue retry for task {task_id}: {str(e)}")
 
     return retry_task_obj
+
+
+@router.post("/{task_id}/share", response_model=ShareLinkResponse, status_code=status.HTTP_200_OK)
+async def create_share_link(
+    task_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    ttl_days: int = Query(default=7, ge=1, le=365, description="Share link TTL in days"),
+):
+    """Generate (or refresh) a public share link for a task.
+
+    - Creates a unique ``share_token`` on the task.
+    - Sets ``expires_at`` to ``now + ttl_days``.
+    - Calling again overwrites the previous token/expiry.
+    - The share link is accessible at ``GET /r/{share_token}``.
+
+    Args:
+        task_id: Task to share (must belong to the authenticated user)
+        ttl_days: Days until the share link expires (default 7, max 365)
+
+    Returns:
+        ShareLinkResponse with the token, URL, and expiry timestamp
+    """
+    result = await db.execute(
+        select(TaskModel).where(
+            TaskModel.id == task_id,
+            TaskModel.user_id == current_user.id,
+        )
+    )
+    task = result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )
+
+    # (Re-)generate share token and expiry
+    new_token = uuid4()
+    now_utc = datetime.now(tz=timezone.utc)
+    expires = now_utc + timedelta(days=ttl_days)
+
+    task.share_token = new_token
+    task.expires_at = expires
+    await db.commit()
+    await db.refresh(task)
+
+    share_url = f"/r/{new_token}"
+    logger.info(
+        "Share link created for task %s by user %s — expires %s",
+        task_id,
+        current_user.id,
+        expires.isoformat(),
+    )
+
+    return ShareLinkResponse(
+        task_id=task.id,
+        share_token=new_token,
+        share_url=share_url,
+        expires_at=expires,
+    )
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)

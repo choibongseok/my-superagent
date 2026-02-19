@@ -303,6 +303,67 @@ async def get_task_trends(
         raise
 
 
+class DashboardSummary(BaseModel):
+    """One-metric dashboard summary (#214)."""
+
+    total_tasks: int = Field(..., description="Total tasks ever created by this user")
+    completed_tasks: int = Field(..., description="Tasks with status=completed")
+    success_rate: float = Field(..., description="Completed / total (0.0–1.0); 0 when no tasks")
+    avg_completion_time_seconds: float = Field(
+        ..., description="Mean seconds from created_at to completed_at; 0 when no completed tasks"
+    )
+
+
+@router.get("/summary", response_model=DashboardSummary)
+async def get_dashboard_summary(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return a single-page dashboard summary for the authenticated user.
+
+    Counts all tasks ever created (no time-range filter) and computes:
+    - ``total_tasks`` — lifetime task count
+    - ``completed_tasks`` — tasks that reached COMPLETED status
+    - ``success_rate`` — ``completed / total`` (float 0–1; ``0.0`` when total is 0)
+    - ``avg_completion_time_seconds`` — mean of ``(completed_at - created_at)``
+      for completed tasks that have a ``completed_at`` timestamp; ``0.0`` when none
+
+    **Requires authentication.**
+    """
+    # All tasks for this user
+    query = select(Task).where(Task.user_id == current_user.id)
+    result = await db.execute(query)
+    tasks = result.scalars().all()
+
+    total_tasks = len(tasks)
+    completed_tasks = sum(1 for t in tasks if t.status == TaskStatus.COMPLETED)
+
+    success_rate = (completed_tasks / total_tasks) if total_tasks > 0 else 0.0
+
+    # Average completion time (seconds) over tasks that have completed_at set
+    durations = [
+        (t.completed_at - t.created_at).total_seconds()
+        for t in tasks
+        if t.status == TaskStatus.COMPLETED and getattr(t, "completed_at", None) is not None
+    ]
+    avg_completion_time_seconds = (sum(durations) / len(durations)) if durations else 0.0
+
+    logger.info(
+        "Dashboard summary for user %s: %d/%d tasks completed (%.1f%%)",
+        current_user.id,
+        completed_tasks,
+        total_tasks,
+        success_rate * 100,
+    )
+
+    return DashboardSummary(
+        total_tasks=total_tasks,
+        completed_tasks=completed_tasks,
+        success_rate=round(success_rate, 4),
+        avg_completion_time_seconds=round(avg_completion_time_seconds, 2),
+    )
+
+
 @router.get("/cost", response_model=CostBreakdown)
 async def get_cost_breakdown(
     current_user: User = Depends(get_current_user),

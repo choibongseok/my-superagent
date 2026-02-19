@@ -44,10 +44,21 @@ class TaskInDB(BaseModel):
         validation_alias="task_metadata",
     )
     celery_task_id: Optional[str] = None
+    share_token: Optional[UUID] = None
+    expires_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ShareLinkResponse(BaseModel):
+    """Response for POST /tasks/{id}/share."""
+
+    task_id: UUID
+    share_token: UUID
+    share_url: str
+    expires_at: datetime
 
 
 class Task(TaskInDB):
