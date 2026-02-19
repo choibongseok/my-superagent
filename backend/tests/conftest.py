@@ -1,50 +1,131 @@
 """
-Pytest configuration and fixtures
+Pytest configuration and fixtures.
+
+DATABASE_URL is overridden to in-memory SQLite *before* any app module is
+imported, so that database.py's lazy engine initialisation picks up the test
+URL instead of the real PostgreSQL URL.
 """
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from __future__ import annotations
 
-from app.main import app
-from app.core.database import Base, get_db
+import os
 
-# Use in-memory SQLite for tests
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+# ── Set test DB URL before importing anything from app ───────────────────────
+# database.py creates the engine lazily, so this override takes effect as long
+# as it happens before the first call to get_db() / _get_engine().
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
+import asyncio  # noqa: E402
+from typing import AsyncGenerator  # noqa: E402
+
+import pytest  # noqa: E402
+import pytest_asyncio  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from httpx import AsyncClient, ASGITransport  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+from app.core.database import Base, get_db, reset_engine  # noqa: E402
+from app.main import app  # noqa: E402
+
+# ── Async in-memory SQLite engine for tests ───────────────────────────────────
+TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
+
+test_engine = create_async_engine(
+    TEST_DB_URL,
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+TestAsyncSessionLocal = async_sessionmaker(
+    test_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
+# Point the app's database module at the test engine
+reset_engine(TEST_DB_URL)
 
 
-@pytest.fixture
-def db():
-    """Create test database"""
-    Base.metadata.create_all(bind=engine)
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-        Base.metadata.drop_all(bind=engine)
+# ── Schema helpers ────────────────────────────────────────────────────────────
+
+async def _create_tables() -> None:
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
-@pytest.fixture
-def client(db):
-    """Create test client"""
-    def override_get_db():
+async def _drop_tables() -> None:
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+
+# ── Session fixture ───────────────────────────────────────────────────────────
+
+@pytest_asyncio.fixture
+async def db() -> AsyncGenerator[AsyncSession, None]:
+    """Provide a clean async DB session per test; rolls back after each test."""
+    await _create_tables()
+    async with TestAsyncSessionLocal() as session:
         try:
-            yield db
+            yield session
         finally:
-            pass
-    
-    app.dependency_overrides[get_db] = override_get_db
-    
-    with TestClient(app) as test_client:
-        yield test_client
-    
+            await session.rollback()
+    await _drop_tables()
+
+
+# ── Sync-style fixture for legacy tests ──────────────────────────────────────
+
+@pytest.fixture
+def sync_db():
+    """Synchronous fixture that wraps async db creation for legacy test code."""
+    loop = asyncio.new_event_loop()
+    loop.run_until_complete(_create_tables())
+
+    async def _get():
+        async with TestAsyncSessionLocal() as session:
+            yield session
+
+    gen = _get().__aiter__()
+    session = loop.run_until_complete(gen.__anext__())
+    try:
+        yield session
+    finally:
+        loop.run_until_complete(session.rollback())
+        loop.run_until_complete(_drop_tables())
+        loop.close()
+
+
+# ── Override FastAPI get_db ───────────────────────────────────────────────────
+
+async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
+    async with TestAsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+
+@pytest.fixture
+def client() -> TestClient:
+    """Sync TestClient with DB override."""
+    app.dependency_overrides[get_db] = _override_get_db
+    with TestClient(app, raise_server_exceptions=False) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def async_client() -> AsyncGenerator[AsyncClient, None]:
+    """Async HTTP client for async route tests."""
+    app.dependency_overrides[get_db] = _override_get_db
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        yield ac
     app.dependency_overrides.clear()
