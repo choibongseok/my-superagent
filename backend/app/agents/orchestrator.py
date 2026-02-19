@@ -709,13 +709,7 @@ Synthesize these results into a comprehensive response to the original request."
 
         except Exception as e:
             logger.error(f"Complex task execution failed: {e}", exc_info=True)
-
-            return {
-                "success": False,
-                "error": str(e),
-                "synthesis": None,
-                "tasks": [],
-            }
+            raise
 
 
 __all__ = ["MultiAgentOrchestrator", "AgentTask"]
