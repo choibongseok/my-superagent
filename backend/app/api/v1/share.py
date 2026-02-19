@@ -77,7 +77,7 @@ VIEWER_HTML = """<!DOCTYPE html>
 </html>"""
 
 
-@router.get("/r/{share_token}", include_in_schema=False)
+@router.get("/r/{share_token}", include_in_schema=False, response_model=None)
 async def view_shared_task(
     share_token: str,
     request: Request,
