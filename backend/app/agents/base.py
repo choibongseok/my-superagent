@@ -87,32 +87,83 @@ class BaseAgent(ABC):
             temperature: LLM temperature (0-1)
             max_tokens: Max output tokens
             enable_langfuse: Enable LangFuse tracing (default: True)
+
+        Note:
+            LLM construction is deferred until first access of ``self.llm`` so
+            that agent objects can be created and inspected without requiring
+            API credentials (e.g., in tests or CLI tooling).
         """
         self.user_id = user_id
         self.session_id = session_id or f"session_{user_id}"
         self.credentials = credentials
 
-        # CRITICAL: Initialize LangFuse handler FIRST (before LLM creation)
-        self.langfuse_handler = None
-        if enable_langfuse and LANGFUSE_AVAILABLE:
-            self.langfuse_handler = self._init_langfuse()
+        # Store LLM config — actual LLM is created lazily on first access
+        self._llm_provider = llm_provider
+        self._llm_model = model
+        self._llm_temperature = temperature
+        self._llm_max_tokens = max_tokens
+        self._llm_instance = None  # populated lazily
 
-        # Then create LLM with the handler
-        self.llm = self._create_llm(llm_provider, model, temperature, max_tokens)
+        # LangFuse handler (also lazy — needs LLM params, not LLM itself)
+        self._enable_langfuse = enable_langfuse
+        self._langfuse_handler_initialised = False
+        self._langfuse_handler: Optional[Any] = None
 
-        # FIXED: Use Phase 2 MemoryManager (conversation + vector memory)
-        self.memory = self._init_memory()
+        # Memory: no API key required — safe to initialise eagerly
+        self.memory: MemoryManager = self._init_memory()
 
         # Tools will be set by subclasses
         self.tools: List[BaseTool] = []
 
-        # Agent executor (initialized in subclasses via initialize_agent)
+        # Agent executor (initialised in subclasses via initialize_agent)
         self.agent_executor: Optional[AgentExecutor] = None
 
         logger.info(
-            f"BaseAgent initialized: user={user_id}, session={session_id}, "
-            f"provider={llm_provider}, model={model}, langfuse={self.langfuse_handler is not None}"
+            f"BaseAgent initialised: user={user_id}, session={session_id}, "
+            f"provider={llm_provider}, model={model}"
         )
+
+    # ── Lazy LangFuse handler ─────────────────────────────────────────────
+
+    @property
+    def langfuse_handler(self) -> Optional[Any]:
+        """LangFuse callback handler, created on first access."""
+        if not self._langfuse_handler_initialised:
+            self._langfuse_handler_initialised = True
+            if self._enable_langfuse and LANGFUSE_AVAILABLE:
+                self._langfuse_handler = self._init_langfuse()
+        return self._langfuse_handler
+
+    @langfuse_handler.setter
+    def langfuse_handler(self, value: Optional[Any]) -> None:
+        """Allow direct assignment (e.g., in tests)."""
+        self._langfuse_handler = value
+        self._langfuse_handler_initialised = True
+
+    # ── Lazy LLM ─────────────────────────────────────────────────────────
+
+    @property
+    def llm(self):
+        """LLM instance, created on first access.
+
+        Raises:
+            ValueError: if provider is unsupported.
+            openai.OpenAIError / anthropic.AuthenticationError: if the
+                corresponding API key is missing at call time.
+        """
+        if self._llm_instance is None:
+            self._llm_instance = self._create_llm(
+                self._llm_provider,
+                self._llm_model,
+                self._llm_temperature,
+                self._llm_max_tokens,
+            )
+        return self._llm_instance
+
+    @llm.setter
+    def llm(self, value) -> None:
+        """Allow direct assignment (e.g., test injection)."""
+        self._llm_instance = value
 
     def _init_langfuse(self) -> Optional[Any]:
         """
@@ -154,7 +205,9 @@ class BaseAgent(ABC):
             use_summary=False,  # Can be enabled with LLM parameter
             conversation_max_tokens=2000,
             vector_top_k=5,
-            llm=self.llm if hasattr(self, 'llm') else None,
+            # Do NOT access self.llm here — it would trigger eager LLM
+            # creation during __init__, defeating lazy initialisation.
+            llm=None,
         )
         
         logger.debug(f"MemoryManager initialized for session {self.session_id}")

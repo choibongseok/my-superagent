@@ -1,7 +1,7 @@
 """Tests for MultiAgentOrchestrator."""
 
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, MagicMock, patch, AsyncMock
 from app.agents.orchestrator import MultiAgentOrchestrator, AgentTask
 
 
@@ -105,33 +105,35 @@ def test_multiple_agents_cached(orchestrator):
 @pytest.mark.asyncio
 async def test_decompose_task_basic(orchestrator):
     """Test task decomposition."""
-    with patch.object(orchestrator.llm, 'ainvoke', new_callable=AsyncMock) as mock_llm:
-        # Mock LLM response
-        mock_response = Mock()
-        mock_response.content = """
-        [
-            {
-                "task_id": "1",
-                "agent_type": "research",
-                "description": "Research the topic",
-                "dependencies": []
-            },
-            {
-                "task_id": "2",
-                "agent_type": "docs",
-                "description": "Write document",
-                "dependencies": ["1"]
-            }
-        ]
-        """
-        mock_llm.return_value = mock_response
+    # Inject mock LLM *before* accessing orchestrator.llm so that the lazy
+    # property doesn't attempt to build a real ChatOpenAI instance.
+    mock_llm = MagicMock()
+    mock_response = Mock()
+    mock_response.content = """
+    [
+        {
+            "task_id": "1",
+            "agent_type": "research",
+            "description": "Research the topic",
+            "dependencies": []
+        },
+        {
+            "task_id": "2",
+            "agent_type": "docs",
+            "description": "Write document",
+            "dependencies": ["1"]
+        }
+    ]
+    """
+    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+    orchestrator.llm = mock_llm  # Uses BaseAgent.llm setter
 
-        tasks = await orchestrator.decompose_task("Create a research document")
+    tasks = await orchestrator.decompose_task("Create a research document")
 
-        assert len(tasks) == 2
-        assert tasks[0].agent_type == "research"
-        assert tasks[1].agent_type == "docs"
-        assert tasks[1].dependencies == ["1"]
+    assert len(tasks) == 2
+    assert tasks[0].agent_type == "research"
+    assert tasks[1].agent_type == "docs"
+    assert tasks[1].dependencies == ["1"]
 
 
 @pytest.mark.asyncio

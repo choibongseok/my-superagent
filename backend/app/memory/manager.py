@@ -501,6 +501,18 @@ class MemoryManager:
         """
         self.clear_conversation()
 
+    def get_messages(self, last_n=None):
+        """
+        Delegate to ConversationMemory.get_messages().
+
+        Args:
+            last_n: If given, return only the last N messages.
+
+        Returns:
+            List of LangChain BaseMessage objects.
+        """
+        return self.conversation_memory.get_messages(last_n=last_n)
+
     @property
     def buffer(self):
         """

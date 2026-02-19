@@ -5,7 +5,7 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from datetime import datetime
 
 from app.agents.research_agent import ResearchAgent
-from app.memory.conversation import ConversationMemory
+from app.memory.manager import MemoryManager
 
 
 class TestResearchAgentInitialization:
@@ -19,7 +19,7 @@ class TestResearchAgentInitialization:
         assert agent.session_id.startswith("research_")
         assert agent.citations == []
         assert agent.memory is not None
-        assert isinstance(agent.memory, ConversationMemory)
+        assert isinstance(agent.memory, MemoryManager)
 
     def test_init_with_session(self):
         """Test initialization with custom session ID."""
@@ -52,10 +52,24 @@ class TestResearchAgentTools:
         assert any(tool.name == "web_search" for tool in tools)
 
     def test_tool_initialization(self):
-        """Test tool initialization doesn't fail."""
+        """Test tool initialization doesn't fail (uses mock LLM)."""
+        from unittest.mock import MagicMock, patch
+        from langchain_core.runnables import RunnableLambda
+
         agent = ResearchAgent(user_id="test_user")
-        agent.initialize_agent()
-        
+
+        # Inject a mock LLM so initialize_agent() doesn't need a real API key
+        mock_llm = MagicMock()
+        mock_llm.bind_tools = MagicMock(return_value=RunnableLambda(lambda x: x))
+        agent.llm = mock_llm
+
+        with patch("app.agents.base.create_tool_calling_agent") as mock_agent_fn, \
+             patch("app.agents.base.AgentExecutor") as mock_executor_cls:
+            mock_agent_fn.return_value = MagicMock()
+            mock_executor_cls.return_value = MagicMock()
+
+            agent.initialize_agent()
+
         assert agent.agent_executor is not None
         assert len(agent.tools) > 0
 
@@ -76,11 +90,11 @@ class TestResearchAgentMemory:
     """Test memory integration."""
 
     def test_memory_initialization(self):
-        """Test ConversationMemory is initialized."""
+        """Test MemoryManager is initialized."""
         agent = ResearchAgent(user_id="test_user")
         
         assert agent.memory is not None
-        assert isinstance(agent.memory, ConversationMemory)
+        assert isinstance(agent.memory, MemoryManager)
         assert agent.memory.user_id == "test_user"
 
     def test_add_user_message(self):

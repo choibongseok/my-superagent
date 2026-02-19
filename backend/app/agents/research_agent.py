@@ -59,10 +59,29 @@ class ResearchAgent(BaseAgent):
             **kwargs,
         )
 
-        # Initialize Citation Tracker
+        # Initialize Citation Tracker (rich metadata/validation API)
         self.citation_tracker = CitationTracker()
 
+        # Simple citations list — lightweight dict records for quick access.
+        # Tests and external callers can append dicts here directly;
+        # _extract_citations() also populates this list.
+        self._citations: List[Dict[str, Any]] = []
+
         logger.info(f"ResearchAgent initialized for user {user_id}")
+
+    @property
+    def citations(self) -> List[Dict[str, Any]]:
+        """Mutable list of citation dicts for this research session.
+
+        Each entry is a plain dict, e.g.::
+
+            {"query": "AI trends", "source": "duckduckgo",
+             "timestamp": "2024-01-01T00:00:00", "url": "https://…"}
+
+        You can append to this list directly or use ``_extract_citations()``
+        to populate it from agent intermediate steps.
+        """
+        return self._citations
 
     def _get_metadata(self) -> Dict[str, Any]:
         """Get agent metadata for tracking."""
@@ -238,6 +257,25 @@ Note: Use the web_search tool for each distinct query needed to answer the user'
                         },
                     )
 
+                # No URLs found in observation — add the search itself as source
+                if not urls and len(self.citation_tracker.sources) < max_sources:
+                    source_id = self.citation_tracker.add_source(
+                        title=f"Web Search: {query}",
+                        type=SourceType.WEB,
+                        author="DuckDuckGo",
+                        description=(
+                            observation[:200] + "..."
+                            if len(observation) > 200
+                            else observation
+                        ),
+                        metadata={"query": query},
+                    )
+                    self.citation_tracker.cite(
+                        source_id=source_id,
+                        quoted_text=observation[:500],
+                        context=f"Search query: {query}",
+                    )
+
             except Exception as exc:
                 logger.warning(f"Failed to parse search results: {exc}")
 
@@ -265,9 +303,63 @@ Note: Use the web_search tool for each distinct query needed to answer the user'
 
         logger.debug(f"Processed {len(intermediate_steps)} intermediate steps")
 
-    def get_citations(self, format: str = "apa") -> List[str]:
+    def _extract_citations(
+        self,
+        intermediate_steps: List[tuple],
+        max_sources: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Extract simple citation dicts from agent intermediate steps.
+
+        Parses ``(action, observation)`` pairs and returns a list of dicts
+        for every web_search action found.  Results are also appended to
+        ``self.citations`` for later retrieval.
+
+        Args:
+            intermediate_steps: List of ``(AgentAction, observation)`` tuples.
+            max_sources: Maximum number of citations to extract.
+
+        Returns:
+            List of citation dicts with ``query``, ``source``, ``timestamp``,
+            and (when available) ``url`` keys.
         """
-        Get formatted citations using CitationTracker.
+        extracted: List[Dict[str, Any]] = []
+
+        for action, observation in intermediate_steps:
+            if len(extracted) >= max_sources:
+                break
+
+            if not (hasattr(action, "tool") and action.tool == "web_search"):
+                continue
+
+            query = (
+                action.tool_input
+                if isinstance(action.tool_input, str)
+                else action.tool_input.get("query", "")
+            )
+
+            entry: Dict[str, Any] = {
+                "query": query,
+                "source": "duckduckgo",
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+
+            # Try to pick up a URL from the observation text
+            if isinstance(observation, str):
+                import re
+                urls = re.findall(r"https?://[^\s<>\"]+", observation)
+                if urls:
+                    entry["url"] = urls[0]
+
+            extracted.append(entry)
+            self._citations.append(entry)
+
+        return extracted
+
+    def get_citations(self, format: str = "apa") -> List[str]:
+        """Get formatted citations.
+
+        Combines citations from the simple ``self.citations`` list **and**
+        the richer ``CitationTracker``, deduplicating by query/URL.
 
         Args:
             format: Citation format ("apa", "mla", "chicago")
@@ -275,7 +367,40 @@ Note: Use the web_search tool for each distinct query needed to answer the user'
         Returns:
             List of formatted citation strings
         """
-        return self.citation_tracker.get_bibliography(style=format, sort_by="author")
+        results: List[str] = []
+
+        # Format simple citation dicts first
+        for cit in self._citations:
+            query = cit.get("query", "")
+            ts = cit.get("timestamp", "")
+            url = cit.get("url", "")
+            source = cit.get("source", "web")
+
+            if format.lower() == "mla":
+                entry = f'"{query}." {source.capitalize()}. {ts[:10]}.'
+                if url:
+                    entry += f" Web. <{url}>."
+            else:
+                # APA / default
+                entry = f"{source.capitalize()}. ({ts[:10]}). {query}."
+                if url:
+                    entry += f" Retrieved from {url}"
+
+            results.append(entry)
+
+        # Also append tracker-based bibliography if tracker has sources
+        try:
+            tracker_bib = self.citation_tracker.get_bibliography(
+                style=format, sort_by="author"
+            )
+            # Only add tracker entries not already in results (simple de-dup)
+            for bib_entry in tracker_bib:
+                if bib_entry not in results:
+                    results.append(bib_entry)
+        except Exception:
+            pass
+
+        return results
 
     def get_citation_statistics(self) -> Dict[str, Any]:
         """Get citation statistics from tracker."""
@@ -295,7 +420,8 @@ Note: Use the web_search tool for each distinct query needed to answer the user'
         )
 
     def clear_citations(self):
-        """Clear citation history."""
+        """Clear citation history (both simple list and tracker)."""
+        self._citations.clear()
         self.citation_tracker.clear()
         logger.debug("Citations cleared")
 
