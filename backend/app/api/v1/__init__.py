@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, health, tasks, chats, messages, workspaces, templates, orchestrator, analytics, share, dev
+from app.api.v1 import auth, health, tasks, chats, messages, workspaces, templates, orchestrator, analytics, share, dev, prompts
 api_router = APIRouter()
 
 # Include sub-routers
@@ -17,3 +17,4 @@ api_router.include_router(templates.router, prefix="/templates", tags=["template
 api_router.include_router(analytics.router, tags=["analytics"])
 api_router.include_router(share.router, tags=["share"])  # Public share viewer (no auth)
 api_router.include_router(dev.router, prefix="/dev", tags=["dev"])  # Developer API Mode
+api_router.include_router(prompts.router, prefix="/prompts", tags=["prompts"])  # Shared Prompt Library
