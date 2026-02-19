@@ -327,3 +327,201 @@ def test_create_spreadsheet():
 - **핵심 리스크**: 패턴 false positive 높음 → 사용자 확인 단계 필수("이걸 SOP로 등록할까요?")
 - **우선순위**: 9주, HIGH. #155 완료 후 착수 권장
 
+
+---
+
+## 🏗️ 설계자 리뷰 — Phase 37-39 (2026-02-19 06:31 UTC)
+
+**검토자**: 설계자 에이전트 (Architect Cron)  
+**검토 대상**: #211~#219 (Phase 37, 38, 39) + 최근 아키텍처 변경  
+**긴급도**: 🔴 HIGH — 6개 Phase 누적 미검토, 배포 병목 해소 최우선
+
+---
+
+### 🔧 1. 아키텍처 리뷰 — 최근 코드 변경 (git log HEAD~5)
+
+#### ✅ 잘된 것
+
+| 커밋 | 평가 |
+|------|------|
+| `fix: correct healthcheck for celery-worker/flower` | Celery 헬스체크 `inspect ping --timeout=10`으로 교정 — 프로덕션 신뢰성 직접 개선 |
+| `fix: Restrict Redis/Postgres ports to localhost` | 보안 강화 필수 조치 — Redis 6379, Postgres 5432를 `127.0.0.1`로 바인드 ✅ |
+| `fix: FastAPI HTMLResponse union return type` | `response_model=None` 추가로 FastAPI 서버 기동 오류 해소 — 실용적 수정 |
+
+#### ⚠️ 구조적 개선 포인트
+
+1. **share.py: HTML 인라인 문자열 문제**  
+   - 현재 `VIEWER_HTML = """..."""` 방식 (150줄 인라인 HTML in Python)  
+   - 문제: OG 태그, 다국어, 테마 추가 시 Python 파일이 비대화됨  
+   - **권장**: Jinja2 `FileSystemLoader` 도입. `backend/templates/share_viewer.html` 분리  
+   - 단, 이번 OG Preview(#214)는 현재 구조에서도 30줄 추가로 해결 가능 → 분리는 #214 이후 별도 리팩터링
+
+2. **API 라우터 구조 — dev/ 네임스페이스 준비 필요**  
+   - 현재: `/api/v1/` 아래 tasks, share, auth 등 혼재  
+   - #219 Developer API Mode 추가 시: `/api/v1/dev/` prefix 별도 라우터 파일 신설 권장  
+   - 기존 `tasks.py`와 의존성 공유하되, 인증 scheme 분리 (JWT vs API Key)
+
+3. **Docker healthcheck 개선 — start_period 조정**  
+   - celery-worker: `start_period: 30s` — 실제 워커 초기화 시간 기준 적절  
+   - flower: healthcheck 명령어 재확인 필요 (현재 수정된 버전 확인 안 됨)
+
+---
+
+### 🔍 2. 아이디어 기술 검토 — Phase 37 (#211~#213)
+
+#### #211 Workspace Activity Feed
+- **타당성**: 🟢 즉시 가능
+- **핵심 구현**: `Task`, `ShareLink` 모델 조회 → JSON 직렬화 → HTML 타임라인  
+- **실제 공수**: ~1일 (기획보다 정확한 80줄 수준)  
+- **주의**: `private` 태스크 필터링 — Task 모델에 `is_public` 컬럼 없으면 `share_token is not None` 조건으로 대체 가능  
+- **GO ✅**
+
+#### #212 Task Clone & Remix
+- **타당성**: 🟢 즉시 가능 (가장 쉬운 기능)
+- **구현**: Task 레코드 복사 + new UUID + status=PENDING + 즉시 실행 → redirect  
+- **주의**: Celery task 재큐잉 시 `task_kwargs` (prompt, task_type)만 복사, result/share_token은 새로 생성  
+- **실제 공수**: 반일, 40~50줄 — 기획 예측과 일치  
+- **GO ✅ — 오늘 배포 최우선 추천**
+
+#### #213 Google Calendar Meeting Brief
+- **타당성**: 🟢 가능 (기존 google_apis.py 확장)
+- **추가 OAuth 스코프**: `https://www.googleapis.com/auth/calendar.readonly` 필요  
+- **구현 흐름**: Celery Beat 08:00 KST → Calendar API 조회 → `TaskType.MEETING_BRIEF` 추가 → LLM 브리핑 → Docs API → 이메일  
+- **주의사항**:  
+  - 사용자별 Google OAuth 토큰 저장 구조 확인 필요 (1인 환경 vs 멀티테넌트)  
+  - 브리핑 없는 날(캘린더 이벤트 0개)에도 Celery task가 불필요하게 실행되지 않도록 early exit 처리  
+- **실제 공수**: 3~4일 (기획 3일 적정)  
+- **GO ✅**
+
+---
+
+### 🔍 3. 아이디어 기술 검토 — Phase 38 (#214~#216)
+
+#### #214 Share Link OG Preview ← **오늘 배포 가능, 30분 작업**
+- **타당성**: 🟢 즉시 가능
+- **정적 vs 동적 이미지 결정**:  
+  - **권장: 정적 이미지 3종** (docs.png, sheets.png, slides.png) — 동적 생성(Puppeteer/wkhtmltopdf)은 서버 부하 과도  
+  - 이미지 없으면 `/static/og-default.png` 단일 fallback + `og:title/description`만으로도 충분  
+- **구현**: `VIEWER_HTML` 상단 `<head>`에 OG 태그 5개 + Twitter Card 2개 추가 (~20줄)  
+- **구체 코드** (바로 쓸 수 있음):
+  ```html
+  <meta property="og:title" content="{title} — AgentHQ">
+  <meta property="og:description" content="AgentHQ AI가 생성한 문서입니다. 클릭해서 확인하세요.">
+  <meta property="og:image" content="https://agenthq.io/static/og-{task_type}.png">
+  <meta property="og:url" content="{share_url}">
+  <meta property="og:type" content="article">
+  <meta name="twitter:card" content="summary_large_image">
+  ```
+- **GO ✅ — 오늘 배포 1순위**
+
+#### #215 Webhook to Slack/Teams Direct
+- **타당성**: 🟢 가능
+- **훅 포인트 결정**: **Celery task 완료 콜백** (`on_success`) 권장  
+  - FastAPI background task 방식은 Task status update 시 이미 DB write가 필요 — Celery callback이 더 자연스러움  
+- **재시도 정책**: **1회만** 권장 (Slack webhook은 즉시 응답, 재시도는 복잡도만 올림)  
+  - 실패 시 로그만 남기고 무시 (Task 실행에 영향 없음 — 기획 방향 동의)  
+- **DB 마이그레이션**: `User.slack_webhook_url VARCHAR(512)` 컬럼 추가 — Alembic 마이그레이션 필수  
+- **GO ✅**
+
+#### #216 Daily Standup Auto-Generator
+- **타당성**: 🟢 가능 (#215 완료 후 자연 확장)
+- **스탠드업 설정 단위**: **워크스페이스** 단위 권장 (팀 전체 공유)  
+  - `Workspace.standup_slack_webhook` + `standup_enabled boolean` 컬럼 추가  
+- **절약 시간 baseline** (기획 제안값 검토):  
+  - Docs=30분 ✅, Sheets=45분 ✅, Slides=60분 ✅ — 합리적  
+  - 단, "절약 시간"은 UX 메시지용이므로 과학적 정확도보다 사용자 감동 기준으로 ok  
+- **LLM 불필요** — 기획 판단 동의. 순수 f-string 집계로 충분  
+- **GO ✅**
+
+---
+
+### 🔍 4. 아이디어 기술 검토 — Phase 39 (#217~#219)
+
+#### #217 PWA Install Prompt
+- **타당성**: 🟡 조건부 가능 — **핵심 문제 발견**
+- **⚠️ 구조 문제**: 프로젝트에 `base.html` 템플릿 없음!  
+  - 현재 모든 HTML은 Python 파일 내 인라인 문자열 (share.py의 `VIEWER_HTML` 패턴)  
+  - `main.py`에 Jinja2 TemplateDirectory 마운트 없음 — StaticFiles도 없음  
+- **해결 방법 2가지**:  
+  - **방법 A (빠름, 비권장)**: share.py처럼 PWA 랜딩 페이지를 Python 인라인 HTML로 추가  
+  - **방법 B (권장)**: Jinja2 + StaticFiles 세팅 (1~2시간 추가) → 이후 모든 HTML 분리의 기반  
+    ```python
+    # main.py
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.templating import Jinja2Templates
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+    templates = Jinja2Templates(directory="templates")
+    ```
+- **iOS Safari 호환**: `apple-mobile-web-app-capable` + `apple-mobile-web-app-status-bar-style` 메타태그 조합으로 커버 가능  
+- **OG 이미지**: SVG 로고 → PNG 변환으로 192×192 생성 필요  
+- **수정된 공수**: 0.5일 (빠른 방법) → 1일 (권장 방법)  
+- **GO ✅ (방법 B 선택 권장) — Jinja2 세팅이 #214 리팩터링과도 연결됨**
+
+#### #218 First Task Celebration
+- **타당성**: 🟢 가능
+- **Task 완료 감지**: 현재 폴링(`setInterval`) 방식이면 — 기존 polling 응답에 `is_first_task: boolean` 플래그 포함  
+  - DB 조회: `SELECT COUNT(*) FROM tasks WHERE user_id=? AND status='completed'` — 1이면 첫 태스크  
+  - **백엔드 1줄 추가** 필요 (기획의 "백엔드 변경 없음" 수정)  
+- **confetti**: CDN `canvas-confetti` 권장 (3KB gzip, 빌드 시스템 없어도 `<script>` 태그로 즉시 사용)  
+  - 번들러 없음 확인 (현재 프론트 = Jinja2 + 인라인 JS) → CDN 방식 ✅  
+- **localStorage 플래그**: 허용 — 디바이스 초기화 시 중복 노출은 UX 해 없음  
+- **수정 공수**: ~35줄 JS + 백엔드 1줄 (API response에 플래그 추가)  
+- **GO ✅**
+
+#### #219 Developer API Mode
+- **타당성**: 🟢 가능
+- **#198 상태**: APIKey 모델 미존재 확인 — 신규 모델 생성 필요
+- **권장 설계**:
+  ```python
+  # models/api_key.py
+  class APIKey(Base):
+      __tablename__ = "api_keys"
+      id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+      user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+      key_hash: Mapped[str] = mapped_column(String(64), unique=True)  # SHA-256
+      name: Mapped[str] = mapped_column(String(100))
+      is_active: Mapped[bool] = mapped_column(default=True)
+      rate_limit_per_hour: Mapped[int] = mapped_column(default=100)
+      created_at: Mapped[datetime] = mapped_column(default=func.now())
+  ```
+- **JWT 충돌 없음**: `APIKeyHeader(name="X-API-Key")` 별도 scheme → `Depends(get_current_user_or_api_key)` 통합 dependency 패턴  
+- **Rate Limiting**: slowapi 없음 → **Redis Counter** 직접 구현 권장 (20줄):
+  ```python
+  key = f"rate:{api_key_hash}:{datetime.utcnow().strftime('%Y%m%d%H')}"
+  count = await redis.incr(key)
+  await redis.expire(key, 3600)
+  if count > rate_limit: raise HTTPException(429)
+  ```
+- **MVP 엔드포인트**: `POST /api/v1/dev/tasks` + `GET /api/v1/dev/tasks/{id}` — 충분
+- **GO ✅ — 이번 주 내 구현 가능**
+
+---
+
+### 📊 5. 최종 우선순위 & 실행 권고
+
+| 순위 | ID | 아이디어 | 판정 | 실제 공수 | 오늘 가능? |
+|------|-----|---------|------|---------|-----------|
+| **1** | #214 | Share Link OG Preview | ✅ GO | 30분 | ✅ |
+| **2** | #212 | Task Clone & Remix | ✅ GO | 반일 | ✅ |
+| **3** | #218 | First Task Celebration | ✅ GO | 반일 | ✅ |
+| **4** | #217 | PWA Install Prompt | ✅ GO (방법 B) | 1일 | 🟡 내일 |
+| **5** | #215 | Webhook to Slack | ✅ GO | 1~1.5일 | 🟡 내일 |
+| **6** | #211 | Activity Feed | ✅ GO | 1일 | 🟡 내일 |
+| **7** | #216 | Daily Standup | ✅ GO | 1.5일 | 내일 이후 |
+| **8** | #213 | Calendar Meeting Brief | ✅ GO | 3~4일 | 주말 |
+| **9** | #219 | Developer API Mode | ✅ GO | 2일 | 주말 |
+
+**🚨 설계자 핵심 메시지**:  
+기획 아이디어 219개 중 Phase 37~39 신규 9개 모두 기술적 타당성 ✅.  
+배포 병목은 아이디어 품질이 아님 — **실행 착수 타이밍** 문제.  
+#214(30분) → #212(반일) → #218(반일) 순서로 오늘 3개 배포하면 Share 에코시스템 즉시 완성됨.
+
+**⚠️ 아키텍처 주의사항**:  
+Jinja2 + StaticFiles 세팅(#217 방법 B)을 도입하면 이후 모든 HTML 템플릿 관리가 대폭 개선됨.  
+이 세팅을 Phase 39 첫 작업으로 1시간 투자하면 #218의 JS 삽입도 더 깔끔해짐.
+
+---
+
+**작성**: 설계자 에이전트 | 2026-02-19 06:31 UTC  
+**다음 검토 예정**: Phase 40 아이디어 추가 시
+
