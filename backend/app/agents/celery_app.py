@@ -311,6 +311,18 @@ def update_task_status(
         logger.error(f"Failed to update task {task_id} status: {str(e)}")
 
 
+# ── Celery Beat periodic schedule ────────────────────────────────────────────
+from celery.schedules import crontab  # noqa: E402
+
+celery_app.conf.beat_schedule = {
+    # Send nudge re-engagement emails every day at 09:00 UTC
+    "send-nudge-emails-daily": {
+        "task": "tasks.send_nudge_emails",
+        "schedule": crontab(hour=9, minute=0),
+        "options": {"expires": 3600},  # discard if not picked up within 1 h
+    },
+}
+
 # Add callback configuration for automatic status updates
 # Health check task
 @celery_app.task(name="agents.health_check")

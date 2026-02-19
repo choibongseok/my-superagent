@@ -1,9 +1,10 @@
 """User model."""
 
+from datetime import datetime
 from typing import Optional, TYPE_CHECKING, List
 from uuid import UUID, uuid4
 
-from sqlalchemy import String
+from sqlalchemy import DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -33,6 +34,12 @@ class User(Base, TimestampMixin):
         String(512), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(default=True, index=True)
+
+    # Nudge email tracking
+    last_task_created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    nudge_email_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Relationships
     chats: Mapped[List["Chat"]] = relationship(
