@@ -17308,3 +17308,136 @@ Slack 메시지:
 
 **작성 완료**: 2026-02-19 05:20 UTC  
 **총 아이디어**: **219개** (기존 216개 + 신규 3개: #217-219)
+
+---
+
+## 2026-02-19 (AM 7:20) | 기획자 에이전트 - Phase 40: 바이럴 성장 & 자동화 심화 🚀📅🎯
+
+> **Phase 40 컨텍스트**: Sprint 2에서 #217 PWA, #218 Celebration, #210 Nudge Emails 3개 연속 배포 성공! P0 버그 2개 픽스도 완료. 이 모멘텀을 살려 성장 레버를 당길 차례.
+
+### 💡 Idea #220: Magic Link Guest Access — "가입 없이 체험" 🔗✨
+
+**문제점**:
+- 현재 공유 링크 클릭 → 로그인 필요 → 85% 이탈 😓
+- "나도 해볼게!" 충동 → 회원가입 마찰 → 전환 실패
+- 경쟁사 현황:
+  - Notion: Public 페이지 조회 가능 (편집 불가)
+  - ChatGPT: 공유 링크 조회 가능 (로그인 없이)
+  - **AgentHQ: 공유 링크 = 로그인 강제** ❌
+
+**제안 솔루션**: 공유 링크 클릭 시 **"이 프롬프트로 체험해보기"** 버튼 제공
+- 비가입자도 동일한 Task를 1회 무료 실행 (결과 저장 불가)
+- 실행 완료 후 → "결과 저장하려면 가입하세요" CTA
+- 기존 `share.py` Task Permalink 위에 1개 엔드포인트 추가
+
+**기술 스펙** (~50줄, 1일):
+```python
+# GET /share/{token}/try → 익명 실행 엔드포인트
+# Rate limit: IP당 1회/일 (Redis)
+# 결과 임시 저장: TTL 30분 (Redis)
+# 회원가입 유도: 결과 페이지 하단 CTA 버튼
+```
+
+**예상 임팩트**:
+- 🎯 공유 링크 → 가입 전환율: 15% → 35% (+133%)
+- 🔗 바이럴 계수: 기존 Task 공유 → 새 사용자 유입 직접 연결
+- 🆓 AI 비용 있음 (1회 실행당 ~$0.01), Rate limit으로 제어 가능
+
+**차별화**:
+- ChatGPT: 범용 실행 가능 | AgentHQ: **Google Workspace 특화 체험** 차별화
+- "Canva로 디자인 체험" 방식 → 첫 성공 경험 → 전환
+
+**개발 난이도**: ⭐⭐☆☆☆ | **ROI**: ⭐⭐⭐⭐⭐
+**우선순위**: 🟢 HIGH (share.py 에코시스템 완성)
+
+---
+
+### 💡 Idea #221: Recurring Task Scheduler — "매주 월요일 자동 실행" 📅⏰
+
+**문제점**:
+- 매일 오전 standup 요약, 매주 팀 리포트 → 사용자가 매번 수동 실행 😓
+- "오늘 또 깜빡했다" → 도구 가치 감소 → 이탈
+- 경쟁사 현황:
+  - Zapier: Workflow 자동화 (범용)
+  - Notion: Recurring reminder (문서만, AI 없음)
+  - **AgentHQ: 자동 반복 실행 없음** ❌
+
+**제안 솔루션**: Task 완료 화면에 **"이 Task 반복 예약"** 버튼
+- 주기: 매일 / 매주 / 매월 선택
+- 실행 시각: 사용자 타임존 기준 선택
+- 결과: 매번 새 Google Doc/Sheet에 자동 저장 + 이메일 알림
+
+**기술 스펙** (~100줄, 2일):
+```python
+# models/recurring_task.py: RecurringTask(id, user_id, task_id, cron_expr, next_run, enabled)
+# Celery beat로 스케줄 관리 (기존 Celery 인프라 재활용 — #210 선례)
+# API: POST /tasks/{id}/schedule, DELETE /tasks/{id}/schedule
+# Frontend: 완료 화면 "⏰ 반복 예약" 버튼 (모달 UI)
+```
+
+**예상 임팩트**:
+- 📅 DAU → WAU 전환: 매일 실행되는 Task = 일일 활성 유지
+- 🔒 이탈 방지: 예약 Task가 있으면 서비스 해지 심리적 장벽 +70%
+- 💼 Enterprise 가치: "팀 주간 리포트 자동화" → IT 구매 결정 촉진
+
+**차별화**:
+- Zapier보다 단순 (Google Workspace 특화), ChatGPT에 없음
+- **"AI가 알아서 해주는 주간 리포트"** → 고착도 극대화
+
+**개발 난이도**: ⭐⭐⭐☆☆ | **ROI**: ⭐⭐⭐⭐⭐
+**우선순위**: 🟡 NEXT SPRINT (이번 주 내)
+
+---
+
+### 💡 Idea #222: Template Marketplace — "커뮤니티 프롬프트 라이브러리" 🏪📚
+
+**문제점**:
+- 신규 사용자: "어떻게 써야 하지?" → 빈 프롬프트 창 앞에서 막힘 😓
+- 프롬프트 작성 스킬 부재 → 첫 결과 품질 ↓ → 실망 → 이탈
+- 경쟁사 현황:
+  - ChatGPT GPTs: 커스텀 AI 배포 가능 (기술적 진입장벽)
+  - Notion Templates: 문서 템플릿 갤러리 ✅
+  - **AgentHQ: 프롬프트 라이브러리 없음** ❌
+
+**제안 솔루션**: 카테고리별 큐레이션 프롬프트 템플릿 + 1-Click 사용
+
+**핵심 기능**:
+1. **Template Gallery**: 10개 카테고리 (마케팅, 인사, 재무, 개발, 영업...)
+2. **1-Click Use**: 템플릿 선택 → 프롬프트 자동 입력 → 바로 실행
+3. **User Contribution** (v2): "이 프롬프트 공유하기" → 커뮤니티 템플릿 제출
+4. **Trending**: 이번 주 가장 많이 사용된 템플릿
+
+**기술 스펙** (~80줄, 1.5일):
+```python
+# models/template.py: Template(id, category, title, prompt, author, use_count)
+# 초기 데이터: CSV seed 50개 템플릿 (하드코딩 OK)
+# API: GET /templates?category=marketing
+# Frontend: Gallery 페이지 + 카테고리 필터 + 사용 버튼
+```
+
+**예상 임팩트**:
+- 🚀 첫 Task 완료율: +60% (뭘 해야 할지 알게 됨)
+- ⏱️ Time-to-first-task: 5분 → 30초
+- 🌊 플라이휠: 좋은 첫 경험 → 재방문 → 공유 → 신규 유입
+
+**차별화**:
+- "Google Workspace 특화 프롬프트" — ChatGPT에 없는 포지셔닝
+- Notion Templates처럼 커뮤니티 주도 성장 가능
+
+**개발 난이도**: ⭐⭐☆☆☆ | **ROI**: ⭐⭐⭐⭐⭐
+**우선순위**: 🟢 HIGH (신규 사용자 Activation 핵심)
+
+---
+
+## 📊 Phase 40 요약 테이블
+
+| ID | 아이디어 | 임팩트 | 기간 | 코드량 | AI 비용 | Gate |
+|----|----------|--------|------|--------|---------|------|
+| #220 | Magic Link Guest Access | 전환율 +133% | 1일 | ~50줄 | ~$0.01/run | ✅ |
+| #221 | Recurring Task Scheduler | DAU 유지, 이탈 -70% | 2일 | ~100줄 | $0 | ✅ |
+| #222 | Template Marketplace | First Task 완료율 +60% | 1.5일 | ~80줄 | $0 | ✅ |
+
+**이번 Phase 최우선 작업**: #214 OG Preview + #219 Developer API (이미 설계자 GO)
+
+**작성 완료**: 2026-02-19 07:20 UTC
+**총 아이디어**: **222개** (기존 219개 + 신규 3개: #220-222)
