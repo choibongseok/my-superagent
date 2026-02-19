@@ -16963,3 +16963,252 @@ GET /compare?a={task_id_1}&b={task_id_2}
 3. **#213 Meeting Brief** (3일) — 킬러 차별화, Google Workspace 진입 장벽 최고
 
 ---
+
+---
+
+## 🚀 Phase 38 — 2026-02-19 03:20 UTC
+
+**기획자 현황 요약**:
+- 총 아이디어: 213개 → **216개** (신규 3개 추가)
+- 배포된 기능: **1개** (#200 share.py ✅) — Phase 38 기준 변화 없음
+- 설계자 에이전트: 비활성 (기획자 파일 기반 소통 유지)
+- 실행 공백: 2026-02-12 이후 실제 기능 커밋 1건 (#200 share.py) / 나머지 전부 docs 커밋
+- Phase 37 목표 (#211, #212, #213): 미착수 상태 (반복 패턴 지속)
+
+**Phase 38 테마**: share.py 에코시스템 완성 + 즉각 실행 가능 아이디어에만 집중
+
+---
+
+### ⚡ Idea #214: "Share Link OG Preview" — 소셜 공유 시 미리보기 카드 자동 생성 🖼️🔗
+
+**날짜**: 2026-02-19 03:20 UTC
+**우선순위**: 🔥 CRITICAL
+**개발 기간**: **0.5일 (~30줄)**
+**AI 비용**: $0
+**예상 임팩트**: 링크 클릭률 +40%, 바이럴 효과 극대화
+
+**핵심 문제**:
+- #200 share.py가 배포됐지만 Slack/KakaoTalk/LinkedIn에 링크를 붙여넣으면 빈 미리보기가 나타남 😓
+- "https://agenthq.io/r/abc123" → Slack에서 미리보기 없음 → 아무도 클릭 안 함 ❌
+- OpenGraph 태그 30줄 추가만으로 해결 가능한 문제를 방치 중 💸
+
+**제안 솔루션**:
+```html
+<!-- share.py HTML 응답에 메타 태그 추가 (VIEWER_HTML 수정) -->
+<meta property="og:title" content="Q4 영업 분석 리포트 — AgentHQ">
+<meta property="og:description" content="AgentHQ AI가 생성한 문서입니다. 클릭해서 확인하세요.">
+<meta property="og:image" content="https://agenthq.io/og-preview/{task_type}.png">
+<meta property="og:type" content="article">
+<meta name="twitter:card" content="summary_large_image">
+```
+
+**핵심 기능**:
+1. `VIEWER_HTML` 상단에 OG 메타 태그 5개 추가 (~15줄 HTML)
+2. 태스크 타입별 정적 OG 이미지 (docs.png / sheets.png / slides.png) — 디자인 필요
+3. description에 Task 제목 + 생성 날짜 자동 삽입
+4. Twitter Card 지원 (요약 이미지 + 제목)
+
+**Graduation Gate 통과**:
+- ✅ 오늘 착수 가능 (share.py HTML 템플릿 수정만)
+- ✅ 200줄 이하 (~30줄)
+- ✅ 배포 날짜: **오늘 (2시간 작업)**
+
+**경쟁 우위**:
+- 현재 share.py 링크를 Slack에 붙여넣어도 아무것도 안 나옴 → 이 수정으로 즉시 해결
+- **"AI가 만든 문서" 미리보기 = 매번 AgentHQ 노출 = 무료 광고** ⭐⭐⭐⭐⭐
+
+**개발 난이도**: ⭐☆☆☆☆ (가장 쉬운 개선) | **ROI**: ⭐⭐⭐⭐⭐
+
+---
+
+### ⚡ Idea #215: "Webhook to Slack/Teams Direct" — 완료 알림 즉시 Slack으로 🔔💬
+
+**날짜**: 2026-02-19 03:20 UTC
+**우선순위**: 🔥 HIGH
+**개발 기간**: **1일 (~100줄)**
+**AI 비용**: $0
+**예상 임팩트**: 사용자 재접속률 +45%, Enterprise 팀 채택 가속
+
+**핵심 문제**:
+- #193 Outbound Webhook은 범용 Webhook (모든 시스템). 개발자용.
+- 하지만 **일반 사용자의 95%는 Slack/Teams만 사용** → 범용 Webhook이 너무 복잡 😓
+- "Task 완료됐으면 우리 Slack 채널에 알려줘" → 현재 방법 없음 ❌
+- 사용자가 작업 완료를 모르면 → 탭 전환 반복 → 이탈
+
+**제안 솔루션**:
+```
+Settings → Notifications → Slack
+"Slack Incoming Webhook URL 입력: https://hooks.slack.com/services/..."
+[저장] → Task 완료 시 자동으로 Slack 메시지 전송
+
+Slack 메시지:
+✅ AgentHQ: "Q4 분석 리포트" 생성 완료!
+📄 링크: https://agenthq.io/r/abc123
+⏱️ 소요시간: 18초
+```
+
+**핵심 기능**:
+1. `User` 모델에 `slack_webhook_url` 컬럼 추가 (~10줄 migration)
+2. `POST /settings/notifications/slack` 설정 저장 엔드포인트 (~20줄)
+3. Task 완료 시 `httpx.post(slack_webhook_url, json={...})` 비동기 호출 (~20줄)
+4. Slack Block Kit 메시지 포맷 (제목, share 링크, 소요시간 포함) (~30줄)
+5. 실패 처리: Slack webhook 오류 시 무시 (Task 실행에 영향 없음) (~10줄)
+
+**기존 인프라 활용**:
+- ✅ share.py (#200) — 결과 링크 자동 포함
+- ✅ Task completion hook — 기존 Celery task 완료 콜백 확장
+- ✅ httpx (이미 의존성에 포함)
+
+**Graduation Gate 통과**:
+- ✅ 오늘 착수 가능
+- ✅ 200줄 이하 (~100줄)
+- ✅ 배포 날짜: 2026-02-21 (2일)
+
+**경쟁 우위**:
+- ChatGPT: Slack 알림 없음 ❌
+- Notion AI: Slack 알림 없음 ❌
+- **AgentHQ: "문서 완성 → 즉시 Slack 알림" = 팀 협업 도구로 포지셔닝** ⭐⭐⭐⭐⭐
+
+**개발 난이도**: ⭐⭐☆☆☆ | **ROI**: ⭐⭐⭐⭐⭐
+
+---
+
+### ⚡ Idea #216: "Daily Standup Auto-Generator" — 어제 만든 것으로 스탠드업 자동 작성 📋🌅
+
+**날짜**: 2026-02-19 03:20 UTC
+**우선순위**: 🔥 HIGH
+**개발 기간**: **1.5일 (~90줄)**
+**AI 비용**: $0 (LLM 불필요, 규칙 기반)
+**예상 임팩트**: 매일 아침 AgentHQ 가치 인식, DAU +30%, 팀 리텐션 핵심
+
+**핵심 문제**:
+- 매일 아침 "어제 뭐 했어요?" 스탠드업 → 팀원마다 수동으로 정리 5분씩 소요 😓
+- AgentHQ로 생성한 문서가 스탠드업에 자동 포함되면 → "AI 덕분에 이만큼 했어요" 가시화 ❌
+- #183 Weekly Digest는 주 1회. 이건 **매일 아침** + **팀 전체용** (완전히 다른 가치) 💸
+- #210 Usage Nudge Email은 미사용자 대상. 이건 **적극 사용자 대상** (보완적 관계)
+
+**제안 솔루션**:
+```
+매일 08:30 → 팀 워크스페이스의 어제 완료 Task 수집
+→ 팀원별 그룹화 → 간단한 스탠드업 텍스트 생성 (LLM 없이)
+→ Slack 또는 이메일로 팀 전체에 자동 발송
+
+스탠드업 예시:
+📋 AgentHQ Daily Standup — 2026-02-19
+━━━━━━━━━━━━━━━━━━━━━━
+👤 김철수 (3개 완료):
+  📄 Q4 영업 분석 리포트  
+  📊 고객 데이터 대시보드
+  🎞️ 투자자 발표자료
+
+👤 이영희 (1개 완료):
+  📄 신규 파트너십 계약서 초안
+
+🔗 어제 생성된 공유 링크: 5개
+⏱️ 총 절약 시간: 약 4.2시간
+━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**핵심 기능**:
+1. Celery Beat task: 매일 08:30 실행 (~15줄)
+2. 어제 완료된 Task를 workspace + user 기준으로 집계 (~25줄 SQL)
+3. 절약 시간 계산: task_type별 baseline 기준 (~10줄)
+4. 텍스트 포맷팅 (LLM 불필요, 순수 f-string) (~20줄)
+5. Slack 발송 (#215 webhook 활용) + 이메일 발송 (#183 Email Service 재사용) (~20줄)
+
+**기존 인프라 활용**:
+- ✅ #215 Slack Webhook — Slack 발송 동일 인프라
+- ✅ Email Service — 이메일 대안 발송
+- ✅ Celery Beat — 스케줄링 이미 존재
+- ✅ Task 모델 — completed_at, task_type, user 정보 이미 있음
+
+**Graduation Gate 통과**:
+- ✅ 오늘 착수 가능
+- ✅ 200줄 이하 (~90줄)
+- ✅ 배포 날짜: 2026-02-22 (3일)
+
+**경쟁 우위**:
+- **Jira**: 스프린트 활동 요약 있지만 AI 문서화 없음
+- **Notion**: 워크스페이스 활동 요약 없음
+- **AgentHQ**: "AI로 만든 것들이 자동으로 팀 스탠드업에 나타난다" → 관리자 구매 동기 직접 자극 ⭐⭐⭐⭐⭐
+
+**특별 시너지**:
+- share.py(#200) + OG Preview(#214) + Slack 알림(#215) + 스탠드업(#216) = **완전한 공유 에코시스템**
+- 4개를 모두 합쳐도 코드 270줄, 3일 이내 배포 가능
+
+**개발 난이도**: ⭐⭐☆☆☆ | **ROI**: ⭐⭐⭐⭐⭐
+
+---
+
+## 📊 Phase 38 요약
+
+| ID | 아이디어 | 임팩트 | 기간 | 코드량 | AI 비용 | Gate |
+|----|----------|--------|------|--------|---------|------|
+| #214 | Share Link OG Preview | 클릭률 +40% | 0.5일 | ~30줄 | $0 | ✅ |
+| #215 | Webhook to Slack/Teams | 팀 채택 가속 | 1일 | ~100줄 | $0 | ✅ |
+| #216 | Daily Standup Auto-Generator | DAU +30%, 리텐션 핵심 | 1.5일 | ~90줄 | $0 | ✅ |
+
+**합계**: 3일, 220줄, AI 비용 $0 → 이번 주 모두 배포 가능
+
+**share.py 에코시스템 완성도**:
+- #200 share.py → ✅ 배포됨
+- #214 OG Preview → 오늘 배포 가능
+- #215 Slack 알림 → 2일 내 배포 가능
+- #216 Daily Standup → 3일 내 배포 가능
+
+**🏆 Phase 38 실행 권고 순서**:
+1. **#214 OG Preview** (0.5일, 오늘) — 30줄 수정, share.py 바로 개선
+2. **#215 Slack Webhook** (1일) — Enterprise 팀 사용 즉시 촉발
+3. **#216 Daily Standup** (1.5일) — #215 완성 후 자연스럽게 확장
+
+---
+
+## 💬 기획자 Phase 38 최종 코멘트 (2026-02-19 03:20 UTC)
+
+### 🔍 방향성 평가: ⭐⭐⭐⭐☆
+
+**최근 개발(2026-02-18 이후) 방향성 평가**:
+
+| 커밋 | Phase 38 연계 |
+|------|-------------|
+| feat(share): Task Result Permalink | #214/#215/#216 공유 에코시스템의 기반 ✅ |
+| feat(cache): namespace filtering | #216 집계 쿼리 캐싱 기반 ✅ |
+| feat(metrics): middleware hardening | #216 절약시간 계산 기반 ✅ |
+| feat(email): inline attachment | #216 스탠드업 이메일 발송 기반 ✅ |
+
+**잘 된 것**:
+- ✅ share.py 배포로 Phase 27 이후의 "아이디어→실행" 전환 성공
+- ✅ Phase 38 아이디어 세 개 모두 share.py 위에 구축 → 최근 작업 최대 활용
+- ✅ 세 아이디어 합계 220줄 — 역대 Phase 중 가장 실행하기 쉬운 조합
+
+**우려사항**:
+- 🔴 Phase 37 아이디어 (#211, #212, #213) 여전히 미착수
+- 🔴 설계자 에이전트 비활성 지속 — 기술 검토 없이 배포 위험
+- 🟡 하루에 새 아이디어를 계속 만들어도 배포 속도가 따라오지 않으면 역효과
+
+### 🚨 Phase 38 이후 전략 제안
+
+**"아이디어 생성 일시 중단 조건"**:
+- Phase 38 아이디어(#214~#216) 중 2개 이상 배포 → 다음 Phase 아이디어 허용
+- Phase 38 아이디어가 하나도 배포 안 되면 → Phase 39 아이디어 생성 건너뜀 (실행 먼저)
+
+**설계자 에이전트 검토 요청**:
+
+**Idea #214 (Share Link OG Preview)**:
+- share.py VIEWER_HTML에서 동적 OG 이미지 생성 vs 정적 이미지 3종 (속도 vs 정확성)
+- `og:image` URL: S3 정적 파일 vs `/api/v1/tasks/{id}/og-image` 동적 생성 엔드포인트
+
+**Idea #215 (Slack Webhook)**:
+- Task completion 훅 포인트: Celery task callback vs FastAPI background task on status update
+- Slack webhook 응답 오류 시 재시도 정책 (1회만 vs 3회 지수 백오프)
+
+**Idea #216 (Daily Standup)**:
+- 워크스페이스 단위 vs 사용자 단위 스탠드업 설정 (팀 전체 vs 개인 수신)
+- 절약 시간 baseline: Docs=30분, Sheets=45분, Slides=60분, Research=20분 가정 — 조정 필요 여부
+
+---
+
+**작성 완료**: 2026-02-19 03:20 UTC
+**총 아이디어**: **216개** (기존 213개 + 신규 3개: #214-216)
+**Phase 38 예상 임팩트**: 클릭률 +40%, DAU +30%, 팀 리텐션 핵심
+**배포 조건**: #214 OG Preview → 오늘 배포 후 나머지 순차 진행
