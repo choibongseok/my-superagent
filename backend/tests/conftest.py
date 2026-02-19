@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import (  # noqa: E402
 )
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
-from app.core.database import Base, get_db, reset_engine  # noqa: E402
+from app.core.database import Base, get_db, reset_engine, inject_engine  # noqa: E402
 from app.main import app  # noqa: E402
 
 # ── Async in-memory SQLite engine for tests ───────────────────────────────────
@@ -45,8 +45,10 @@ TestAsyncSessionLocal = async_sessionmaker(
     expire_on_commit=False,
 )
 
-# Point the app's database module at the test engine
-reset_engine(TEST_DB_URL)
+# Inject the SAME engine into the app so that both conftest helpers and
+# FastAPI route handlers operate on the same in-memory SQLite database.
+# (reset_engine(URL) would create a different StaticPool instance.)
+inject_engine(test_engine, TestAsyncSessionLocal)
 
 
 # ── Schema helpers ────────────────────────────────────────────────────────────
@@ -100,6 +102,8 @@ def sync_db():
 # ── Override FastAPI get_db ───────────────────────────────────────────────────
 
 async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
+    # IMPORTANT: use TestAsyncSessionLocal (test_engine) — NOT the lazy app engine.
+    # Both conftest and routes must see the same in-memory SQLite instance.
     async with TestAsyncSessionLocal() as session:
         try:
             yield session
@@ -121,8 +125,13 @@ def client() -> TestClient:
 
 
 @pytest_asyncio.fixture
-async def async_client() -> AsyncGenerator[AsyncClient, None]:
-    """Async HTTP client for async route tests."""
+async def async_client(db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """Async HTTP client for async route tests.
+
+    Depends on ``db`` to ensure tables are created before the first request.
+    The ``db`` session is also available to tests that request both fixtures,
+    allowing them to seed data that the endpoint can then query.
+    """
     app.dependency_overrides[get_db] = _override_get_db
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"

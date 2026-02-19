@@ -37,15 +37,26 @@ def _get_engine() -> AsyncEngine:
     if _engine is None:
         with _lock:
             if _engine is None:
-                _engine = create_async_engine(
-                    settings.DATABASE_URL,
-                    echo=settings.DEBUG,
-                    pool_size=settings.DATABASE_POOL_SIZE,
-                    max_overflow=settings.DATABASE_MAX_OVERFLOW,
-                    pool_pre_ping=True,   # Verify connections before using
-                    pool_recycle=3600,    # Recycle after 1 hour
-                    pool_timeout=30,      # Timeout for pool checkout
-                )
+                url = str(settings.DATABASE_URL)
+                is_sqlite = url.startswith("sqlite")
+                if is_sqlite:
+                    # SQLite does not support pool_size / max_overflow /
+                    # pool_timeout / pool_recycle — use defaults only.
+                    _engine = create_async_engine(
+                        url,
+                        echo=settings.DEBUG,
+                        connect_args={"check_same_thread": False},
+                    )
+                else:
+                    _engine = create_async_engine(
+                        url,
+                        echo=settings.DEBUG,
+                        pool_size=settings.DATABASE_POOL_SIZE,
+                        max_overflow=settings.DATABASE_MAX_OVERFLOW,
+                        pool_pre_ping=True,   # Verify connections before using
+                        pool_recycle=3600,    # Recycle after 1 hour
+                        pool_timeout=30,      # Timeout for pool checkout
+                    )
     return _engine
 
 
@@ -86,6 +97,40 @@ def reset_engine(new_url: Optional[str] = None) -> None:
             settings.DATABASE_URL = new_url  # type: ignore[assignment]
         _engine = None
         _session_factory = None
+
+
+def inject_engine(engine: "AsyncEngine", session_factory: Optional["async_sessionmaker[AsyncSession]"] = None) -> None:
+    """
+    Inject a pre-built engine (and optional session factory) for tests.
+
+    This allows the test suite to share a single in-memory SQLite engine
+    across both the conftest helpers and the FastAPI dependency override,
+    ensuring all DB operations see the same database.
+
+    .. code-block:: python
+
+        # conftest.py
+        inject_engine(test_engine, TestAsyncSessionLocal)
+        app.dependency_overrides[get_db] = _override_get_db
+
+    Args:
+        engine: The engine to use for all app DB calls.
+        session_factory: Optional session factory; if omitted one is created
+            from ``engine``.
+    """
+    global _engine, _session_factory
+    with _lock:
+        _engine = engine
+        if session_factory is not None:
+            _session_factory = session_factory
+        else:
+            _session_factory = async_sessionmaker(
+                engine,
+                class_=AsyncSession,
+                expire_on_commit=False,
+                autocommit=False,
+                autoflush=False,
+            )
 
 
 # ── Compatibility shim ────────────────────────────────────────────────────────
