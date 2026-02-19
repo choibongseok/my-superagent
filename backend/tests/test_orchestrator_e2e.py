@@ -3,6 +3,9 @@ End-to-End Tests for Multi-Agent Orchestrator
 Tests complex multi-agent coordination and template execution
 """
 
+import os
+os.environ.setdefault('OPENAI_API_KEY', 'test-key')
+
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime
@@ -218,20 +221,14 @@ async def test_template_execution_via_orchestrator():
     """
     # 1. Mock template
     template = Template(
-        id="template_123",
         name="Sales Report Template",
         category="research",
         prompt_template="Research sales data for {product} in {quarter}",
-        required_inputs={
+        parameters={
             'product': 'string',
             'quarter': 'string',
         },
-        metadata={
-            'agents': ['research', 'sheets'],
-            'output_format': 'spreadsheet',
-        },
-        created_by="admin",
-        created_at=datetime.now(),
+        author_id="00000000-0000-0000-0000-000000000001",
     )
     
     # 2. Mock task created from template

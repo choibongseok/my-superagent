@@ -38,11 +38,8 @@ def mock_db_session():
     
     # Mock user
     mock_user = User(
-        id="test_user_123",
         email="test@example.com",
-        name="Test User",
-        google_credentials='{"token": "mock_token"}',
-        created_at=datetime.now(),
+        full_name="Test User",
     )
     
     # Mock query methods
