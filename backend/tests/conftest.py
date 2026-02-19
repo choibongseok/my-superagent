@@ -14,6 +14,14 @@ import os
 # as it happens before the first call to get_db() / _get_engine().
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
+# ── Fake LLM API keys so client constructors don't raise ─────────────────────
+# Tests that access agent.llm trigger lazy ChatOpenAI/ChatAnthropic construction.
+# A non-empty placeholder prevents the "api_key must be set" error; actual LLM
+# calls are always mocked (patch.object(agent, 'run', ...)) so no real requests
+# are ever made.
+os.environ.setdefault("OPENAI_API_KEY", "sk-test-placeholder-not-real")
+os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-test-placeholder-not-real")
+
 import asyncio  # noqa: E402
 from typing import AsyncGenerator  # noqa: E402
 
