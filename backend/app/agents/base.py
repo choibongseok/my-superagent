@@ -18,6 +18,7 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 
 from app.core.config import settings
+from app.core.llm_fallback import build_llm_with_fallbacks
 from app.memory.manager import MemoryManager
 
 logger = logging.getLogger(__name__)
@@ -221,35 +222,30 @@ class BaseAgent(ABC):
         max_tokens: int,
     ):
         """
-        Create LLM instance based on provider with LangFuse callbacks.
+        Create LLM instance with automatic multi-model fallback (#232).
+
+        When multiple API keys are configured (e.g. OPENAI_API_KEY and
+        ANTHROPIC_API_KEY), the returned LLM will transparently retry on
+        the next provider if the primary one fails.
 
         Args:
-            provider: "openai" or "anthropic"
-            model: Model name
+            provider: Preferred provider ("openai" or "anthropic")
+            model: Preferred model name
             temperature: Temperature (0-1)
             max_tokens: Max output tokens
 
         Returns:
-            LLM instance (ChatOpenAI or ChatAnthropic)
+            LLM instance — a single ChatModel or RunnableWithFallbacks
         """
         callbacks = [self.langfuse_handler] if self.langfuse_handler else None
 
-        if provider == "openai":
-            return ChatOpenAI(
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                callbacks=callbacks,
-            )
-        elif provider == "anthropic":
-            return ChatAnthropic(
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                callbacks=callbacks,
-            )
-        else:
-            raise ValueError(f"Unsupported LLM provider: {provider}")
+        return build_llm_with_fallbacks(
+            primary_provider=provider,
+            primary_model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            callbacks=callbacks,
+        )
 
     @abstractmethod
     def _get_metadata(self) -> Dict[str, Any]:

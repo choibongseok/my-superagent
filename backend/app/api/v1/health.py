@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.llm_fallback import get_fallback_status
 
 router = APIRouter()
 
@@ -448,3 +449,18 @@ async def status(
         payload["timestamp_utc"] = _current_timestamp_utc()
 
     return payload
+
+
+# ── #232 LLM Fallback Status ─────────────────────────────────────────────
+
+
+@router.get("/health/llm")
+async def llm_fallback_status():
+    """Return configured LLM providers and fallback chain status."""
+    providers = get_fallback_status()
+    configured = [name for name, info in providers.items() if info["configured"]]
+    return {
+        "fallback_enabled": len(configured) > 1,
+        "chain": configured,
+        "providers": providers,
+    }
