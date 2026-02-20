@@ -5,7 +5,7 @@ import re
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
@@ -153,6 +153,43 @@ def _resolve_task_title(task_type: str, inputs: dict) -> str:
     return fallback_title
 
 
+def _to_iso(value):
+    """Normalize optional datetime values for API schema compatibility."""
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        return value
+
+    return value.isoformat()
+
+
+def _template_response_from_model(template) -> TemplateResponse:
+    """Build `TemplateResponse` from a SQLAlchemy template model."""
+    payload = dict(getattr(template, "__dict__", {}))
+    payload["created_at"] = _to_iso(payload.get("created_at"))
+    payload["updated_at"] = _to_iso(payload.get("updated_at"))
+    payload.pop("_sa_instance_state", None)
+    return TemplateResponse.model_validate(payload)
+
+
+def _template_list_item_from_model(template) -> TemplateListItem:
+    """Build `TemplateListItem` from a SQLAlchemy template model."""
+    payload = dict(getattr(template, "__dict__", {}))
+    payload["created_at"] = _to_iso(payload.get("created_at"))
+    payload.pop("_sa_instance_state", None)
+    return TemplateListItem.model_validate(payload)
+
+
+def _template_rating_response_from_model(rating) -> TemplateRatingResponse:
+    """Build `TemplateRatingResponse` from a SQLAlchemy rating model."""
+    payload = dict(getattr(rating, "__dict__", {}))
+    payload["created_at"] = _to_iso(payload.get("created_at"))
+    payload["updated_at"] = _to_iso(payload.get("updated_at"))
+    payload.pop("_sa_instance_state", None)
+    return TemplateRatingResponse.model_validate(payload)
+
+
 def _build_task_kwargs(
     *,
     user_id,
@@ -245,7 +282,7 @@ async def create_template(
         service = TemplateService(db)
         template = await service.create_template(template_data, current_user.id)
 
-        return TemplateResponse.model_validate(template)
+        return _template_response_from_model(template)
 
     except Exception as e:
         logger.error(f"Template creation failed: {e}", exc_info=True)
@@ -253,6 +290,84 @@ async def create_template(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Template creation failed: {str(e)}",
         )
+
+
+@router.get("/marketplace", response_model=TemplateSearchResponse)
+async def get_template_marketplace(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    query: str | None = Query(default=None, description="Search templates by keyword"),
+    category: str | None = Query(default=None, description="Filter by category"),
+    featured: bool | None = Query(
+        default=None,
+        description="Filter featured templates only when true",
+    ),
+    official: bool | None = Query(
+        default=None,
+        description="Filter official templates only when true",
+    ),
+    min_rating: float | None = Query(
+        default=None,
+        ge=0.0,
+        le=5.0,
+        description="Minimum rating threshold",
+    ),
+    sort_by: str = Query(
+        default="usage_count",
+        description="Sort by: usage_count, rating, created_at",
+    ),
+    sort_order: str = Query(
+        default="desc",
+        description="Sort order: asc or desc",
+    ),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+        description="Items per page",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Pagination offset",
+    ),
+):
+    """Discover public templates from the marketplace."""
+    valid_sort_fields = {"usage_count", "rating", "created_at"}
+    if sort_by not in valid_sort_fields:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid sort_by value",
+        )
+
+    if sort_order.lower() not in {"asc", "desc"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="sort_order must be asc or desc",
+        )
+
+    service = TemplateService(db)
+    search_request = TemplateSearchRequest(
+        query=query,
+        category=category,
+        is_official=official,
+        is_featured=featured,
+        min_rating=min_rating,
+        sort_by=sort_by,
+        sort_order=sort_order.lower(),
+        limit=limit,
+        offset=offset,
+    )
+
+    # Marketplace intentionally exposes only public templates.
+    templates, total = await service.search_templates(search_request, user_id=None)
+
+    return TemplateSearchResponse(
+        total=total,
+        templates=[_template_list_item_from_model(t) for t in templates],
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/{template_id}", response_model=TemplateResponse)
@@ -288,7 +403,7 @@ async def get_template(
             detail="Access denied to private template",
         )
 
-    return TemplateResponse.model_validate(template)
+    return _template_response_from_model(template)
 
 
 @router.put("/{template_id}", response_model=TemplateResponse)
@@ -321,7 +436,7 @@ async def update_template(
             detail="Template not found or access denied",
         )
 
-    return TemplateResponse.model_validate(template)
+    return _template_response_from_model(template)
 
 
 @router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -373,7 +488,7 @@ async def search_templates(
 
         return TemplateSearchResponse(
             total=total,
-            templates=[TemplateListItem.model_validate(t) for t in templates],
+            templates=[_template_list_item_from_model(t) for t in templates],
             limit=search_request.limit,
             offset=search_request.offset,
         )
@@ -508,7 +623,7 @@ async def get_my_templates(
 
     return TemplateSearchResponse(
         total=total,
-        templates=[TemplateListItem.model_validate(t) for t in templates],
+        templates=[_template_list_item_from_model(t) for t in templates],
         limit=limit,
         offset=offset,
     )
@@ -540,7 +655,7 @@ async def create_rating(
         service = TemplateService(db)
         rating = await service.create_rating(template_id, current_user.id, rating_data)
 
-        return TemplateRatingResponse.model_validate(rating)
+        return _template_rating_response_from_model(rating)
 
     except Exception as e:
         logger.error(f"Rating creation failed: {e}", exc_info=True)
@@ -574,4 +689,4 @@ async def get_template_ratings(
     service = TemplateService(db)
     ratings, total = await service.get_template_ratings(template_id, limit, offset)
 
-    return [TemplateRatingResponse.model_validate(r) for r in ratings]
+    return [_template_rating_response_from_model(r) for r in ratings]

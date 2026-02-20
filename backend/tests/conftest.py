@@ -107,6 +107,13 @@ def sync_db():
         loop.close()
 
 
+# Compatibility alias used by older tests.
+@pytest.fixture
+def db_session(sync_db):
+    """Backward-compatible alias for fixtures expecting ``db_session``."""
+    return sync_db
+
+
 # ── Override FastAPI get_db ───────────────────────────────────────────────────
 
 async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
