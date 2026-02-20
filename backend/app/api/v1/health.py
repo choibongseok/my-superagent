@@ -272,6 +272,19 @@ async def ping(
     return payload
 
 
+@router.get("/ws/stats")
+async def websocket_stats() -> dict[str, Any]:
+    """Return current WebSocket connection statistics."""
+    from app.core.websocket import manager as ws_manager
+
+    return {
+        "total_connections": ws_manager.total_connections,
+        "total_users": ws_manager.total_users,
+        "online_users": [str(uid) for uid in ws_manager.get_online_users()],
+        "active_chat_rooms": len(ws_manager.chat_rooms),
+    }
+
+
 @router.get("/status")
 async def status(
     services: str

@@ -13,6 +13,7 @@ from app.core.cache import cache
 from app.core.config import settings
 from app.core.database import engine
 from app.core.metrics import init_metrics, metrics_app
+from app.core.websocket import manager as ws_manager
 from app.middleware.cache import CacheMiddleware
 from app.middleware.metrics import MetricsMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -42,6 +43,10 @@ async def lifespan(app: FastAPI):
 
     logger.info("Database initialized")
 
+    # Start WebSocket heartbeat loop
+    ws_manager.start_heartbeat()
+    logger.info("WebSocket heartbeat started")
+
     # Connect to Redis
     try:
         await cache.connect()
@@ -52,6 +57,9 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Shutting down AgentHQ Backend...")
+
+    # Stop WebSocket heartbeat
+    ws_manager.stop_heartbeat()
 
     # Disconnect from Redis
     try:
