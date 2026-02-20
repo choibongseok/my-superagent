@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, desc
 from typing import List, Dict, Any, Optional
+from uuid import UUID
 from datetime import datetime, timedelta
 import logging
 
@@ -361,6 +362,168 @@ async def get_dashboard_summary(
         completed_tasks=completed_tasks,
         success_rate=round(success_rate, 4),
         avg_completion_time_seconds=round(avg_completion_time_seconds, 2),
+    )
+
+
+# ── #230 Workspace ROI Dashboard ──────────────────────────────────────
+
+# Default manual-work estimates (minutes) per task type.
+# Users can override via the `hourly_rate` query parameter for money calc.
+_MANUAL_MINUTES: Dict[str, float] = {
+    "docs": 30.0,
+    "sheets": 45.0,
+    "slides": 60.0,
+    "research": 90.0,
+}
+
+
+class WeeklyROI(BaseModel):
+    """Weekly productivity ROI report."""
+
+    period_start: str = Field(..., description="ISO date of period start (Monday)")
+    period_end: str = Field(..., description="ISO date of period end (Sunday)")
+    total_tasks: int
+    completed_tasks: int
+    by_type: Dict[str, int] = Field(default_factory=dict, description="Completed tasks by type")
+    time_saved_minutes: float = Field(..., description="Estimated minutes saved vs manual work")
+    time_saved_hours: float = Field(..., description="Same value in hours for display")
+    money_saved: float = Field(..., description="time_saved_hours * hourly_rate")
+    hourly_rate: float = Field(..., description="Rate used for money calculation")
+    currency: str = "USD"
+    avg_quality_score: Optional[float] = Field(None, description="Mean QA overall_score (null if none)")
+    best_task: Optional[Dict[str, Any]] = Field(None, description="Highest QA-scored task")
+    vs_previous_week: Optional[Dict[str, Any]] = Field(
+        None, description="Comparison with the previous week"
+    )
+
+
+def _week_bounds(reference: datetime) -> tuple[datetime, datetime]:
+    """Return (monday 00:00, sunday 23:59:59) for the ISO week containing *reference*."""
+    monday = (reference - timedelta(days=reference.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    sunday = monday + timedelta(days=6, hours=23, minutes=59, seconds=59)
+    return monday, sunday
+
+
+async def _aggregate_week(
+    db: AsyncSession,
+    user_id: UUID,
+    start: datetime,
+    end: datetime,
+) -> Dict[str, Any]:
+    """Aggregate task stats for a single week window."""
+    from app.models.qa_result import QAResult
+
+    query = select(Task).where(
+        and_(
+            Task.user_id == user_id,
+            Task.created_at >= start,
+            Task.created_at <= end,
+        )
+    )
+    result = await db.execute(query)
+    tasks = result.scalars().all()
+
+    total = len(tasks)
+    completed = [t for t in tasks if t.status == TaskStatus.COMPLETED]
+    by_type: Dict[str, int] = {}
+    saved_minutes = 0.0
+
+    for t in completed:
+        ttype = t.task_type.value if hasattr(t.task_type, "value") else str(t.task_type)
+        by_type[ttype] = by_type.get(ttype, 0) + 1
+        saved_minutes += _MANUAL_MINUTES.get(ttype, 30.0)
+
+    # QA scores
+    task_ids = [t.id for t in completed]
+    avg_qa: Optional[float] = None
+    best_task_info: Optional[Dict[str, Any]] = None
+
+    if task_ids:
+        qa_query = select(QAResult).where(QAResult.task_id.in_(task_ids))
+        qa_result = await db.execute(qa_query)
+        qa_rows = qa_result.scalars().all()
+        if qa_rows:
+            scores = [q.overall_score for q in qa_rows]
+            avg_qa = round(sum(scores) / len(scores), 1)
+            best_qa = max(qa_rows, key=lambda q: q.overall_score)
+            best_task_obj = next((t for t in completed if t.id == best_qa.task_id), None)
+            if best_task_obj:
+                prompt_preview = (best_task_obj.prompt[:80] + "…") if len(best_task_obj.prompt) > 80 else best_task_obj.prompt
+                best_task_info = {
+                    "task_id": str(best_task_obj.id),
+                    "prompt": prompt_preview,
+                    "quality_score": best_qa.overall_score,
+                    "task_type": best_task_obj.task_type.value if hasattr(best_task_obj.task_type, "value") else str(best_task_obj.task_type),
+                }
+
+    return {
+        "total": total,
+        "completed": len(completed),
+        "by_type": by_type,
+        "saved_minutes": round(saved_minutes, 1),
+        "avg_qa": avg_qa,
+        "best_task": best_task_info,
+    }
+
+
+@router.get("/weekly-roi", response_model=WeeklyROI)
+async def get_weekly_roi(
+    current_user: User = Depends(get_current_user),
+    hourly_rate: float = Query(50.0, ge=0, description="Hourly rate for money-saved calculation"),
+    currency: str = Query("USD", max_length=3),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return a weekly ROI report showing estimated time/money saved.
+
+    Compares with the previous week when data is available.
+    """
+    now = datetime.utcnow()
+    this_start, this_end = _week_bounds(now)
+    prev_start = this_start - timedelta(weeks=1)
+    prev_end = this_start - timedelta(seconds=1)
+
+    this_week = await _aggregate_week(db, current_user.id, this_start, this_end)
+    prev_week = await _aggregate_week(db, current_user.id, prev_start, prev_end)
+
+    saved_hours = round(this_week["saved_minutes"] / 60, 2)
+    money_saved = round(saved_hours * hourly_rate, 2)
+
+    # Comparison
+    vs_previous: Optional[Dict[str, Any]] = None
+    if prev_week["total"] > 0:
+        prev_hours = prev_week["saved_minutes"] / 60
+        delta_hours = saved_hours - prev_hours
+        pct = round((delta_hours / prev_hours) * 100, 1) if prev_hours > 0 else 0.0
+        vs_previous = {
+            "prev_time_saved_hours": round(prev_hours, 2),
+            "delta_hours": round(delta_hours, 2),
+            "delta_pct": pct,
+        }
+
+    logger.info(
+        "Weekly ROI for user %s: %d tasks, %.1fh saved, $%.2f value",
+        current_user.id,
+        this_week["completed"],
+        saved_hours,
+        money_saved,
+    )
+
+    return WeeklyROI(
+        period_start=this_start.strftime("%Y-%m-%d"),
+        period_end=this_end.strftime("%Y-%m-%d"),
+        total_tasks=this_week["total"],
+        completed_tasks=this_week["completed"],
+        by_type=this_week["by_type"],
+        time_saved_minutes=this_week["saved_minutes"],
+        time_saved_hours=saved_hours,
+        money_saved=money_saved,
+        hourly_rate=hourly_rate,
+        currency=currency,
+        avg_quality_score=this_week["avg_qa"],
+        best_task=this_week["best_task"],
+        vs_previous_week=vs_previous,
     )
 
 
