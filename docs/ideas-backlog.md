@@ -17711,3 +17711,275 @@ Task 완료 시 QA Service가 자동으로 품질 평가:
 **총 아이디어**: **228개** (기존 225개 + 신규 3개: #226-228)
 **Phase 42 예상 임팩트**: UX 체감 속도 +75%, 워크플로우 자동화, 품질 투명성
 **실행 가속 핵심**: 인프라(WebSocket·Webhook·QA) → 사용자 가치(진행 표시·체이닝·품질 배지) 연결
+
+---
+
+# Phase 43: "Intelligence Compound Loop" — 사용할수록 똑똑해지는 플랫폼 🧬🔁
+
+> 작성: 2026-02-20 17:20 UTC (기획자 크론)
+> 전략 방향: **인프라 위에 '학습 루프'를 쌓아 경쟁사가 복제 불가능한 데이터 해자(data moat) 구축**
+
+---
+
+### 🧪 Idea #229: "Prompt Replay & A/B Testing" — 같은 프롬프트를 여러 설정으로 실행하고 최적 결과를 선택 🔬⚡
+
+**날짜**: 2026-02-20 17:20 UTC
+**우선순위**: 🔥 HIGH
+**개발 기간**: **2일 (~160줄)**
+**AI 비용**: ~$0.02/A/B 세션 (2-3회 실행 × GPT-4o)
+
+**핵심 문제**:
+- 사용자가 프롬프트를 한 번 실행하고 결과가 마음에 안 들면 "뭘 바꿔야 할지" 모름 → 무한 수동 재시도 😤
+- QA Score Badge(#228)가 품질을 측정해도, "더 나은 결과를 얻는 방법"이 없음
+- Diff Viewer(#209)가 비교는 하지만, **의도적 A/B 실험 워크플로우**가 없음
+- **경쟁사 현황**:
+  - ChatGPT: 프롬프트 재실행 가능하지만 비교 UI 없음 ❌
+  - Notion AI: A/B 테스트 개념 자체가 없음 ❌
+  - Jasper: 톤 변경은 있지만 모델/파라미터 A/B 없음 ❌
+
+**제안 솔루션**:
+```
+POST /api/v1/tasks/{id}/replay
+{
+  "variants": [
+    {"model": "gpt-4o", "temperature": 0.3, "style": "formal"},
+    {"model": "gpt-4o", "temperature": 0.8, "style": "creative"},
+    {"model": "claude-3.5-sonnet", "temperature": 0.5}
+  ]
+}
+
+결과:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 A/B 테스트 결과 (3 variants)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Variant A (GPT-4o formal)   → 🏅 91점  ✅ Winner
+  Variant B (GPT-4o creative) → 🏅 84점
+  Variant C (Claude sonnet)   → 🏅 88점
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 "Formal 스타일 + GPT-4o가 이 유형의 리포트에 최적입니다"
+[🔍 Diff 비교] [✅ Winner 사용] [🔄 다시 실행]
+```
+
+**핵심 기능**:
+1. **Replay API**: 기존 Task의 프롬프트를 variant 설정들로 병렬 재실행 (~40줄, Celery group)
+2. **QA 자동 비교**: 각 variant에 QA Score 자동 적용 → Winner 선정 (~30줄, qa_auto.py 확장)
+3. **Diff 통합**: Variant 간 차이를 Diff Viewer(#209)로 비교 (~20줄, share.py 연결)
+4. **학습 저장**: "이 프롬프트 유형엔 이 설정이 최적"을 user preferences에 저장 (~40줄)
+5. **Smart Default**: 다음 번 같은 유형의 Task에 자동으로 최적 설정 추천 (~30줄)
+
+**Graduation Gate 통과**:
+- ✅ 오늘 착수 가능 (QA Service + Diff Viewer + Celery group 모두 존재)
+- ✅ 200줄 이하 (~160줄)
+- ✅ 배포 날짜: 2026-02-23 (2일)
+
+**예상 임팩트**:
+- 🧪 **결과 품질 +25%**: 3번 시도 중 최선을 자동 선택
+- 📈 **사용자 학습 루프**: "A/B 테스트 → 최적 설정 발견 → 다음에 자동 적용" = 사용할수록 똑똑
+- 🔒 **전환 비용 극대화**: 축적된 최적 설정 데이터는 AgentHQ에서만 유효 → Churn -40%
+- 💼 **Enterprise**: "AI 결과 품질 보증 프로세스" = 규제 산업 필수 기능
+
+**경쟁 우위**: ChatGPT(재실행만) / Notion(A/B 없음) vs **AgentHQ: 자동 A/B + QA 점수 비교 + 학습 저장** ⭐⭐⭐⭐⭐
+
+---
+
+### 📊 Idea #230: "Workspace ROI Dashboard" — 주간 자동 생성 생산성 인사이트 리포트 📈💰
+
+**날짜**: 2026-02-20 17:20 UTC
+**우선순위**: 🔥 HIGH
+**개발 기간**: **1.5일 (~120줄)**
+**AI 비용**: ~$0.01/주간 리포트 (GPT-4o-mini 요약)
+
+**핵심 문제**:
+- 사용자가 AgentHQ로 절약한 시간/비용을 **체감하지 못함** → "이 도구 계속 쓸 가치 있나?" 의문 → 해지 🚪
+- Usage Nudge Emails(#210)와 Inactive User Report(#211)는 내부 운영 도구 → **사용자 대면 가치 없음**
+- Campaign Tracking(#212)은 마케팅 측정 → **개별 사용자에게 ROI를 보여주지 않음**
+- One-Metric Dashboard(#214)는 단일 지표 → **종합적 가치 전달 부족**
+- **경쟁사 현황**:
+  - Grammarly: "이번 주 생산성" 주간 이메일 → 해지율 -35% (공개 데이터)
+  - GitHub Copilot: 코드 수용률 대시보드 ✅
+  - ChatGPT: 사용 통계 없음 ❌ (최근 Usage 탭 추가했지만 ROI 아님)
+
+**제안 솔루션**:
+```
+GET /api/v1/analytics/weekly-roi
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 이번 주 AgentHQ 성과 리포트 (Feb 14-20)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⏱️ 절약 시간: 4.2시간 (리포트 3건, 스프레드시트 2건)
+💰 환산 가치: ₩210,000 (시급 ₩50,000 기준)
+📄 생성 문서: 7건 (Docs 3, Sheets 2, Slides 2)
+🏅 평균 품질: 89/100
+📈 지난주 대비: +23% (시간 절약 +0.8h)
+🏆 Best Task: "Q4 영업 분석 리포트" (95점, 1.2h 절약)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 팁: "Slides 작업에 formal 스타일을 사용하면 품질 +12% 예상"
+```
+
+**핵심 기능**:
+1. **Time Estimation Engine**: Task 유형별 수동 작업 시간 추정 (Docs 30min, Sheets 45min, Slides 60min) (~25줄)
+2. **Weekly Aggregation API**: 주간 Task 통계 집계 + QA 점수 평균 (~30줄, analytics.py 확장)
+3. **ROI Calculation**: 절약 시간 × 사용자 시급(설정 가능) = 금전 가치 환산 (~20줄)
+4. **Trend Comparison**: 전주 대비 증감율 + Best Task 하이라이트 (~25줄)
+5. **Scheduler Integration**: 매주 월요일 09:00 자동 생성 + Nudge Email로 발송 (~20줄, scheduler.py 연결)
+
+**Graduation Gate 통과**:
+- ✅ 오늘 착수 가능 (analytics.py + scheduler.py + nudge_email.py 모두 존재)
+- ✅ 200줄 이하 (~120줄)
+- ✅ 배포 날짜: 2026-02-22 (1.5일)
+
+**예상 임팩트**:
+- 🔄 **해지율 -35%**: Grammarly 사례 증명 — "가치를 보여주면 떠나지 않는다"
+- 📧 **바이럴**: "이번 주 4시간 절약했다" → 동료에게 공유 → 자연 유입
+- 💼 **Enterprise 구매 결정**: CTO/CFO에게 "월 XX시간 절약, ₩XX 가치" = 즉시 결재 근거
+- 🧠 **학습 루프**: "어떤 Task가 가장 효과적인지" 데이터 기반 인사이트 제공
+
+**경쟁 우위**: Grammarly(문법만) / Copilot(코드만) vs **AgentHQ: Google Workspace 전체 ROI 가시화** ⭐⭐⭐⭐⭐
+
+---
+
+### 🗣️ Idea #231: "Conversational API Gateway" — 자연어로 API를 호출하는 개발자 경험 혁신 🤖🔌
+
+**날짜**: 2026-02-20 17:20 UTC
+**우선순위**: ⚡ MEDIUM-HIGH
+**개발 기간**: **2.5일 (~180줄)**
+**AI 비용**: ~$0.003/호출 (GPT-4o-mini intent 분류)
+
+**핵심 문제**:
+- Developer API(#219)가 배포됐지만, 외부 개발자가 **API 스펙을 학습하는 데 30분+** 소요 → 채택 장벽 🧱
+- Swagger UI는 있지만 "이 API로 뭘 할 수 있는지" 탐색적 경험이 없음
+- Scoped API Key(#198) + Developer API(#219) + Webhook(webhooks.py) = 인프라는 완비, 하지만 **개발자 온보딩 경험이 없음**
+- **경쟁사 현황**:
+  - Stripe: 탁월한 API docs + CLI 테스트 도구 ✅ (업계 최고)
+  - Notion API: GraphQL explorer 제공 ✅
+  - OpenAI Playground: 자연어로 API 테스트 ✅
+  - **AgentHQ: Swagger만 존재, 탐색적 API 경험 없음** ❌
+
+**제안 솔루션**:
+```
+POST /api/v1/dev/natural
+{
+  "query": "지난주 만든 스프레드시트 목록 보여줘",
+  "api_key": "ak_..."
+}
+
+→ 내부 처리:
+  1. Intent 분류: "list_tasks" + filter(type=sheets, date=last_week)
+  2. API 매핑: GET /api/v1/tasks?output_type=sheets&created_after=2026-02-13
+  3. 실행 + 응답 정리
+
+→ 응답:
+{
+  "natural_response": "지난주에 만든 스프레드시트 2건입니다:",
+  "results": [...],
+  "api_equivalent": "GET /api/v1/tasks?output_type=sheets&created_after=2026-02-13",
+  "curl_example": "curl -H 'Authorization: Bearer ak_...' ..."
+}
+```
+
+**핵심 가치**: 자연어로 API를 탐색하면서, 동시에 **정확한 API 호출법을 학습**할 수 있음. 교육과 실행이 동시에 일어남.
+
+**핵심 기능**:
+1. **Intent Classifier**: 자연어 → API endpoint + params 매핑 (~50줄, 10개 core intent)
+2. **API Executor**: 분류된 intent로 실제 API 호출 실행 (~30줄)
+3. **Response Formatter**: 결과를 자연어 + API equivalent + curl 예제로 반환 (~40줄)
+4. **Learning Mode**: "이 API를 직접 호출하려면..." 가이드 자동 생성 (~30줄)
+5. **Rate Limit**: 자연어 게이트웨이 전용 rate limit (abuse 방지) (~30줄)
+
+**Graduation Gate 통과**:
+- ✅ 오늘 착수 가능 (dev.py API + api_key 인증 모두 존재)
+- ✅ 200줄 이하 (~180줄)
+- ✅ 배포 날짜: 2026-02-23 (2.5일)
+
+**예상 임팩트**:
+- 🚀 **개발자 온보딩 시간 30분 → 3분**: "그냥 물어보면 됨"
+- 📚 **API 학습 곡선 제거**: 사용하면서 API 구조를 자연스럽게 학습
+- 🤝 **Integration 가속**: 외부 앱이 AgentHQ를 쉽게 연동 → 에코시스템 확장
+- 🔒 **Platform Lock-in**: 자연어 게이트웨이에 익숙해지면 직접 API도 AgentHQ 기반 → 전환 비용 증가
+
+**경쟁 우위**: Stripe(우수한 docs) / Notion(GraphQL) vs **AgentHQ: 자연어로 API 탐색 + 실행 + 학습 동시에** ⭐⭐⭐⭐
+
+---
+
+## 📊 Phase 43 요약
+
+| ID | 아이디어 | 기반 인프라 | 기간 | 코드량 | AI 비용 | Gate |
+|----|----------|-----------|------|--------|---------|------|
+| #229 | Prompt Replay & A/B Testing | QA Service + Diff Viewer + Celery | 2일 | ~160줄 | $0.02 | ✅ |
+| #230 | Workspace ROI Dashboard | analytics.py + scheduler.py + nudge_email | 1.5일 | ~120줄 | $0.01 | ✅ |
+| #231 | Conversational API Gateway | dev.py + api_key + LLM | 2.5일 | ~180줄 | $0.003 | ✅ |
+
+**합계**: 6일, 460줄, AI 비용 거의 무료
+
+**Phase 43 핵심 전략**: "사용할수록 똑똑해지는 플랫폼 → 전환 불가능한 데이터 해자 구축"
+- A/B Testing → 최적 설정 학습 축적 → 사용자 고착
+- ROI Dashboard → 가치 가시화 → 해지 방지
+- Natural API Gateway → 개발자 생태계 → 플랫폼 효과
+
+---
+
+## 💬 기획자 Phase 43 회고 및 방향성 피드백 (2026-02-20 17:20 UTC)
+
+### 📊 최근 개발 방향성 평가: ⭐⭐⭐⭐⭐ (실행력 폭발 + 품질 향상!)
+
+**🎉 축하할 것들 (Feb 19-20 성과)**:
+1. **13건 커밋** — Feb 12 이후 코드 공백 위기에서 완전히 탈출. Feb 19-20 이틀간 폭발적 실행.
+2. **#228 Quality Score Badge 구현 완료** — 기획자 아이디어가 같은 날 배포됨. 아이디어→구현 사이클 24시간 이하!
+3. **WebSocket heartbeat + stats 엔드포인트** — 실시간 인프라 완성. #226 Real-Time Progress의 기반.
+4. **BugFixer 3건 보안 수정** — API key 쿼리 파라미터 제거, autoretry 범위 축소 → Enterprise 보안 수준.
+5. **Sprint 2 완전 종료** — Nudge Emails, Inactive Report, Campaign Tracking 전부 구현+테스트 완료.
+6. **Implementer 검증 완료** — 4개 작업 모두 테스트 통과, git 클린 상태 확인.
+7. **테스트 1,138개+ 통과** — 안정성 기반 확보.
+
+**✅ 방향이 맞는 것들**:
+- "인프라 구축 → 사용자 가치 연결" 전략이 정확히 실행되고 있음
+- QA Service(557줄) → Quality Score Badge(#228) → 향후 A/B Testing(#229) = 자연스러운 진화
+- WebSocket + Webhook + Scheduler = 자동화 인프라 3종 세트로 어떤 실시간 기능이든 빠르게 구축 가능
+- BugFixer가 보안 문제를 선제적으로 잡는 것 = Enterprise 판매 시 큰 자산
+
+**⚠️ 방향성 조정 필요 사항**:
+
+1. **프론트엔드 UX 긴급도 최상향** (10회 연속 권고):
+   - 백엔드는 이제 충분히 강력함. QA Score, Diff Viewer, ROI 데이터가 있어도 **보여줄 UI가 없으면 가치 = 0**
+   - 현재 Jinja2 HTML 템플릿으로 share.py가 잘 동작 중 → 이 패턴을 확장하여 **간단한 대시보드 HTML 페이지** 만들기 권장
+   - React 풀 앱은 나중에. 지금은 **server-rendered HTML + HTMX** 패턴으로 MVP UI 빠르게
+
+2. **아이디어 231개 vs 배포 ~15건 = 실행 비율 6.5%**:
+   - 아이디어는 충분히 쌓였음. Phase 43 이후 **아이디어 생성 속도를 줄이고 실행에 집중** 권장
+   - 다음 기획자 크론부터 "신규 아이디어 1개 + 기존 아이디어 실행 상태 추적" 비중으로 전환 고려
+
+3. **설계자(Architect) 에이전트 복구 시급**:
+   - 7일+ 비활성. 파일 기반 소통으로 대체 중이나, 기술적 타당성 검토 없이 구현하면 기술 부채 발생
+   - Dev Codex가 바로 구현하고 있어 "기획 → 구현" 직통인데, 중간 설계 검토가 빠지면 위험
+
+### 🎯 즉시 실행 권고 우선순위 (Top 3)
+
+| 순위 | 아이디어 | 이유 | 기간 |
+|------|---------|------|------|
+| 1 | **#230 Workspace ROI Dashboard** | 해지율 -35% (Grammarly 검증). analytics.py 위에 구축. | 1.5일 |
+| 2 | **#229 Prompt Replay & A/B Testing** | QA+Diff 인프라 활용. 경쟁사 없는 기능. 데이터 해자. | 2일 |
+| 3 | **#226 Real-Time Progress Stream** | WebSocket 완성됨. 사용자 체감 즉시 개선. | 2일 |
+
+### 🎯 설계자 에이전트 기술 검토 요청
+
+**Idea #229 (Prompt Replay & A/B Testing)**:
+- Celery group으로 병렬 실행 시 동일 Google API rate limit 공유 문제: 3개 variant가 동시에 Sheets API 호출하면 429 에러?
+- QA Score 비교 시 "통계적 유의미성" — 3개 중 91점 vs 88점이면 진짜 차이인가? 재현성은?
+- 사용자 preference 저장: User 모델에 JSON 필드 추가? 별도 UserPreference 모델?
+
+**Idea #230 (Workspace ROI Dashboard)**:
+- 수동 작업 시간 추정(Docs 30min 등)의 정확도 — 사용자별로 다를 수 있음. 초기값 후 사용자 피드백으로 보정?
+- 주간 리포트 생성 시점: 월요일 09:00 KST → scheduler.py 크론? 아니면 Celery Beat?
+- analytics.py 기존 엔드포인트와 ROI 계산 로직의 분리 vs 통합?
+
+**Idea #231 (Conversational API Gateway)**:
+- Intent 분류에 LLM 사용 시 hallucination 방지: 존재하지 않는 API endpoint를 생성할 수 있음 → strict schema validation 필요?
+- 자연어 게이트웨이가 내부 API를 대리 호출할 때 권한 범위: Scoped API Key(#198)의 scope를 그대로 상속?
+- Rate limit: 자연어 1회 호출 = API 1회 + LLM 1회. 비용 모델이 다름. 과금 체계 설계?
+
+---
+
+**작성 완료**: 2026-02-20 17:20 UTC
+**총 아이디어**: **231개** (기존 228개 + 신규 3개: #229-231)
+**Phase 43 예상 임팩트**: 데이터 해자 구축, 해지율 -35%, 개발자 채택 가속
+**핵심 전략 전환**: "아이디어 양산" → "학습 루프 + 실행 가속" (231개 충분, 이제 배포 비율 높이기)
