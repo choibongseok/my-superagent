@@ -1,4 +1,8 @@
-"""Health check endpoints."""
+"""Health check endpoints.
+
+Includes #223 Task Health Monitor — ``/health/tasks`` endpoint for real-time
+task failure rates, stuck-task detection, and recent failure logs.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +11,10 @@ from datetime import datetime, timezone
 from fnmatch import fnmatchcase
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
 
 router = APIRouter()
 
@@ -268,6 +275,81 @@ async def ping(
 
     if include_timestamp:
         payload["timestamp_utc"] = _current_timestamp_utc()
+
+    return payload
+
+
+# ── #223 Task Health Monitor ─────────────────────────────────────────────────
+
+
+@router.get("/health/tasks")
+async def task_health(
+    window: int = Query(
+        default=60,
+        ge=5,
+        le=1440,
+        description="Look-back window in minutes (5–1440, default 60)",
+    ),
+    include_failures: bool = Query(
+        default=False,
+        description="Include the most recent failed tasks in the response",
+    ),
+    include_stuck: bool = Query(
+        default=False,
+        description="Include currently stuck (long-running) tasks",
+    ),
+    failure_limit: int = Query(
+        default=10,
+        ge=1,
+        le=50,
+        description="Max recent failures to return (1–50)",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Task health monitor dashboard (public / ops endpoint).
+
+    Returns aggregated task health metrics over the requested window:
+    - Task counts by status (completed, failed, pending, processing, cancelled)
+    - Failure rate (0.0–1.0)
+    - Number of stuck tasks (processing > 30 min)
+    - Overall health status: ``healthy`` | ``warning`` | ``critical``
+
+    Optional extras:
+    - ``include_failures=true`` → list of recent failed tasks with error messages
+    - ``include_stuck=true`` → list of tasks stuck in processing state
+
+    No authentication required (designed for monitoring dashboards).
+    """
+    from app.services.task_health import (
+        get_recent_failures,
+        get_stuck_tasks,
+        get_task_health_summary,
+    )
+
+    summary = await get_task_health_summary(db, window_minutes=window)
+
+    payload: dict[str, Any] = {
+        "health_status": summary["health_status"],
+        "window_minutes": summary["window_minutes"],
+        "counts": {
+            "total": summary["total"],
+            "completed": summary["completed"],
+            "failed": summary["failed"],
+            "pending": summary["pending"],
+            "processing": summary["processing"],
+            "cancelled": summary["cancelled"],
+        },
+        "failure_rate": summary["failure_rate"],
+        "stuck_tasks": summary["stuck_tasks"],
+    }
+
+    if include_failures:
+        payload["recent_failures"] = await get_recent_failures(
+            db, limit=failure_limit
+        )
+
+    if include_stuck:
+        payload["stuck_task_details"] = await get_stuck_tasks(db)
 
     return payload
 

@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.cache import cache
 from app.core.config import settings
 from app.core.database import get_db
+from app.models.qa_result import QAResult
 from app.models.task import Task, TaskStatus
 
 router = APIRouter()
@@ -52,6 +53,15 @@ VIEWER_HTML = """<!DOCTYPE html>
            max-width: 800px; margin: 0 auto; padding: 2rem; color: #1a1a1a; }}
     .badge {{ display: inline-block; padding: .25rem .75rem; border-radius: 9999px;
               background: #e8f5e9; color: #2e7d32; font-size: .8rem; font-weight: 600; }}
+    .qa-badge {{ display: inline-block; padding: .3rem .9rem; border-radius: 9999px;
+                 font-size: .85rem; font-weight: 700; margin-left: .5rem; vertical-align: middle; }}
+    .qa-A {{ background: #dcfce7; color: #166534; }}
+    .qa-B {{ background: #dbeafe; color: #1e40af; }}
+    .qa-C {{ background: #fef9c3; color: #854d0e; }}
+    .qa-D {{ background: #fed7aa; color: #9a3412; }}
+    .qa-F {{ background: #fecaca; color: #991b1b; }}
+    .qa-tip {{ background: #fffbeb; border: 1px solid #fde68a; border-radius: .5rem;
+               padding: .75rem 1rem; margin: 1rem 0; font-size: .85rem; color: #92400e; }}
     .prompt-box {{ background: #f5f5f5; border-left: 4px solid #6366f1;
                    padding: 1rem; border-radius: 0 .5rem .5rem 0; margin: 1.5rem 0; }}
     .result-box {{ background: #fafafa; border: 1px solid #e0e0e0;
@@ -68,7 +78,7 @@ VIEWER_HTML = """<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <div class="badge">✨ AgentHQ 생성 문서</div>
+  <div class="badge">✨ AgentHQ 생성 문서</div>{qa_badge}
   <h1>{title}</h1>
   <div class="prompt-box">
     <strong>🤖 AI 요청:</strong><br>{prompt}
@@ -303,6 +313,53 @@ def _build_diff_table(text_a: str, text_b: str) -> tuple[str, int, int, int, int
 
     total = unchanged + added + removed
     return table_html, total, added, removed, unchanged
+
+
+async def _get_qa_for_task(task_id, db: AsyncSession) -> QAResult | None:
+    """Fetch the latest QA result for a task (if any)."""
+    stmt = (
+        select(QAResult)
+        .where(QAResult.task_id == task_id)
+        .order_by(QAResult.created_at.desc())
+        .limit(1)
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+def _qa_badge_html(qa: QAResult | None) -> str:
+    """Render a quality score badge + optional tip for the share viewer."""
+    if qa is None:
+        return ""
+    grade = qa.get_grade()
+    score = round(qa.overall_score, 1)
+    badge = f' <span class="qa-badge qa-{grade}">품질 {grade} ({score}점)</span>'
+    if qa.needs_improvement():
+        suggestions = (qa.auto_fix_suggestions or {}).get("suggestions", [])
+        tip_text = "💡 개선 팁: "
+        if suggestions:
+            tip_text += suggestions[0].get("suggestion", "품질을 높이려면 구조와 출처를 보강하세요.")
+        else:
+            tip_text += "구조, 문법, 출처를 보강하면 점수가 올라갑니다."
+        badge += f'\n  <div class="qa-tip">{html_module.escape(tip_text)}</div>'
+    return badge
+
+
+def _qa_json(qa: QAResult | None) -> dict | None:
+    """Serialize QA result for JSON share responses."""
+    if qa is None:
+        return None
+    return {
+        "overall_score": round(qa.overall_score, 1),
+        "grade": qa.get_grade(),
+        "scores": {
+            "grammar": qa.grammar_score,
+            "structure": qa.structure_score,
+            "readability": qa.readability_score,
+            "completeness": qa.completeness_score,
+            "fact_check": qa.fact_check_score,
+        },
+        "confidence": qa.confidence_level,
+    }
 
 
 async def _resolve_token(token_str: str, db: AsyncSession) -> Task:
@@ -643,20 +700,28 @@ async def view_shared_task(
     result_text = result_data.get("content") or result_data.get("summary") or str(result_data)[:2000]
     title = result_data.get("title") or f"AgentHQ {type_label}"
 
+    # #228 Quality Score Badge
+    qa = await _get_qa_for_task(task.id, db)
+
     if fmt == "json" or "application/json" in request.headers.get("accept", ""):
-        return JSONResponse({
+        payload = {
             "id": str(task.id),
             "type": str(task.task_type),
             "prompt": task.prompt,
             "title": title,
             "result": result_data,
             "document_url": task.document_url,
-        })
+        }
+        qa_data = _qa_json(qa)
+        if qa_data is not None:
+            payload["quality"] = qa_data
+        return JSONResponse(payload)
 
     html = VIEWER_HTML.format(
         title=title,
         prompt=task.prompt[:300] + ("…" if len(task.prompt) > 300 else ""),
         result_text=result_text[:3000],
         token=share_token,
+        qa_badge=_qa_badge_html(qa),
     )
     return HTMLResponse(content=html)

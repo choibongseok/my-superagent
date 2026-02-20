@@ -305,6 +305,14 @@ def update_task_status(
             await session.commit()
             logger.info(f"Updated task {task_id} status to {status}")
 
+            # #228 Auto-QA: run quality validation on completed tasks
+            if status == "completed":
+                try:
+                    from app.services.qa_auto import auto_qa_on_completion
+                    await auto_qa_on_completion(session, UUID(task_id))
+                except Exception as qa_err:
+                    logger.warning(f"Auto-QA failed for task {task_id}: {qa_err}")
+
     try:
         run_async(_update)
     except Exception as e:
