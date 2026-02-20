@@ -13,6 +13,7 @@ from app.models.workspace_member import MemberRole, WorkspaceMember
 from app.models.workspace_invitation import InvitationStatus, WorkspaceInvitation
 from app.models.prompt import SharedPrompt
 from app.models.qa_result import QAResult
+from app.models.webhook import Webhook, WebhookEvent
 
 __all__ = [
     "Base",
@@ -35,4 +36,6 @@ __all__ = [
     "InvitationStatus",
     "SharedPrompt",
     "QAResult",
+    "Webhook",
+    "WebhookEvent",
 ]

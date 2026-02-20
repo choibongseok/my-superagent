@@ -96,6 +96,11 @@ class Settings(BaseSettings):
     PROMETHEUS_PORT: int = 9090
     ENABLE_METRICS: bool = True
 
+    # Anonymous guest access (#220 Magic Link)
+    ANONYMOUS_DAILY_BUDGET_USD: float = Field(default=5.0)
+    ANONYMOUS_MAX_TRIES_PER_IP: int = Field(default=3)
+    ANONYMOUS_RESULT_TTL_SECONDS: int = Field(default=1800)  # 30 minutes
+
     # Email
     EMAIL_ENABLED: bool = Field(default=False)
     SMTP_HOST: str = Field(default="smtp.gmail.com")

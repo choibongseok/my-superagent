@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.models.api_key import ApiKey
     from app.models.chat import Chat
     from app.models.message import Message
+    from app.models.webhook import Webhook
     from app.models.workspace import Workspace
     from app.models.workspace_member import WorkspaceMember
 
@@ -61,6 +62,11 @@ class User(Base, TimestampMixin):
     # Developer API key relationships
     api_keys: Mapped[List["ApiKey"]] = relationship(
         "ApiKey", back_populates="user", cascade="all, delete-orphan"
+    )
+
+    # Webhook relationships
+    webhooks: Mapped[List["Webhook"]] = relationship(
+        "Webhook", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

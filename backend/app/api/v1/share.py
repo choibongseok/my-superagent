@@ -4,10 +4,11 @@ Unauthenticated endpoint. Any task with a share_token can be viewed publicly.
 Supports JSON (Accept: application/json) or HTML (default, Jinja2 template).
 
 Usage:
-    GET /r/{share_token}          → HTML viewer with "Try AgentHQ" CTA
-    GET /r/{share_token}?fmt=json → raw JSON result for integrations
-    GET /r/compare?a={t1}&b={t2} → side-by-side diff of two task outputs (#209)
-    GET /r/compare?a={t1}&b={t2}&fmt=json → JSON diff for integrations
+    GET  /r/{share_token}            → HTML viewer with "Try AgentHQ" CTA
+    GET  /r/{share_token}?fmt=json   → raw JSON result for integrations
+    POST /r/{share_token}/try        → #220 Magic Link: anonymous 1-click re-run
+    GET  /r/compare?a={t1}&b={t2}    → side-by-side diff of two task outputs (#209)
+    GET  /r/compare?a={t1}&b={t2}&fmt=json → JSON diff for integrations
 
 IMPORTANT — route ordering: /r/compare MUST be registered before /r/{share_token}
 so that FastAPI does not swallow "compare" as a path parameter token.
@@ -23,11 +24,13 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import cache
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.task import Task, TaskStatus
 
@@ -347,6 +350,160 @@ async def _resolve_token(token_str: str, db: AsyncSession) -> Task:
             )
 
     return task
+
+
+# ---------------------------------------------------------------------------
+# #220 Magic Link Guest Access — anonymous 1-click re-run
+# ---------------------------------------------------------------------------
+
+_GUEST_TRY_KEY_PREFIX = "magic_link_try"
+
+
+def _extract_client_ip(request: Request) -> str:
+    """Extract best-effort client IP from proxy headers or connection."""
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        first_ip = xff.split(",")[0].strip()
+        if first_ip:
+            return first_ip
+    x_real = request.headers.get("X-Real-IP")
+    if x_real and x_real.strip():
+        return x_real.strip()
+    return request.client.host if request.client else "unknown"
+
+
+async def _check_guest_rate_limit(client_ip: str) -> bool:
+    """Check if anonymous guest has remaining tries today. Returns True if allowed."""
+    key = f"{_GUEST_TRY_KEY_PREFIX}:{client_ip}"
+    current = await cache.get(key)
+    count = int(current) if current is not None else 0
+    if count >= settings.ANONYMOUS_MAX_TRIES_PER_IP:
+        return False
+    await cache.set(key, count + 1, ttl=86400)  # 24h TTL
+    return True
+
+
+@router.post(
+    "/r/{share_token}/try",
+    include_in_schema=True,
+    tags=["share"],
+    summary="Magic Link — anonymous 1-click re-run (#220)",
+    response_model=None,
+)
+async def try_shared_task(
+    share_token: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Re-run a shared task anonymously.
+
+    No authentication required. The original task's prompt and type are reused.
+    Rate-limited by IP (default 3 tries/day per IP, configurable via
+    ``ANONYMOUS_MAX_TRIES_PER_IP``).
+
+    Returns the new task result (or a reference to poll).
+    """
+    # 1. Resolve original task
+    task = await _resolve_token(share_token, db)
+
+    # 2. IP-based rate limiting
+    client_ip = _extract_client_ip(request)
+    allowed = await _check_guest_rate_limit(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"Daily limit reached ({settings.ANONYMOUS_MAX_TRIES_PER_IP} "
+                f"free tries per day). Sign up for unlimited access!"
+            ),
+        )
+
+    # 3. Queue a new task using the same prompt/type (fire-and-forget via Celery)
+    from app.models.task import TaskType
+    from uuid import uuid4
+
+    guest_task_id = uuid4()
+    task_type_str = str(task.task_type.value if hasattr(task.task_type, "value") else task.task_type)
+
+    # Create a lightweight DB record so the task can be tracked
+    guest_task = Task(
+        id=guest_task_id,
+        user_id=task.user_id,  # attribute to original user for billing context
+        prompt=task.prompt,
+        task_type=task.task_type,
+        status=TaskStatus.PENDING,
+        task_metadata={"source": "magic_link", "original_task_id": str(task.id), "guest_ip": client_ip},
+    )
+    db.add(guest_task)
+    await db.commit()
+    await db.refresh(guest_task)
+
+    # 4. Dispatch to Celery
+    try:
+        from app.agents.celery_app import (
+            process_docs_task,
+            process_research_task,
+            process_sheets_task,
+            process_slides_task,
+        )
+
+        task_id_str = str(guest_task_id)
+        user_id_str = str(task.user_id)
+
+        if task_type_str == "research":
+            celery_result = process_research_task.apply_async(
+                args=[task_id_str, task.prompt, user_id_str]
+            )
+        elif task_type_str == "docs":
+            celery_result = process_docs_task.apply_async(
+                args=[task_id_str, task.prompt, user_id_str, "Guest Document"]
+            )
+        elif task_type_str == "sheets":
+            celery_result = process_sheets_task.apply_async(
+                args=[task_id_str, task.prompt, user_id_str, "Guest Spreadsheet"]
+            )
+        elif task_type_str == "slides":
+            celery_result = process_slides_task.apply_async(
+                args=[task_id_str, task.prompt, user_id_str, "Guest Presentation"]
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported task type for guest try: {task_type_str}",
+            )
+
+        guest_task.celery_task_id = celery_result.id
+        guest_task.status = TaskStatus.IN_PROGRESS
+        await db.commit()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        guest_task.status = TaskStatus.FAILED
+        guest_task.error_message = f"Failed to queue guest task: {str(e)}"
+        await db.commit()
+        logger.error(f"Magic link task queue failed: {e}")
+
+    # 5. Store a short-lived result pointer in cache for easy lookup
+    result_cache_key = f"magic_link_result:{guest_task_id}"
+    await cache.set(
+        result_cache_key,
+        {"task_id": str(guest_task_id), "status": str(guest_task.status.value)},
+        ttl=settings.ANONYMOUS_RESULT_TTL_SECONDS,
+    )
+
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content={
+            "task_id": str(guest_task_id),
+            "status": str(guest_task.status.value),
+            "message": "Task queued! Poll GET /r/{share_token} to see results, or check back soon.",
+            "original_prompt": task.prompt[:200],
+            "task_type": task_type_str,
+            "tries_remaining": max(0, settings.ANONYMOUS_MAX_TRIES_PER_IP - (int(await cache.get(f"{_GUEST_TRY_KEY_PREFIX}:{client_ip}") or 0))),
+            "signup_url": f"https://agenthq.io?ref=magic_link&token={share_token}",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
