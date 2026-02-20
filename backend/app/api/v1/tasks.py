@@ -409,6 +409,48 @@ async def create_share_link(
     )
 
 
+@router.get("/{task_id}/recovery")
+async def get_error_recovery(
+    task_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Get user-friendly error recovery info for a failed task.
+
+    Returns actionable suggestions so the frontend can render helpful
+    recovery UI instead of raw technical error messages.
+
+    Only available for tasks in FAILED status.
+    """
+    from app.services.error_recovery import classify_error, error_to_dict
+
+    result = await db.execute(
+        select(TaskModel).where(
+            TaskModel.id == task_id,
+            TaskModel.user_id == current_user.id,
+        )
+    )
+    task = result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )
+
+    if task.status != TaskStatus.FAILED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Recovery info is only available for failed tasks (current status: {task.status})",
+        )
+
+    friendly = classify_error(task.error_message)
+    return {
+        "task_id": str(task.id),
+        "error": error_to_dict(friendly),
+    }
+
+
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_task(
     task_id: UUID,
