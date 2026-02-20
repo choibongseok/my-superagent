@@ -17482,3 +17482,232 @@ Slack 메시지:
 
 **작성 완료**: 2026-02-19 07:20 UTC
 **총 아이디어**: **222개** (기존 219개 + 신규 3개: #220-222)
+
+---
+
+## 🚀 Phase 42: 인프라 자산 활용 극대화 — WebSocket·Webhook·QA 기반 신규 가치 (2026-02-20 13:20 UTC)
+
+> **Phase 42 배포 카운터**: 이번 주 배포 기능 **10+개** 🎉
+> - #200 share.py ✅, #203 task retry ✅, #206 share expiry ✅, #208 shared prompts ✅, 
+> - #209 diff viewer ✅, #210 nudge emails ✅, #214 one-metric dashboard ✅,
+> - #219 developer API ✅, #223 task health monitor ✅, WebSocket heartbeat ✅
+> - 보안 픽스: path traversal + SQL injection ✅, 모델 관계 수정 ✅
+> - 테스트: 720 → 758 (38개 추가)
+>
+> **실행 전환 완료**: Phase 33에서 "아이디어 중단, 실행 시작" 선언 후 드디어 실행 속도가 아이디어 생성을 압도. 
+> **지금 가장 가치있는 일**: 방금 만든 인프라(WebSocket·Webhook·Scheduler·QA)를 사용자 가치로 연결하는 것.
+
+---
+
+### ⚡ Idea #226: "Real-Time Task Progress Stream" — 작업 과정을 실시간으로 보여준다 📡🔄
+
+**날짜**: 2026-02-20 13:20 UTC
+**우선순위**: 🔥 CRITICAL
+**개발 기간**: **2일 (~120줄)**
+**AI 비용**: $0
+
+**핵심 문제**:
+- 현재 Task 실행 시 사용자에게 보이는 것: `pending...` → (30초 침묵) → `completed` 😓
+- 30초 동안 "작동하고 있긴 한 건지?" 불안감 → 탭 이탈 → 결과를 못 봄 ❌
+- WebSocket 인프라가 방금 완성됨(`3890260` heartbeat + `/ws/stats`) → 사용자에게 노출만 하면 됨
+- **경쟁사 현황**:
+  - ChatGPT: 타이핑 애니메이션으로 실시간 체감 ✅
+  - Notion AI: 실시간 텍스트 스트리밍 ✅
+  - **AgentHQ: 진행 표시 없음 → UX 최약점** ❌
+
+**제안 솔루션**:
+```
+Task 실행 중 WebSocket으로 단계별 진행 상태를 실시간 전송:
+[1/4] 🔍 리서치 중... (웹 검색 3건 완료)
+[2/4] 📝 초안 작성 중... (1,200자 생성됨)
+[3/4] 📊 차트 생성 중...
+[4/4] ✅ Google Docs에 저장 완료!
+```
+
+**핵심 기능**:
+1. **Progress Event Emitter**: Celery Task 내부에서 단계별 진행 이벤트 발행 (~30줄)
+2. **WebSocket Broadcast**: `/ws/tasks/{id}/progress` → 해당 Task 구독자에게 실시간 전송 (~40줄)
+3. **Frontend Progress Bar**: 단계 표시 + 진행률 + 현재 동작 설명 (~50줄 HTML/JS)
+4. 기존 WebSocket heartbeat 인프라(`core/websocket.py`) 100% 재사용
+
+**Graduation Gate 통과**:
+- ✅ 오늘 착수 가능 (WebSocket 인프라 이미 완성)
+- ✅ 200줄 이하 (~120줄)
+- ✅ 배포 날짜: 2026-02-22 (2일)
+
+**예상 임팩트**:
+- 😊 **Task 완료 대기 이탈률**: 40% → 10% (-75%, 진행 보이면 기다림)
+- ⚡ **체감 속도**: 실제 시간 동일해도 "빠르게 느낌" (진행바 심리 효과)
+- 🏆 **경쟁 열위 해소**: ChatGPT/Notion 수준의 실시간 피드백 달성
+- 🔗 **#215 Slack 알림 시너지**: 진행 이벤트 → Slack에도 실시간 전송 가능
+
+**경쟁 우위**: WebSocket → 실시간 단계별 진행 = **"AI가 지금 뭘 하고 있는지 투명하게 보여주는 유일한 Workspace AI"** ⭐⭐⭐⭐⭐
+
+---
+
+### ⚡ Idea #227: "Smart Task Chaining" — 작업이 끝나면 다음 작업이 자동으로 시작된다 🔗⚡
+
+**날짜**: 2026-02-20 13:20 UTC
+**우선순위**: 🔥 HIGH
+**개발 기간**: **2일(~150줄)**
+**AI 비용**: $0
+
+**핵심 문제**:
+- 사용자의 실제 워크플로우는 단일 Task가 아님: "리서치 → Sheets 정리 → Docs 리포트 → Slides 발표" 😓
+- 현재 각 단계를 수동으로 실행 → 3단계 워크플로우에 15분 대기 + 3번 프롬프트 작성 ❌
+- Webhook(`webhooks.py` 325줄) + Scheduler(`scheduler.py` 192줄) + Task Retry가 방금 구현됨 → 체이닝 기반이 완성됨
+- **기존 아이디어와 차별점**: #221 Recurring Scheduler는 "같은 작업 반복". 이 아이디어는 **"다른 작업을 순차 연결"** (파이프라인)
+- **경쟁사 현황**:
+  - Zapier: 워크플로우 체이닝 ✅ (범용, 복잡)
+  - ChatGPT: 체이닝 없음 ❌
+  - **AgentHQ: 단일 Task만 가능 → 자동화의 최대 장벽** ❌
+
+**제안 솔루션**:
+```python
+# Task 완료 시 "다음 Task 자동 실행" 설정
+POST /api/v1/tasks/{id}/chain
+{
+  "next_prompt": "위 리서치 결과를 기반으로 경영진 보고 슬라이드 10장을 만들어줘",
+  "next_type": "slides",
+  "condition": "on_success"  # on_success | on_failure | always
+}
+
+# 흐름: Research Task 완료 → result를 next_prompt 컨텍스트에 주입 → Slides Task 자동 생성
+```
+
+**핵심 기능**:
+1. **TaskChain 모델**: `task_id → next_prompt, next_type, condition` (~25줄 migration)
+2. **Chain Trigger**: Task 완료 시 체인 확인 → 다음 Task 자동 생성 (~40줄, Celery signal)
+3. **Result Injection**: 이전 Task 결과를 다음 Task 프롬프트에 자동 주입 (~30줄)
+4. **Chain View API**: `GET /tasks/{id}/chain` → 체인 전체 상태 조회 (~25줄)
+5. **UI**: Task 완료 화면에 "다음 단계 연결 ➡️" 버튼 (~30줄 Jinja2)
+
+**Graduation Gate 통과**:
+- ✅ 오늘 착수 가능 (Webhook + Scheduler 인프라 위에 구축)
+- ✅ 200줄 이하 (~150줄)
+- ✅ 배포 날짜: 2026-02-22 (2일)
+
+**예상 임팩트**:
+- 🔗 **워크플로우 자동화**: 3단계 수동 → 1클릭 자동 체이닝
+- ⏱️ **시간 절감**: 15분 대기 → 0분 (자동 연결)
+- 🔒 **고착도**: 체인이 복잡할수록 AgentHQ 의존도 증가 → Churn -30%
+- 💼 **Enterprise 킬러 기능**: "리서치→분석→보고서→발표자료" 원클릭 = CTO 즉시 구매 결정
+
+**경쟁 우위**: Zapier(범용 복잡) vs **AgentHQ: Google Workspace 특화 1-click 체이닝** ⭐⭐⭐⭐⭐
+
+---
+
+### ⚡ Idea #228: "Quality Score Badge" — 모든 결과물에 AI 품질 점수를 표시한다 🏅📊
+
+**날짜**: 2026-02-20 13:20 UTC
+**우선순위**: 🔥 HIGH
+**개발 기간**: **1.5일 (~100줄)**
+**AI 비용**: ~$0.005/Task (GPT-4o-mini 평가)
+
+**핵심 문제**:
+- 사용자가 AI 결과물의 품질을 판단할 방법이 없음 → "이거 쓸 만한 건가?" 불확실성 😓
+- QA Service(`qa_service.py` 557줄!) + QAResult 모델이 방금 구현됨 → 데이터는 있지만 사용자에게 안 보임 ❌
+- 같은 프롬프트로 3번 실행해도 어느 결과가 더 좋은지 비교 불가 (Diff Viewer #209는 내용 비교만)
+- **경쟁사 현황**:
+  - Grammarly: 문서 점수 (0-100) 표시 ✅
+  - ChatGPT/Notion: 품질 점수 없음 ❌
+  - **AgentHQ: QA 백엔드는 있는데 프론트엔드 노출 없음** ❌
+
+**제안 솔루션**:
+```
+Task 완료 시 QA Service가 자동으로 품질 평가:
+━━━━━━━━━━━━━━━━━━━━━━
+📄 Q4 영업 분석 리포트
+🏅 품질 점수: 87/100
+  ✅ 구조 완성도: 95/100
+  ✅ 데이터 정확성: 90/100
+  ⚠️ 인용 출처: 72/100 (2개 출처 누락)
+  ✅ 가독성: 91/100
+━━━━━━━━━━━━━━━━━━━━━━
+💡 개선 제안: "인용 출처 2개를 추가하면 92점으로 올라갑니다"
+```
+
+**핵심 기능**:
+1. **Auto-QA Trigger**: Task 완료 시 QA Service 자동 실행 → QAResult 저장 (~20줄 Celery hook)
+2. **Score Badge API**: `GET /tasks/{id}/quality` → 점수 + 세부 항목 반환 (~20줄)
+3. **Share.py 통합**: 공유 링크에 품질 배지 자동 표시 (~15줄 HTML)
+4. **개선 제안**: 가장 낮은 항목에 대한 1-line 개선 팁 생성 (~25줄)
+5. **Task 목록**: 품질 점수 컬럼 추가 → 정렬/필터 가능 (~20줄)
+
+**Graduation Gate 통과**:
+- ✅ 오늘 착수 가능 (QA Service 557줄 이미 구현됨!)
+- ✅ 200줄 이하 (~100줄)
+- ✅ 배포 날짜: 2026-02-22 (1.5일)
+
+**예상 임팩트**:
+- 🏅 **신뢰도 극대화**: "AI가 스스로 품질을 평가하고 투명하게 공개" → 사용자 신뢰 +50%
+- 📊 **품질 개선 루프**: 낮은 점수 → 프롬프트 수정 → 재실행 → 점수 향상 (학습 루프)
+- 🔗 **Share.py 바이럴 강화**: "87점짜리 리포트입니다" → 공유 시 호기심 유발
+- 💼 **Enterprise 차별화**: "품질 보증된 AI 결과물" = 규제/감사 대응
+
+**경쟁 우위**: Grammarly(문법만) vs **AgentHQ: 구조·정확성·인용·가독성 종합 품질 평가** ⭐⭐⭐⭐⭐
+
+---
+
+## 📊 Phase 42 요약
+
+| ID | 아이디어 | 기반 인프라 | 기간 | 코드량 | AI 비용 | Gate |
+|----|----------|-----------|------|--------|---------|------|
+| #226 | Real-Time Task Progress Stream | WebSocket heartbeat (`3890260`) | 2일 | ~120줄 | $0 | ✅ |
+| #227 | Smart Task Chaining | Webhook + Scheduler (`webhooks.py`, `scheduler.py`) | 2일 | ~150줄 | $0 | ✅ |
+| #228 | Quality Score Badge | QA Service (`qa_service.py` 557줄) | 1.5일 | ~100줄 | $0.005 | ✅ |
+
+**합계**: 5.5일, 370줄, AI 비용 거의 무료
+
+**Phase 42 핵심 전략**: "인프라를 만들었으면, 그 위에 사용자 가치를 쌓아라"
+- WebSocket → #226 실시간 진행
+- Webhook + Scheduler → #227 자동 체이닝
+- QA Service → #228 품질 배지
+
+---
+
+## 💬 기획자 Phase 42 회고 및 방향성 피드백 (2026-02-20 13:20 UTC)
+
+### 📊 최근 개발 방향성 평가: ⭐⭐⭐⭐⭐ (실행 혁명!)
+
+**🎉 축하할 것들**:
+1. **배포 10+건** — Phase 33에서 "0건 배포" 위기 이후 극적 전환. 실행력이 드디어 폭발.
+2. **보안 수정** — BugFixer가 path traversal + SQL injection 선제 발견 → Enterprise 수준 보안
+3. **테스트 758개** — Factory Implementer가 38개 추가. 커버리지 자산 축적.
+4. **Dev Codex가 #225 Smart Error Recovery 착수** — 기획자 아이디어가 실시간으로 구현되는 첫 사례!
+
+**✅ 방향이 맞는 것들**:
+- WebSocket + Webhook + Scheduler + QA Service = **자동화 인프라 4종 세트** 완성
+- 이 4개가 동시에 있으면 "AI 워크플로우 플랫폼"의 기반이 됨
+- Phase 42 아이디어 3개가 정확히 이 인프라 위에 구축됨
+
+**⚠️ 틀어야 할 것**:
+- **프론트엔드 사용자 경험**: 백엔드는 Enterprise급인데, 사용자가 이걸 경험할 UI가 여전히 약함
+  - WebSocket 실시간 진행(#226)을 만들어도 보여줄 프론트엔드 없으면 가치 = 0
+  - **권고**: #226은 Jinja2 HTML로 MVP 먼저, React는 나중에
+- **API 문서화**: Developer API(#219) 배포됐지만, API docs가 없으면 외부 개발자 채택 불가
+  - **권고**: Swagger/OpenAPI 자동 생성(FastAPI 기본 제공) 활성화 필수
+
+### 🎯 설계자 에이전트 기술 검토 요청
+
+**Idea #226 (Real-Time Task Progress Stream)**:
+- Celery Task 내부에서 WebSocket으로 이벤트 전송 방법: `redis pub/sub` → WebSocket broadcast vs 직접 WebSocket 연결?
+- 기존 `core/websocket.py` heartbeat과 progress stream 공존 시 채널 분리 전략
+- 브라우저 탭이 닫혀 있을 때 progress 이벤트 유실 처리 (reconnect 시 최신 상태 복구)
+
+**Idea #227 (Smart Task Chaining)**:
+- TaskChain 실행 중 중간 Task 실패 시 전체 체인 롤백? 아니면 실패 지점에서 중단 후 재시작?
+- 체인에 condition 분기(on_success/on_failure) 추가 시 복잡도 관리 방안
+- Result injection: 이전 Task 결과가 너무 길면(10,000토큰+) 요약 후 주입? 아니면 전체 주입?
+
+**Idea #228 (Quality Score Badge)**:
+- QA Service 자동 실행 시점: Task 완료 직후 동기 vs Celery 비동기 (사용자 체감 영향)
+- 품질 점수 계산에 GPT-4o-mini 사용 시 latency 추가 (~2-3초) → 사용자에게 "품질 평가 중..." 표시 필요?
+- share.py 공유 링크에 품질 점수 노출 시 "낮은 점수 문서"의 사용자 심리 대응
+
+---
+
+**작성 완료**: 2026-02-20 13:20 UTC
+**총 아이디어**: **228개** (기존 225개 + 신규 3개: #226-228)
+**Phase 42 예상 임팩트**: UX 체감 속도 +75%, 워크플로우 자동화, 품질 투명성
+**실행 가속 핵심**: 인프라(WebSocket·Webhook·QA) → 사용자 가치(진행 표시·체이닝·품질 배지) 연결
