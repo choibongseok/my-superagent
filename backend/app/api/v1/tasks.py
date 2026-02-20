@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
 from app.core.database import get_db
+from app.core.websocket import manager as ws_manager
 from app.models.task import Task as TaskModel
 from app.models.task import TaskStatus, TaskType
 from app.models.user import User
@@ -98,6 +99,9 @@ async def create_task(
     await db.commit()
     await db.refresh(task)
     
+    # Emit WebSocket event: task created
+    await ws_manager.task_created(current_user.id, task.id, str(task_data.task_type.value))
+
     # Queue task to Celery based on task_type
     try:
         from app.agents.celery_app import (
@@ -147,6 +151,7 @@ async def create_task(
         task.error_message = f"Failed to queue task: {str(e)}"
         await db.commit()
         logger.error(f"Failed to queue task {task.id}: {str(e)}")
+        await ws_manager.task_failed(current_user.id, task.id, str(e))
     
     return task
 
@@ -288,6 +293,10 @@ async def retry_task(
     await db.commit()
     await db.refresh(retry_task_obj)
 
+    # Emit WebSocket event: retry task created
+    task_type_val = str(original.task_type.value if hasattr(original.task_type, "value") else original.task_type)
+    await ws_manager.task_created(current_user.id, retry_task_obj.id, task_type_val)
+
     # Queue to Celery (mirrors create_task logic)
     try:
         from app.agents.celery_app import (
@@ -334,6 +343,7 @@ async def retry_task(
         await db.commit()
         await db.refresh(retry_task_obj)
         logger.error(f"Failed to queue retry for task {task_id}: {str(e)}")
+        await ws_manager.task_failed(current_user.id, retry_task_obj.id, str(e))
 
     return retry_task_obj
 
@@ -436,7 +446,10 @@ async def cancel_task(
     # Update task status
     task.status = TaskStatus.CANCELLED
     await db.commit()
-    
+
+    # Emit WebSocket event: task cancelled
+    await ws_manager.task_cancelled(current_user.id, task.id)
+
     # Cancel Celery task if it exists
     if task.celery_task_id:
         try:

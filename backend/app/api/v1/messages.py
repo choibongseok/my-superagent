@@ -121,58 +121,99 @@ async def websocket_endpoint(
     websocket: WebSocket,
     token: str,
 ):
-    """WebSocket endpoint for real-time messaging."""
-    # Authenticate user via JWT token
+    """WebSocket endpoint for real-time messaging and events.
+
+    Supported client message types:
+        join_chat   – { "type": "join_chat", "chat_id": "<uuid>" }
+        leave_chat  – { "type": "leave_chat", "chat_id": "<uuid>" }
+        ping        – { "type": "ping" }  (keepalive reply)
+        pong        – { "type": "pong" }  (heartbeat ack)
+        typing      – { "type": "typing", "chat_id": "<uuid>", "active": true|false }
+        get_presence – { "type": "get_presence" }
+        subscribe_tasks – { "type": "subscribe_tasks" } (opt-in for task events)
+
+    Server-pushed event types (see EventType enum):
+        new_message, task_created, task_progress, task_completed,
+        task_failed, task_cancelled, typing_start, typing_stop,
+        user_online, user_offline, presence_list, server_heartbeat
+    """
     from app.core.security import decode_token
-    from uuid import UUID
+    from uuid import UUID as _UUID
 
     try:
-        # Decode JWT token
         payload = decode_token(
             token,
             expected_type="access",
             required_claims=("sub",),
         )
-
         if not payload:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
-
-        user_id_str = payload["sub"]
-
-        user_id = UUID(user_id_str)
+        user_id = _UUID(payload["sub"])
     except Exception as e:
         logger.error(f"WebSocket authentication failed: {e}")
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    await manager.connect(websocket, user_id)
+    conn = await manager.connect(websocket, user_id)
+
+    # Send initial presence list to the new connection
+    await manager.send_presence_list(user_id)
 
     try:
         while True:
-            # Receive message from client
             data = await websocket.receive_json()
-
             message_type = data.get("type")
 
             if message_type == "join_chat":
-                chat_id = UUID(data.get("chat_id"))
-                manager.join_chat(chat_id, user_id)
+                chat_id = _UUID(data["chat_id"])
+                manager.join_chat(chat_id, user_id, websocket)
                 await websocket.send_json({
                     "type": "joined_chat",
                     "chat_id": str(chat_id),
                 })
 
             elif message_type == "leave_chat":
-                chat_id = UUID(data.get("chat_id"))
-                manager.leave_chat(chat_id, user_id)
+                chat_id = _UUID(data["chat_id"])
+                manager.leave_chat(chat_id, user_id, websocket)
                 await websocket.send_json({
                     "type": "left_chat",
                     "chat_id": str(chat_id),
                 })
 
             elif message_type == "ping":
+                manager.record_pong(websocket, user_id)
                 await websocket.send_json({"type": "pong"})
+
+            elif message_type == "pong":
+                # Client acknowledging a server heartbeat
+                manager.record_pong(websocket, user_id)
+
+            elif message_type == "typing":
+                chat_id_str = data.get("chat_id")
+                if chat_id_str:
+                    chat_id = _UUID(chat_id_str)
+                    active = data.get("active", True)
+                    if active:
+                        await manager.typing_start(chat_id, user_id)
+                    else:
+                        await manager.typing_stop(chat_id, user_id)
+
+            elif message_type == "get_presence":
+                await manager.send_presence_list(user_id)
+
+            elif message_type == "subscribe_tasks":
+                # Acknowledgement — task events already go to the user
+                await websocket.send_json({
+                    "type": "subscribed",
+                    "channel": "tasks",
+                })
+
+            else:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Unknown message type: {message_type}",
+                })
 
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)
