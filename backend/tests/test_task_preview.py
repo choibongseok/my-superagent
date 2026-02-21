@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.services.task_preview import (
@@ -50,12 +51,18 @@ def svc():
     return TaskPreviewService()
 
 
-@pytest.fixture
-def client():
+@pytest_asyncio.fixture
+async def client(db):
+    """Async HTTP client with DB override so routes see the test tables."""
     from app.main import app
+    from app.core.database import get_db
+    from tests.conftest import _override_get_db
 
+    app.dependency_overrides[get_db] = _override_get_db
     transport = ASGITransport(app=app)
-    return AsyncClient(transport=transport, base_url="http://test")
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+    app.dependency_overrides.clear()
 
 
 async def _make_user(db) -> "User":
