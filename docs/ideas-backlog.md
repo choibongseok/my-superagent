@@ -18190,3 +18190,121 @@ POST /api/v1/dev/natural
 **작성 완료**: 2026-02-21 05:20 UTC
 **총 아이디어**: **236개** (기존 234개 + 신규 2개: #235-236)
 **Phase 46 방향**: 모라토리엄 존중, 최근 구현 위 적층만. 다음 우선순위: git remote + Test Coverage Sprint
+
+---
+
+## Phase 47: 실행 전환 + 사용자 접점 확보 (2026-02-21 AM 07:20 UTC)
+
+> 아이디어 모라토리엄 계속 존중 — 실행 비율 끌어올리기 위한 "접점" 아이디어 2개만 추가
+
+### 💡 Idea #237: "Zero-Config Demo Sandbox" — 설치 3분, 체험 즉시 🎮🚀
+
+**날짜**: 2026-02-21 07:20 UTC
+**우선순위**: 🔥🔥 CRITICAL-HIGH
+**개발 기간**: **2일 (~200줄)**
+**AI 비용**: $0
+
+**핵심 문제**:
+- 현재 AgentHQ를 체험하려면: Google Cloud 프로젝트 생성 → OAuth 설정 → API 활성화 → credentials.json → .env 설정 → Docker → DB 마이그레이션 → 서버 실행 = **최소 40분**
+- 이 설치 장벽이 사라지지 않는 한 **어떤 기능을 만들어도 아무도 써보지 못함**
+- 236개 아이디어, 25+ 배포된 기능 — 그런데 **실제 외부 사용자 = 0**
+- **경쟁사 현황**:
+  - Notion AI: 가입 즉시 사용 ✅
+  - Copilot: VS Code 설치하면 끝 ✅
+  - ChatGPT: 브라우저 열면 끝 ✅
+  - **AgentHQ: 40분 설정 후에도 Google API 인증 오류 가능** ❌❌
+
+**제안 솔루션**:
+```bash
+# 사용자 경험
+./scripts/demo.sh
+# → Docker 올라오고, Mock Google API로 즉시 동작
+# → 샘플 Task 3개 자동 생성 (Docs, Sheets, Slides)
+# → "http://localhost:8000 접속하세요" 표시
+# → 모든 Agent가 Mock 모드로 동작 — 실제 구글 API 불필요
+```
+
+**핵심 기능**:
+1. **MockGoogleService**: Google Docs/Sheets/Slides API를 시뮬레이션하는 Mock 클래스 (~80줄)
+2. **demo.sh**: 환경 변수 자동 설정 + Docker Compose demo profile (~30줄)
+3. **Seed Data**: 샘플 사용자/Task/결과 데이터 자동 생성 (~50줄, management command)
+4. **Demo Banner**: UI에 "데모 모드입니다. Google 연동하면 실제 문서가 생성됩니다" 표시 (~20줄)
+5. **One-Click Upgrade**: demo → production 전환 가이드 (~20줄 docs)
+
+**Graduation Gate 통과**:
+- ✅ 오늘 착수 가능 (Docker Compose + FastAPI 모두 존재)
+- ✅ 200줄 이하 (~200줄)
+- ✅ 배포 날짜: 2026-02-24
+
+**예상 임팩트**:
+- 🚀 **온보딩 시간 40분 → 3분**: "git clone + ./demo.sh" 끝
+- 👥 **첫 외부 사용자 확보**: GitHub README에 "Try it in 3 minutes" 배지
+- 📊 **모든 기존 기능의 ROI 실현**: Preview, Fallback, QA Score, ROI Dashboard 전부 demo에서 체험 가능
+- 🔄 **피드백 루프 시작**: 사용자가 써봐야 피드백이 생기고, 피드백이 있어야 방향이 맞는지 알 수 있음
+
+**경쟁 우위**: 대부분의 오픈소스 AI 도구가 복잡한 설정을 요구하는데, **3분 데모**는 즉시 차별화 ⭐⭐⭐⭐⭐
+
+---
+
+### 💡 Idea #238: "Agent CLI" — 개발자가 가장 좋아하는 인터페이스 ⌨️✨
+
+**날짜**: 2026-02-21 07:20 UTC
+**우선순위**: 🔥 HIGH
+**개발 기간**: **2.5일 (~250줄)**
+**AI 비용**: $0
+
+**핵심 문제**:
+- Desktop(Tauri)과 Mobile(Flutter)이 있지만 **백엔드 기능과 연결 안 됨** (11회 연속 권고)
+- React 풀 프론트엔드를 만들기엔 시간/인력 부족
+- **개발자(=1차 타겟)는 CLI를 더 좋아함** — gh, stripe, vercel, railway 모두 CLI-first
+- 231번 Conversational API Gateway도 결국 "자연어로 API 호출"인데, **CLI가 그 인터페이스가 되면 자연스러움**
+
+**제안 솔루션**:
+```bash
+# 설치
+pip install agenthq-cli
+
+# 사용
+agenthq login                           # Google OAuth
+agenthq create "Q4 영업 보고서" --type docs
+agenthq create "매출 분석" --type sheets --preview  # #234 Preview 연동
+agenthq status <task-id>                # 실시간 상태
+agenthq list --this-week                # 이번 주 Task 목록
+agenthq roi                             # #230 ROI Dashboard
+agenthq streak                          # Streak/Achievement 표시
+agenthq chat "지난주 만든 스프레드시트 보여줘"  # #231 Natural API
+```
+
+**핵심 기능**:
+1. **Click/Typer 기반 CLI 프레임워크**: 명령어 구조 정의 (~60줄)
+2. **API Client**: FastAPI 백엔드와 HTTP 통신 (~50줄)
+3. **OAuth Flow**: localhost redirect로 브라우저 인증 (~40줄)
+4. **Rich Output**: rich 라이브러리로 테이블/프로그레스바/이모지 출력 (~50줄)
+5. **Task CRUD**: create/status/list/cancel 명령어 (~50줄)
+
+**Graduation Gate 통과**:
+- ✅ 오늘 착수 가능 (모든 API 엔드포인트 존재)
+- ⚠️ 250줄 (Gate 상한 초과, 단 MVP는 150줄로 가능 — create + status + list만)
+- ✅ 배포 날짜: 2026-02-25
+
+**예상 임팩트**:
+- 🖥️ **프론트엔드 없이 풀 기능 제공**: CLI 하나로 모든 백엔드 기능 접근
+- 🔧 **개발자 DX 1위**: stripe/gh 수준의 CLI = 개발자 커뮤니티에서 입소문
+- 📦 **pip install 한 줄**: 배포·업데이트·버전 관리 자동화
+- 🔗 **CI/CD 연동**: `agenthq create` → GitHub Actions에서 자동 리포트 생성 파이프라인
+
+**경쟁 우위**: Notion AI(웹만) / Google Workspace Add-ons(느림) vs **AgentHQ CLI: 터미널에서 즉시 실행** ⭐⭐⭐⭐⭐
+
+---
+
+## 📊 Phase 47 요약
+
+| ID | 아이디어 | 기반 | 기간 | 코드량 | Gate |
+|----|----------|------|------|--------|------|
+| #237 | Zero-Config Demo Sandbox | Docker + FastAPI + Mock | 2일 | ~200줄 | ✅ |
+| #238 | Agent CLI | Click/Typer + REST API | 2.5일 | ~250줄 | ⚠️ (MVP 150줄 가능) |
+
+**핵심 전략**: "기능을 더 만드는 것"이 아니라 "만든 기능을 사용자에게 전달하는 것"
+
+---
+
