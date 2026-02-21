@@ -74,3 +74,54 @@ class TaskList(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ── Interactive Task Preview (#234) ──────────────────────────────────
+
+
+class TaskPreviewRequest(BaseModel):
+    """Request schema for generating a task preview."""
+
+    prompt: str = Field(..., min_length=1, max_length=5000)
+    task_type: TaskType
+    metadata: Optional[Dict[str, Any]] = None
+    smart: bool = Field(
+        default=False,
+        description="Use LLM to generate contextual step descriptions instead of heuristic templates.",
+    )
+
+
+class TaskPreviewStep(BaseModel):
+    """A single step in the execution preview."""
+
+    order: int
+    description: str
+    agent_type: str
+    detail: str = ""
+
+
+class TaskPreviewModifyRequest(BaseModel):
+    """Request to modify the prompt of an existing preview and regenerate."""
+
+    prompt: str = Field(..., min_length=1, max_length=5000)
+    smart: bool = Field(default=False)
+
+
+class TaskPreviewResponse(BaseModel):
+    """Response schema for task preview."""
+
+    preview_id: str
+    prompt: str
+    task_type: str
+    steps: list[TaskPreviewStep]
+    output_format: str
+    estimated_time_seconds: int
+    estimated_cost_usd: float
+    estimated_tokens: int
+    notes: list[str] = Field(default_factory=list)
+    metadata: Optional[Dict[str, Any]] = None
+    smart: bool = Field(default=False, description="Whether LLM was used for this preview.")
+    original_prompt: Optional[str] = Field(
+        default=None,
+        description="If this preview was modified, the original prompt before modification.",
+    )

@@ -15,7 +15,16 @@ from app.core.websocket import manager as ws_manager
 from app.models.task import Task as TaskModel
 from app.models.task import TaskStatus, TaskType
 from app.models.user import User
-from app.schemas.task import ShareLinkResponse, Task, TaskCreate, TaskList
+from app.schemas.task import (
+    ShareLinkResponse,
+    Task,
+    TaskCreate,
+    TaskList,
+    TaskPreviewModifyRequest,
+    TaskPreviewRequest,
+    TaskPreviewResponse,
+    TaskPreviewStep,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -153,6 +162,253 @@ async def create_task(
         logger.error(f"Failed to queue task {task.id}: {str(e)}")
         await ws_manager.task_failed(current_user.id, task.id, str(e))
     
+    return task
+
+
+def _preview_to_response(preview) -> TaskPreviewResponse:
+    """Convert a PreviewResult to a TaskPreviewResponse."""
+    return TaskPreviewResponse(
+        preview_id=preview.preview_id,
+        prompt=preview.prompt,
+        task_type=preview.task_type,
+        steps=[
+            TaskPreviewStep(
+                order=s.order,
+                description=s.description,
+                agent_type=s.agent_type,
+                detail=s.detail,
+            )
+            for s in preview.steps
+        ],
+        output_format=preview.output_format,
+        estimated_time_seconds=preview.estimated_time_seconds,
+        estimated_cost_usd=preview.estimated_cost_usd,
+        estimated_tokens=preview.estimated_tokens,
+        notes=preview.notes,
+        metadata=preview.metadata,
+        smart=getattr(preview, "smart", False),
+        original_prompt=getattr(preview, "original_prompt", None),
+    )
+
+
+async def _get_llm_caller():
+    """Build a lightweight LLM caller for smart previews.
+
+    Returns None if no API key is available (triggers heuristic fallback).
+    """
+    from app.core.config import settings
+
+    api_key = getattr(settings, "OPENAI_API_KEY", None)
+    if not api_key:
+        return None
+
+    async def caller(system_prompt: str, user_prompt: str) -> str:
+        from langchain_openai import ChatOpenAI
+        from langchain_core.messages import SystemMessage, HumanMessage
+
+        llm = ChatOpenAI(
+            model="gpt-3.5-turbo",
+            temperature=0.3,
+            max_tokens=1000,
+            api_key=api_key,
+        )
+        resp = await llm.ainvoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt),
+        ])
+        return resp.content
+
+    return caller
+
+
+@router.post("/preview", response_model=TaskPreviewResponse)
+async def preview_task(
+    request: TaskPreviewRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """Generate an execution preview for a task without running it.
+
+    Returns a step-by-step plan with estimated time, cost, and tokens.
+    The preview is cached for 10 minutes. Use the returned ``preview_id``
+    to execute the task via ``POST /tasks/preview/{preview_id}/execute``.
+
+    Set ``smart=true`` to use an LLM for contextual step descriptions
+    (falls back to heuristic if the LLM is unavailable).
+    """
+    from app.services.task_preview import TaskPreviewService
+
+    svc = TaskPreviewService()
+    task_type = request.task_type.value if hasattr(request.task_type, "value") else str(request.task_type)
+
+    if request.smart:
+        llm_caller = await _get_llm_caller()
+        preview = await svc.generate_smart_preview(
+            prompt=request.prompt,
+            task_type=task_type,
+            metadata=request.metadata,
+            user_id=str(current_user.id),
+            llm_caller=llm_caller,
+        )
+    else:
+        preview = svc.generate_preview(
+            prompt=request.prompt,
+            task_type=task_type,
+            metadata=request.metadata,
+            user_id=str(current_user.id),
+        )
+
+    return _preview_to_response(preview)
+
+
+@router.get("/preview/{preview_id}", response_model=TaskPreviewResponse)
+async def get_preview(
+    preview_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """Retrieve a cached task preview by ID.
+
+    Previews expire after 10 minutes.
+    """
+    from app.services.task_preview import TaskPreviewService
+
+    svc = TaskPreviewService()
+    preview = svc.get_preview(preview_id)
+
+    if preview is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Preview not found or expired",
+        )
+
+    return _preview_to_response(preview)
+
+
+@router.put("/preview/{preview_id}", response_model=TaskPreviewResponse)
+async def modify_preview(
+    preview_id: str,
+    request: TaskPreviewModifyRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """Modify the prompt of an existing preview and regenerate.
+
+    Consumes the old preview and returns a new one with a fresh
+    ``preview_id``.  The ``original_prompt`` field shows what was
+    changed from.
+
+    Set ``smart=true`` for LLM-powered regeneration.
+    """
+    from app.services.task_preview import TaskPreviewService
+
+    svc = TaskPreviewService()
+
+    if request.smart:
+        llm_caller = await _get_llm_caller()
+        preview = await svc.modify_preview_smart(
+            preview_id=preview_id,
+            new_prompt=request.prompt,
+            llm_caller=llm_caller,
+            user_id=str(current_user.id),
+        )
+    else:
+        preview = svc.modify_preview(
+            preview_id=preview_id,
+            new_prompt=request.prompt,
+            user_id=str(current_user.id),
+        )
+
+    if preview is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Preview not found, expired, or already executed",
+        )
+
+    return _preview_to_response(preview)
+
+
+@router.post("/preview/{preview_id}/execute", response_model=Task, status_code=status.HTTP_201_CREATED)
+async def execute_preview(
+    preview_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Execute a previously generated preview.
+
+    Consumes the preview (single-use) and creates a real task from
+    the previewed prompt and task type.
+    """
+    from app.services.task_preview import TaskPreviewService
+
+    svc = TaskPreviewService()
+    preview = svc.consume_preview(preview_id)
+
+    if preview is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Preview not found, expired, or already executed",
+        )
+
+    # Create the task from the preview
+    task_type_val = preview.task_type
+    task_kwargs = _build_task_kwargs(
+        user_id=current_user.id,
+        prompt=preview.prompt,
+        task_type=task_type_val,
+        metadata=preview.metadata,
+    )
+    task = TaskModel(**task_kwargs)
+
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
+
+    await ws_manager.task_created(current_user.id, task.id, task_type_val)
+
+    # Queue to Celery
+    try:
+        from app.agents.celery_app import (
+            process_research_task,
+            process_docs_task,
+            process_sheets_task,
+            process_slides_task,
+        )
+
+        task_id_str = str(task.id)
+        user_id_str = str(current_user.id)
+
+        if task_type_val == "research":
+            celery_task = process_research_task.apply_async(
+                args=[task_id_str, preview.prompt, user_id_str]
+            )
+        elif task_type_val == "docs":
+            title = _resolve_task_title("docs", preview.metadata)
+            celery_task = process_docs_task.apply_async(
+                args=[task_id_str, preview.prompt, user_id_str, title]
+            )
+        elif task_type_val == "sheets":
+            title = _resolve_task_title("sheets", preview.metadata)
+            celery_task = process_sheets_task.apply_async(
+                args=[task_id_str, preview.prompt, user_id_str, title]
+            )
+        elif task_type_val == "slides":
+            title = _resolve_task_title("slides", preview.metadata)
+            celery_task = process_slides_task.apply_async(
+                args=[task_id_str, preview.prompt, user_id_str, title]
+            )
+        else:
+            raise ValueError(f"Unknown task type: {task_type_val}")
+
+        task.celery_task_id = celery_task.id
+        task.status = TaskStatus.IN_PROGRESS
+        await db.commit()
+        await db.refresh(task)
+
+    except Exception as e:
+        task.status = TaskStatus.FAILED
+        task.error_message = f"Failed to queue task: {str(e)}"
+        await db.commit()
+        logger.error(f"Failed to queue previewed task {task.id}: {str(e)}")
+        await ws_manager.task_failed(current_user.id, task.id, str(e))
+
     return task
 
 
