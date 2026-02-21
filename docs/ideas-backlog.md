@@ -18400,3 +18400,74 @@ POST /api/v1/pipelines/run {"template": "quarterly-report", "inputs": {...}}
 
 ---
 
+
+## 2026-02-21 PM 3:20 — Phase 49: "보이게 만들어라"
+
+> **전략 방향**: #239 Pipeline의 와우를 시각화(#241) + 결과물을 확산 엔진으로(#242)
+
+### 💡 Idea #241: "Live Agent Collaboration Feed — 미션 컨트롤 뷰" 🎬📡
+
+**날짜**: 2026-02-21 15:20 UTC
+**우선순위**: 🔥🔥 CRITICAL-HIGH
+**개발 기간**: 1일 (~100줄)
+**AI 비용**: $0
+
+**핵심 문제**:
+- Task 실행 시 사용자가 보는 것: "⏳ 처리 중..." → (대기) → 결과 = ChatGPT와 동일
+- Pipeline(#239)이 4개 에이전트를 실행해도, 사용자 눈에는 "긴 로딩"일 뿐
+- **멀티 에이전트가 일하는 모습을 보여줘야 차별점이 증거가 된다**
+
+**제안 솔루션**: WebSocket 기반 실시간 에이전트 활동 피드
+1. **WebSocket Activity Stream** (~40줄): Celery task 이벤트 → WebSocket 전달
+2. **Agent Status Component** (~30줄): 각 에이전트 Pending→Running→Completed 실시간 표시
+3. **Pipeline Progress Bar** (~30줄): 전체 진행률 (Step 2/4)
+
+**기술 기반**: WebSocket 재연결 로직(Phase 3), Celery task state 추적, LangFuse tracing 이미 존재
+
+**예상 임팩트**:
+- 🎬 데모 와우 팩터 10x: Pipeline이 "영화 같은 장면"이 됨
+- 🧠 멀티 에이전트 가치 즉각 체감
+- 🏆 이 UX를 제공하는 AI 도구는 현재 없음 — 유일한 차별화
+
+**경쟁 우위**: ChatGPT("..."), Notion(인라인 스트리밍), Copilot("Working...") vs **AgentHQ: 에이전트 4개 실시간 협업 시각화** ⭐⭐⭐⭐⭐
+
+---
+
+### 💡 Idea #242: "Output Portfolio & Smart Share — 바이럴 성장 엔진" 🔗🌍
+
+**날짜**: 2026-02-21 15:20 UTC
+**우선순위**: 🔥 HIGH
+**개발 기간**: 1일 (~90줄)
+**AI 비용**: $0
+
+**핵심 문제**:
+- Task 결과물이 Google Drive에 생성되지만 관리/공유 경로 없음
+- 가장 강력한 마케팅은 사용자가 직접 공유하는 것 — 그런데 수단이 없음
+- Canva/Notion은 "Made with X" + Share로 바이럴 성장 → AgentHQ는 이 고리가 없음
+
+**제안 솔루션**:
+1. **Output Gallery API** (~30줄): 완료된 Task 산출물 목록 + Drive 링크 + 에이전트 정보
+2. **Share Link Generator** (~30줄): Drive 공유 권한 자동 설정 + 브랜디드 공유 페이지
+3. **Output Gallery UI** (~30줄): 카드 레이아웃, 타입/날짜/에이전트 필터
+
+**바이럴 루프**: 사용자 A 보고서 생성 → 동료 B에게 공유 → 공유 페이지 CTA "AgentHQ로 만들었습니다" → 동료 B 가입
+
+**예상 임팩트**:
+- 🔗 모든 산출물이 마케팅 도구가 됨 (제로 비용 고객 획득)
+- 📁 "내가 만든 것들" 포트폴리오 = 리텐션 향상
+- 📈 Canva "Made with Canva" 모델 벤치마크
+
+**경쟁 우위**: ChatGPT(대화 공유만), Canva(✅ Made with Canva), Notion(✅ 페이지 공유) → AgentHQ도 이 바이럴 엔진이 필요 ⭐⭐⭐⭐
+
+---
+
+## 📊 Phase 49 요약
+
+| ID | 아이디어 | 기반 | 기간 | 코드량 | Gate |
+|----|----------|------|------|--------|------|
+| #241 | Live Agent Collaboration Feed | WebSocket + Celery + LangFuse | 1일 | ~100줄 | ✅ |
+| #242 | Output Portfolio & Smart Share | Task model + Google Drive API | 1일 | ~90줄 | ✅ |
+
+**핵심 전략**: #241이 "와우를 보여주는 화면", #242가 "와우를 퍼뜨리는 엔진"
+
+---
