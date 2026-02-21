@@ -18308,3 +18308,95 @@ agenthq chat "지난주 만든 스프레드시트 보여줘"  # #231 Natural API
 
 ---
 
+## Phase 48 — "첫 3분 경험 설계" (2026-02-21 11:20 UTC)
+
+> **전략**: Phase 47의 "전달" 전략을 구체화 — 사용자의 **와우 모먼트**를 설계
+
+### 💡 Idea #239: "Task Pipeline Templates — 멀티 에이전트 파워 쇼케이스" 🔗🎬
+
+**날짜**: 2026-02-21 11:20 UTC
+**우선순위**: 🔥🔥 CRITICAL-HIGH
+**개발 기간**: 1.5일 (~120줄)
+**AI 비용**: $0
+
+**핵심 문제**:
+- AgentHQ의 최대 차별점인 멀티 에이전트 오케스트레이션이 사용자에게 보이지 않음
+- 현재 API는 단일 Task만 생성 → ChatGPT와 차별화 불가
+- 사용자가 "하나의 명령 → 4개 문서 자동 생성"을 경험해야 가치를 체감
+
+**제안 솔루션**:
+```
+POST /api/v1/pipelines/run {"template": "quarterly-report", "inputs": {...}}
+→ Step 1: Research Agent (웹 검색)
+→ Step 2: Sheets Agent (데이터 정리 + 차트)
+→ Step 3: Docs Agent (보고서 + 인용)
+→ Step 4: Slides Agent (프레젠테이션)
+= 4개 산출물이 Google Drive 폴더에 자동 저장
+```
+
+**핵심 기능**:
+1. Pipeline Template 정의 (YAML/JSON) ~40줄
+2. Pipeline Executor (순차 실행 + output→input 전달) ~50줄
+3. 기본 템플릿 3개 (quarterly-report, market-research, competitor-analysis) ~30줄
+4. 상태 API (`GET /pipelines/{id}/status`) — 단계별 진행률
+
+**Graduation Gate**: ✅ 120줄, 1.5일, 2026-02-24 배포 가능
+
+**예상 임팩트**:
+- 🎯 "와우 모먼트" 생성 — 하나의 명령으로 4개 문서 = 압도적 차별화
+- 📊 Multi-agent 가치 가시화
+- 🔄 Demo Sandbox(#237) + CLI(#238)와 시너지 극대화
+
+**경쟁 우위**: ChatGPT(1답변), Notion AI(인라인), Duet(앱별) vs **AgentHQ Pipeline: 연구→분석→보고서→발표 일괄** ⭐⭐⭐⭐⭐
+
+---
+
+### 💡 Idea #240: "Zero-Install Cloud Demo (Google Colab)" ☁️🚀
+
+**날짜**: 2026-02-21 11:20 UTC
+**우선순위**: 🔥 HIGH
+**개발 기간**: 1일 (~80줄)
+**AI 비용**: $0
+
+**핵심 문제**:
+- #237 Demo Sandbox도 `git clone` + `docker compose up` 필요
+- 잠재 사용자 대부분은 **클릭 한 번**으로 체험하고 싶어함
+- README에 "▶️ Try it now" 버튼 하나가 GitHub Star 전환율을 10x 올림
+
+**제안 솔루션**:
+```markdown
+# README에 추가
+[![Try in Colab](colab-badge.svg)](https://colab.research.google.com/.../AgentHQ_Demo.ipynb)
+```
+
+**핵심 기능**:
+1. Jupyter Notebook (`demo/AgentHQ_Demo.ipynb`) ~40줄
+   - Cell 1: 환경 설정 (pip install + mock server)
+   - Cell 2: Task 생성
+   - Cell 3: 결과 확인
+   - Cell 4: Pipeline 실행 (#239 연동)
+2. Lightweight Demo Server (Mock FastAPI wrapper) ~30줄
+3. README 배지 ("Try in 1 click") ~10줄
+
+**Graduation Gate**: ✅ 80줄, 1일, 2026-02-23 배포 가능
+
+**예상 임팩트**:
+- 🖱️ 온보딩 3분 → 30초 (클릭 → 브라우저 실행)
+- 📈 GitHub Star 전환율 극대화
+- 🌍 설치 환경 제약 완전 제거
+
+**경쟁 우위**: 경쟁사 중 Colab 데모 제공하는 곳 거의 없음 ⭐⭐⭐⭐
+
+---
+
+## 📊 Phase 48 요약
+
+| ID | 아이디어 | 기반 | 기간 | 코드량 | Gate |
+|----|----------|------|------|--------|------|
+| #239 | Task Pipeline Templates | Celery + Agent System | 1.5일 | ~120줄 | ✅ |
+| #240 | Zero-Install Cloud Demo | Colab + Mock Server | 1일 | ~80줄 | ✅ |
+
+**핵심 전략**: "첫 3분 안에 '와우'를 느끼게 하는 것" — Pipeline이 와우의 내용, Cloud Demo가 와우의 문
+
+---
+
