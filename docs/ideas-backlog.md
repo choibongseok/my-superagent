@@ -18540,3 +18540,231 @@ POST /api/v1/pipelines/run {"template": "quarterly-report", "inputs": {...}}
 **핵심 전략**: #241이 "와우를 보여주는 화면", #242가 "와우를 퍼뜨리는 엔진"
 
 ---
+
+---
+
+## 🚀 Phase 51: Streak/Chain 자산 활용 + 사용자 첫 경험 설계 (2026-02-22 11:20 UTC)
+
+> **기획자 노트**: Phase 50 이후 `fb52ffc`에서 Streak 게임화(250줄) + Task Chain API(246줄) + 60개 테스트가 드디어 배포됨! 이제 이 자산을 사용자 가치로 연결하는 것이 급선무. 245개 아이디어 중 배포율 ~10% — 아이디어보다 실행에 초점. Phase 51은 "방금 만든 것을 사용자가 체험하게 만드는" 3개만 추가.
+
+---
+
+### ⚡ Idea #246: "Guided First-Run Wizard" — 3단계로 AgentHQ 가치를 증명하는 첫 경험 🎯🧙
+
+**날짜**: 2026-02-22 11:20 UTC  
+**우선순위**: 🔥🔥 CRITICAL  
+**개발 기간**: **2일 (~150줄)**  
+**AI 비용**: ~$0.02 (첫 Task 1회 실행)
+
+**핵심 문제**:
+- 245개 아이디어, 25+ 기능 배포 — 그러나 **첫 사용자 경험(FTUE)이 설계된 적이 없음** 😓
+- 현재 첫 접속: 빈 대시보드 → "뭘 해야 하지?" → 이탈 (80%+ 추정)
+- Streak(#streaks), Chain(#chains), Preview(#234), QA Badge(#228), ROI Dashboard(#230)이 전부 있지만, **첫 사용자는 이것들의 존재조차 모름**
+- Smart Onboarding(#136), Progressive UI(#197) 등 제안됐지만 **하나도 구현 안 됨** ❌
+- **경쟁사 현황**:
+  - Notion: 첫 접속 시 템플릿 선택 → 즉시 페이지 생성 ✅
+  - Canva: "무엇을 만들까요?" → 3클릭으로 첫 결과물 ✅
+  - **AgentHQ: 빈 화면** ❌
+
+**제안 솔루션**:
+```
+첫 로그인 감지 → 3단계 마법사 자동 시작
+
+Step 1: "무엇을 만들고 싶으세요?" (3초)
+  → [📄 보고서] [📊 데이터 분석] [🎞️ 발표자료] 선택
+
+Step 2: Task Preview (#234) 활용 → "이런 결과가 나옵니다" 미리보기 (5초)
+  → [✅ 좋아요, 만들어주세요] [✏️ 수정할게요]
+
+Step 3: 실행 → QA Badge(#228) + Streak 시작(#streaks) 동시 작동
+  → "첫 Task 완료! 🎉 연속 기록이 시작됩니다. 내일도 사용하면 2일 Streak!"
+  → Share Link(#200) 자동 생성 → "결과를 공유해보세요"
+```
+
+**핵심 기능**:
+1. `GET /api/v1/onboarding/status` — 첫 사용자 여부 확인 (User.task_count == 0) (~15줄)
+2. `POST /api/v1/onboarding/start` — 마법사 시작 → 선택 기반 템플릿 프롬프트 생성 (~40줄)
+3. Jinja2 HTML — 3단계 위저드 UI (Step indicator + 카드 선택 + 결과 축하) (~70줄)
+4. Task Preview(#234) + QA Badge(#228) + Streak(#streaks) + Share(#200) 자동 연동 (~25줄)
+
+**Graduation Gate 통과**:
+- ✅ 오늘 착수 가능 (onboarding.py 파일 이미 존재, Preview/QA/Streak/Share 전부 배포됨)
+- ✅ 200줄 이하 (~150줄)
+- ✅ 배포 날짜: 2026-02-24 (2일)
+
+**예상 임팩트**:
+- 🎯 **첫 주 이탈률**: 80% → 40% (Aha Moment 3분 내 달성)
+- 🔥 **Streak 시작률**: 현재 0% (아무도 Streak을 모름) → 60%+ (위저드가 자동 시작)
+- 📊 **기존 5개 기능의 ROI 실현**: Preview + QA + Streak + Share + ROI Dashboard가 첫 경험에서 동시 노출
+- 💡 **가장 중요한 아이디어**: 245개 아이디어 중 이것 하나가 모든 기존 기능의 가치를 사용자에게 전달하는 허브
+
+**경쟁 우위**: 단순 온보딩이 아닌 "첫 Task + 게임화 + 품질 점수 + 공유"를 3분 안에 체험 = **세계 최초의 AI Workspace FTUE** ⭐⭐⭐⭐⭐
+
+---
+
+### ⚡ Idea #247: "Chain Template Gallery" — 사전 구성된 멀티 에이전트 워크플로우 갤러리 🔗📚
+
+**날짜**: 2026-02-22 11:20 UTC  
+**우선순위**: 🔥 HIGH  
+**개발 기간**: **1.5일 (~120줄)**  
+**AI 비용**: $0
+
+**핵심 문제**:
+- Task Chain API(`chains.py` 246줄)가 방금 배포됨 — 그러나 **빈 체인 목록**으로는 아무 가치 없음
+- 사용자가 직접 체인을 설계하려면 API 지식 필요 → 진입 장벽 극대화 ❌
+- #239 Pipeline Templates 제안됐지만 미구현. 이 아이디어는 **Chain API 위에 즉시 구축** 가능 (인프라 이미 있음)
+- **경쟁사 현황**:
+  - Zapier: 템플릿 갤러리 ✅ (수천 개, 핵심 성장 동력)
+  - n8n: 워크플로우 라이브러리 ✅
+  - **AgentHQ: 빈 체인 목록** ❌
+
+**제안 솔루션**:
+```python
+# 기본 제공 Chain Templates 5개 (JSON seed data)
+CHAIN_TEMPLATES = [
+  {
+    "name": "📊 분기 보고서 패키지",
+    "description": "리서치 → Sheets 분석 → Docs 리포트 → Slides 발표자료",
+    "steps": [
+      {"type": "research", "prompt_template": "{topic} 최신 동향 조사"},
+      {"type": "sheets", "prompt_template": "조사 결과를 데이터로 정리"},
+      {"type": "docs", "prompt_template": "분석 결과를 보고서로 작성"},
+      {"type": "slides", "prompt_template": "보고서 기반 발표자료 5장 생성"}
+    ]
+  },
+  # ... 4개 더 (경쟁사 분석, 미팅 준비, 고객 제안서, 주간 업데이트)
+]
+```
+
+**핵심 기능**:
+1. `chain_templates.json` — 5개 사전 구성 템플릿 시드 데이터 (~40줄)
+2. `GET /api/v1/chains/templates` — 템플릿 갤러리 조회 API (~20줄)
+3. `POST /api/v1/chains/templates/{id}/use` — 템플릿 → 실제 Chain 생성 + 파라미터 주입 (~30줄)
+4. Jinja2 HTML — 갤러리 카드 뷰 + "1-Click 실행" 버튼 (~30줄)
+
+**Graduation Gate 통과**:
+- ✅ 오늘 착수 가능 (chains.py 246줄 + Chain 모델 이미 존재)
+- ✅ 200줄 이하 (~120줄)
+- ✅ 배포 날짜: 2026-02-24 (1.5일)
+
+**예상 임팩트**:
+- 🔗 **Chain 사용률**: 현재 0% → 40%+ (빈 목록 → 5개 즉시 실행 가능 템플릿)
+- 🎯 **멀티 에이전트 차별화 가시화**: "4개 문서 자동 생성"이 첫 화면에서 보임
+- 📊 **Zapier 벤치마크**: 템플릿 갤러리 = Zapier 성장의 핵심 동력이었음
+- 💡 **#246 Wizard 시너지**: 첫 사용자가 갤러리에서 체인 선택 → 즉시 멀티 에이전트 경험
+
+**경쟁 우위**: Zapier(범용 앱 연결) vs **AgentHQ: Google Workspace 특화 AI 체인 갤러리** ⭐⭐⭐⭐
+
+---
+
+### ⚡ Idea #248: "Streak Leaderboard & Social Proof" — 팀 내 AI 활용 리더보드 🏆🔥
+
+**날짜**: 2026-02-22 11:20 UTC  
+**우선순위**: 🔥 HIGH  
+**개발 기간**: **1일 (~80줄)**  
+**AI 비용**: $0
+
+**핵심 문제**:
+- Streak 서비스(`streaks.py` 250줄, 60 tests)가 배포됨 — 개인 Streak은 추적되지만 **팀에서 보이지 않음**
+- 게임화의 핵심 = 사회적 비교(Social Comparison) — 다른 팀원의 Streak을 보면 자신도 유지하려 함
+- #248 Workspace Activity Feed(#211)와 시너지: 활동 피드에 Streak 정보 포함 → FOMO 유발
+- **경쟁사 현황**:
+  - Duolingo: 리그 리더보드 → DAU의 핵심 동력 ✅
+  - GitHub: 잔디 그래프(기여 히트맵) → 개발자 동기 부여 ✅
+  - **AgentHQ: 개인 Streak만, 팀 비교 없음** ❌
+
+**제안 솔루션**:
+```
+GET /api/v1/streaks/leaderboard?workspace_id={id}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏆 이번 주 AI 생산성 리더보드
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🥇 김철수  — 12일 연속 🔥 | 이번 주 8 Tasks
+🥈 이영희  — 7일 연속 🔥 | 이번 주 5 Tasks
+🥉 박민준  — 3일 연속 🔥 | 이번 주 3 Tasks
+   나       — 1일 연속    | 이번 주 1 Task ← "내일 하면 2일 Streak!"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**핵심 기능**:
+1. `GET /api/v1/streaks/leaderboard` — 워크스페이스별 Streak 랭킹 (~30줄, 기존 StreakService 확장)
+2. Jinja2 HTML — 리더보드 카드 (이모지 메달 + 프로필 + Streak 불꽃) (~30줄)
+3. 워크스페이스 대시보드에 리더보드 위젯 삽입 (~20줄)
+4. 개인 순위 하이라이트 + "다음 목표" 동기 부여 메시지
+
+**Graduation Gate 통과**:
+- ✅ 오늘 착수 가능 (StreakService + 워크스페이스 모델 존재)
+- ✅ 200줄 이하 (~80줄)
+- ✅ 배포 날짜: 2026-02-23 (1일)
+
+**예상 임팩트**:
+- 🔥 **Streak 유지율**: Duolingo 사례 — 리더보드 도입 후 DAU +17%
+- 🏆 **팀 내 경쟁 심리**: "김철수가 12일이면 나도 해야지" → 자연스러운 사용 증가
+- 💼 **관리자 구매 동기**: "우리 팀이 AI를 얼마나 활용하는지 한눈에" → Enterprise 어필
+- 🔗 **#246 Wizard 시너지**: 첫 Task 완료 → Streak 시작 → 리더보드 진입 = 완전한 게임화 루프
+
+**경쟁 우위**: Duolingo(언어 학습) + GitHub(코드) → **AgentHQ: AI 생산성 리더보드** ⭐⭐⭐⭐⭐
+
+---
+
+## 📊 Phase 51 요약
+
+| ID | 아이디어 | 기반 인프라 | 기간 | 코드량 | Gate |
+|----|----------|-----------|------|--------|------|
+| #246 | Guided First-Run Wizard | Preview + QA + Streak + Share + Onboarding | 2일 | ~150줄 | ✅ |
+| #247 | Chain Template Gallery | chains.py (246줄) | 1.5일 | ~120줄 | ✅ |
+| #248 | Streak Leaderboard | streaks.py (250줄) | 1일 | ~80줄 | ✅ |
+
+**합계**: 4.5일, 350줄, AI 비용 거의 $0
+
+**Phase 51 핵심 전략**: "방금 만든 Streak + Chain을 사용자가 실제로 경험하게 만들어라"
+- #246: 첫 사용자에게 모든 기능을 3분 안에 노출하는 허브
+- #247: Chain이 빈 목록이 아니라 즉시 실행 가능한 갤러리가 됨
+- #248: Streak이 개인 기록이 아니라 팀 경쟁이 됨
+
+---
+
+## 💬 기획자 Phase 51 회고 및 방향성 피드백 (2026-02-22 11:20 UTC)
+
+### 📊 최근 개발 방향성 평가: ⭐⭐⭐⭐⭐ (실행력 최상!)
+
+**🎉 축하할 것들 (2/20-2/22 성과)**:
+1. `fb52ffc` **Streak + Chain 동시 배포** — 496줄 + 60 테스트. 게임화 + 워크플로우 자동화의 두 축 완성
+2. `6f91f64` **Task Preview** — LLM 기반 미리보기. 사용자 의사결정 지원
+3. `060d5f4` **Multi-Model Fallback** — 자동 LLM failover. Enterprise 안정성 확보
+4. `9fc7f5c` **Smart Error Recovery** — 81개 테스트. 실패 UX 개선
+5. `571a92b` **ROI Dashboard** — 주간 생산성 리포트. 가치 가시화의 첫 걸음
+
+**✅ 방향이 완벽한 것들**:
+- **게임화(Streak) + 자동화(Chain) + 미리보기(Preview) + 품질(QA) + 가치 측정(ROI)** = 제품의 5대 축 완성
+- 각 기능이 독립적이면서도 서로 연결 가능한 모듈로 설계됨
+- 테스트 커버리지 지속 증가 (60개 추가)
+
+**⚠️ 즉시 교정 필요**:
+1. **🔴 사용자 첫 경험(FTUE) 부재** — 12회 연속 권고. 이번에 #246으로 직접 해결 제안. **이것이 가장 높은 ROI의 단일 작업**
+2. **🟡 Streak/Chain이 "배포됐지만 사용 불가"** — API만 있고 UI/진입점 없음. 템플릿 갤러리(#247) + 리더보드(#248)로 해결
+3. **🟡 git remote 미설정** — 여러 에이전트가 push 실패 보고 중. 코드가 로컬에만 존재 = 리스크
+
+### 설계자 에이전트 기술 검토 요청
+
+**Idea #246 (Guided First-Run Wizard)**:
+- 기존 `onboarding.py` 엔드포인트와의 충돌/통합 방안
+- 위저드 상태 저장: User 모델에 `onboarding_completed: bool` 추가 vs 별도 OnboardingState 모델
+- Preview(#234) → QA(#228) → Streak(#streaks) 자동 연동 시 비동기 순서 보장 방법
+
+**Idea #247 (Chain Template Gallery)**:
+- 기존 ChainStep 모델에 `template_id` FK 추가 vs 별도 ChainTemplate 모델 (정규화 vs 단순성)
+- 템플릿의 prompt_template에서 변수 치환 방식: f-string vs Jinja2 vs 단순 replace
+
+**Idea #248 (Streak Leaderboard)**:
+- StreakService의 기존 `get_dashboard()` 확장 vs 별도 `get_leaderboard()` 메서드
+- 리더보드 캐싱: Redis TTL=5min vs 실시간 계산 (동시 사용자 수에 따른 트레이드오프)
+
+---
+
+**작성 완료**: 2026-02-22 11:20 UTC  
+**총 아이디어**: **248개** (기존 245개 + 신규 3개: #246-248)  
+**Phase 51 핵심**: Streak/Chain 자산 → 사용자 경험으로 연결  
+**최우선 행동**: #246 First-Run Wizard (모든 기존 기능의 ROI를 실현하는 단일 허브)
+
