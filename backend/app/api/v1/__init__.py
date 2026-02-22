@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, health, tasks, chats, messages, workspaces, templates, orchestrator, analytics, share, dev, prompts, qa, webhooks, onboarding
+from app.api.v1 import auth, health, tasks, chats, messages, workspaces, templates, orchestrator, analytics, share, dev, prompts, qa, webhooks, onboarding, streaks, schedules, chains
 api_router = APIRouter()
 
 # Include sub-routers
@@ -21,3 +21,6 @@ api_router.include_router(prompts.router, prefix="/prompts", tags=["prompts"])  
 api_router.include_router(qa.router, tags=["qa"])  # Quality Assurance validation
 api_router.include_router(webhooks.router, tags=["webhooks"])  # Webhook notifications
 api_router.include_router(onboarding.router, prefix="/onboarding", tags=["onboarding"])  # Onboarding wizard
+api_router.include_router(streaks.router, tags=["gamification"])  # Productivity Streaks & Achievements
+api_router.include_router(schedules.router, tags=["schedules"])  # Recurring Task Scheduler
+api_router.include_router(chains.router, tags=["chains"])  # Smart Task Chaining
