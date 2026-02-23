@@ -434,6 +434,35 @@ class MemoryManager:
         self.conversation_memory.clear()
         logger.info(f"Cleared conversation for session {self.session_id}")
 
+    def count_memories(
+        self,
+        filter_dict: Optional[Dict[str, Any]] = None,
+        created_after: Optional[datetime | str] = None,
+        created_before: Optional[datetime | str] = None,
+    ) -> int:
+        """Count matching vector memories for this user.
+
+        Args:
+            filter_dict: Optional metadata filters.
+            created_after: Optional inclusive lower timestamp bound.
+            created_before: Optional inclusive upper timestamp bound.
+
+        Returns:
+            Number of matching memories.
+        """
+        if not self.vector_memory:
+            return 0
+
+        try:
+            return self.vector_memory.count_memories(
+                filter_dict=filter_dict,
+                created_after=created_after,
+                created_before=created_before,
+            )
+        except Exception as e:
+            logger.error(f"Failed to count vector memories: {e}")
+            return 0
+
     def clear_all(self) -> None:
         """Clear all memories (conversation + vector store)."""
         self.clear_conversation()

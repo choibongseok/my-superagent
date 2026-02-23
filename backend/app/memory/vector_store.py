@@ -1602,6 +1602,32 @@ class VectorStoreMemory:
             .all()
         )
 
+    def _memory_matches_filter(
+        self,
+        metadata: Dict[str, Any],
+        filter_dict: Optional[Dict[str, Any]],
+        created_after: Optional[datetime],
+        created_before: Optional[datetime],
+    ) -> bool:
+        """Check whether a memory metadata payload matches filter/date constraints."""
+        if filter_dict:
+            for key, expected_value in filter_dict.items():
+                if metadata.get(key) != expected_value:
+                    return False
+
+        if created_after is not None or created_before is not None:
+            parsed_timestamp = self._parse_result_timestamp(metadata)
+            if parsed_timestamp is None:
+                return False
+
+            if created_after is not None and parsed_timestamp < created_after:
+                return False
+
+            if created_before is not None and parsed_timestamp > created_before:
+                return False
+
+        return True
+
     def delete_session_memories(self, session_id: str) -> int:
         """Delete all memories for a specific session.
 
@@ -1683,6 +1709,66 @@ class VectorStoreMemory:
                 self.user_id,
             )
             return deleted_count
+
+    def count_memories(
+        self,
+        filter_dict: Optional[Dict[str, Any]] = None,
+        created_after: Optional[datetime | str] = None,
+        created_before: Optional[datetime | str] = None,
+    ) -> int:
+        """Count memories matching metadata filters and optional time boundaries.
+
+        Args:
+            filter_dict: Optional metadata filters (enforced user scope)
+            created_after: Optional inclusive ISO-aware lower timestamp bound
+            created_before: Optional inclusive upper timestamp bound
+
+        Returns:
+            Number of matching memories
+        """
+        normalized_filter = self._build_user_scoped_filter(filter_dict)
+        normalized_created_after = self._normalize_datetime_boundary(
+            created_after,
+            field_name="created_after",
+        )
+        normalized_created_before = self._normalize_datetime_boundary(
+            created_before,
+            field_name="created_before",
+        )
+
+        if (
+            normalized_created_after is not None
+            and normalized_created_before is not None
+            and normalized_created_after > normalized_created_before
+        ):
+            raise ValueError("created_after must be earlier than or equal to created_before")
+
+        with self._collection_session() as (session, collection):
+            if session is None or collection is None:
+                return 0
+
+            embeddings = self._fetch_collection_embeddings(session, collection)
+            count = 0
+            for embedding in embeddings:
+                metadata = getattr(embedding, "cmetadata", None)
+                if not isinstance(metadata, dict):
+                    metadata = {}
+
+                if self._memory_matches_filter(
+                    metadata,
+                    normalized_filter,
+                    normalized_created_after,
+                    normalized_created_before,
+                ):
+                    count += 1
+
+            logger.debug(
+                "Counted %d vector memories for user=%s with filter=%s",
+                count,
+                self.user_id,
+                normalized_filter,
+            )
+            return count
 
     def delete_memory(self, memory_id: str) -> bool:
         """Delete a single memory by its vector store ID.
