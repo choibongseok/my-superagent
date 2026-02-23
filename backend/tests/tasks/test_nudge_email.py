@@ -14,6 +14,8 @@ from app.tasks.nudge_email import (
     MAX_NUDGE_EMAILS_PER_WEEK,
     _build_nudge_html,
     _build_nudge_text,
+    _normalize_for_weekly_quota,
+    _utc_week_start,
     send_nudge_emails,
 )
 
@@ -272,6 +274,37 @@ class TestUserNudgeFields:
         assert "last_task_created_at" in column_names, (
             "User.last_task_created_at column is missing from the model"
         )
+
+
+class TestNudgeWeeklyQuotaHelpers:
+    """Weekly quota helpers should reset counters when week boundary advances."""
+
+    def test_utc_week_start(self):
+        monday = datetime(2026, 2, 23, 10, 15, tzinfo=timezone.utc)  # Monday
+        wednesday = datetime(2026, 2, 25, 18, 5, tzinfo=timezone.utc)  # Wednesday
+        assert _utc_week_start(monday) == monday.replace(hour=0, minute=0, second=0, microsecond=0)
+        assert _utc_week_start(wednesday) == monday.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def test_normalize_for_weekly_quota_resets_on_new_week(self):
+        user = _make_user(nudge_email_count=2)
+        user.nudge_email_week_start = datetime(2026, 2, 16, tzinfo=timezone.utc)  # last week
+
+        reset = _normalize_for_weekly_quota(user, datetime(2026, 2, 23, tzinfo=timezone.utc))
+
+        assert reset is True
+        assert user.nudge_email_count == 0
+        assert user.nudge_email_week_start == datetime(2026, 2, 23, tzinfo=timezone.utc)
+
+    def test_normalize_for_weekly_quota_keeps_same_week_count(self):
+        user = _make_user(nudge_email_count=2)
+        same_week_start = datetime(2026, 2, 23, tzinfo=timezone.utc)
+        user.nudge_email_week_start = same_week_start
+
+        reset = _normalize_for_weekly_quota(user, same_week_start)
+
+        assert reset is False
+        assert user.nudge_email_count == 2
+        assert user.nudge_email_week_start == same_week_start
 
 
 # ── Celery Beat schedule registration ─────────────────────────────────────────

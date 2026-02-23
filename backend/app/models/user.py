@@ -42,6 +42,9 @@ class User(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True, index=True
     )
     nudge_email_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    nudge_email_week_start: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
 
     # Relationships
     chats: Mapped[List["Chat"]] = relationship(
@@ -50,7 +53,7 @@ class User(Base, TimestampMixin):
     messages: Mapped[List["Message"]] = relationship(
         "Message", back_populates="user", cascade="all, delete-orphan"
     )
-    
+
     # Workspace relationships
     owned_workspaces: Mapped[List["Workspace"]] = relationship(
         "Workspace", back_populates="owner", cascade="all, delete-orphan"

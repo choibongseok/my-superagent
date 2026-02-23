@@ -1,7 +1,8 @@
 """Celery task: Usage nudge emails for inactive users.
 
 Detects users who have not created a task in the past 7 days and sends
-a re-engagement email. Each user receives at most 2 nudge emails per week.
+re-engagement emails. Weekly quota is enforced via ``nudge_email_count``
+(with reset at the start of each UTC week).
 
 Schedule: daily at 09:00 UTC (registered in celery_app.conf.beat_schedule).
 """
@@ -11,10 +12,11 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 
 from app.agents.celery_app import celery_app
 from app.core.async_runner import run_async
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,8 @@ MAX_NUDGE_EMAILS_PER_WEEK = 2
 
 # Days of inactivity before sending a nudge
 INACTIVITY_DAYS = 7
+
+_APP_FRONTEND_URL = settings.FRONTEND_URL.rstrip("/")
 
 
 def _build_nudge_html(user_full_name: str | None) -> str:
@@ -85,11 +89,11 @@ def _build_nudge_html(user_full_name: str | None) -> str:
       documents, spreadsheets, and presentations.
     </p>
     <p style="text-align: center;">
-      <a href="http://localhost:3000" class="button">Jump back in →</a>
+      <a href="{_APP_FRONTEND_URL}" class="button">Jump back in →</a>
     </p>
     <p style="color: #6b7280; font-size: 14px;">
       If you no longer wish to receive these reminders, just ignore this
-      email — we won't bother you more than twice.
+      email — we won't bother you more than twice each week.
     </p>
   </div>
   <div class="footer">
@@ -106,9 +110,43 @@ def _build_nudge_text(user_full_name: str | None) -> str:
         f"Hi {name},\n\n"
         "It's been a while since you last used AgentHQ. "
         "Your AI agents are ready and waiting!\n\n"
-        "Jump back in: http://localhost:3000\n\n"
+        f"Jump back in: {_APP_FRONTEND_URL}\n\n"
         "-- AgentHQ Team"
     )
+
+
+def _utc_week_start(value: datetime) -> datetime:
+    """Return the Monday 00:00 UTC boundary containing *value*."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value - timedelta(
+        days=value.weekday(),
+        hours=value.hour,
+        minutes=value.minute,
+        seconds=value.second,
+        microseconds=value.microsecond,
+    )
+
+
+def _normalize_for_weekly_quota(
+    user,
+    now_week_start: datetime,
+) -> bool:
+    """Reset ``nudge_email_count`` when the user is in a new UTC week.
+
+    Returns ``True`` when the counter was reset.
+    """
+    last_week_start = getattr(user, "nudge_email_week_start", None)
+
+    if last_week_start is not None and last_week_start.tzinfo is None:
+        last_week_start = last_week_start.replace(tzinfo=timezone.utc)
+
+    if last_week_start is None or last_week_start < now_week_start:
+        user.nudge_email_week_start = now_week_start
+        user.nudge_email_count = 0
+        return True
+
+    return False
 
 
 @celery_app.task(name="tasks.send_nudge_emails", bind=True, max_retries=3)
@@ -116,9 +154,8 @@ def send_nudge_emails(self):
     """Detect inactive users and send re-engagement emails.
 
     A user is considered inactive when their ``last_task_created_at`` is
-    more than ``INACTIVITY_DAYS`` days ago (or NULL, meaning they never
-    created a task).  At most ``MAX_NUDGE_EMAILS_PER_WEEK`` emails are sent
-    per user; the counter is stored in ``User.nudge_email_count``.
+    more than ``INACTIVITY_DAYS`` days ago (or ``NULL``, meaning they never
+    created a task). Weekly quota is capped by ``MAX_NUDGE_EMAILS_PER_WEEK``.
     """
 
     async def _run() -> dict:
@@ -126,18 +163,21 @@ def send_nudge_emails(self):
         from app.models.user import User
         from app.services.email_service import email_service
 
-        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=INACTIVITY_DAYS)
+        now = datetime.now(tz=timezone.utc)
+        cutoff = now - timedelta(days=INACTIVITY_DAYS)
+        week_start = _utc_week_start(now)
 
         async with AsyncSessionLocal() as session:
-            # Query inactive, active users who still have nudge quota
+            # Query inactive, active users. ``nudge_email_count`` resets below if
+            # the UTC week boundary changed.
             result = await session.execute(
                 select(User).where(
                     and_(
                         User.is_active.is_(True),
-                        User.nudge_email_count < MAX_NUDGE_EMAILS_PER_WEEK,
-                        # last_task_created_at is NULL (never used) or old
-                        (User.last_task_created_at.is_(None))
-                        | (User.last_task_created_at < cutoff),
+                        or_(
+                            User.last_task_created_at.is_(None),
+                            User.last_task_created_at < cutoff,
+                        ),
                     )
                 )
             )
@@ -147,6 +187,17 @@ def send_nudge_emails(self):
             failed_count = 0
 
             for user in inactive_users:
+                _normalize_for_weekly_quota(user, week_start)
+
+                if user.nudge_email_count >= MAX_NUDGE_EMAILS_PER_WEEK:
+                    logger.info(
+                        "Nudge skip for %s: weekly quota already reached (%d/%d)",
+                        user.email,
+                        user.nudge_email_count,
+                        MAX_NUDGE_EMAILS_PER_WEEK,
+                    )
+                    continue
+
                 try:
                     success = email_service.send_email(
                         to_email=user.email,
@@ -171,7 +222,9 @@ def send_nudge_emails(self):
                 except Exception as exc:  # noqa: BLE001
                     failed_count += 1
                     logger.error(
-                        "Error sending nudge to %s: %s", user.email, exc
+                        "Error sending nudge to %s: %s",
+                        user.email,
+                        exc,
                     )
 
             await session.commit()
