@@ -127,3 +127,32 @@ class TestVectorStoreManagement:
         assert memory.delete_session_memories("target_session") == 0
         assert memory.clear_user_memories() == 0
         assert memory.get_memory_count() == 0
+
+    def test_delete_memory_deletes_matching_record(self):
+        target = SimpleNamespace(custom_id="mem-abc", cmetadata={"user_id": "test_user"})
+        other = SimpleNamespace(custom_id="mem-def", cmetadata={"user_id": "test_user"})
+
+        memory, session, _, _ = _build_memory([target, other])
+
+        result = memory.delete_memory("mem-abc")
+
+        assert result is True
+        session.delete.assert_called_once_with(target)
+        session.commit.assert_called_once()
+
+    def test_delete_memory_returns_false_when_not_found(self):
+        existing = SimpleNamespace(custom_id="mem-abc", cmetadata={"user_id": "test_user"})
+
+        memory, session, _, _ = _build_memory([existing])
+
+        result = memory.delete_memory("mem-missing")
+
+        assert result is False
+        session.delete.assert_not_called()
+        session.commit.assert_not_called()
+
+    def test_delete_memory_requires_memory_id(self):
+        memory, _, _, _ = _build_memory([])
+
+        with pytest.raises(ValueError, match="memory_id is required"):
+            memory.delete_memory("")

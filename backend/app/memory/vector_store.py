@@ -1684,6 +1684,50 @@ class VectorStoreMemory:
             )
             return deleted_count
 
+    def delete_memory(self, memory_id: str) -> bool:
+        """Delete a single memory by its vector store ID.
+
+        Args:
+            memory_id: Memory identifier returned by add_memory/add_memories
+
+        Returns:
+            True if a memory was deleted, False if not found
+
+        Raises:
+            ValueError: if memory_id is empty
+        """
+        if not memory_id:
+            raise ValueError("memory_id is required")
+
+        with self._collection_session() as (session, collection):
+            if session is None or collection is None:
+                return False
+
+            embeddings = self._fetch_collection_embeddings(session, collection)
+            to_delete = []
+            for embedding in embeddings:
+                if getattr(embedding, "custom_id", None) == memory_id:
+                    to_delete.append(embedding)
+
+            for embedding in to_delete:
+                session.delete(embedding)
+
+            if to_delete:
+                session.commit()
+                logger.info(
+                    "Deleted vector memory id=%s for user=%s",
+                    memory_id,
+                    self.user_id,
+                )
+                return True
+
+            logger.debug(
+                "Vector memory id=%s not found for user=%s",
+                memory_id,
+                self.user_id,
+            )
+            return False
+
     def get_memory_count(self) -> int:
         """Get total number of memories for the current user."""
         with self._collection_session() as (session, collection):
