@@ -331,6 +331,13 @@ celery_app.conf.beat_schedule = {
     },
 }
 
+# Register periodic tasks as part of celery bootstrap.
+# This import is intentionally placed here so importing app.agents.celery_app
+# automatically wires periodic executions at runtime.
+from app.tasks import nudge_email as _nudge_email  # noqa: E402, F401
+from app.tasks import scheduler as _scheduler  # noqa: E402, F401
+
+
 # Add callback configuration for automatic status updates
 # Health check task
 @celery_app.task(name="agents.health_check")

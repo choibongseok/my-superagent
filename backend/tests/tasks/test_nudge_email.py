@@ -281,12 +281,16 @@ class TestCeleryBeatSchedule:
 
     def test_beat_schedule_entry_exists(self):
         from app.agents.celery_app import celery_app
-        from celery.schedules import crontab
 
         schedule = celery_app.conf.beat_schedule
         assert "send-nudge-emails-daily" in schedule, (
             "Beat schedule entry 'send-nudge-emails-daily' is missing"
         )
+
+    def test_nudge_task_is_registered(self):
+        from app.agents.celery_app import celery_app
+
+        assert "tasks.send_nudge_emails" in celery_app.tasks
 
     def test_beat_schedule_targets_correct_task(self):
         from app.agents.celery_app import celery_app
