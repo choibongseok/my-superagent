@@ -1,7 +1,7 @@
 """Workspace schemas for API requests/responses."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -55,6 +55,49 @@ class WorkspaceListResponse(BaseModel):
     
     workspaces: List[WorkspaceResponse]
     total: int
+
+
+# ============================================================================
+# Workspace Trust Ring
+# ============================================================================
+
+class WorkspaceTrustRingMember(BaseModel):
+    """Per-member health summary used by workspace trust ring."""
+
+    user_id: UUID
+    user_email: Optional[str] = None
+    total_tasks: int
+    completed_tasks: int
+    failed_tasks: int
+    success_rate: float
+    avg_completion_time_seconds: float
+
+
+class WorkspaceTrustRingResponse(BaseModel):
+    """Workspace-level operating trust metrics for operational readiness."""
+
+    workspace_id: UUID
+    workspace_name: str
+    period_days: int
+    period_start: str
+    period_end: str
+
+    total_tasks: int
+    completed_tasks: int
+    failed_tasks: int
+    cancelled_tasks: int
+    pending_tasks: int
+    in_progress_tasks: int
+    avg_completion_time_seconds: float
+
+    trust_score: float
+    stability_score: float
+    speed_score: float
+    repeatability_score: float
+
+    failure_categories: Dict[str, int]
+    top_recommendations: List[str]
+    member_health: List[WorkspaceTrustRingMember]
 
 
 # ============================================================================

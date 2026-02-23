@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +20,7 @@ from app.services.email_service import email_service
 from app.models.workspace import Workspace
 from app.models.workspace_member import MemberRole, WorkspaceMember
 from app.models.workspace_invitation import InvitationStatus, WorkspaceInvitation
+from app.models.task import Task, TaskStatus
 from app.schemas.workspace import (
     InvitationAcceptRequest,
     InvitationAcceptResponse,
@@ -31,6 +34,7 @@ from app.schemas.workspace import (
     WorkspaceMemberResponse,
     WorkspaceMemberUpdate,
     WorkspaceResponse,
+    WorkspaceTrustRingResponse,
     WorkspaceUpdate,
 )
 
@@ -102,6 +106,54 @@ async def check_permission(
         )
     
     return member
+
+
+def _safe_score(value: float) -> float:
+    """Clamp score into the 0~100 range and round for stable API output."""
+    return round(max(0.0, min(100.0, value)), 2)
+
+
+def _build_trust_ring_recommendations(
+    total_tasks: int,
+    trust_score: float,
+    stability_score: float,
+    speed_score: float,
+    repeatability_score: float,
+    failure_categories: dict,
+) -> list[str]:
+    """Return actionable recommendations from computed metrics."""
+    recommendations: list[str] = []
+
+    if total_tasks == 0:
+        return [
+            "No workspace activity in the selected period. Share a task or start a chain "
+            "to begin trust scoring."
+        ]
+
+    if trust_score < 70:
+        recommendations.append(
+            "Trust dropped below target. Review failed tasks and reuse the Recovery Deck before rerunning."
+        )
+
+    if stability_score < 75:
+        recommendations.append(
+            "Repeated failures detected. Suggest enabling preflight checks for retry workflows."
+        )
+
+    if speed_score < 55:
+        recommendations.append(
+            "Execution speed is slower than expected. Break large prompts and run smaller batches."
+        )
+
+    if repeatability_score < 80 and failure_categories:
+        recommendations.append(
+            "Top failure category is recurring. Consider creating a dedicated template for it."
+        )
+
+    if not recommendations:
+        recommendations.append("Workspace is operating smoothly. Keep the current process.")
+
+    return recommendations
 
 
 # ============================================================================
@@ -203,19 +255,199 @@ async def get_workspace(
 ):
     """
     Get workspace details.
-    
+
     Requires: VIEWER role (any member can view)
     """
     workspace = await get_workspace_or_404(workspace_id, db)
-    
+
     # Check membership
     await get_member_or_404(workspace_id, current_user.id, db)
-    
+
     # Build response with member count
     response_data = WorkspaceResponse.model_validate(workspace)
     response_data.member_count = len(workspace.members)
-    
+
     return response_data
+
+
+@router.get("/{workspace_id}/trust-ring", response_model=WorkspaceTrustRingResponse)
+async def get_workspace_trust_ring(
+    workspace_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    period_days: int = Query(30, ge=1, le=180),
+):
+    """Get workspace trust-ring analytics for multi-user collaboration.
+
+    Exposes operational readiness metrics in 4 dimensions:
+    trust, stability, speed, and repeatability.
+    """
+    # Only workspace members can view trust-ring metrics.
+    await get_member_or_404(workspace_id, current_user.id, db)
+
+    workspace = await get_workspace_or_404(workspace_id, db)
+    period_start = datetime.utcnow() - timedelta(days=period_days)
+    period_end = datetime.utcnow()
+
+    member_rows = (await db.execute(
+        select(WorkspaceMember.user_id)
+        .where(WorkspaceMember.workspace_id == workspace_id)
+    )).all()
+    member_user_ids = [row[0] for row in member_rows]
+
+    # Keep an explicit fallback when workspace data is temporarily inconsistent.
+    if not member_user_ids:
+        return WorkspaceTrustRingResponse(
+            workspace_id=workspace.id,
+            workspace_name=workspace.name,
+            period_days=period_days,
+            period_start=period_start.isoformat(),
+            period_end=period_end.isoformat(),
+            total_tasks=0,
+            completed_tasks=0,
+            failed_tasks=0,
+            cancelled_tasks=0,
+            pending_tasks=0,
+            in_progress_tasks=0,
+            avg_completion_time_seconds=0.0,
+            trust_score=0.0,
+            stability_score=0.0,
+            speed_score=0.0,
+            repeatability_score=0.0,
+            failure_categories={},
+            top_recommendations=[
+                "No workspace members are available. Invite members to begin trust tracking."
+            ],
+            member_health=[],
+        )
+
+    tasks_result = await db.execute(
+        select(Task)
+        .where(
+            Task.user_id.in_(member_user_ids),
+            Task.created_at >= period_start,
+            Task.created_at <= period_end,
+        )
+        .order_by(Task.created_at.asc())
+    )
+    tasks = tasks_result.scalars().all()
+
+    total = len(tasks)
+    completed = [t for t in tasks if t.status == TaskStatus.COMPLETED]
+    failed = [t for t in tasks if t.status == TaskStatus.FAILED]
+    cancelled = [t for t in tasks if t.status == TaskStatus.CANCELLED]
+    pending = [t for t in tasks if t.status == TaskStatus.PENDING]
+    processing = [t for t in tasks if t.status == TaskStatus.IN_PROGRESS]
+
+    completion_durations = [
+        (t.completed_at - t.created_at).total_seconds()
+        for t in completed
+        if t.completed_at is not None
+    ]
+    avg_completion_seconds = (
+        round(sum(completion_durations) / len(completion_durations), 2)
+        if completion_durations else 0.0
+    )
+
+    # Failure pattern distribution.
+    from app.services.error_recovery import classify_error
+
+    failure_categories: dict[str, int] = defaultdict(int)
+    for t in failed:
+        try:
+            category = classify_error(t.error_message).category.value
+        except Exception:
+            category = "unknown"
+        failure_categories[category] += 1
+
+    repeated_failure_count = 0
+    for count in failure_categories.values():
+        if count > 1:
+            repeated_failure_count += count - 1
+
+    # Score calculations are intentionally simple and bounded.
+    trust_rate = len(completed) / total if total else 0.0
+    failure_rate = len(failed) / total if total else 0.0
+    repeat_ratio = repeated_failure_count / len(failed) if failed else 0.0
+
+    trust_score = _safe_score(trust_rate * 100)
+    stability_score = _safe_score(100 - (failure_rate * 85 + repeat_ratio * 15))
+    speed_score = 0.0 if not completion_durations else _safe_score(
+        100 - min(avg_completion_seconds / 120.0 * 100, 100)
+    )
+    repeatability_score = _safe_score(
+        100.0 if not failed else 100 - min(repeat_ratio * 100, 100)
+    )
+
+    # Build per-member health summaries.
+    members = (await db.execute(
+        select(WorkspaceMember, User.email)
+        .join(User, WorkspaceMember.user_id == User.id)
+        .where(WorkspaceMember.workspace_id == workspace_id)
+    )).all()
+
+    tasks_by_user: dict[UUID, list[Task]] = defaultdict(list)
+    for t in tasks:
+        tasks_by_user[t.user_id].append(t)
+
+    member_health = []
+    for member, user_email in members:
+        member_tasks = tasks_by_user.get(member.user_id, [])
+        m_total = len(member_tasks)
+        m_completed = [t for t in member_tasks if t.status == TaskStatus.COMPLETED]
+        m_failed = [t for t in member_tasks if t.status == TaskStatus.FAILED]
+
+        m_completion = [
+            (t.completed_at - t.created_at).total_seconds()
+            for t in m_completed
+            if t.completed_at is not None
+        ]
+        m_avg_completion = (
+            round(sum(m_completion) / len(m_completion), 2) if m_completion else 0.0
+        )
+
+        member_health.append(
+            {
+                "user_id": member.user_id,
+                "user_email": user_email,
+                "total_tasks": m_total,
+                "completed_tasks": len(m_completed),
+                "failed_tasks": len(m_failed),
+                "success_rate": round(len(m_completed) / m_total, 4) if m_total else 0.0,
+                "avg_completion_time_seconds": m_avg_completion,
+            }
+        )
+
+    recommendations = _build_trust_ring_recommendations(
+        total,
+        trust_score,
+        stability_score,
+        speed_score,
+        repeatability_score,
+        dict(failure_categories),
+    )
+
+    return WorkspaceTrustRingResponse(
+        workspace_id=workspace.id,
+        workspace_name=workspace.name,
+        period_days=period_days,
+        period_start=period_start.isoformat(),
+        period_end=period_end.isoformat(),
+        total_tasks=total,
+        completed_tasks=len(completed),
+        failed_tasks=len(failed),
+        cancelled_tasks=len(cancelled),
+        pending_tasks=len(pending),
+        in_progress_tasks=len(processing),
+        avg_completion_time_seconds=avg_completion_seconds,
+        trust_score=trust_score,
+        stability_score=stability_score,
+        speed_score=speed_score,
+        repeatability_score=repeatability_score,
+        failure_categories=dict(failure_categories),
+        top_recommendations=recommendations,
+        member_health=member_health,
+    )
 
 
 @router.patch("/{workspace_id}", response_model=WorkspaceResponse)
