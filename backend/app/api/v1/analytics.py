@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Analytics API for Agent Performance metrics and LangFuse data visualization.
 
 This module provides endpoints for:
@@ -8,6 +10,7 @@ This module provides endpoints for:
 - LangFuse trace data
 """
 
+from collections import defaultdict
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, desc
@@ -64,6 +67,107 @@ class TaskTrend(BaseModel):
     completed_tasks: int
     failed_tasks: int
     avg_duration_seconds: float
+
+
+
+def _truncate_text(value: str, max_length: int) -> str:
+    """Normalize and truncate free-form prompt/result text for cards."""
+    normalized = " ".join(value.split())
+    if len(normalized) <= max_length:
+        return normalized
+    return normalized[: max_length - 1].rstrip() + "…"
+
+
+def _collect_outcome_actions(task: Task) -> list[OutcomeAction]:
+    """Build next-step actions for a task outcome."""
+    actions: list[OutcomeAction] = [
+        OutcomeAction(
+            id="view-task",
+            label="View task",
+            path=f"/api/v1/tasks/{task.id}",
+            method="GET",
+            description="Open task details.",
+        )
+    ]
+
+    if task.status == TaskStatus.COMPLETED:
+        actions.append(
+            OutcomeAction(
+                id="share",
+                label="Share result",
+                path=f"/api/v1/tasks/{task.id}/share",
+                method="POST",
+                description="Generate a share link for this output.",
+            )
+        )
+        actions.append(
+            OutcomeAction(
+                id="schedule",
+                label="Schedule recurrence",
+                path=f"/api/v1/tasks/{task.id}/schedule",
+                method="POST",
+                description="Turn this task into a recurring schedule.",
+            )
+        )
+    elif task.status == TaskStatus.FAILED:
+        actions.append(
+            OutcomeAction(
+                id="recovery",
+                label="Open recovery deck",
+                path=f"/api/v1/tasks/{task.id}/recovery-deck",
+                method="GET",
+                description="Get step-by-step recovery guidance.",
+            )
+        )
+        actions.append(
+            OutcomeAction(
+                id="retry",
+                label="Retry task",
+                path=f"/api/v1/tasks/{task.id}/retry",
+                method="POST",
+                description="Retry immediately with same settings.",
+            )
+        )
+    elif task.status in {TaskStatus.PENDING, TaskStatus.IN_PROGRESS}:
+        actions.append(
+            OutcomeAction(
+                id="retry-queued",
+                label="Poll progress",
+                path=f"/api/v1/tasks/{task.id}",
+                method="GET",
+                description="Check for status updates.",
+            )
+        )
+
+    return actions
+
+
+def _safe_task_type(value: TaskStatus | str) -> str:
+    """Return a consistent task type string."""
+    if hasattr(value, "value"):
+        return str(value.value)
+    return str(value)
+
+
+def _safe_status(value: TaskStatus | str) -> str:
+    """Return a consistent status string."""
+    if hasattr(value, "value"):
+        return str(value.value)
+    return str(value)
+
+
+def _failure_category(task: Task) -> str | None:
+    """Map failed task messages to recovery categories."""
+    if task.status != TaskStatus.FAILED:
+        return None
+
+    try:
+        from app.services.error_recovery import classify_error
+
+        return classify_error(task.error_message).category.value
+    except Exception:
+        return None
+
 
 
 @router.get("/performance", response_model=PerformanceMetrics)
@@ -302,6 +406,121 @@ async def get_task_trends(
     except Exception as e:
         logger.error(f"Failed to get task trends: {e}")
         raise
+
+
+class OutcomeAction(BaseModel):
+    """Action card for outcome follow-through (#255/#262 idea support)."""
+
+    id: str
+    label: str
+    path: str
+    method: str = Field(default="GET", description="HTTP method for action")
+    enabled: bool = True
+    description: str | None = None
+
+
+class OutcomeRingCard(BaseModel):
+    """One completed/failed task card in the outcome ring."""
+
+    task_id: UUID
+    task_type: str
+    status: str
+    prompt: str
+    created_at: datetime
+    completed_at: datetime | None = None
+    completion_seconds: float | None = None
+    result_preview: str | None = None
+    document_url: str | None = None
+    failure_category: str | None = None
+    actions: list[OutcomeAction] = Field(default_factory=list)
+
+
+class OutcomeRingResponse(BaseModel):
+    """Task outcome ring response for post-task follow-through."""
+
+    period_days: int
+    period_start: str
+    period_end: str
+    total_outcomes: int
+    status_breakdown: Dict[str, int]
+    task_type_breakdown: Dict[str, int]
+    cards: list[OutcomeRingCard]
+
+
+
+@router.get("/outcome-ring", response_model=OutcomeRingResponse)
+async def get_outcome_ring(
+    current_user: User = Depends(get_current_user),
+    period_days: int = Query(7, ge=1, le=180),
+    limit: int = Query(20, ge=1, le=100),
+    status: TaskStatus | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return a compact ring of recent task outcomes with follow-through actions."""
+    period_start = datetime.utcnow() - timedelta(days=period_days)
+    period_end = datetime.utcnow()
+
+    query = select(Task).where(
+        Task.user_id == current_user.id,
+        Task.created_at >= period_start,
+    ).order_by(Task.created_at.desc())
+
+    if status is not None:
+        query = query.where(Task.status == status)
+
+    query = query.limit(limit)
+
+    tasks = (await db.execute(query)).scalars().all()
+
+    status_breakdown: Dict[str, int] = defaultdict(int)
+    task_type_breakdown: Dict[str, int] = defaultdict(int)
+
+    cards: list[OutcomeRingCard] = []
+
+    for task in tasks:
+        status_value = _safe_status(task.status)
+        status_breakdown[status_value] += 1
+
+        ttype = _safe_task_type(task.task_type)
+        task_type_breakdown[ttype] += 1
+
+        completion_seconds: float | None = None
+        if task.completed_at is not None:
+            completion_seconds = round((task.completed_at - task.created_at).total_seconds(), 2)
+
+        preview = None
+        if isinstance(task.result, dict):
+            result_content = task.result.get("content")
+            if isinstance(result_content, str) and result_content.strip():
+                preview = _truncate_text(result_content, 180)
+
+        cards.append(
+            OutcomeRingCard(
+                task_id=task.id,
+                task_type=ttype,
+                status=status_value,
+                prompt=_truncate_text(task.prompt, 120),
+                created_at=task.created_at,
+                completed_at=task.completed_at,
+                completion_seconds=completion_seconds,
+                result_preview=preview,
+                document_url=task.document_url,
+                failure_category=_failure_category(task),
+                actions=_collect_outcome_actions(task),
+            )
+        )
+
+    return OutcomeRingResponse(
+        period_days=period_days,
+        period_start=period_start.isoformat(),
+        period_end=period_end.isoformat(),
+        total_outcomes=len(cards),
+        status_breakdown=dict(status_breakdown),
+        task_type_breakdown=dict(task_type_breakdown),
+        cards=cards,
+    )
+
+
 
 
 class DashboardSummary(BaseModel):
