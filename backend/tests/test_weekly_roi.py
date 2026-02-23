@@ -12,6 +12,7 @@ from app.core.security import create_access_token
 from app.models.task import Task as TaskModel, TaskStatus, TaskType
 from app.models.qa_result import QAResult
 from app.models.user import User
+from app.api.v1.analytics import _week_bounds
 
 
 # ── helpers ───────────────────────────────────────────────────────────
@@ -133,10 +134,13 @@ async def test_roi_empty_user(async_client: AsyncClient, db: AsyncSession):
 async def test_roi_with_completed_tasks(async_client: AsyncClient, db: AsyncSession):
     user = await _make_user(db)
     now = datetime.now(timezone.utc)
+    # Use this week's Monday boundary so this test is stable across weekday boundaries.
+    week_start, _ = _week_bounds(now.replace(tzinfo=None))
+    week_start = week_start.replace(tzinfo=timezone.utc)
 
-    t1 = await _make_task(db, user, TaskType.DOCS, TaskStatus.COMPLETED, now - timedelta(hours=1))
-    t2 = await _make_task(db, user, TaskType.SHEETS, TaskStatus.COMPLETED, now - timedelta(hours=2))
-    await _make_task(db, user, TaskType.RESEARCH, TaskStatus.FAILED, now - timedelta(hours=3))
+    t1 = await _make_task(db, user, TaskType.DOCS, TaskStatus.COMPLETED, week_start + timedelta(hours=1))
+    t2 = await _make_task(db, user, TaskType.SHEETS, TaskStatus.COMPLETED, week_start + timedelta(hours=2))
+    await _make_task(db, user, TaskType.RESEARCH, TaskStatus.FAILED, week_start + timedelta(hours=3))
 
     await _make_qa(db, t1, 92.0)
     await _make_qa(db, t2, 80.0)
