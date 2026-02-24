@@ -6,7 +6,7 @@ Tests complete HTTP API flows: Auth → Task Creation → Execution → Webhooks
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock, AsyncMock
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import jwt
 
 from app.main import app
@@ -56,9 +56,9 @@ def auth_token(test_user):
     payload = {
         "sub": test_user.email,
         "user_id": test_user.id,
-        "exp": datetime.utcnow() + timedelta(hours=1),
+        "exp": datetime.now(UTC) + timedelta(hours=1),
     }
-    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm="HS256")
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
 
 class TestAuthFlowE2E:

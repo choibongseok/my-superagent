@@ -131,8 +131,8 @@ async def test_start_watch_with_mock_drive(async_client, auth_headers):
         "expiration": str(int((datetime.now(tz=timezone.utc) + timedelta(hours=24)).timestamp() * 1000)),
     }
     
-    with patch("app.api.v1.webhooks.build", return_value=mock_service):
-        with patch("app.api.v1.webhooks.Credentials"):
+    with patch("googleapiclient.discovery.build", return_value=mock_service):
+        with patch("google.oauth2.credentials.Credentials"):
             request_data = {
                 "folder_id": "root",
                 "auto_summarize": True,
