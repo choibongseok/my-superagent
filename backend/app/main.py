@@ -111,6 +111,10 @@ tags_metadata = [
         "name": "factoryhub",
         "description": "FactoryHub integration endpoints. Receive events from FactoryHub Go backend.",
     },
+    {
+        "name": "audit",
+        "description": "Audit trail endpoints. Query logs of all API calls and data changes for compliance (GDPR, SOC2).",
+    },
 ]
 
 # Create FastAPI application

@@ -24,6 +24,7 @@ from app.models.webhook import Webhook, WebhookEvent
 from app.models.task_chain import TaskChain, ChainStatus, ChainStep, StepStatus
 from app.models.scheduled_task import ScheduledTask, ScheduleType
 from app.models.token_usage import TokenUsage
+from app.models.audit_log import AuditLog
 
 __all__ = [
     "Base",
@@ -62,4 +63,5 @@ __all__ = [
     "ScheduledTask",
     "ScheduleType",
     "TokenUsage",
+    "AuditLog",
 ]

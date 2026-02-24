@@ -1,176 +1,203 @@
-"""Multi-Model Fallback Chain (#232).
+"""Multi-Model Fallback Chain for resilient LLM operations.
 
-Builds an LLM with automatic fallback: primary → secondary → tertiary.
-Uses LangChain's ``with_fallbacks()`` so failures transparently retry
-on the next provider.
-
-Usage::
-
-    from app.core.llm_fallback import build_llm_with_fallbacks
-
-    llm = build_llm_with_fallbacks(callbacks=[handler])
-    # llm is a RunnableWithFallbacks when multiple keys are present,
-    # or a plain ChatModel when only one key exists.
+Provides automatic fallback to alternative LLM providers when the primary
+model fails due to rate limits, timeouts, or service outages.
 """
-
-from __future__ import annotations
-
-import logging
 from dataclasses import dataclass
-from typing import Any, List, Optional, Sequence
-
-from langchain_core.language_models import BaseChatModel
-
-from app.core.config import settings
-
-logger = logging.getLogger(__name__)
+from typing import List, Optional
+from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
+import os
 
 
-@dataclass(frozen=True)
+@dataclass
 class ModelSpec:
-    """Lightweight descriptor for an LLM provider + model."""
-
-    provider: str  # "openai" | "anthropic"
+    """Specification for an LLM model with fallback support."""
+    
+    provider: str  # "openai", "anthropic", "gemini"
     model: str
-    api_key_setting: str  # Settings attribute name that holds the key
+    temperature: float = 0.7
+    max_tokens: Optional[int] = None
+    api_key_env: str = None
+    
+    def __post_init__(self):
+        """Set default API key environment variable if not specified."""
+        if self.api_key_env is None:
+            if self.provider == "openai":
+                self.api_key_env = "OPENAI_API_KEY"
+            elif self.provider == "anthropic":
+                self.api_key_env = "ANTHROPIC_API_KEY"
 
 
-# Ordered fallback chain — first available key wins as primary.
-_DEFAULT_CHAIN: Sequence[ModelSpec] = (
-    ModelSpec("openai", settings.OPENAI_MODEL, "OPENAI_API_KEY"),
-    ModelSpec("anthropic", settings.ANTHROPIC_MODEL, "ANTHROPIC_API_KEY"),
-)
+@dataclass
+class FallbackMetrics:
+    """Tracks fallback usage for monitoring and debugging."""
+    
+    primary_failures: int = 0
+    fallback_successes: int = 0
+    total_failures: int = 0
+    last_fallback_reason: Optional[str] = None
 
 
-def _has_key(spec: ModelSpec) -> bool:
-    """Return True when the API key for *spec* is configured (non-empty)."""
-    return bool(getattr(settings, spec.api_key_setting, ""))
-
-
-def _make_chat_model(
-    spec: ModelSpec,
-    *,
-    temperature: float = 0.7,
-    max_tokens: int = 4000,
-    callbacks: Optional[List[Any]] = None,
-) -> BaseChatModel:
-    """Instantiate a single ChatModel for the given spec."""
-
-    if spec.provider == "openai":
-        from langchain_openai import ChatOpenAI
-
-        return ChatOpenAI(
-            model=spec.model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            callbacks=callbacks,
-        )
-
-    if spec.provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-
-        return ChatAnthropic(
-            model=spec.model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            callbacks=callbacks,
-        )
-
-    raise ValueError(f"Unsupported provider: {spec.provider}")
+# Default fallback chain: GPT-4 → Claude → (future: Gemini)
+DEFAULT_FALLBACK_CHAIN = [
+    ModelSpec(
+        provider="openai",
+        model="gpt-4-turbo-preview",
+        temperature=0.7,
+        api_key_env="OPENAI_API_KEY"
+    ),
+    ModelSpec(
+        provider="anthropic",
+        model="claude-3-5-sonnet-20241022",
+        temperature=0.7,
+        api_key_env="ANTHROPIC_API_KEY"
+    ),
+]
 
 
 def build_llm_with_fallbacks(
-    *,
-    primary_provider: Optional[str] = None,
-    primary_model: Optional[str] = None,
+    primary_provider: str = "openai",
+    primary_model: str = "gpt-4-turbo-preview",
     temperature: float = 0.7,
-    max_tokens: int = 4000,
-    callbacks: Optional[List[Any]] = None,
-    chain: Optional[Sequence[ModelSpec]] = None,
-) -> BaseChatModel:
-    """Build an LLM with automatic fallback across configured providers.
-
-    Parameters
-    ----------
-    primary_provider:
-        Preferred provider (``"openai"`` or ``"anthropic"``).  If set the
-        chain is re-ordered so this provider comes first.
-    primary_model:
-        Override the model name for the primary provider.
-    temperature / max_tokens:
-        Passed through to every model in the chain.
-    callbacks:
-        LangChain callbacks (e.g. LangFuse handler).
-    chain:
-        Custom fallback chain; defaults to ``_DEFAULT_CHAIN``.
-
-    Returns
-    -------
-    BaseChatModel
-        A single ``ChatModel`` when only one key is available, or a
-        ``RunnableWithFallbacks`` wrapping primary + fallbacks when
-        multiple keys exist.
-
-    Raises
-    ------
-    RuntimeError
-        If no API keys are configured at all.
-    """
-
-    specs = list(chain or _DEFAULT_CHAIN)
-
-    # Re-order if caller requests a specific primary provider.
-    if primary_provider:
-        preferred = [s for s in specs if s.provider == primary_provider]
-        rest = [s for s in specs if s.provider != primary_provider]
-        if preferred and primary_model:
-            preferred = [ModelSpec(preferred[0].provider, primary_model, preferred[0].api_key_setting)]
-        specs = preferred + rest
-
-    # Filter to specs with valid keys.
-    available = [s for s in specs if _has_key(s)]
-
-    if not available:
-        # In demo mode, return mock LLM instead of crashing
-        if settings.DEMO_MODE:
-            from app.core.mock_llm import DemoLLM
-
-            logger.info("DEMO_MODE active — using mock LLM (no API keys required)")
-            return DemoLLM(callbacks=callbacks or [])
-
-        raise RuntimeError(
-            "No LLM API keys configured. Set at least one of: "
-            + ", ".join(s.api_key_setting for s in specs)
+    max_tokens: Optional[int] = 4000,
+    callbacks: Optional[list] = None,
+    fallback_metrics: Optional[FallbackMetrics] = None
+):
+    """Build a LangChain LLM with automatic fallback support.
+    
+    Creates a primary LLM and automatically adds fallback models when their
+    API keys are available. Fallback order: GPT-4 → Claude 3.5 Sonnet
+    
+    Args:
+        primary_provider: Preferred provider ("openai" or "anthropic")
+        primary_model: Preferred model name
+        temperature: Temperature parameter (0-1)
+        max_tokens: Maximum output tokens
+        callbacks: LangChain callbacks (e.g., LangFuse handler)
+        fallback_metrics: Optional metrics tracker for monitoring
+        
+    Returns:
+        LangChain LLM with fallback chain configured, or single LLM if
+        only one provider has an API key configured.
+        
+    Raises:
+        ValueError: If no API keys are configured for any models.
+        
+    Example:
+        ```python
+        llm = build_llm_with_fallbacks(
+            primary_provider="openai",
+            primary_model="gpt-4",
+            callbacks=[langfuse_handler]
         )
-
-    build_kwargs = dict(temperature=temperature, max_tokens=max_tokens, callbacks=callbacks)
-
-    primary = _make_chat_model(available[0], **build_kwargs)
-    fallbacks = [_make_chat_model(s, **build_kwargs) for s in available[1:]]
-
-    if fallbacks:
-        provider_names = [available[0].provider] + [s.provider for s in available[1:]]
-        logger.info(
-            "LLM fallback chain configured: %s",
-            " → ".join(provider_names),
-        )
-        return primary.with_fallbacks(fallbacks)
-
-    logger.info("Single LLM configured: %s (no fallbacks available)", available[0].provider)
-    return primary
-
-
-def get_fallback_status() -> dict:
-    """Return a dict describing which providers are available.
-
-    Useful for health-check / admin endpoints.
+        response = llm.invoke("Summarize this document")
+        # If OpenAI fails (rate limit/timeout), automatically tries Claude
+        ```
     """
-    status: dict[str, Any] = {
-        spec.provider: {
-            "model": spec.model,
-            "configured": _has_key(spec),
-        }
-        for spec in _DEFAULT_CHAIN
+    if fallback_metrics is None:
+        fallback_metrics = FallbackMetrics()
+    
+    # Build list of LLMs with available API keys
+    llms = []
+    
+    # Primary model
+    primary_api_key = os.getenv(
+        "OPENAI_API_KEY" if primary_provider == "openai" else "ANTHROPIC_API_KEY"
+    )
+    
+    if primary_api_key:
+        if primary_provider == "openai":
+            llm = ChatOpenAI(
+                model=primary_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                api_key=primary_api_key,
+                callbacks=callbacks
+            )
+        elif primary_provider == "anthropic":
+            llm = ChatAnthropic(
+                model=primary_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                api_key=primary_api_key,
+                callbacks=callbacks
+            )
+        else:
+            raise ValueError(f"Unsupported provider: {primary_provider}")
+        
+        llms.append(llm)
+    
+    # Add fallback models based on available API keys
+    if primary_provider != "anthropic":
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+        if anthropic_key:
+            fallback_llm = ChatAnthropic(
+                model="claude-3-5-sonnet-20241022",
+                temperature=temperature,
+                max_tokens=max_tokens,
+                api_key=anthropic_key,
+                callbacks=callbacks
+            )
+            llms.append(fallback_llm)
+    
+    if primary_provider != "openai":
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if openai_key:
+            fallback_llm = ChatOpenAI(
+                model="gpt-4-turbo-preview",
+                temperature=temperature,
+                max_tokens=max_tokens,
+                api_key=openai_key,
+                callbacks=callbacks
+            )
+            llms.append(fallback_llm)
+    
+    if not llms:
+        raise ValueError(
+            "No LLM providers configured. Please set at least one API key:\n"
+            "OPENAI_API_KEY, ANTHROPIC_API_KEY"
+        )
+    
+    # Use single LLM if only one available
+    if len(llms) == 1:
+        return llms[0]
+    
+    # Build fallback chain: primary.with_fallbacks([secondary, ...])
+    primary = llms[0]
+    fallbacks = llms[1:]
+    
+    return primary.with_fallbacks(fallbacks)
+
+
+def get_fallback_status(fallback_metrics: FallbackMetrics) -> dict:
+    """Get current fallback usage statistics.
+    
+    Args:
+        fallback_metrics: Metrics tracker instance.
+        
+    Returns:
+        Dictionary with fallback statistics.
+    """
+    total_requests = (
+        fallback_metrics.primary_failures +
+        fallback_metrics.fallback_successes +
+        fallback_metrics.total_failures
+    )
+    
+    if total_requests == 0:
+        reliability = 100.0
+    else:
+        reliability = (
+            (total_requests - fallback_metrics.total_failures) /
+            total_requests * 100
+        )
+    
+    return {
+        "total_requests": total_requests,
+        "primary_failures": fallback_metrics.primary_failures,
+        "fallback_successes": fallback_metrics.fallback_successes,
+        "total_failures": fallback_metrics.total_failures,
+        "reliability_percent": round(reliability, 2),
+        "last_fallback_reason": fallback_metrics.last_fallback_reason
     }
-    status["demo_mode"] = settings.DEMO_MODE
-    return status

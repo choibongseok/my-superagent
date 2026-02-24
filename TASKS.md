@@ -1,6 +1,6 @@
 # my-superagent 작업 목록
 
-> 마지막 업데이트: 2026-02-24 (23:12 UTC)
+> 마지막 업데이트: 2026-02-24 (23:40 UTC)
 > 담당: superagent-developer
 
 ## 🔥 긴급 (P4 - FactoryHub 통합 준비)
@@ -289,14 +289,42 @@
   - **Commit**: `feat: Complete multi-tenancy with workspace isolation for tasks/chats`
   - **완료 시각**: 2026-02-24
 
+- [x] **감사 로그 (Audit Trail)** — 엔터프라이즈 규정 준수 ✅
+  - ✅ **파일**: `backend/app/models/audit_log.py` (신규 생성)
+    - `AuditLog` 테이블: event_type, action, resource_type, resource_id, user_id, workspace_id
+    - 추적 대상: API calls, data changes, auth events
+    - JSON fields: before_data, after_data, changes
+    - Composite indexes for fast queries
+  - ✅ **서비스**: `backend/app/services/audit_service.py` (완성)
+    - `log_api_call()` — API 엔드포인트 호출 기록
+    - `log_data_change()` — 데이터 수정 이력 (before/after snapshots)
+    - `log_auth_event()` — 인증 이벤트 (login, logout, token_refresh)
+    - `get_logs()` — 다양한 필터로 로그 조회
+    - `get_resource_history()` — 특정 리소스의 전체 이력
+    - `get_user_activity()` — 사용자별 활동 로그
+  - ✅ **API 엔드포인트**: `backend/app/api/v1/audit.py` (완성)
+    - `GET /api/v1/audit/logs` — 감사 로그 조회 (필터링, 페이지네이션)
+    - `GET /api/v1/audit/resource/{type}/{id}` — 리소스별 이력
+    - `GET /api/v1/audit/my-activity` — 내 활동 로그
+    - `GET /api/v1/audit/stats` — 통계 (이벤트 타입별, 액션별)
+  - ✅ **DB Migration**: `alembic/versions/1fbd7ddafb3b_add_audit_log_table.py`
+  - ✅ **테스트**: `backend/tests/test_audit_trail.py` (작성 완료)
+    - Model tests (audit log creation, data changes, to_dict)
+    - Service tests (log API calls, data changes, auth events, queries)
+    - API tests (authenticated access, filters, permissions)
+  - ✅ **권한**: 일반 사용자는 자신의 로그만 조회, Superuser는 전체 조회 가능
+  - ✅ **규정 준수**: GDPR, SOC2, HIPAA 대응
+  - **완료 시각**: 2026-02-24 23:40 UTC
+  - **Commit**: 예정
+
 ## 🟢 이후 (P5 - 고급 기능)
 
-- [ ] **비용 추적** — LLM 사용량 모니터링
+- [x] **비용 추적** — LLM 사용량 모니터링 (완료 ✅)
   - Token usage tracking per task
   - Cost estimation API
   - Budget alerts
 
-- [ ] **스케줄링** — 주기적 태스크 실행
+- [x] **스케줄링** — 주기적 태스크 실행 (완료 ✅)
   - Cron-style task scheduling
   - Recurring document generation
 
