@@ -1,6 +1,6 @@
 """Workspace invitation model."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from uuid import UUID, uuid4
 
@@ -46,7 +46,7 @@ class WorkspaceInvitation(Base):
 
     # Timestamps
     expires_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.utcnow() + timedelta(days=7), nullable=False
+        DateTime, default=lambda: datetime.now(UTC) + timedelta(days=7), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, nullable=False
@@ -65,7 +65,7 @@ class WorkspaceInvitation(Base):
     @property
     def is_expired(self) -> bool:
         """Check if invitation is expired."""
-        return datetime.utcnow() > self.expires_at
+        return datetime.now(UTC) > self.expires_at
 
     @property
     def is_pending(self) -> bool:

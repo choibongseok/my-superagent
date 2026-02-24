@@ -6,7 +6,7 @@ memory (short-term) and vector store memory (long-term).
 
 import logging
 from typing import Any, Dict, Iterable, List, Optional
-from datetime import datetime
+from datetime import UTC, datetime
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage
@@ -96,7 +96,7 @@ class MemoryManager:
         self.metadata: Dict[str, Any] = {
             "user_id": user_id,
             "session_id": session_id,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "vector_memory_enabled": use_vector_memory,
             "summary_enabled": use_summary,
         }

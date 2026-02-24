@@ -1051,7 +1051,7 @@ class TaskPlanner:
         Returns:
             ExecutionPlan with detailed steps and estimates
         """
-        from datetime import datetime
+        from datetime import UTC, datetime
 
         context = context or {}
         constraints = constraints or {}
@@ -1210,7 +1210,7 @@ Create a detailed execution plan. Output JSON only."""
                 total_estimated_cost=total_cost,
                 total_estimated_tokens=total_tokens,
                 constraints=constraints,
-                created_at=datetime.utcnow().isoformat(),
+                created_at=datetime.now(UTC).isoformat(),
             )
 
             logger.info(
@@ -1241,7 +1241,7 @@ Create a detailed execution plan. Output JSON only."""
         Returns:
             Updated ExecutionPlan
         """
-        from datetime import datetime
+        from datetime import UTC, datetime
 
         system_prompt = """You are re-planning a task execution based on results so far.
 
@@ -1295,7 +1295,7 @@ Create an updated execution plan. Output JSON only."""
                 constraints=original_plan.constraints,
             )
 
-            updated_plan.updated_at = datetime.utcnow().isoformat()
+            updated_plan.updated_at = datetime.now(UTC).isoformat()
 
             logger.info(f"Re-planning completed: {reason}")
 

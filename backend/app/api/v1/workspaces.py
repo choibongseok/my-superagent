@@ -1,7 +1,7 @@
 """Workspace management endpoints with RBAC."""
 
 import secrets
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
@@ -286,8 +286,8 @@ async def get_workspace_trust_ring(
     await get_member_or_404(workspace_id, current_user.id, db)
 
     workspace = await get_workspace_or_404(workspace_id, db)
-    period_start = datetime.utcnow() - timedelta(days=period_days)
-    period_end = datetime.utcnow()
+    period_start = datetime.now(UTC) - timedelta(days=period_days)
+    period_end = datetime.now(UTC)
 
     member_rows = (await db.execute(
         select(WorkspaceMember.user_id)
@@ -760,7 +760,7 @@ async def create_invitation(
         invitee_email=invitation_data.invitee_email,
         role=invitation_data.role.value,
         token=token,
-        expires_at=datetime.utcnow() + timedelta(days=7),
+        expires_at=datetime.now(UTC) + timedelta(days=7),
     )
     
     db.add(invitation)
@@ -934,7 +934,7 @@ async def accept_invitation(
     
     # Update invitation status
     invitation.status = InvitationStatus.ACCEPTED.value
-    invitation.accepted_at = datetime.utcnow()
+    invitation.accepted_at = datetime.now(UTC)
     
     await db.commit()
     await db.refresh(member)

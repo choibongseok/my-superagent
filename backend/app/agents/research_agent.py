@@ -2,7 +2,7 @@
 
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import UTC, datetime
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import BaseTool
@@ -240,7 +240,7 @@ Note: Use the web_search tool for each distinct query needed to answer the user'
                         url=url,
                         type=SourceType.WEB,
                         author="DuckDuckGo Search",
-                        published_date=datetime.utcnow(),
+                        published_date=datetime.now(UTC),
                         description=f"Search result for query: {query}",
                         metadata={
                             "query": query,
@@ -253,7 +253,7 @@ Note: Use the web_search tool for each distinct query needed to answer the user'
                         context=f"Found via web search for: {query}",
                         metadata={
                             "query": query,
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                         },
                     )
 
@@ -340,7 +340,7 @@ Note: Use the web_search tool for each distinct query needed to answer the user'
             entry: Dict[str, Any] = {
                 "query": query,
                 "source": "duckduckgo",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
             # Try to pick up a URL from the observation text

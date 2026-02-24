@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence
 from uuid import UUID
 
@@ -178,7 +178,7 @@ async def calculate_streak(db: AsyncSession, user_id: UUID) -> StreakInfo:
             val = val.date()
         active_dates.append(val)
 
-    today = datetime.utcnow().date()
+    today = datetime.now(UTC).date()
     yesterday = today - timedelta(days=1)
 
     last_active = active_dates[0]
@@ -371,7 +371,7 @@ async def check_weekly_record(db: AsyncSession, user_id: UUID) -> WeeklyRecord:
 
     Uses Python-side grouping (compatible with both PostgreSQL and SQLite).
     """
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     # Monday of this week
     this_monday = (now - timedelta(days=now.weekday())).replace(
         hour=0, minute=0, second=0, microsecond=0

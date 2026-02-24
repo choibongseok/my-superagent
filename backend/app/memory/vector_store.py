@@ -175,7 +175,7 @@ class VectorStoreMemory:
         memory_metadata = {
             "user_id": self.user_id,
             "session_id": self.session_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             **(metadata or {}),
         }
 
@@ -218,7 +218,7 @@ class VectorStoreMemory:
             memory_metadata = {
                 "user_id": self.user_id,
                 "session_id": self.session_id,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 **metadata,
             }
             documents.append(Document(page_content=content, metadata=memory_metadata))

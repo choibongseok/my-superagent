@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, desc
 from typing import List, Dict, Any, Optional
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 import logging
 
 from app.core.database import get_db
@@ -318,7 +318,7 @@ async def get_performance_metrics(
     """
     try:
         # Calculate time threshold
-        time_threshold = datetime.utcnow() - timedelta(hours=time_range_hours)
+        time_threshold = datetime.now(UTC) - timedelta(hours=time_range_hours)
         
         # Get all tasks in time range
         query = select(Task).where(
@@ -393,7 +393,7 @@ async def get_agent_statistics(
     - Success rate per agent
     """
     try:
-        time_threshold = datetime.utcnow() - timedelta(hours=time_range_hours)
+        time_threshold = datetime.now(UTC) - timedelta(hours=time_range_hours)
         
         # Query tasks grouped by task_type (agent type)
         query = select(
@@ -471,7 +471,7 @@ async def get_task_trends(
     - `days`: Number of days to include (1-30, default: 7)
     """
     try:
-        time_threshold = datetime.utcnow() - timedelta(days=days)
+        time_threshold = datetime.now(UTC) - timedelta(days=days)
         
         # Get all tasks in time range
         query = select(Task).where(
@@ -586,8 +586,8 @@ async def get_outcome_ring(
     db: AsyncSession = Depends(get_db),
 ):
     """Return a compact ring of recent task outcomes with follow-through actions."""
-    period_start = datetime.utcnow() - timedelta(days=period_days)
-    period_end = datetime.utcnow()
+    period_start = datetime.now(UTC) - timedelta(days=period_days)
+    period_end = datetime.now(UTC)
 
     query = select(Task).where(
         Task.user_id == current_user.id,
@@ -827,7 +827,7 @@ async def get_weekly_roi(
 
     Compares with the previous week when data is available.
     """
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     this_start, this_end = _week_bounds(now)
     prev_start = this_start - timedelta(weeks=1)
     prev_end = this_start - timedelta(seconds=1)
@@ -887,7 +887,7 @@ async def get_cost_breakdown(
     This endpoint now returns heuristic cost estimates captured at task-creation time,
     grouped by task type and model.
     """
-    time_threshold = datetime.utcnow() - timedelta(hours=time_range_hours)
+    time_threshold = datetime.now(UTC) - timedelta(hours=time_range_hours)
     query = select(Task).where(
         and_(
             Task.user_id == current_user.id,
@@ -937,7 +937,7 @@ async def get_cost_breakdown(
         by_agent={k: round(v, 4) for k, v in by_agent.items()},
         by_model={k: round(v, 4) for k, v in by_model.items()},
         by_date={k: round(v, 4) for k, v in by_date.items()} or {
-            datetime.utcnow().strftime('%Y-%m-%d'): 0.0
+            datetime.now(UTC).strftime('%Y-%m-%d'): 0.0
         },
     )
 
@@ -1039,7 +1039,7 @@ async def get_cost_and_trust_dashboard(
     Returns task-level cost snapshots, trust scores, retry counts and optional
     monthly budget pressure indicator.
     """
-    period_end = datetime.utcnow()
+    period_end = datetime.now(UTC)
     period_start = period_end - timedelta(hours=time_range_hours)
 
     query = (

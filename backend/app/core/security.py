@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from fnmatch import fnmatchcase
 import re
 import time
@@ -35,7 +35,7 @@ def create_access_token(
     """Create a JWT access token."""
     to_encode = data.copy()
 
-    issued_at = datetime.utcnow()
+    issued_at = datetime.now(UTC)
 
     if expires_delta:
         expire = issued_at + expires_delta
@@ -55,7 +55,7 @@ def create_access_token(
 def create_refresh_token(data: dict) -> str:
     """Create a JWT refresh token."""
     to_encode = data.copy()
-    issued_at = datetime.utcnow()
+    issued_at = datetime.now(UTC)
     expire = issued_at + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
 
     to_encode.setdefault("iat", issued_at)

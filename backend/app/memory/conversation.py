@@ -9,7 +9,7 @@ import re
 from difflib import SequenceMatcher
 from fnmatch import fnmatchcase
 from typing import Any, Dict, Iterable, List, Literal, Optional
-from datetime import datetime
+from datetime import UTC, datetime
 
 from langchain.memory import ConversationBufferMemory, ConversationSummaryMemory
 from langchain_core.messages import (
@@ -86,7 +86,7 @@ class ConversationMemory:
         self.metadata: Dict[str, Any] = {
             "user_id": user_id,
             "session_id": session_id,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "turn_count": 0,
         }
 
@@ -105,7 +105,7 @@ class ConversationMemory:
         self.memory.chat_memory.add_message(HumanMessage(content=message))
         self.metadata["turn_count"] += 1
         self.metadata["last_user_message"] = message
-        self.metadata["last_updated"] = datetime.utcnow().isoformat()
+        self.metadata["last_updated"] = datetime.now(UTC).isoformat()
 
         logger.debug(f"Added user message to session {self.session_id}")
 
@@ -118,7 +118,7 @@ class ConversationMemory:
         """
         self.memory.chat_memory.add_message(AIMessage(content=message))
         self.metadata["last_ai_message"] = message
-        self.metadata["last_updated"] = datetime.utcnow().isoformat()
+        self.metadata["last_updated"] = datetime.now(UTC).isoformat()
 
         logger.debug(f"Added AI message to session {self.session_id}")
 
@@ -131,7 +131,7 @@ class ConversationMemory:
         """
         self.memory.chat_memory.add_message(SystemMessage(content=message))
         self.metadata["last_system_message"] = message
-        self.metadata["last_updated"] = datetime.utcnow().isoformat()
+        self.metadata["last_updated"] = datetime.now(UTC).isoformat()
 
         logger.debug(f"Added system message to session {self.session_id}")
 
@@ -147,7 +147,7 @@ class ConversationMemory:
             if isinstance(message, HumanMessage):
                 self.metadata["turn_count"] += 1
 
-        self.metadata["last_updated"] = datetime.utcnow().isoformat()
+        self.metadata["last_updated"] = datetime.now(UTC).isoformat()
         logger.debug(f"Added {len(messages)} messages to session {self.session_id}")
 
     def get_messages(self, last_n: Optional[int] = None) -> List[BaseMessage]:
@@ -560,7 +560,7 @@ class ConversationMemory:
         """Clear all conversation history."""
         self.memory.clear()
         self.metadata["turn_count"] = 0
-        self.metadata["cleared_at"] = datetime.utcnow().isoformat()
+        self.metadata["cleared_at"] = datetime.now(UTC).isoformat()
 
         logger.info(f"Cleared memory for session {self.session_id}")
 
