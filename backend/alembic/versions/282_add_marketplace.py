@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers
 revision = '282_add_marketplace'
-down_revision = '212_add_nudge_week_tracking'
+down_revision = '212_nudge_week_tracking'
 branch_labels = None
 depends_on = None
 

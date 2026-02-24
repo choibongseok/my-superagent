@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "212_nudge_week_tracking"
-down_revision = "206_share_expiry"
+down_revision = "210_add_nudge_email_fields"
 branch_labels = None
 depends_on = None
 
