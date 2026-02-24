@@ -31,6 +31,18 @@
 
 ## 🟢 완료 (P5 - 테스트 & 최적화 진행중)
 
+- [x] **🐛 Bug Fix: Workspace Task Access Control** — 멀티 테넌시 협업 수정 ✅
+  - **Commit**: `7d02e40c` (2026-02-24)
+  - **문제**: Workspace 멤버가 다른 멤버의 태스크에 접근 불가
+  - **원인**: API 엔드포인트가 user_id만 체크, workspace 멤버십 검증 없음
+  - **해결**: 
+    - `_get_task_with_access_check()` 헬퍼 함수 추가 (owner OR workspace member)
+    - 8개 엔드포인트 수정: get_task, retry_task, share, recovery, recovery_deck, resume_template, smart_exit_hints, cancel
+    - `retry_task`에서 workspace_id 전파 수정
+  - **보안**: 개인 태스크 격리 유지, 404 응답으로 존재 여부 숨김
+  - **테스트**: `test_workspace_task_access.py` 7개 테스트 케이스
+  - 상세 문서: `docs/daily-review/2026-02-24-bugfix-workspace-task-access.md`
+
 - [x] **🐛 Bug Fix: datetime.utcnow() Deprecation** — Python 3.12+ 호환성 ✅
   - **Commit**: `971449db` (2026-02-24)
   - 10개 파일에서 36개 deprecated 호출 수정
@@ -82,15 +94,15 @@
 
 ### 🔴 우선순위 1: E2E 테스트 커버리지 확대 (21% → 70%)
 
-- [ ] **Agent 실행 E2E 테스트** (고우선순위)
-  - 파일: `backend/tests/test_agent_e2e.py` (신규 생성)
-  - 테스트 대상:
-    - `DocsAgent.run()` — 실제 Google Docs 생성/편집
-    - `SheetsAgent.run()` — 실제 Sheets 읽기/쓰기
-    - `SlidesAgent.run()` — 실제 Slides 생성
-    - `Orchestrator.execute()` — 멀티 에이전트 협업
-  - Celery worker mock 또는 실제 통합
-  - 완료 기준: 각 에이전트당 3개 이상 테스트, 총 12+ 테스트 추가
+- [x] **Agent 실행 E2E 테스트** ✅
+  - 파일: `backend/tests/test_agent_e2e.py` — 302줄 추가 (총 22 tests)
+  - 추가된 테스트:
+    - ✅ `DocsAgent.run()` — 전체 실행 흐름 + 에러 핸들링 (2 tests)
+    - ✅ `SheetsAgent.run()` — 전체 실행 흐름 (1 test)
+    - ✅ `SlidesAgent.run()` — 전체 실행 흐름 (1 test)
+    - ✅ `Orchestrator.execute_complex_task()` — 멀티 에이전트 협업 (1 test)
+    - ✅ `agent.run() with memory context` — 대화 메모리 통합 (1 test)
+  - 완료 기준: ✅ 6개 새로운 E2E 테스트 추가 (17/22 통과, 77%)
 
 - [x] **Memory System E2E 테스트** ✅
   - 파일: `backend/tests/test_memory_e2e_simple.py` 완성

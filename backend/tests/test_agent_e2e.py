@@ -551,3 +551,305 @@ def test_slides_agent_empty_theme_id():
     
     with pytest.raises(ValueError, match="theme_id must be a non-empty string"):
         SlidesAgent._resolve_theme_color("   ")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Full Agent.run() E2E Tests
+# ═════════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_docs_agent_run_full_flow(mock_credentials, user_id, session_id):
+    """Test DocsAgent.run() full execution flow with mocked dependencies"""
+    
+    mock_docs_api = MagicMock()
+    mock_docs_api.create_document.return_value = {
+        "documentId": "test_doc_full_123",
+        "title": "Market Analysis Report",
+        "revisionId": "rev_1",
+    }
+    
+    with patch('app.tools.google_apis.GoogleDocsAPI', return_value=mock_docs_api):
+        agent = DocsAgent(
+            user_id=user_id,
+            credentials=mock_credentials
+        )
+        
+        # Mock the agent executor to simulate successful execution
+        mock_executor_response = {
+            "output": "Successfully created document 'Market Analysis Report' with ID test_doc_full_123",
+            "intermediate_steps": [
+                ("Created document with title: Market Analysis Report", "Document created successfully")
+            ]
+        }
+        
+        # Mock agent_executor.ainvoke
+        agent.agent_executor = MagicMock()
+        agent.agent_executor.ainvoke = AsyncMock(return_value=mock_executor_response)
+        
+        # Run the agent
+        result = await agent.run(
+            prompt="Create a market analysis report for Q1 2024"
+        )
+        
+        # Assertions
+        assert result is not None
+        assert isinstance(result, dict)
+        assert result.get("success") is True
+        assert "output" in result
+        assert "intermediate_steps" in result
+
+
+@pytest.mark.asyncio
+async def test_sheets_agent_run_full_flow(mock_credentials, user_id, session_id):
+    """Test SheetsAgent.run() full execution flow with mocked dependencies"""
+    
+    mock_sheets_service = MagicMock()
+    mock_sheets_create = MagicMock()
+    mock_sheets_create.execute.return_value = {
+        "spreadsheetId": "test_sheet_full_789",
+        "properties": {"title": "Sales Dashboard"},
+    }
+    mock_sheets_service.spreadsheets().create.return_value = mock_sheets_create
+    
+    # Mock values().get() for reading data
+    mock_values_get = MagicMock()
+    mock_values_get.execute.return_value = {
+        "values": [
+            ["Product", "Q1 Sales", "Q2 Sales"],
+            ["Widget A", "1000", "1200"],
+            ["Widget B", "800", "900"],
+        ]
+    }
+    mock_sheets_service.spreadsheets().values().get.return_value = mock_values_get
+    
+    with patch('googleapiclient.discovery.build', return_value=mock_sheets_service):
+        agent = SheetsAgent(
+            user_id=user_id,
+            credentials=mock_credentials
+        )
+        
+        # Mock agent executor
+        mock_executor_response = {
+            "output": "Successfully analyzed sales data from spreadsheet test_sheet_full_789",
+            "intermediate_steps": [
+                ("Read data from range A1:C3", "Retrieved 3 rows of data"),
+                ("Analyzed sales trends", "Q2 shows 15% growth over Q1")
+            ]
+        }
+        
+        agent.agent_executor = MagicMock()
+        agent.agent_executor.ainvoke = AsyncMock(return_value=mock_executor_response)
+        
+        # Run the agent
+        result = await agent.run(
+            prompt="Analyze sales data from the spreadsheet and identify trends"
+        )
+        
+        # Assertions
+        assert result is not None
+        assert isinstance(result, dict)
+        assert result.get("success") is True
+        assert "output" in result
+        assert "intermediate_steps" in result
+
+
+@pytest.mark.asyncio
+async def test_slides_agent_run_full_flow(mock_credentials, user_id, session_id):
+    """Test SlidesAgent.run() full execution flow with mocked dependencies"""
+    
+    mock_slides_service = MagicMock()
+    mock_slides_create = MagicMock()
+    mock_slides_create.execute.return_value = {
+        "presentationId": "test_pres_full_321",
+        "title": "Product Launch Deck",
+        "slides": [],
+    }
+    mock_slides_service.presentations().create.return_value = mock_slides_create
+    
+    # Mock batchUpdate for adding slides
+    mock_batch_update = MagicMock()
+    mock_batch_update.execute.return_value = {
+        "replies": [
+            {"createSlide": {"objectId": "slide_1"}},
+            {"createSlide": {"objectId": "slide_2"}},
+        ]
+    }
+    mock_slides_service.presentations().batchUpdate.return_value = mock_batch_update
+    
+    with patch('googleapiclient.discovery.build', return_value=mock_slides_service):
+        agent = SlidesAgent(
+            user_id=user_id,
+            credentials=mock_credentials
+        )
+        
+        # Mock agent executor
+        mock_executor_response = {
+            "output": "Successfully created presentation 'Product Launch Deck' with 5 slides",
+            "intermediate_steps": [
+                ("Created presentation", "Presentation ID: test_pres_full_321"),
+                ("Added title slide", "Title: Product Launch 2024"),
+                ("Added content slides", "4 slides with key features and benefits"),
+            ]
+        }
+        
+        agent.agent_executor = MagicMock()
+        agent.agent_executor.ainvoke = AsyncMock(return_value=mock_executor_response)
+        
+        # Run the agent
+        result = await agent.run(
+            prompt="Create a product launch presentation with key features and benefits"
+        )
+        
+        # Assertions
+        assert result is not None
+        assert isinstance(result, dict)
+        assert result.get("success") is True
+        assert "output" in result
+        assert "intermediate_steps" in result
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_execute_complex_task(mock_credentials, user_id):
+    """Test Orchestrator.execute_complex_task() multi-agent coordination"""
+    
+    from app.agents.orchestrator import AgentOrchestrator
+    from app.models import User
+    from unittest.mock import Mock
+    
+    # Mock database session
+    mock_db = MagicMock()
+    mock_user = Mock(spec=User)
+    mock_user.id = user_id
+    mock_user.email = "test@example.com"
+    mock_user.google_credentials = mock_credentials.to_json()
+    mock_db.query().filter().first.return_value = mock_user
+    
+    # Mock Google API services
+    mock_docs_api = MagicMock()
+    mock_sheets_service = MagicMock()
+    mock_slides_service = MagicMock()
+    
+    def mock_build(service_name, version, credentials):
+        if service_name == "sheets":
+            return mock_sheets_service
+        elif service_name == "slides":
+            return mock_slides_service
+        raise ValueError(f"Unknown service: {service_name}")
+    
+    with patch('app.tools.google_apis.GoogleDocsAPI', return_value=mock_docs_api), \
+         patch('googleapiclient.discovery.build', side_effect=mock_build), \
+         patch('app.agents.orchestrator.SessionLocal', return_value=mock_db):
+        
+        orchestrator = AgentOrchestrator()
+        
+        # Mock task planner response
+        mock_task_plan = [
+            {
+                "agent_type": "sheets",
+                "description": "Analyze Q1 sales data from spreadsheet",
+                "dependencies": [],
+            },
+            {
+                "agent_type": "docs",
+                "description": "Create executive summary report with sales insights",
+                "dependencies": ["sheets"],
+            },
+            {
+                "agent_type": "slides",
+                "description": "Generate presentation deck with key findings",
+                "dependencies": ["docs", "sheets"],
+            },
+        ]
+        
+        # Mock orchestrator's task planner
+        with patch.object(orchestrator.task_planner, 'plan_tasks', return_value=mock_task_plan):
+            # Mock each agent's execution
+            mock_sheets_result = {"success": True, "output": "Sales analysis complete"}
+            mock_docs_result = {"success": True, "output": "Report created"}
+            mock_slides_result = {"success": True, "output": "Presentation generated"}
+            
+            with patch.object(orchestrator, 'execute_task', side_effect=[
+                MagicMock(status="completed", result=mock_sheets_result),
+                MagicMock(status="completed", result=mock_docs_result),
+                MagicMock(status="completed", result=mock_slides_result),
+            ]):
+                # Execute complex task
+                result = await orchestrator.execute_complex_task(
+                    task_description="Create a comprehensive Q1 sales report with analysis, "
+                                     "executive summary, and presentation deck",
+                    user_id=user_id
+                )
+                
+                # Assertions
+                assert result is not None
+                assert isinstance(result, dict)
+                assert "task_plan" in result or "tasks" in result or "results" in result
+
+
+@pytest.mark.asyncio
+async def test_docs_agent_run_with_error_handling(mock_credentials, user_id):
+    """Test DocsAgent.run() gracefully handles errors during execution"""
+    
+    mock_docs_api = MagicMock()
+    mock_docs_api.create_document.side_effect = Exception("Google API rate limit exceeded")
+    
+    with patch('app.tools.google_apis.GoogleDocsAPI', return_value=mock_docs_api):
+        agent = DocsAgent(
+            user_id=user_id,
+            credentials=mock_credentials
+        )
+        
+        # Mock agent executor to simulate error
+        agent.agent_executor = MagicMock()
+        agent.agent_executor.ainvoke = AsyncMock(side_effect=Exception("Rate limit exceeded"))
+        
+        # Run should handle error and return structured result
+        result = await agent.run(
+            prompt="Create a document"
+        )
+        
+        # Should return result with success=False
+        assert result is not None
+        assert isinstance(result, dict)
+        assert result.get("success") is False
+        assert "error" in result or "exception" in result.get("output", "").lower()
+
+
+@pytest.mark.asyncio
+async def test_agent_run_with_memory_context(mock_credentials, user_id, session_id):
+    """Test agent.run() uses conversation memory context"""
+    
+    mock_docs_api = MagicMock()
+    mock_docs_api.create_document.return_value = {"documentId": "doc_memory_test"}
+    
+    with patch('app.tools.google_apis.GoogleDocsAPI', return_value=mock_docs_api):
+        agent = DocsAgent(
+            user_id=user_id,
+            credentials=mock_credentials,
+            session_id=session_id
+        )
+        
+        # Add some conversation history
+        agent.add_user_message("I need a report on AI trends")
+        agent.add_ai_message("I'll create a comprehensive AI trends report")
+        
+        # Mock agent executor
+        mock_executor_response = {
+            "output": "Created AI trends report with context from previous conversation",
+            "intermediate_steps": []
+        }
+        agent.agent_executor = MagicMock()
+        agent.agent_executor.ainvoke = AsyncMock(return_value=mock_executor_response)
+        
+        # Run with follow-up prompt
+        result = await agent.run(
+            prompt="Add a section about machine learning breakthroughs"
+        )
+        
+        # Agent should have used conversation context
+        assert result is not None
+        assert result.get("success") is True
+        
+        # Verify memory manager was used
+        context = agent.memory_manager.get_conversation_context()
+        assert len(context) >= 4  # 2 previous + 2 from this run
