@@ -5,8 +5,8 @@ Marketplace Models — Template sharing, discovery, and installation
 from datetime import datetime, timezone
 from typing import Optional, List
 import uuid
-from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, DateTime, Enum as SQLEnum, UniqueConstraint, Index
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, DateTime, Enum as SQLEnum, UniqueConstraint, Index, JSON
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import enum
 
@@ -37,12 +37,12 @@ class MarketplaceTemplate(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
     category = Column(SQLEnum(TemplateCategory), nullable=False, default=TemplateCategory.OTHER)
-    tags = Column(JSONB, nullable=True)  # List of searchable tags
+    tags = Column(JSON, nullable=True)  # List of searchable tags
     
     # Template content
-    template_data = Column(JSONB, nullable=False)  # The actual template structure
+    template_data = Column(JSON, nullable=False)  # The actual template structure
     prompt_template = Column(Text, nullable=True)  # Optional default prompt
-    config = Column(JSONB, nullable=True)  # Additional configuration
+    config = Column(JSON, nullable=True)  # Additional configuration
     
     # Creator
     creator_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
@@ -105,7 +105,7 @@ class TemplateInstall(Base):
     # Installation metadata
     workspace_id = Column(UUID(as_uuid=True), nullable=True)  # If user has workspaces
     installed_name = Column(String(200), nullable=True)  # Custom name given by user
-    customizations = Column(JSONB, nullable=True)  # User customizations to the template
+    customizations = Column(JSON, nullable=True)  # User customizations to the template
     
     # Usage tracking
     usage_count = Column(Integer, default=0, nullable=False)
