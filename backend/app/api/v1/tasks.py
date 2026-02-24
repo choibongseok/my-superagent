@@ -1,6 +1,7 @@
 """Task management endpoints."""
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from uuid import UUID, uuid4
@@ -16,7 +17,12 @@ from app.models.task import Task as TaskModel
 from app.models.task import TaskStatus, TaskType
 from app.models.user import User
 from app.schemas.task import (
+    PreRunReliabilityRequest,
+    PreRunReliabilityResponse,
+    ReliabilityGateCheck,
     ShareLinkResponse,
+    SmartExitHintAction,
+    SmartExitHintsResponse,
     Task,
     TaskCreate,
     TaskList,
@@ -76,6 +82,312 @@ def _resolve_task_title(task_type: str, metadata: dict | None) -> str:
                 return normalized_value
 
     return fallback
+
+
+def _safe_status(value: TaskStatus) -> str:
+    """Return a status string consistently for smart hint payloads."""
+    if hasattr(value, "value"):
+        return str(value.value)
+    return str(value)
+
+
+def _build_smart_exit_actions(task: TaskModel) -> list[SmartExitHintAction]:
+    """Build prioritized follow-through actions for completed/failed/inflight tasks."""
+    actions: list[SmartExitHintAction] = [
+        SmartExitHintAction(
+            id="view",
+            label="View task",
+            path=f"/api/v1/tasks/{task.id}",
+            method="GET",
+            description="Review task details and raw output.",
+            enabled=True,
+            requires_input=False,
+        )
+    ]
+
+    if task.status == TaskStatus.COMPLETED:
+        actions.extend(
+            [
+                SmartExitHintAction(
+                    id="share",
+                    label="Create share link",
+                    path=f"/api/v1/tasks/{task.id}/share",
+                    method="POST",
+                    description="Generate a public share link for teammates.",
+                    requires_input=False,
+                ),
+                SmartExitHintAction(
+                    id="schedule",
+                    label="Schedule recurrence",
+                    path=f"/api/v1/tasks/{task.id}/schedule",
+                    method="POST",
+                    description="Set this task to run on a cadence.",
+                    requires_input=True,
+                ),
+                SmartExitHintAction(
+                    id="poll",
+                    label="Poll status",
+                    path=f"/api/v1/tasks/{task.id}",
+                    method="GET",
+                    description="Confirm the final result is still available.",
+                ),
+            ]
+        )
+    elif task.status == TaskStatus.FAILED:
+        actions.extend(
+            [
+                SmartExitHintAction(
+                    id="recovery_deck",
+                    label="Open recovery deck",
+                    path=f"/api/v1/tasks/{task.id}/recovery-deck",
+                    method="GET",
+                    description="Get failure analysis and recovery guidance.",
+                ),
+                SmartExitHintAction(
+                    id="retry",
+                    label="Retry task",
+                    path=f"/api/v1/tasks/{task.id}/retry",
+                    method="POST",
+                    description="Clone and rerun with the same input.",
+                ),
+                SmartExitHintAction(
+                    id="resume_template",
+                    label="Resume with template",
+                    path=f"/api/v1/tasks/{task.id}/resume-template",
+                    method="GET",
+                    description="Get a resume payload with suggested improvements.",
+                ),
+            ]
+        )
+    elif task.status in {TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.PROCESSING}:
+        actions.extend(
+            [
+                SmartExitHintAction(
+                    id="poll",
+                    label="Poll status",
+                    path=f"/api/v1/tasks/{task.id}",
+                    method="GET",
+                    description="Get the latest execution state.",
+                ),
+                SmartExitHintAction(
+                    id="cancel",
+                    label="Cancel task",
+                    path=f"/api/v1/tasks/{task.id}",
+                    method="DELETE",
+                    description="Stop an in-flight task and release resources.",
+                ),
+            ]
+        )
+    else:
+        actions.append(
+            SmartExitHintAction(
+                id="share",
+                label="Create share link",
+                path=f"/api/v1/tasks/{task.id}/share",
+                method="POST",
+                description="Generate a link if you want to reuse this output.",
+                requires_input=False,
+            )
+        )
+
+    return actions[:3]
+
+
+def _estimate_prompt_complexity(prompt: str) -> tuple[int, list[str]]:
+    """Return a complexity penalty and human-readable reasons."""
+    checks: list[str] = []
+    penalty = 0
+    normalized = prompt.strip()
+
+    # Length-based complexity risk.
+    char_count = len(normalized)
+    if char_count > 3000:
+        penalty += 30
+        checks.append("Prompt is very long; split into smaller tasks to reduce failure risk.")
+    elif char_count > 1800:
+        penalty += 18
+        checks.append("Prompt is long; consider narrowing scope before execution.")
+
+    words = re.findall(r"\w+", normalized)
+    if len(words) > 500:
+        penalty += 12
+        checks.append("Prompt has many sections; reduce to top 3 goals for stability.")
+    elif len(words) > 250:
+        penalty += 8
+
+    # Instruction ambiguity risk.
+    ambiguous_markers = ["everything", "all", "entire", "as much as possible"]
+    lower_prompt = normalized.lower()
+    if any(marker in lower_prompt for marker in ambiguous_markers):
+        penalty += 8
+        checks.append("Prompt contains broad instructions; define explicit scope.")
+
+    return penalty, checks
+
+
+def _compute_risk_level(score: int) -> str:
+    """Bucket reliability score into human-readable risk levels."""
+    if score >= 80:
+        return "low"
+    if score >= 60:
+        return "medium"
+    return "high"
+
+
+def _requires_google_workspace(task_type: TaskType) -> bool:
+    """Whether a task type depends on Google credentials."""
+    return task_type in {TaskType.DOCS, TaskType.SHEETS, TaskType.SLIDES}
+
+
+async def _build_reliability_signal(
+    task_type: TaskType,
+    prompt: str,
+    current_user: User,
+    db: AsyncSession,
+) -> dict:
+    """Return a deterministic reliability profile before task execution."""
+    checks: list[ReliabilityGateCheck] = []
+    score = 100
+    recommendations: list[str] = []
+
+    # Credential checks.
+    if _requires_google_workspace(task_type) and not current_user.google_access_token:
+        score -= 45
+        checks.append(
+            ReliabilityGateCheck(
+                id="google_auth",
+                name="Google credentials",
+                status="fail",
+                message="Google credentials are missing or expired.",
+                suggested_action="Reconnect Google account",
+                suggested_path="/api/v1/auth/google",
+            )
+        )
+        recommendations.append("Connect Google first to avoid immediate auth failures.")
+    else:
+        checks.append(
+            ReliabilityGateCheck(
+                id="google_auth",
+                name="Google credentials",
+                status="pass",
+                message="Google credentials are available.",
+                suggested_action="",
+            )
+        )
+
+    # Prompt complexity checks.
+    complexity_penalty, complexity_checks = _estimate_prompt_complexity(prompt)
+    score -= complexity_penalty
+    for check in complexity_checks:
+        checks.append(
+            ReliabilityGateCheck(
+                id="prompt_complexity",
+                name="Prompt scope",
+                status="warning",
+                message=check,
+                suggested_action="Simplify/trim prompt",
+            )
+        )
+
+    # Historical failure checks from this user/task_type.
+    lookback_days = 14
+    recent_window_start = datetime.now(tz=timezone.utc) - timedelta(days=lookback_days)
+    recent_tasks = (
+        await db.execute(
+            select(TaskModel)
+            .where(
+                TaskModel.user_id == current_user.id,
+                TaskModel.task_type == task_type,
+                TaskModel.created_at >= recent_window_start,
+            )
+            .order_by(TaskModel.created_at.desc())
+            .limit(40)
+        )
+    ).scalars().all()
+
+    total_recent = len(recent_tasks)
+    failed_recent = [t for t in recent_tasks if t.status == TaskStatus.FAILED]
+    failed_count = len(failed_recent)
+    failure_rate = (failed_count / total_recent) if total_recent else 0.0
+
+    # Similar prompt repetition penalty.
+    repeated_failures = sum(
+        1 for t in failed_recent if t.prompt.strip().lower() == prompt.strip().lower()
+    )
+
+    if total_recent >= 5:
+        score -= int(failure_rate * 45)
+
+    if failed_count >= 4:
+        score -= 18
+        checks.append(
+            ReliabilityGateCheck(
+                id="recent_failures",
+                name="Recent failure pattern",
+                status="warning",
+                message=(
+                    f"{failed_count} failures in the last {lookback_days} days "
+                    "for this task type."
+                ),
+                suggested_action="Review recovery deck and template before retry",
+            )
+        )
+        recommendations.append(
+            "Repeat failures detected. Use Recovery Deck for guided remediation."
+        )
+
+    if repeated_failures:
+        score -= min(25, repeated_failures * 8)
+        checks.append(
+            ReliabilityGateCheck(
+                id="repeated_prompt",
+                name="Repeated prompt failures",
+                status="warning",
+                message=(
+                    f"This exact prompt failed {repeated_failures} time(s) "
+                    "recently."
+                ),
+                suggested_action="Retry with a simplified version",
+                suggested_path="/api/v1/tasks/{id}/recovery-deck",
+            )
+        )
+        recommendations.append(
+            "Use a slightly narrowed version of the prompt before re-running."
+        )
+
+    # Safety net.
+    score = max(20, min(100, score))
+    reliability_score = score
+    go_no_go = reliability_score >= 65
+
+    checks.append(
+        ReliabilityGateCheck(
+            id="execution_readiness",
+            name="Execution readiness",
+            status="pass" if go_no_go else "fail",
+            message=(
+                "Execution can proceed immediately."
+                if go_no_go
+                else "Execution should be delayed until key issues are addressed."
+            ),
+            suggested_action=("Proceed" if go_no_go else "Address warnings and rerun gate."),
+            suggested_path=None,
+        )
+    )
+
+    if not recommendations:
+        recommendations.append("No blocking issues detected. You can proceed with execution.")
+
+    return {
+        "reliability_score": reliability_score,
+        "failure_probability": round(1 - (reliability_score / 100), 3),
+        "risk_level": _compute_risk_level(reliability_score),
+        "go_no_go": go_no_go,
+        "recent_failures": failed_count,
+        "repeat_failure_count": repeated_failures,
+        "checks": checks,
+        "recommendations": recommendations,
+    }
 
 
 @router.post("/", response_model=Task, status_code=status.HTTP_201_CREATED)
@@ -221,6 +533,44 @@ async def _get_llm_caller():
     return caller
 
 
+@router.post(
+    "/reliability-gate",
+    response_model=PreRunReliabilityResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def run_reliability_gate(
+    request: PreRunReliabilityRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Run a pre-execution reliability gate for one task run (#261).
+
+    Returns an execution readiness signal before queueing, including:
+    - estimated failure probability/risk score
+    - history-based failure pattern signal
+    - actionable remediation options for a safer retry
+    """
+    reliability = await _build_reliability_signal(
+        request.task_type,
+        request.prompt,
+        current_user,
+        db,
+    )
+
+    return PreRunReliabilityResponse(
+        task_type=request.task_type,
+        reliability_score=reliability["reliability_score"],
+        failure_probability=reliability["failure_probability"],
+        risk_level=reliability["risk_level"],
+        go_no_go=reliability["go_no_go"],
+        recent_failures=reliability["recent_failures"],
+        repeat_failure_count=reliability["repeat_failure_count"],
+        checks=reliability["checks"],
+        recommendations=reliability["recommendations"],
+        can_execute_immediately=reliability["go_no_go"],
+    )
+
+
 @router.post("/preview", response_model=TaskPreviewResponse)
 async def preview_task(
     request: TaskPreviewRequest,
@@ -349,11 +699,25 @@ async def execute_preview(
 
     # Create the task from the preview
     task_type_val = preview.task_type
+    preview_metadata = dict(preview.metadata or {})
+    if not isinstance(preview_metadata, dict):
+        preview_metadata = {}
+
+    preview_metadata.update(
+        {
+            "preview_id": preview.preview_id,
+            "estimated_cost_usd": preview.estimated_cost_usd,
+            "estimated_tokens": preview.estimated_tokens,
+            "estimated_time_seconds": preview.estimated_time_seconds,
+            "source": "preview",
+        }
+    )
+
     task_kwargs = _build_task_kwargs(
         user_id=current_user.id,
         prompt=preview.prompt,
         task_type=task_type_val,
-        metadata=preview.metadata,
+        metadata=preview_metadata,
     )
     task = TaskModel(**task_kwargs)
 
@@ -495,6 +859,56 @@ async def get_task(
     return task
 
 
+@router.get(
+    "/{task_id}/smart-exit-hints",
+    response_model=SmartExitHintsResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_smart_exit_hints(
+    task_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Return concise follow-up actions after a task finishes or stalls (#260).
+
+    This endpoint powers the post-task experience by suggesting next actions
+    based on status:
+    - completed: share, schedule, or re-check
+    - failed: recovery and retry paths
+    - in-flight: poll + cancel
+    """
+    result = await db.execute(
+        select(TaskModel).where(
+            TaskModel.id == task_id,
+            TaskModel.user_id == current_user.id,
+        )
+    )
+    task = result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )
+
+    if task.status == TaskStatus.COMPLETED:
+        next_focus = "Share or schedule this outcome"
+    elif task.status == TaskStatus.FAILED:
+        next_focus = "Recover and rerun with fixes"
+    elif task.status in {TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.PROCESSING}:
+        next_focus = "Monitor progress or cancel"
+    else:
+        next_focus = "Review output and decide next steps"
+
+    return SmartExitHintsResponse(
+        task_id=task.id,
+        task_type=str(task.task_type.value if hasattr(task.task_type, "value") else task.task_type),
+        status=_safe_status(task.status),
+        next_focus=next_focus,
+        actions=_build_smart_exit_actions(task),
+    )
+
+
 @router.post("/{task_id}/retry", response_model=Task, status_code=status.HTTP_201_CREATED)
 async def retry_task(
     task_id: UUID,
@@ -537,11 +951,30 @@ async def retry_task(
         )
 
     # Clone the task with reset status
+    retry_metadata = original.task_metadata
+    if not isinstance(retry_metadata, dict):
+        retry_metadata = {}
+    else:
+        retry_metadata = dict(retry_metadata)
+
+    retry_depth = retry_metadata.get("retry_depth", 0)
+    try:
+        retry_depth = int(retry_depth)
+    except (TypeError, ValueError):
+        retry_depth = 0
+
+    retry_metadata.update(
+        {
+            "retry_depth": retry_depth + 1,
+            "retry_of": str(original.id),
+        }
+    )
+
     task_kwargs = _build_task_kwargs(
         user_id=current_user.id,
         prompt=original.prompt,
         task_type=original.task_type,
-        metadata=original.task_metadata,
+        metadata=retry_metadata,
     )
     retry_task_obj = TaskModel(**task_kwargs)
 
@@ -705,6 +1138,152 @@ async def get_error_recovery(
         "task_id": str(task.id),
         "error": error_to_dict(friendly),
     }
+
+
+@router.get("/{task_id}/recovery-deck")
+async def get_recovery_deck(
+    task_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Get structured recovery guidance for a failed task.
+
+    In addition to the friendly error payload, this endpoint returns:
+    - failure class/stage (for UI grouping)
+    - actionable checklist and rewrite suggestions
+    - one-click retry hint for quick recovery loops
+    """
+    from app.services.error_recovery import build_recovery_deck, classify_error, error_to_dict
+
+    result = await db.execute(
+        select(TaskModel).where(
+            TaskModel.id == task_id,
+            TaskModel.user_id == current_user.id,
+        )
+    )
+    task = result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )
+
+    if task.status != TaskStatus.FAILED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Recovery info is only available for failed tasks (current status: {task.status})",
+        )
+
+    # Count repeated failures for the same user/task template.
+    recent_failures = await db.scalar(
+        select(func.count())
+        .where(
+            TaskModel.user_id == current_user.id,
+            TaskModel.task_type == task.task_type,
+            TaskModel.prompt == task.prompt,
+            TaskModel.status == TaskStatus.FAILED,
+            TaskModel.id != task.id,
+        )
+    )
+
+    friendly = classify_error(task.error_message)
+    deck = build_recovery_deck(
+        task.error_message,
+        repeat_failure_count=int(recent_failures or 0),
+    )
+    deck["one_click_retry"] = {
+        "enabled": True,
+        "label": "Retry task",
+        "method": "POST",
+        "path": f"/api/v1/tasks/{task.id}/retry",
+    }
+
+    return {
+        "task_id": str(task.id),
+        "error": error_to_dict(friendly),
+        "recovery_deck": deck,
+    }
+
+
+@router.get("/{task_id}/resume-template")
+async def get_resume_template(
+    task_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Build a one-click resume blueprint for a failed task.
+
+    This endpoint is part of the "One-Second Resume" flow (#258):
+    it provides everything needed for a fast retry experience, including
+    the original execution context and suggested rewrite options.
+    """
+    from app.services.error_recovery import build_recovery_deck, classify_error, error_to_dict
+
+    result = await db.execute(
+        select(TaskModel).where(
+            TaskModel.id == task_id,
+            TaskModel.user_id == current_user.id,
+        )
+    )
+    task = result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )
+
+    if task.status != TaskStatus.FAILED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Resume template is only available for failed tasks "
+                f"(current status: {task.status})"
+            ),
+        )
+
+    recent_failures = await db.scalar(
+        select(func.count())
+        .where(
+            TaskModel.user_id == current_user.id,
+            TaskModel.task_type == task.task_type,
+            TaskModel.prompt == task.prompt,
+            TaskModel.status == TaskStatus.FAILED,
+            TaskModel.id != task.id,
+        )
+    )
+
+    friendly = classify_error(task.error_message)
+    deck = build_recovery_deck(
+        task.error_message,
+        repeat_failure_count=int(recent_failures or 0),
+    )
+
+    resume_payload = {
+        "task_id": str(task.id),
+        "task_type": task.task_type.value,
+        "prompt": task.prompt,
+        "task_metadata": task.task_metadata or {},
+        "retry": {
+            "enabled": True,
+            "method": "POST",
+            "path": f"/api/v1/tasks/{task.id}/retry",
+            "label": "Resume immediately",
+        },
+        "error": error_to_dict(friendly),
+        "recovery_deck": deck,
+        "preflight": {
+            "checks": deck.get("checklist", []),
+            "rewrite_suggestions": deck.get("rewrite_suggestions", []),
+            "failure_stage": deck.get("failure_stage"),
+            "qa_failure_class": deck.get("qa_failure_class"),
+            "auto_retry_available": deck.get("auto_retry_available", False),
+            "repeat_failure_count": int(recent_failures or 0),
+        },
+    }
+
+    return resume_payload
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
