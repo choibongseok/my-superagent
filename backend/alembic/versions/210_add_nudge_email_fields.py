@@ -44,8 +44,27 @@ def upgrade() -> None:
         ),
     )
 
+    # Add nudge_email_week_start field
+    op.add_column(
+        "users",
+        sa.Column(
+            "nudge_email_week_start",
+            sa.DateTime(timezone=True),
+            nullable=True,
+        ),
+    )
+
+    op.create_index(
+        op.f("ix_users_nudge_email_week_start"),
+        "users",
+        ["nudge_email_week_start"],
+        unique=False,
+    )
+
 
 def downgrade() -> None:
+    op.drop_index(op.f("ix_users_nudge_email_week_start"), table_name="users")
+    op.drop_column("users", "nudge_email_week_start")
     op.drop_column("users", "nudge_email_count")
     op.drop_index(op.f("ix_users_last_task_created_at"), table_name="users")
     op.drop_column("users", "last_task_created_at")
