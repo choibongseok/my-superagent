@@ -68,6 +68,58 @@ def _build_task_kwargs(
     }
 
 
+async def _get_task_with_access_check(
+    task_id: UUID,
+    current_user: User,
+    db: AsyncSession,
+) -> TaskModel:
+    """Get task by ID with workspace membership access control.
+    
+    Returns task if:
+    - User is the task owner, OR
+    - Task belongs to a workspace where user is a member
+    
+    Raises:
+        HTTPException: 404 if task not found or user lacks access
+    """
+    from app.models.workspace_member import WorkspaceMember
+    
+    # First, try to get the task
+    result = await db.execute(
+        select(TaskModel).where(TaskModel.id == task_id)
+    )
+    task = result.scalar_one_or_none()
+    
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )
+    
+    # Check if user is the task owner
+    if task.user_id == current_user.id:
+        return task
+    
+    # If task has workspace_id, check workspace membership
+    if task.workspace_id:
+        member_result = await db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == task.workspace_id,
+                WorkspaceMember.user_id == current_user.id
+            )
+        )
+        member = member_result.scalar_one_or_none()
+        
+        if member:
+            return task
+    
+    # User has no access to this task
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Task not found",
+    )
+
+
 def _resolve_task_title(task_type: str, metadata: dict | None) -> str:
     """Resolve task title from metadata with sensible per-type fallbacks."""
     fallback = TASK_TITLE_DEFAULTS.get(task_type)
@@ -910,6 +962,9 @@ async def get_task(
     """
     Get task by ID.
     
+    Supports workspace access: workspace members can view tasks
+    created by other members in the same workspace.
+    
     Args:
         task_id: Task ID
         current_user: Authenticated user
@@ -918,20 +973,7 @@ async def get_task(
     Returns:
         Task: Task details
     """
-    result = await db.execute(
-        select(TaskModel).where(
-            TaskModel.id == task_id,
-            TaskModel.user_id == current_user.id,
-        )
-    )
-    task = result.scalar_one_or_none()
-    
-    if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Task not found",
-        )
-    
+    task = await _get_task_with_access_check(task_id, current_user, db)
     return task
 
 
@@ -953,19 +995,7 @@ async def get_smart_exit_hints(
     - failed: recovery and retry paths
     - in-flight: poll + cancel
     """
-    result = await db.execute(
-        select(TaskModel).where(
-            TaskModel.id == task_id,
-            TaskModel.user_id == current_user.id,
-        )
-    )
-    task = result.scalar_one_or_none()
-
-    if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Task not found",
-        )
+    task = await _get_task_with_access_check(task_id, current_user, db)
 
     if task.status == TaskStatus.COMPLETED:
         next_focus = "Share or schedule this outcome"
@@ -1006,19 +1036,7 @@ async def retry_task(
     Returns:
         Task: The newly created retry task
     """
-    result = await db.execute(
-        select(TaskModel).where(
-            TaskModel.id == task_id,
-            TaskModel.user_id == current_user.id,
-        )
-    )
-    original = result.scalar_one_or_none()
-
-    if not original:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Task not found",
-        )
+    original = await _get_task_with_access_check(task_id, current_user, db)
 
     if original.status != TaskStatus.FAILED:
         raise HTTPException(
@@ -1051,6 +1069,7 @@ async def retry_task(
         prompt=original.prompt,
         task_type=original.task_type,
         metadata=retry_metadata,
+        workspace_id=original.workspace_id,  # Preserve workspace context
     )
     retry_task_obj = TaskModel(**task_kwargs)
 
@@ -1139,19 +1158,7 @@ async def create_share_link(
     Returns:
         ShareLinkResponse with the token, URL, and expiry timestamp
     """
-    result = await db.execute(
-        select(TaskModel).where(
-            TaskModel.id == task_id,
-            TaskModel.user_id == current_user.id,
-        )
-    )
-    task = result.scalar_one_or_none()
-
-    if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Task not found",
-        )
+    task = await _get_task_with_access_check(task_id, current_user, db)
 
     # (Re-)generate share token and expiry
     new_token = uuid4()
@@ -1194,19 +1201,7 @@ async def get_error_recovery(
     """
     from app.services.error_recovery import classify_error, error_to_dict
 
-    result = await db.execute(
-        select(TaskModel).where(
-            TaskModel.id == task_id,
-            TaskModel.user_id == current_user.id,
-        )
-    )
-    task = result.scalar_one_or_none()
-
-    if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Task not found",
-        )
+    task = await _get_task_with_access_check(task_id, current_user, db)
 
     if task.status != TaskStatus.FAILED:
         raise HTTPException(
@@ -1236,19 +1231,7 @@ async def get_recovery_deck(
     """
     from app.services.error_recovery import build_recovery_deck, classify_error, error_to_dict
 
-    result = await db.execute(
-        select(TaskModel).where(
-            TaskModel.id == task_id,
-            TaskModel.user_id == current_user.id,
-        )
-    )
-    task = result.scalar_one_or_none()
-
-    if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Task not found",
-        )
+    task = await _get_task_with_access_check(task_id, current_user, db)
 
     if task.status != TaskStatus.FAILED:
         raise HTTPException(
@@ -1301,19 +1284,7 @@ async def get_resume_template(
     """
     from app.services.error_recovery import build_recovery_deck, classify_error, error_to_dict
 
-    result = await db.execute(
-        select(TaskModel).where(
-            TaskModel.id == task_id,
-            TaskModel.user_id == current_user.id,
-        )
-    )
-    task = result.scalar_one_or_none()
-
-    if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Task not found",
-        )
+    task = await _get_task_with_access_check(task_id, current_user, db)
 
     if task.status != TaskStatus.FAILED:
         raise HTTPException(
@@ -1381,19 +1352,7 @@ async def cancel_task(
         current_user: Authenticated user
         db: Database session
     """
-    result = await db.execute(
-        select(TaskModel).where(
-            TaskModel.id == task_id,
-            TaskModel.user_id == current_user.id,
-        )
-    )
-    task = result.scalar_one_or_none()
-    
-    if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Task not found",
-        )
+    task = await _get_task_with_access_check(task_id, current_user, db)
     
     if task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
         raise HTTPException(
