@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.models.webhook import Webhook
     from app.models.workspace import Workspace
     from app.models.workspace_member import WorkspaceMember
+    from app.models.marketplace import MarketplaceTemplate, TemplateInstall, TemplateRating
 
 
 class User(Base, TimestampMixin):
@@ -70,6 +71,17 @@ class User(Base, TimestampMixin):
     # Webhook relationships
     webhooks: Mapped[List["Webhook"]] = relationship(
         "Webhook", back_populates="user", cascade="all, delete-orphan"
+    )
+
+    # Marketplace relationships
+    marketplace_templates: Mapped[List["MarketplaceTemplate"]] = relationship(
+        "MarketplaceTemplate", back_populates="creator", cascade="all, delete-orphan"
+    )
+    template_installs: Mapped[List["TemplateInstall"]] = relationship(
+        "TemplateInstall", back_populates="user", cascade="all, delete-orphan"
+    )
+    template_ratings: Mapped[List["TemplateRating"]] = relationship(
+        "TemplateRating", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
