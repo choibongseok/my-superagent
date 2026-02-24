@@ -23,16 +23,21 @@
 - **완료 시각**: 2026-02-24 20:22 UTC
 - **Commit**: `feat: Add FactoryHub integration manifest`
 
-### 2️⃣ FactoryHub Go 코드 연동
-- [ ] **파일**: `backend/app/api/v1/factoryhub.py` (신규 생성)
-- [ ] **엔드포인트**:
+### 2️⃣ FactoryHub Go 코드 연동 ✅
+- [x] **파일**: `backend/app/api/v1/factoryhub.py` (신규 생성)
+- [x] **엔드포인트**:
   - `POST /api/v1/factoryhub/callback` — FactoryHub 이벤트 수신
   - `GET /api/v1/factoryhub/status` — 통합 상태 확인
-- [ ] **작업**:
+  - `POST /api/v1/factoryhub/webhook/task-complete` — Task 완료 웹훅
+- [x] **작업**:
   - FactoryHub 인증 토큰 검증 (`X-FactoryHub-Token` header)
   - Task 생성 시 FactoryHub 메타데이터 연동
-  - 완료 시 FactoryHub 웹훅 발송
-- [ ] **완료 기준**: FactoryHub에서 my-superagent 호출 가능, 결과 수신 확인
+  - 완료 시 FactoryHub 웹훅 발송 (비동기 콜백)
+  - Integration status API (통계 조회)
+- [x] **테스트**: `backend/tests/test_factoryhub_integration.py` (22 tests)
+- [x] **완료 기준**: FactoryHub에서 my-superagent 호출 가능, 결과 수신 확인
+- **완료 시각**: 2026-02-24 20:52 UTC
+- **Commit**: 예정
 
 ## 🚀 우선순위 높음 (P5 - 핵심 기능)
 

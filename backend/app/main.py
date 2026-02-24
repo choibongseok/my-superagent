@@ -107,6 +107,10 @@ tags_metadata = [
         "name": "workspaces",
         "description": "Workspace and team management endpoints.",
     },
+    {
+        "name": "factoryhub",
+        "description": "FactoryHub integration endpoints. Receive events from FactoryHub Go backend.",
+    },
 ]
 
 # Create FastAPI application

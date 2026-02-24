@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, health, tasks, chats, messages, workspaces, templates, orchestrator, analytics, share, dev, prompts, qa, webhooks, onboarding, streaks, schedules, chains, memory, marketplace
+from app.api.v1 import auth, health, tasks, chats, messages, workspaces, templates, orchestrator, analytics, share, dev, prompts, qa, webhooks, onboarding, streaks, schedules, chains, memory, marketplace, factoryhub
 api_router = APIRouter()
 
 # Include sub-routers
@@ -26,3 +26,4 @@ api_router.include_router(schedules.router, tags=["schedules"])  # Recurring Tas
 api_router.include_router(chains.router, tags=["chains"])  # Smart Task Chaining
 api_router.include_router(memory.router, tags=["memory"])  # Agent Memory Timeline (#243)
 api_router.include_router(marketplace.router, tags=["marketplace"])  # Template Marketplace
+api_router.include_router(factoryhub.router, prefix="/factoryhub", tags=["factoryhub"])  # FactoryHub Integration
