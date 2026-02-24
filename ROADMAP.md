@@ -68,9 +68,10 @@
 - [x] 자동 트리거 (새 파일 업로드 → 자동 요약)
 
 ## 🏁 Phase 4 — FactoryHub 흡수 준비
-- [ ] OpenAPI 스펙 정리 (`/openapi.json` export)
+- [x] OpenAPI 스펙 정리 (`/openapi.json` export) — ✅ 완료 (2026-02-24)
 - [ ] FactoryHub manifest `manifests/ai-agent.json` 작성
 - [ ] FactoryHub Go 코드에서 my-superagent API 호출
+- [ ] FactoryHub 이벤트 수신 엔드포인트 (`/api/v1/factoryhub/callback`)
 
 ## 💡 Phase 5 — 아키텍처 고도화 (신규)
 
@@ -122,3 +123,81 @@
   - 사용자 피드백 기반 모델 학습
   - Few-shot learning examples 축적
   - Custom prompt templates per user
+
+## 💡 Phase 6 — 엔터프라이즈 & 확장 (신규)
+
+### P6-A: Real-time Collaboration
+- [ ] **WebSocket 고도화**
+  - Multi-user document editing (Google Docs-style)
+  - Live cursor tracking
+  - Real-time comment threads
+  
+- [ ] **Agent-to-Agent 통신**
+  - Inter-agent messaging protocol
+  - Shared memory pool (distributed cache)
+  - Collaborative task execution
+
+### P6-B: Advanced Analytics & Monitoring
+- [ ] **Dashboard 개선**
+  - Token usage visualization (daily/monthly trends)
+  - Agent performance metrics (success rate, latency)
+  - User engagement analytics
+  
+- [ ] **Observability**
+  - OpenTelemetry 통합
+  - Distributed tracing (Jaeger/Zipkin)
+  - Custom metrics (Prometheus)
+
+### P6-C: Mobile & Cross-platform SDK
+- [ ] **Mobile SDK**
+  - iOS SDK (Swift)
+  - Android SDK (Kotlin)
+  - React Native wrapper
+  
+- [ ] **Multi-platform 배포**
+  - Desktop app (Tauri — 이미 있음)
+  - Browser extension (Chrome/Firefox)
+  - CLI tool (Python/Go)
+
+### P6-D: Plugin Marketplace & Ecosystem
+- [ ] **Plugin SDK**
+  - Custom agent plugin API
+  - Third-party tool integrations (Notion, Jira, Confluence)
+  - Community-contributed agents
+  
+- [ ] **Marketplace 플랫폼**
+  - Plugin discovery & installation
+  - Revenue sharing model
+  - Security scanning & approval
+
+### P6-E: Global Infrastructure
+- [ ] **Multi-region 배포**
+  - US, EU, APAC regions
+  - Data residency compliance (GDPR, SOC2)
+  - CDN integration (CloudFront/Fastly)
+  
+- [ ] **High Availability**
+  - Load balancing (HAProxy/Nginx)
+  - Auto-scaling (Kubernetes HPA)
+  - Disaster recovery plan
+
+---
+
+## 🎯 2026 전략 로드맵
+
+**Q1 2026 (현재)**
+- ✅ Phase 1-3 완료 (Core 기능)
+- 🔄 Phase 4-5 진행 중 (FactoryHub 통합, 고도화)
+- 🎯 목표: 테스트 커버리지 70%, API 문서화
+
+**Q2 2026**
+- 🚀 Phase 5 완료 (Multi-tenancy, Cost tracking, Scheduling)
+- 🎯 목표: FactoryHub 통합 완료, 프로덕션 배포
+
+**Q3 2026**
+- 🌐 Phase 6 시작 (Real-time collaboration, Advanced analytics)
+- 🎯 목표: Mobile SDK 베타, Plugin marketplace 런칭
+
+**Q4 2026**
+- 🌍 Global expansion (Multi-region, High availability)
+- 🎯 목표: 엔터프라이즈 고객 확보, SOC2 인증

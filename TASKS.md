@@ -1,7 +1,68 @@
 # my-superagent 작업 목록
 
-> 마지막 업데이트: 2026-02-24
+> 마지막 업데이트: 2026-02-24 (22:04 KST)
 > 담당: superagent-developer
+
+## 🔥 긴급 (P4 - FactoryHub 통합 준비)
+
+### 1️⃣ FactoryHub Manifest 작성
+- [ ] **파일**: `manifests/ai-agent.json` (신규 생성)
+- [ ] **내용**:
+  - Service metadata (name, version, description)
+  - API endpoints (OpenAPI 기반)
+  - Health check endpoint (`/health`)
+  - Dependencies (PostgreSQL, Redis)
+  - Environment variables 명세
+- [ ] **완료 기준**: FactoryHub Go 백엔드에서 manifest 파싱 가능
+
+### 2️⃣ FactoryHub Go 코드 연동
+- [ ] **파일**: `backend/app/api/v1/factoryhub.py` (신규 생성)
+- [ ] **엔드포인트**:
+  - `POST /api/v1/factoryhub/callback` — FactoryHub 이벤트 수신
+  - `GET /api/v1/factoryhub/status` — 통합 상태 확인
+- [ ] **작업**:
+  - FactoryHub 인증 토큰 검증 (`X-FactoryHub-Token` header)
+  - Task 생성 시 FactoryHub 메타데이터 연동
+  - 완료 시 FactoryHub 웹훅 발송
+- [ ] **완료 기준**: FactoryHub에서 my-superagent 호출 가능, 결과 수신 확인
+
+## 🚀 우선순위 높음 (P5 - 핵심 기능)
+
+### 3️⃣ LLM 비용 추적 (Token Usage Tracking)
+- [ ] **파일**: `backend/app/services/cost_tracker.py` (신규 생성)
+- [ ] **모델**: `backend/app/models/token_usage.py` (신규 생성)
+  - `TokenUsage` 테이블: task_id, model, prompt_tokens, completion_tokens, cost_usd, timestamp
+- [ ] **엔드포인트**:
+  - `GET /api/v1/analytics/token-usage` — 사용량 통계 (user_id, date range, model filter)
+  - `GET /api/v1/analytics/cost-breakdown` — 비용 분석 (per user, per workspace)
+  - `POST /api/v1/analytics/budget-alert` — 예산 초과 알림 설정
+- [ ] **작업**:
+  - BaseAgent에 token counting 훅 추가 (`_track_llm_call()`)
+  - Claude/OpenAI API response에서 usage 파싱
+  - Cost calculation (Claude: $3/$15 per 1M tokens, GPT-4: $30/$60)
+  - Dashboard용 데이터 aggregation (daily/monthly)
+- [ ] **완료 기준**: 모든 LLM 호출 후 token_usage 테이블에 기록, API로 조회 가능
+
+### 4️⃣ 주기적 태스크 스케줄링 (Cron-style Tasks)
+- [ ] **파일**: `backend/app/api/v1/schedules.py` (신규 생성)
+- [ ] **모델**: `backend/app/models/scheduled_task.py` (신규 생성)
+  - `ScheduledTask` 테이블: cron_expr, agent_type, prompt_template, enabled, last_run, next_run
+- [ ] **엔드포인트**:
+  - `POST /api/v1/schedules` — 스케줄 생성 (cron expression, agent_type, prompt)
+  - `GET /api/v1/schedules` — 내 스케줄 목록
+  - `PATCH /api/v1/schedules/{id}` — 스케줄 수정 (pause/resume)
+  - `DELETE /api/v1/schedules/{id}` — 스케줄 삭제
+- [ ] **작업**:
+  - Celery Beat integration (crontab schedule)
+  - 매 분마다 `next_run <= now()` 스케줄 실행
+  - 실행 이력 기록 (`ScheduledTaskRun` 테이블)
+  - 실패 시 재시도 로직 (max_retries=3)
+- [ ] **예시 사용 사례**:
+  - 매주 월요일 9AM에 주간 리포트 생성
+  - 매일 자정에 Google Drive 백업
+- [ ] **완료 기준**: Cron 표현식으로 스케줄 생성, 자동 실행 확인, 실행 이력 조회 가능
+
+## 🟡 중요 (P5 - 아키텍처 고도화)
 
 ## ✅ 완료 (P1-P3)
 
