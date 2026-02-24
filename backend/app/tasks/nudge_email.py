@@ -167,7 +167,7 @@ def send_nudge_emails(self):
         cutoff = now - timedelta(days=INACTIVITY_DAYS)
         week_start = _utc_week_start(now)
 
-        async with AsyncSessionLocal() as session:
+        async with AsyncSessionLocal()() as session:
             # Query inactive, active users. ``nudge_email_count`` resets below if
             # the UTC week boundary changed.
             result = await session.execute(

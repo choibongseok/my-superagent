@@ -1,0 +1,25 @@
+# Daily Review — 2026-02-24 (Sprint 2: #210 Usage Nudge Emails)
+
+**작성**: Implementer Agent | **시각**: 2026-02-24 01:14 UTC
+
+---
+
+## ✅ Sprint 2 우선순위 확인
+- `docs/sprint-plan.md` 기준으로 Quick Win 순서는 `#218 -> #217 -> #210`이고, 이번 작업은 3순위 항목인 `#210 Usage Nudge Emails`였음.
+
+## ✅ #210 구현/보강 완료
+- `backend/app/tasks/nudge_email.py` 검토 및 보강:
+  - 7일 미활동 사용자 기준(`last_task_created_at < UTC now - 7일`)으로 감지.
+  - 주 2통 제한(`MAX_NUDGE_EMAILS_PER_WEEK = 2`) 기준으로 발송 제어.
+  - 주 경계 시 `nudge_email_week_start` 기준으로 카운트 초기화 처리.
+  - Celery 태스크 내부에서 DB 세션 생성 시 `AsyncSessionLocal()()`로 세션 팩토리 사용을 올바르게 정합.
+- 이메일 본문/헤더/템플릿은 기존 구현 유지하며, 현재 `send_email` 실패/성공 카운트 반영/예외 처리 로직 유지.
+
+## ✅ 검증
+- `pytest -o addopts= -q tests/tasks/test_nudge_email.py`
+  - **24 passed**
+
+## ✅ Git 반영
+- 변경 파일:
+  - `backend/app/tasks/nudge_email.py`
+  - `docs/daily-review/2026-02-24-sprint2-usage-nudge.md`
