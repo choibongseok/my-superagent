@@ -110,6 +110,9 @@ class CostTrustDashboard(BaseModel):
     projected_monthly_cost_usd: float | None = None
     budget_used_pct: float | None = None
     budget_status: str | None = None
+    budget_warning: str | None = None
+    trust_health: str = Field(default="stable", description="Trust signal derived from quality scores")
+    recommendations: list[str] = Field(default_factory=list)
     cards: list[CostTrustTaskCard]
 
 
@@ -959,6 +962,69 @@ def _budget_status(total_cost: float, monthly_budget_usd: float | None, observed
     return projected_monthly_cost, used_pct, status
 
 
+def _build_cost_trust_recommendations(
+    *,
+    budget_status: str | None,
+    monthly_budget_usd: float | None,
+    projected_monthly_cost_usd: float | None,
+    budget_used_pct: float | None,
+    avg_trust: float | None,
+    retry_rate: float,
+    failed_count: int,
+    total_tasks: int,
+    total_cost_for_budget: float,
+) -> tuple[str | None, list[str], str]:
+    """Create actionable recommendations for cost/trust governance."""
+    warning: str | None = None
+    recommendations: list[str] = []
+
+    if budget_status in {"warning", "exceeded"} and monthly_budget_usd and projected_monthly_cost_usd is not None:
+        margin = projected_monthly_cost_usd - monthly_budget_usd
+        if margin <= 0:
+            margin = 0.0
+        if budget_status == "exceeded":
+            warning = (
+                "Projected monthly spend may exceed budget. Consider reducing frequent high-cost tasks, "
+                "tightening prompts, or increasing budget to avoid interruption."
+            )
+            recommendations.append("Review large-cost tasks and switch to lighter execution paths.")
+        else:
+            warning = (
+                f"Projected spend is at {budget_used_pct:.0f}% of budget; "
+                "run lower-cost alternatives to stay under the limit."
+            )
+            recommendations.append("Enable periodic cost checks for recurring automations.")
+        recommendations.append(f"Estimated overage if trend continues: ${round(margin, 2)}.")
+
+    if avg_trust is not None and avg_trust < 70:
+        recommendations.append("Trust score is below 70. Enable deeper review prompts before auto-run tasks.")
+
+    if retry_rate >= 30:
+        recommendations.append("High retry rate detected. Review task retries and add validation for flaky inputs.")
+
+    if failed_count and total_tasks:
+        failure_rate = (failed_count / total_tasks) * 100
+        if failure_rate >= 25:
+            recommendations.append("High failure rate detected. Pause non-critical automation and inspect recent failures.")
+
+    if total_cost_for_budget == 0 and total_tasks:
+        recommendations.append("No cost data available for this period yet; ensure cost telemetry is enabled.")
+
+    if not recommendations:
+        recommendations.append("No immediate action required. System appears healthy.")
+
+    if avg_trust is None:
+        trust_health = "unknown" if budget_status else "stable"
+    elif avg_trust < 70:
+        trust_health = "needs_attention"
+    elif avg_trust < 85:
+        trust_health = "stable"
+    else:
+        trust_health = "strong"
+
+    return warning, recommendations, trust_health
+
+
 @router.get("/cost-trust", response_model=CostTrustDashboard)
 async def get_cost_and_trust_dashboard(
     current_user: User = Depends(get_current_user),
@@ -1060,6 +1126,18 @@ async def get_cost_and_trust_dashboard(
     failed_count = sum(1 for t in tasks if t.status == TaskStatus.FAILED)
     cancelled_count = sum(1 for t in tasks if t.status == TaskStatus.CANCELLED)
 
+    budget_warning, recommendations, trust_health = _build_cost_trust_recommendations(
+        budget_status=budget_status,
+        monthly_budget_usd=monthly_budget_usd,
+        projected_monthly_cost_usd=projected_cost,
+        budget_used_pct=budget_pct,
+        avg_trust=avg_trust,
+        retry_rate=retry_rate,
+        failed_count=failed_count,
+        total_tasks=len(tasks),
+        total_cost_for_budget=total_cost_for_budget,
+    )
+
     return CostTrustDashboard(
         period_start=period_start.isoformat(),
         period_end=period_end.isoformat(),
@@ -1080,6 +1158,9 @@ async def get_cost_and_trust_dashboard(
         projected_monthly_cost_usd=projected_cost,
         budget_used_pct=budget_pct,
         budget_status=budget_status,
+        budget_warning=budget_warning,
+        trust_health=trust_health,
+        recommendations=recommendations,
         cards=cards,
     )
 
