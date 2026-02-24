@@ -5,6 +5,7 @@ asynchronous processing of agent tasks (research, docs, sheets, slides).
 """
 
 import logging
+from datetime import datetime, timezone
 
 from celery import Celery
 
@@ -278,12 +279,14 @@ def update_task_status(
         error: Error message if failed (optional)
     """
     from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
     from app.core.database import AsyncSessionLocal
     from app.models.task import Task as TaskModel, TaskStatus
+    from app.models.task_chain import TaskChain
     from uuid import UUID
 
     async def _update():
-        async with AsyncSessionLocal() as session:
+        async with AsyncSessionLocal()() as session:
             # Get task
             result_query = await session.execute(
                 select(TaskModel).where(TaskModel.id == UUID(task_id))
@@ -294,16 +297,100 @@ def update_task_status(
                 logger.error(f"Task {task_id} not found in database")
                 return
 
-            # Update status
+            async def _maybe_advance_chain() -> None:
+                if not task.task_metadata or not isinstance(task.task_metadata, dict):
+                    return
+
+                chain_id = task.task_metadata.get("chain_id")
+                if not chain_id:
+                    return
+
+                try:
+                    from app.services.chain_service import advance_chain
+
+                    chain_query = await session.execute(
+                        select(TaskChain)
+                        .where(TaskChain.id == UUID(str(chain_id)))
+                        .options(selectinload(TaskChain.steps))
+                    )
+                    chain = chain_query.scalar_one_or_none()
+                    if chain is None or chain.user_id != task.user_id:
+                        return
+
+                    await advance_chain(session, chain, task)
+                except Exception as chain_err:
+                    logger.warning(
+                        "Failed to advance chain for task %s: %s",
+                        task_id,
+                        chain_err,
+                    )
+
+            # Update status and finalize completion timestamp for all terminal states.
+            now = datetime.now(timezone.utc)
             if status == "completed":
                 task.status = TaskStatus.COMPLETED
                 task.result = result
+                task.error_message = None
+                task.completed_at = now
             elif status == "failed":
                 task.status = TaskStatus.FAILED
                 task.error_message = error
+                task.completed_at = now
+
+            if status in {"completed", "failed"}:
+                await _maybe_advance_chain()
 
             await session.commit()
             logger.info(f"Updated task {task_id} status to {status}")
+
+            # Broadcast task lifecycle updates via WebSocket for live UI updates.
+            try:
+                from app.core.websocket import manager as ws_manager
+                import re
+
+                task_uuid = UUID(task_id)
+                user_id = task.user_id
+
+                if status == "completed":
+                    normalized_result = result if isinstance(result, dict) else {"raw": result}
+
+                    # Best-effort document URL extraction for downstream UI actions.
+                    document_url = None
+                    if isinstance(result, dict):
+                        for key in ("document_url", "spreadsheet_url", "presentation_url", "url", "output_url"):
+                            value = result.get(key)
+                            if isinstance(value, str) and value.strip():
+                                document_url = value.strip()
+                                break
+
+                        # Parse common markdown/plain-text payloads if needed.
+                        if not document_url:
+                            output = result.get("output")
+                            if isinstance(output, str):
+                                url_match = re.search(r"https://docs\.google\.com/[^\s`)]*", output)
+                                if url_match:
+                                    document_url = url_match.group(0)
+                    elif isinstance(result, str):
+                        url_match = re.search(r"https://docs\.google\.com/[^\s`)]*", result)
+                        if url_match:
+                            document_url = url_match.group(0)
+
+                    if user_id:
+                        await ws_manager.task_completed(
+                            user_id,
+                            task_uuid,
+                            result=normalized_result,
+                            document_url=document_url,
+                        )
+                elif status == "failed":
+                    if user_id:
+                        await ws_manager.task_failed(
+                            user_id,
+                            task_uuid,
+                            error=error or "Task execution failed",
+                        )
+            except Exception as ws_err:
+                logger.warning("Failed to emit task ws update for %s: %s", task_id, ws_err)
 
             # #228 Auto-QA: run quality validation on completed tasks
             if status == "completed":

@@ -215,3 +215,35 @@ async def test_view_share_invalid_uuid_404(async_client: AsyncClient, db: AsyncS
     await _make_user(db)
     resp = await async_client.get("/api/v1/r/not-a-valid-uuid")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_view_share_html_includes_og_meta_tags(async_client: AsyncClient, db: AsyncSession):
+    """Public share HTML should include social preview OG/Twitter tags (#214)."""
+    user = await _make_user(db)
+    token = uuid4()
+    task = TaskModel(
+        id=uuid4(),
+        user_id=user.id,
+        prompt="Draft a concise weekly summary",
+        task_type=TaskType.DOCS,
+        status=TaskStatus.COMPLETED,
+        result={
+            "content": "Quarterly updates in markdown format.",
+            "title": "Weekly Summary",
+        },
+        share_token=token,
+    )
+    db.add(task)
+    await db.commit()
+
+    response = await async_client.get(f"/api/v1/r/{token}")
+    assert response.status_code == 200, response.text
+
+    html = response.text
+    assert '<meta property="og:title" content="Weekly Summary — AgentHQ">' in html
+    assert '<meta property="og:description" content="문서 자동화 결과: Draft a concise weekly summary">' in html
+    assert '<meta property="og:type" content="article">' in html
+    assert '<meta property="og:image" content="https://agenthq.io/og-preview/docs.png">' in html
+    assert '<meta name="twitter:card" content="summary_large_image">' in html
+    assert '<meta name="twitter:title" content="Weekly Summary — AgentHQ">' in html

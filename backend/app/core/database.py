@@ -93,8 +93,18 @@ def reset_engine(new_url: Optional[str] = None) -> None:
     """
     global _engine, _session_factory
     with _lock:
+        target_url = str(new_url) if new_url is not None else str(settings.DATABASE_URL)
+
+        # If the URL is already configured and a session factory is active,
+        # keep it in place. This avoids replacing an injected test engine
+        # (e.g., a StaticPool-backed in-memory engine) with a fresh default
+        # engine when callers re-assert the same URL.
+        if str(settings.DATABASE_URL) == target_url and _engine is not None and _session_factory is not None:
+            return
+
         if new_url is not None:
             settings.DATABASE_URL = new_url  # type: ignore[assignment]
+
         _engine = None
         _session_factory = None
 
@@ -120,6 +130,7 @@ def inject_engine(engine: "AsyncEngine", session_factory: Optional["async_sessio
     """
     global _engine, _session_factory
     with _lock:
+        settings.DATABASE_URL = str(engine.url)  # type: ignore[assignment]
         _engine = engine
         if session_factory is not None:
             _session_factory = session_factory
@@ -151,7 +162,11 @@ class _EngineProxy:
 
 # Public names kept for backward-compat
 engine: AsyncEngine = _EngineProxy()  # type: ignore[assignment]
-AsyncSessionLocal = property(lambda self: _get_session_factory())  # type: ignore
+
+
+def AsyncSessionLocal() -> async_sessionmaker[AsyncSession]:
+    """Return the current async session factory."""
+    return _get_session_factory()
 
 
 # ── ORM base ─────────────────────────────────────────────────────────────────

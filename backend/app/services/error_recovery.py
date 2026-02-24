@@ -339,3 +339,212 @@ def error_to_dict(friendly: FriendlyError) -> dict:
         ],
         "retry_after_seconds": friendly.retry_after_seconds,
     }
+
+
+# ── Recovery deck helper for /tasks/{id}/recovery-deck ────────────
+
+_RECOVERY_DECK_PROFILES = {
+    ErrorCategory.AUTH_EXPIRED: {
+        "qa_failure_class": "google_auth",
+        "failure_stage": "workspace_auth",
+        "checklist": [
+            "Reconnect Google account from Settings",
+            "Verify app has required Workspace scopes",
+            "Retry once auth token refresh succeeds",
+        ],
+        "rewrite_suggestions": [
+            "Keep the same prompt but retry after re-auth",
+            "Switch to a simpler prompt that avoids advanced permissions",
+        ],
+    },
+    ErrorCategory.PERMISSION: {
+        "qa_failure_class": "google_api",
+        "failure_stage": "workspace_permissions",
+        "checklist": [
+            "Check the target file/folder exists",
+            "Re-authorize with file-level permissions",
+            "Retry operation after confirming Google workspace scope",
+        ],
+        "rewrite_suggestions": [
+            "Ask for explicit file name and avoid deprecated paths",
+            "Try again after granting Drive/Docs read-write access",
+        ],
+    },
+    ErrorCategory.GOOGLE_API: {
+        "qa_failure_class": "google_api",
+        "failure_stage": "workspace_apis",
+        "checklist": [
+            "Confirm the referenced document exists",
+            "Verify sharing settings allow this operation",
+            "Retry after a short delay",
+        ],
+        "rewrite_suggestions": [
+            "Rename ambiguous IDs in your prompt",
+            "Use a fresh document target rather than deleted references",
+        ],
+    },
+    ErrorCategory.RATE_LIMIT: {
+        "qa_failure_class": "llm",
+        "failure_stage": "llm_provider",
+        "checklist": [
+            "Wait for cooldown period",
+            "Retry with the same prompt",
+            "If repeated, shorten prompt complexity",
+        ],
+        "rewrite_suggestions": [
+            "Trim non-essential context before retry",
+            "Break large task into smaller steps",
+        ],
+    },
+    ErrorCategory.QUOTA_EXCEEDED: {
+        "qa_failure_class": "llm",
+        "failure_stage": "llm_provider",
+        "checklist": [
+            "Confirm active billing quota",
+            "Retry after quota window reset",
+            "Notify admin if quota repeatedly exceeded",
+        ],
+        "rewrite_suggestions": [
+            "Reduce token-heavy tasks temporarily",
+            "Batch similar requests outside peak windows",
+        ],
+    },
+    ErrorCategory.TIMEOUT: {
+        "qa_failure_class": "llm",
+        "failure_stage": "execution_timeout",
+        "checklist": [
+            "Retry once with same prompt",
+            "Check if request is too broad or data-heavy",
+            "Split prompt into smaller tasks if still failing",
+        ],
+        "rewrite_suggestions": [
+            "Shorten prompt to one concrete output",
+            "Drop optional context and retry",
+        ],
+    },
+    ErrorCategory.NETWORK: {
+        "qa_failure_class": "rpa",
+        "failure_stage": "connectivity",
+        "checklist": [
+            "Confirm backend can reach external dependency",
+            "Retry after network jitter window",
+            "Retry after network-sensitive step completes",
+        ],
+        "rewrite_suggestions": [
+            "Retry in a few minutes",
+            "Avoid parallel heavy uploads in same window",
+        ],
+    },
+    ErrorCategory.CELERY_ERROR: {
+        "qa_failure_class": "workflow",
+        "failure_stage": "background_queue",
+        "checklist": [
+            "Retry task from UI once",
+            "Check worker health if repeated",
+            "Fallback to manual execution if urgent",
+        ],
+        "rewrite_suggestions": [
+            "Retry 1-minute later",
+            "Keep one task retry at a time",
+        ],
+    },
+    ErrorCategory.INVALID_INPUT: {
+        "qa_failure_class": "input_validation",
+        "failure_stage": "input",
+        "checklist": [
+            "Review required fields and format",
+            "Ensure prompt is non-empty and actionable",
+            "Retry after fixing metadata/attachments",
+        ],
+        "rewrite_suggestions": [
+            "Use a clear, minimal prompt template",
+            "Provide explicit output format",
+        ],
+    },
+    ErrorCategory.NOT_FOUND: {
+        "qa_failure_class": "rpa",
+        "failure_stage": "resource_lookup",
+        "checklist": [
+            "Verify all referenced files/IDs exist",
+            "Check permission to referenced resources",
+            "Retry with corrected identifiers",
+        ],
+        "rewrite_suggestions": [
+            "Search exact title before creating workflow",
+            "Use stable IDs when available",
+        ],
+    },
+    ErrorCategory.INTERNAL: {
+        "qa_failure_class": "workflow",
+        "failure_stage": "internal_system",
+        "checklist": [
+            "Retry once after a short delay",
+            "Check system status in operations channel",
+            "Escalate if failures continue",
+        ],
+        "rewrite_suggestions": [
+            "Retry with the same prompt",
+            "Contact support with task id if still failing",
+        ],
+    },
+    ErrorCategory.UNKNOWN: {
+        "qa_failure_class": "unknown",
+        "failure_stage": "general",
+        "checklist": [
+            "Retry once as-is",
+            "Try again with a simpler prompt",
+            "Save logs and escalate if this repeats",
+        ],
+        "rewrite_suggestions": [
+            "Try a simpler goal statement",
+            "Remove ambiguous constraints",
+        ],
+    },
+}
+
+
+def build_recovery_deck(
+    raw_error: str | None,
+    *,
+    repeat_failure_count: int = 0,
+) -> dict:
+    """Build a structured recovery-deck payload for failed tasks.
+
+    The payload is intentionally opinionated: it combines classification,
+    checklist actions, and immediate rewrite suggestions to support "fail-first"
+    recovery UX and one-click rerun workflows.
+    """
+    friendly = classify_error(raw_error)
+    profile = _RECOVERY_DECK_PROFILES.get(
+        friendly.category,
+        _RECOVERY_DECK_PROFILES[ErrorCategory.UNKNOWN],
+    )
+
+    checklist = list(profile["checklist"])
+    rewrite_suggestions = list(profile["rewrite_suggestions"])
+
+    # Add one suggestion from machine-generated actions if available, keeping total <=3
+    action_suggestions = [a.description for a in friendly.actions if a.description]
+    for suggestion in action_suggestions:
+        if len(rewrite_suggestions) >= 3:
+            break
+        if suggestion not in rewrite_suggestions:
+            rewrite_suggestions.append(suggestion)
+
+    auto_retry = any(action.auto for action in friendly.actions)
+
+    return {
+        "qa_failure_class": profile["qa_failure_class"],
+        "failure_stage": profile["failure_stage"],
+        "failure_signal": friendly.message,
+        "failure_detail": friendly.detail,
+        "checklist": checklist,
+        "rewrite_suggestions": rewrite_suggestions[:3],
+        "auto_retry_available": auto_retry,
+        "repeat_failure_count": repeat_failure_count,
+        "one_click_retry": {
+            "enabled": bool(friendly.actions),
+            "label": "Retry task",
+            "expected_action": "POST /api/v1/tasks/{task_id}/retry",
+        },
+    }

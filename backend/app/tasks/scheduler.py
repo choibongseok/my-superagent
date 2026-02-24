@@ -62,7 +62,7 @@ async def _execute_due_schedules() -> int:
     now = datetime.now(tz=timezone.utc)
     dispatched = 0
 
-    async with AsyncSessionLocal() as db:
+    async with AsyncSessionLocal()() as db:
         result = await db.execute(
             select(ScheduledTask).where(
                 ScheduledTask.is_active == True,  # noqa: E712

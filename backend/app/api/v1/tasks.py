@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.websocket import manager as ws_manager
 from app.models.task import Task as TaskModel
@@ -91,6 +92,23 @@ def _safe_status(value: TaskStatus) -> str:
     return str(value)
 
 
+def _task_deep_link(task_id: UUID, section: str = "") -> str:
+    """Build frontend deep-link for task actions.
+
+    Frontend links power #280 Resume Card Deep-Link by enabling resume from
+    notifications, alerts, and follow-up cards.
+    """
+    base = (settings.FRONTEND_URL or "").rstrip("/")
+    if not base:
+        base = "http://localhost:3000"
+
+    task_id = str(task_id)
+    if section:
+        section = section.lstrip("/")
+        return f"{base}/tasks/{task_id}/{section}"
+    return f"{base}/tasks/{task_id}"
+
+
 def _build_smart_exit_actions(task: TaskModel) -> list[SmartExitHintAction]:
     """Build prioritized follow-through actions for completed/failed/inflight tasks."""
     actions: list[SmartExitHintAction] = [
@@ -102,6 +120,7 @@ def _build_smart_exit_actions(task: TaskModel) -> list[SmartExitHintAction]:
             description="Review task details and raw output.",
             enabled=True,
             requires_input=False,
+            deep_link=_task_deep_link(task.id),
         )
     ]
 
@@ -115,6 +134,7 @@ def _build_smart_exit_actions(task: TaskModel) -> list[SmartExitHintAction]:
                     method="POST",
                     description="Generate a public share link for teammates.",
                     requires_input=False,
+                    deep_link=_task_deep_link(task.id, "share"),
                 ),
                 SmartExitHintAction(
                     id="schedule",
@@ -123,6 +143,7 @@ def _build_smart_exit_actions(task: TaskModel) -> list[SmartExitHintAction]:
                     method="POST",
                     description="Set this task to run on a cadence.",
                     requires_input=True,
+                    deep_link=_task_deep_link(task.id, "schedule"),
                 ),
                 SmartExitHintAction(
                     id="poll",
@@ -130,6 +151,7 @@ def _build_smart_exit_actions(task: TaskModel) -> list[SmartExitHintAction]:
                     path=f"/api/v1/tasks/{task.id}",
                     method="GET",
                     description="Confirm the final result is still available.",
+                    deep_link=_task_deep_link(task.id),
                 ),
             ]
         )
@@ -142,6 +164,7 @@ def _build_smart_exit_actions(task: TaskModel) -> list[SmartExitHintAction]:
                     path=f"/api/v1/tasks/{task.id}/recovery-deck",
                     method="GET",
                     description="Get failure analysis and recovery guidance.",
+                    deep_link=_task_deep_link(task.id, "recovery-deck"),
                 ),
                 SmartExitHintAction(
                     id="retry",
@@ -149,6 +172,7 @@ def _build_smart_exit_actions(task: TaskModel) -> list[SmartExitHintAction]:
                     path=f"/api/v1/tasks/{task.id}/retry",
                     method="POST",
                     description="Clone and rerun with the same input.",
+                    deep_link=_task_deep_link(task.id, "retry"),
                 ),
                 SmartExitHintAction(
                     id="resume_template",
@@ -156,6 +180,7 @@ def _build_smart_exit_actions(task: TaskModel) -> list[SmartExitHintAction]:
                     path=f"/api/v1/tasks/{task.id}/resume-template",
                     method="GET",
                     description="Get a resume payload with suggested improvements.",
+                    deep_link=_task_deep_link(task.id, "resume-template"),
                 ),
             ]
         )
@@ -168,6 +193,7 @@ def _build_smart_exit_actions(task: TaskModel) -> list[SmartExitHintAction]:
                     path=f"/api/v1/tasks/{task.id}",
                     method="GET",
                     description="Get the latest execution state.",
+                    deep_link=_task_deep_link(task.id),
                 ),
                 SmartExitHintAction(
                     id="cancel",
@@ -175,6 +201,7 @@ def _build_smart_exit_actions(task: TaskModel) -> list[SmartExitHintAction]:
                     path=f"/api/v1/tasks/{task.id}",
                     method="DELETE",
                     description="Stop an in-flight task and release resources.",
+                    deep_link=_task_deep_link(task.id, "cancel"),
                 ),
             ]
         )
@@ -187,6 +214,7 @@ def _build_smart_exit_actions(task: TaskModel) -> list[SmartExitHintAction]:
                 method="POST",
                 description="Generate a link if you want to reuse this output.",
                 requires_input=False,
+                deep_link=_task_deep_link(task.id, "share"),
             )
         )
 

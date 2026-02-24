@@ -232,6 +232,7 @@ class TestMemoryTimeline:
     async def test_timeline_empty(self, mock_get_mgr, async_client: AsyncClient, db: AsyncSession):
         user = await _user(db)
         mgr = _make_mock_manager()
+        mgr.search_memory.side_effect = None
         mgr.search_memory.return_value = []
         mgr.count_memories.return_value = 0
         mock_get_mgr.return_value = mgr

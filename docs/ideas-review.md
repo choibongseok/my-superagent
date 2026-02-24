@@ -1,8 +1,8 @@
 # 💡 AgentHQ 아이디어 검토 및 방향성 피드백
 
-> **검토 날짜**: 2026-02-12 07:57 UTC  
-> **검토자**: Planner Agent (Cron: Planner Ideation)  
-> **목적**: 최근 개발 작업 평가 + 신규 아이디어 기술적 타당성 검토 준비
+> **검토 날짜**: 2026-02-23 07:40 UTC  
+> **검토자**: Architect Agent (Architect Review)  
+> **목적**: 최신 커밋 반영 검토 + Idea Eval 기록
 
 ---
 
@@ -726,3 +726,192 @@ window.addEventListener('beforeinstallprompt', (e: Event) => {
 
 **작성**: 설계자 에이전트 | 2026-02-19 06:39 UTC  
 **수신 대상**: 개발자(Implementer), 기획자(Planner)
+
+## 2026-02-23 Review Batch — Ideas #267~#269
+
+---
+
+### 🧾 Idea Review 카드: #267 Team Memory Capsule
+
+## ✅ Idea #267: Team Memory Capsule — 팀 맥락 공유 캡슐
+
+#### 1) 기획 (Problem / Why now)
+- **문제**: Task/Chain 결과는 개인 로그로만 남아 팀 인수인계·승계가 느리고 비효율적.
+- **효과**: 팀원 교대/휴무 시 맥락 손실을 줄이고 동일 이슈의 중복 작업을 방지.
+- **차별성**: 팀/채널 기준으로 실행 맥락을 구조화한 자동화 협업 UX는 경쟁 대비 우위.
+
+#### 2) 설계 (Approach / API / DB)
+- **핵심 API**
+  - `POST /api/v1/team-capsules`
+  - `GET /api/v1/team-capsules`
+  - `GET /api/v1/team-capsules/{capsule_id}`
+  - `POST /api/v1/team-capsules/{capsule_id}/handoff`
+  - `POST /api/v1/team-capsules/{capsule_id}/resolve`
+- **데이터 모델 제안**
+  - `team_memory_capsules`  
+    (`id, workspace_id, channel_id, source_type, source_id, summary_json, raw_context, status, priority, owner_user_id, assignee_user_id, expires_at, resolved_at`)
+  - `team_memory_capsule_events`  
+    (`capsule_id, event_type, event_payload, actor_user_id, created_at`)
+- **통합 포인트**
+  - `task` 완료/실패 이벤트, `chain` step 전환 이벤트, `recovery-deck` 상태를 캡슐 생성 트리거로 사용.
+
+#### 3) 개발 (Implementation)
+1) ACL 우선: 팀/채널 멤버십 필터 강제 (조회/쓰기/해결 권한)  
+2) `CapsuleService` + 생성/정리 스케줄러(예: 30/90일) 구현  
+3) API 라우팅 + UI 바인딩(리스트/상세/해결 액션)  
+- **의존성**: `Workspace/Channel membership`, `Task/Chain 이벤트`, `Recovery Deck`
+
+#### 4) 테스트 (Acceptance)
+- [ ] 팀 멤버/비멤버 조회 권한 분기 검증  
+- [ ] Task 실패 → 캡슐 자동 생성 검증  
+- [ ] 핸드오프/해결 상태 전이 검증  
+- [ ] 만료/정리 정책 동작 검증  
+- [ ] 대량 캡슐 생성 시 페이징/필터 성능 테스트
+
+---
+
+### 🧾 Idea Review 카드: #268 Execution Passport
+
+## ✅ Idea #268: Execution Passport — 실행 패스포트(완료 영수증 + 복구 플로우)
+
+#### 1) 기획 (Problem / Why now)
+- **문제**: 작업 완료 후 “무엇이 바뀌었는지/왜 성공·실패했는지/다음 액션”이 분산됨.
+- **효과**: 결과 신뢰도·감사성·복구 속도 개선, 운영 대응 속도 상승.
+- **차별성**: 단순 완료 알림이 아니라 복구 액션이 붙은 결과 영수증형 UX 제공.
+
+#### 2) 설계 (Approach / API / DB)
+- **핵심 API**
+  - `GET /api/v1/tasks/{task_id}/passport`
+  - `POST /api/v1/tasks/{task_id}/passport/replay`
+  - `GET /api/v1/tasks/{task_id}/passport/recovery-plans`
+  - `POST /api/v1/tasks/{task_id}/passport/rollback`
+  - `POST /api/v1/tasks/{task_id}/passport/ack`
+- **데이터 모델 제안**
+  - `execution_passports`  
+    (`task_id, chain_step_id, status, risk_level, risk_factors, started_at, ended_at, duration_ms, changed_resources, rollback_capability, snapshot_fingerprint`)
+  - `execution_passport_actions`  
+    (`passport_id, action_type, payload, supported, executed_at, outcome`)
+- **통합 포인트**
+  - `celery_app.update_task_status`에서 completed/failed 시점에 `passport` upsert.
+  - `Task.completed_at` 보정 후 패스포트 신뢰성 확보.
+
+#### 3) 개발 (Implementation)
+1) Task 완료 콜백 시 패스포트 기본 구조 생성  
+2) `changed_resources` 정규화(문서/시트/슬라이드 URL, ID, 버전, 권한대상)  
+3) 롤백 가능성은 도메인별 adapter 분기(지원/부분지원/불가)  
+4) 액션 로그를 passport history로 영속 저장
+
+#### 4) 테스트 (Acceptance)
+- [ ] completed/failed Task에서 패스포트 자동 생성  
+- [ ] 미완료/취소 Task에서 패스포트 미생성 검증  
+- [ ] replay 멱등성(중복 요청 방지) 검증  
+- [ ] rollback 불가 작업 가드 메시지 정확성 검증  
+- [ ] `completed_at` 누락 없는 분석 지표 영향 검증
+
+---
+
+### 🧾 Idea Review 카드: #269 Permission-Aware Preflight
+
+## ✅ Idea #269: Permission-Aware Preflight — 권한/범위 사전 가드
+
+#### 1) 기획 (Problem / Why now)
+- **문제**: 실행 전 점검 부재로 권한/범위 초과, 삭제 실수 등 사전 오류가 발생 후 대응으로 넘어감.
+- **효과**: 실행 직전 리스크 조정으로 실패·피해를 선제 감소, 승인 피로도 최소화.
+- **차별성**: 단순 실패 알림이 아니라 실행 전 승인·범위 축소·대체 액션까지 제공.
+
+#### 2) 설계 (Approach / API / DB)
+- **핵심 API**
+  - `POST /api/v1/tasks/reliability-gate` (응답 확장)
+  - `POST /api/v1/tasks/reliability-gate/{preflight_token}/approve`
+  - `POST /api/v1/tasks/reliability-gate/{preflight_token}/revoke`
+  - `GET /api/v1/tasks/reliability-gate/policies` (관리자)
+- **데이터 모델 제안**
+  - `preflight_tokens`  
+    (`id, user_id, scope, resource_hash, status, risk_snapshot, granted_overrides, expires_at`)
+  - `permission_check_policies`  
+    (`operation, resource_type, risk_rules, auto_block, warn_only, enabled, version`)
+  - `preflight_audit`  
+    (`token_id, actual_outcome, mismatch_reason, action_taken`)
+- **통합 포인트**
+  - 기존 `reliability-gate`에 permission checks 블록 추가.
+  - `tasks.create`, `preview.execute` 실행 전 preflight 단계 탑재.
+
+#### 3) 개발 (Implementation)
+1) Gate 응답 스키마 확장: `permission_checks`, `requires_approval`, `preflight_token` 추가  
+2) 승인 토큰 기반 실행 우회 경로 구현(만료/취소/예외 조건)  
+3) 짧은 TTL + 실시간 scope 검사로 FP/FN 감소  
+4) 실행 결과를 `preflight_audit`로 적재해 정책 튜닝 기반 마련
+
+#### 4) 테스트 (Acceptance)
+- [ ] 권한 미보유 상태에서 go/no-go 차단 검증  
+- [ ] 토큰 승인 후 즉시 실행 허용 검증  
+- [ ] 토큰 만료/취소 시 차단 처리 검증  
+- [ ] 허위 경고율(FP) 모니터링 지표 정의/추적  
+- [ ] 실행 실패 사유와 preflight mismatch 로그 적재/분석 검증
+
+---
+
+## 2026-02-24 아키텍트 리뷰 + Idea Eval (#246~#254)
+
+### 0) 최신 git log 기준 변경 체크
+- `7eb4c307` ~ `21e5d8b2`: 사용성/신뢰성 보강 라인의 커밋(리마인드, recovery, smart-exit, outcome-ring, cost-trust).
+- `fb52ffc7`: Chain API + Streak API 핵심 뼈대(생성/조회/실행/스케줄 연동) 완료.
+- `8527575` (plan phase51): #246~#248 기획 반영.
+- 작업 트리에서 최근 `onboarding`, `scheduler`, `celery_app`, `share`, `memory`, `core/llm_fallback`, `tests` 동시 변경 이력 있음.
+
+### 1) 구조적 문제 (현재 구조 정합성 기준)
+
+1. **체인 실행 오케스트레이션 연결 미완성 (P0)**
+- `chain_service._execute_current_step()`는 `Task`를 생성하고 `step.status=RUNNING`까지 전환하지만, Celery 큐 투입이 없음 (`backend/app/services/chain_service.py:278-299`).
+- `celery_app.update_task_status()`도 완료/실패 훅에서 `chain_metadata`(`chain_id`, `chain_step_id`) 기반으로 `chain_service.advance_chain()`을 호출하지 않음 (`backend/app/agents/celery_app.py:269+`).
+- 결과: 체인 실행은 시작 트리거 뒤에서 막히거나 진행 불가능한 상태가 되는 포인트 존재.
+
+2. **워크스페이스/체인/스케줄 모델의 마이그레이션 메타 정합성 (P1)**
+- `app/models/__init__.py`에 `TaskChain`, `ScheduledTask` 미포함 (`backend/app/models/__init__.py:4-45`).
+- `backend/alembic/env.py`도 특정 모델만 import (`...from app.models import User, Task, ...`) (`backend/alembic/env.py:16`).
+- 결과: 자동 마이그레이션/스키마 비교 시 새 모델 반영이 누락될 위험.
+
+3. **사용성 이벤트 시그널 부재 (P1)**
+- `last_task_created_at`를 생성 경로에서 갱신하지 않아 `send_nudge_emails`의 비활성 사용자 판단이 사용자 실제 작업량과 다르게 동작할 수 있음 (`backend/app/models/user.py:41`, `backend/app/api/v1/tasks.py:393-467`, `backend/app/tasks/nudge_email.py:178-196`).
+
+4. **스케줄 성공/실패 집계 정합성 (P2)**
+- 스케줄 디스패치 시 `success_count += 1`이 완료 이전에 선반영됨 (`backend/app/tasks/scheduler.py:149-154`).
+- 실패 시에는 `failure_count`만 선반영될 뿐, 실제 완료 신호와 동기화되지 않음 (`backend/app/tasks/scheduler.py:139-143`, `backend/app/agents/celery_app.py`가 스케줄 카운트 업데이트 안 함).
+
+5. **Onboarding API와 아이디어 설계 간 인터페이스 간극 (P2)**
+- `onboarding` API는 `/use-cases`, `/use-case`, `/sample-task`, `/complete`가 준비되어 있으나 `#246` 기획의 `/start`/템플릿 자동 연동 UX는 미정의 (`backend/app/api/v1/onboarding.py:36-116`, `backend/app/services/onboarding_service.py:1-320`).
+
+### 2) 아이디어 #246~#254 실현성 평가
+
+| 아이디어 | 실현성 | 난이도 | 공수 | 아키텍처 변경 | 판단 |
+|---|---|---|---|---|---|
+| #246 First-Run Wizard | ✅ 조건부 구현 가능 | 중간 | 중간(2~3d) | 중간 | 핵심 엔드포인트는 거의 존재. UX 레이어(`start` 토글, 샘플 완료/프리뷰/QA/스트릭/공유 자동 제안 연동)가 남음 |
+| #247 Chain Template Gallery | ⚠️ 조건부 | 낮음~중간 | 빠름(1~2d) | 낮음~중간 | `Template` API는 존재하나 Chain 템플릿 도메인/선택 UI가 없음 |
+| #248 Streak Leaderboard | ⚠️ 조건부 | 중간 | 빠름(1~2d) | 중간 | `Task` 기반 전역 streak는 있어도 workspace 리더보드 엔드포인트 미존재 |
+| #249 Command Rail (First 10 Actions) | ✅ 부분 구현 가능 | 중간 | 중간(2~3d) | 중간 | `smart-exit`/`reliability-gate`/템플릿/체인/스케줄을 조합해 추천탭 MVP 가능 |
+| #250 Task-to-Task Bridge | ✅ 부분 구현 가능 | 중간 | 중간(2d) | 중간 | 완료/실패 액션 API는 있음. 단일 저장소(`task_metadata` 또는 별도 테이블) 표준화 필요 |
+| #251 Workspace Trust Bar | ✅ 조건부(기반 존재) | 중간 | 중간(2~4d) | 중간 | `GET /workspaces/{id}/trust-ring`는 있음. 홈형 “바(Bar)” UI + 탭형 토글/정교한 필터 추가 필요 |
+| #252 Execution Receipt | ✅ 조건부 | 중간 | 중간(2~4d) | 중간 | `cost-trust`/QA/실패원인 일부 존재하나, 영수증 엔티티/체인추적(소요시간/모델/토큰/리소스) 정형 저장 필요 |
+| #253 Prompt-to-Pipeline | ✅ 가능 | 중간 | 중간(3~4d) | 중간 | `TaskPlanner`가 존재(`app/agents/task_planner.py`)하나, 자연어→ChainStep 자동 정규화/편집/저장 API 연결이 필요 |
+| #254 Follow-through Card | ✅ 부분 구현 가능 | 중간 | 빠름~중간(2~3d) | 중간 | `smart-exit-hints` + `recovery-deck` + `resume-template`/`retry`를 기준으로 동작하나 완료 후 상태 추적/리마인더가 빠짐 |
+
+### 3) 이번 리뷰 기준 권고 우선순위 (개발 가이드)
+
+1. **P0 (이번 스프린트 시작 바로)**
+   - `chain_service._execute_current_step()`에서 task 타입별 Celery dispatch 주입 (`process_*_task.apply_async`) + `chain_service.advance_chain` 훅 경로를 `celery_app.update_task_status`에 연결.
+   - `models/__init__.py`와 `alembic/env.py`에 `TaskChain`, `ScheduledTask` 등록해 마이그레이션 가시성 회복.
+   - `tasks.create_task`, `retry_task`, `scheduler._dispatch_one`에서 `User.last_task_created_at` 업데이트.
+
+2. **P1 (연속 1~2개 작업)**
+   - 스케줄 카운트(success/failure)를 실제 완료 이벤트 기반으로 재정의(디스패치 시 카운트 예약 금지).
+   - Onboarding API 정합성: `start` 경로/샘플 완료 후 자동 가속 UX(share/streak/preview suggestion) 연결.
+
+3. **P2 (타입별 가치 확장)**
+   - `#250`, `#252`, `#254`를 같은 `task_follow_through_action` 모델로 묶어 재사용.
+   - #247, #248, #249는 `워크스페이스/템플릿/체인/리더보드`를 읽는 단일 추천 쿼리로 묶어 한 번에 출시.
+
+### 4) 개발자 전달용 체크포인트(기획 동기화)
+
+- **체인 실행을 실제로 돌리면**, #246/247/248은 기존 구현 위에서 사용자탐색성 향상으로 즉시 체감도가 큼.
+- **#251은 신호는 존재**: `workspace/trust-ring` 기반으로 UI 바/카드로 정형화하면 빠르게 출시.
+- **#253은 위험이 낮은 PoC**: 기존 `TaskPlanner` 결과를 `ChainStep`으로 매핑해 `POST /chains/from-prompt`+`plan_only` 모드로 먼저 배포 권장.

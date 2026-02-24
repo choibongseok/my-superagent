@@ -131,6 +131,13 @@ def build_llm_with_fallbacks(
     available = [s for s in specs if _has_key(s)]
 
     if not available:
+        # In demo mode, return mock LLM instead of crashing
+        if settings.DEMO_MODE:
+            from app.core.mock_llm import DemoLLM
+
+            logger.info("DEMO_MODE active — using mock LLM (no API keys required)")
+            return DemoLLM(callbacks=callbacks or [])
+
         raise RuntimeError(
             "No LLM API keys configured. Set at least one of: "
             + ", ".join(s.api_key_setting for s in specs)
@@ -158,10 +165,12 @@ def get_fallback_status() -> dict:
 
     Useful for health-check / admin endpoints.
     """
-    return {
+    status: dict[str, Any] = {
         spec.provider: {
             "model": spec.model,
             "configured": _has_key(spec),
         }
         for spec in _DEFAULT_CHAIN
     }
+    status["demo_mode"] = settings.DEMO_MODE
+    return status

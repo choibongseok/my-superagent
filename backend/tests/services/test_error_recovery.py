@@ -6,6 +6,7 @@ from app.services.error_recovery import (
     ErrorCategory,
     FriendlyError,
     RecoveryAction,
+    build_recovery_deck,
     classify_error,
     error_to_dict,
 )
@@ -309,3 +310,29 @@ class TestEdgeCases:
     def test_not_found_category(self):
         result = classify_error("The file does not exist in the system")
         assert result.category == ErrorCategory.NOT_FOUND
+
+
+class TestRecoveryDeck:
+    """Structured recovery-deck payload construction."""
+
+    def test_recovery_deck_contains_checklist_and_suggestions(self):
+        deck = build_recovery_deck("Rate limit exceeded: 429 Too Many Requests", repeat_failure_count=2)
+
+        assert deck["qa_failure_class"] == "llm"
+        assert deck["failure_stage"]
+        assert deck["failure_signal"]
+        assert deck["failure_detail"]
+        assert isinstance(deck["checklist"], list)
+        assert isinstance(deck["rewrite_suggestions"], list)
+        assert len(deck["checklist"]) >= 1
+        assert 1 <= len(deck["rewrite_suggestions"]) <= 3
+        assert deck["repeat_failure_count"] == 2
+        assert deck["one_click_retry"]["enabled"] is True
+        assert deck["auto_retry_available"] is True
+
+    def test_recovery_deck_for_unknown_error_is_fallback(self):
+        deck = build_recovery_deck("Some novel unknown error XYZ-999")
+
+        assert deck["qa_failure_class"] == "unknown"
+        assert deck["failure_stage"] == "general"
+        assert "Retry" in deck["checklist"][0]

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, health, tasks, chats, messages, workspaces, templates, orchestrator, analytics, share, dev, prompts, qa, webhooks, onboarding, streaks, schedules, chains
+from app.api.v1 import auth, health, tasks, chats, messages, workspaces, templates, orchestrator, analytics, share, dev, prompts, qa, webhooks, onboarding, streaks, schedules, chains, memory
 api_router = APIRouter()
 
 # Include sub-routers
@@ -24,3 +24,4 @@ api_router.include_router(onboarding.router, prefix="/onboarding", tags=["onboar
 api_router.include_router(streaks.router, tags=["gamification"])  # Productivity Streaks & Achievements
 api_router.include_router(schedules.router, tags=["schedules"])  # Recurring Task Scheduler
 api_router.include_router(chains.router, tags=["chains"])  # Smart Task Chaining
+api_router.include_router(memory.router, tags=["memory"])  # Agent Memory Timeline (#243)

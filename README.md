@@ -12,6 +12,14 @@
 [![Test Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen.svg)](https://github.com/choibongseok/my-superagent)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/choibongseok/my-superagent/pulls)
 
+### ⚡ Try Instantly — No Setup Required
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/choibongseok/my-superagent?quickstart=1)
+
+> **Demo Mode**: Launch in Codespaces with `DEMO_MODE=true` — no API keys needed!
+> The mock LLM provider generates realistic sample responses so you can explore
+> every feature immediately. Add your real API keys later when you're ready.
+
 ---
 
 ## 📋 Table of Contents

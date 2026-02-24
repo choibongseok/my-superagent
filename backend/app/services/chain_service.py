@@ -15,6 +15,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.agents.celery_app import (
+    process_docs_task,
+    process_research_task,
+    process_sheets_task,
+    process_slides_task,
+)
+
 from app.models.task import Task, TaskStatus, TaskType
 from app.models.task_chain import (
     ChainStatus,
@@ -255,6 +262,51 @@ async def cancel_chain(
 
 # ── Internal step execution ──────────────────────────────────────────────────
 
+
+def _build_chain_task_title(chain: TaskChain, step: ChainStep) -> str:
+    """Resolve a stable title for generated docs/slides/sheets tasks."""
+    title = None
+    if step.step_metadata:
+        title = step.step_metadata.get("title")
+    if not title:
+        title = chain.name
+    return str(title)
+
+
+async def _launch_chain_task(chain: TaskChain, step: ChainStep, task: Task) -> None:
+    """Dispatch the current chain step task via Celery."""
+    task_id = str(task.id)
+    user_id = str(chain.user_id)
+    title = _build_chain_task_title(chain, step)
+
+    if step.task_type == TaskType.RESEARCH:
+        celery_result = process_research_task.apply_async(args=[task_id, task.prompt, user_id])
+    elif step.task_type == TaskType.DOCS:
+        celery_result = process_docs_task.apply_async(
+            args=[task_id, task.prompt, user_id, title]
+        )
+    elif step.task_type == TaskType.SHEETS:
+        celery_result = process_sheets_task.apply_async(
+            args=[task_id, task.prompt, user_id, title]
+        )
+    elif step.task_type == TaskType.SLIDES:
+        celery_result = process_slides_task.apply_async(
+            args=[task_id, task.prompt, user_id, title]
+        )
+    else:
+        raise ValueError(f"Unsupported chain task type: {step.task_type}")
+
+    task.celery_task_id = celery_result.id
+    task.status = TaskStatus.IN_PROGRESS
+    logger.info(
+        "Chain %s step %d dispatched as Celery task %s (%s)",
+        chain.id,
+        step.step_order,
+        celery_result.id,
+        step.task_type.value,
+    )
+
+
 async def _execute_current_step(
     db: AsyncSession,
     chain: TaskChain,
@@ -298,3 +350,19 @@ async def _execute_current_step(
         task.id,
         step.task_type.value,
     )
+
+    try:
+        await _launch_chain_task(chain, step, task)
+    except Exception as exc:
+        task.status = TaskStatus.FAILED
+        task.error_message = f"Failed to dispatch chain step: {exc}"
+        step.status = StepStatus.FAILED
+        step.error_message = task.error_message
+        chain.status = ChainStatus.FAILED
+        logger.error(
+            "Failed dispatching chain task for chain %s step %d: %s",
+            chain.id,
+            step.step_order,
+            exc,
+        )
+

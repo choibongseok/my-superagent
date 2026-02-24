@@ -16,14 +16,11 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from typing import Annotated, Optional
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel, Field
 
 from app.api.dependencies import get_current_user
-from app.core.database import get_db
 from app.memory.manager import MemoryManager
 from app.models.user import User
 
@@ -338,20 +335,30 @@ async def get_memory_stats(
     # Conversation turns
     turn_count = manager.get_turn_count()
 
-    # Long-term memories — do a broad search
+    # Long-term memories — do a count + bounded metadata sample
     long_term_count = 0
     oldest = None
     newest = None
     top_topics: list[str] = []
 
     try:
+        if getattr(manager, "vector_memory", None) and hasattr(
+            manager.vector_memory, "get_memory_count"
+        ):
+            long_term_count = manager.vector_memory.get_memory_count()
+        else:
+            long_term_count = manager.count_memories()
+    except Exception as e:
+        logger.warning(f"Memory stats count failed: {e}")
+
+    try:
+        # Pull a bounded sample for metadata stats to avoid expensive full scans.
         all_memories = manager.search_memory(
             query="*",
-            k=200,
+            k=min(long_term_count or 200, 200),
             score_threshold=None,
             adaptive_threshold=False,
-        )
-        long_term_count = len(all_memories)
+        ) if long_term_count else []
 
         # Extract timestamps and topics
         timestamps: list[str] = []

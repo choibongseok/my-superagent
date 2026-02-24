@@ -140,7 +140,7 @@ async def create_schedule(
         if not croniter.is_valid(body.cron_expression):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid cron expression: {body.cron_expression}",
+                detail=f"cron_expression is invalid: {body.cron_expression}",
             )
 
     next_run = _compute_next_run(
@@ -257,7 +257,7 @@ async def update_schedule(
         sched.scheduled_at = body.scheduled_at if body.scheduled_at.tzinfo else body.scheduled_at.replace(tzinfo=timezone.utc)
     if body.cron_expression is not None:
         if not croniter.is_valid(body.cron_expression):
-            raise HTTPException(status_code=400, detail=f"Invalid cron expression: {body.cron_expression}")
+            raise HTTPException(status_code=400, detail=f"cron_expression is invalid: {body.cron_expression}")
         sched.cron_expression = body.cron_expression
     if body.timezone is not None:
         sched.timezone = body.timezone

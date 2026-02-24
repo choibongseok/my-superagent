@@ -10,6 +10,7 @@ Covers:
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -64,7 +65,7 @@ def _chain_payload(
 
 
 # ---------------------------------------------------------------------------
-# Fixture
+# Fixtures
 # ---------------------------------------------------------------------------
 
 @pytest_asyncio.fixture
@@ -75,6 +76,30 @@ async def async_client(db: AsyncSession):
     ) as ac:
         yield ac
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def mock_chain_task_dispatch():
+    """Prevent real Celery dispatches for chain step execution tests."""
+
+    result = SimpleNamespace(id="chain-mock-task")
+
+    with (
+        patch("app.services.chain_service.process_research_task.apply_async") as research,
+        patch("app.services.chain_service.process_docs_task.apply_async") as docs,
+        patch("app.services.chain_service.process_sheets_task.apply_async") as sheets,
+        patch("app.services.chain_service.process_slides_task.apply_async") as slides,
+    ):
+        research.return_value = result
+        docs.return_value = result
+        sheets.return_value = result
+        slides.return_value = result
+        yield {
+            "research": research,
+            "docs": docs,
+            "sheets": sheets,
+            "slides": slides,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -484,7 +509,7 @@ async def test_delete_nonexistent_chain(db: AsyncSession, async_client: AsyncCli
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_start_chain_draft(db: AsyncSession, async_client: AsyncClient):
+async def test_start_chain_draft(db: AsyncSession, async_client: AsyncClient, mock_chain_task_dispatch):
     """Starting a DRAFT chain moves it to RUNNING."""
     user = _make_user()
     db.add(user)
@@ -512,6 +537,10 @@ async def test_start_chain_draft(db: AsyncSession, async_client: AsyncClient):
     data = resp.json()
     assert data["status"] == "running"
     assert data["steps"][0]["status"] == "running"
+    mock_chain_task_dispatch["research"].assert_called_once()
+    mock_chain_task_dispatch["docs"].assert_not_called()
+    mock_chain_task_dispatch["sheets"].assert_not_called()
+    mock_chain_task_dispatch["slides"].assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -616,7 +645,7 @@ async def test_cancel_completed_chain_rejected(db: AsyncSession, async_client: A
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_retry_failed_chain(db: AsyncSession, async_client: AsyncClient):
+async def test_retry_failed_chain(db: AsyncSession, async_client: AsyncClient, mock_chain_task_dispatch):
     """Retrying a FAILED chain restarts it from the failed step."""
     user = _make_user()
     db.add(user)

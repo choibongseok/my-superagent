@@ -60,6 +60,10 @@ class Settings(BaseSettings):
         "https://www.googleapis.com/auth/presentations,"
         "https://www.googleapis.com/auth/drive.file"
     )
+    
+    # Backend URL (for webhooks and callbacks)
+    BACKEND_URL: str = "http://localhost:8000"
+    FRONTEND_URL: str = "http://localhost:3000"
 
     # OpenAI
     OPENAI_API_KEY: str = Field(default="")
@@ -100,6 +104,9 @@ class Settings(BaseSettings):
     ANONYMOUS_DAILY_BUDGET_USD: float = Field(default=5.0)
     ANONYMOUS_MAX_TRIES_PER_IP: int = Field(default=3)
     ANONYMOUS_RESULT_TTL_SECONDS: int = Field(default=1800)  # 30 minutes
+
+    # Demo Mode — run without API keys using mock LLM responses
+    DEMO_MODE: bool = Field(default=False)
 
     # Email
     EMAIL_ENABLED: bool = Field(default=False)

@@ -1,0 +1,44 @@
+{
+  "name": "AgentHQ Dev Environment",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "backend",
+  "workspaceFolder": "/workspace",
+
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    }
+  },
+
+  "forwardPorts": [8000, 3000, 5432, 6379],
+
+  "postCreateCommand": "cd backend && pip install -r requirements.txt && cd ../desktop && npm install",
+
+  "postStartCommand": "cd backend && DEMO_MODE=true .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 &",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "bradlc.vscode-tailwindcss",
+        "dbaeumer.vscode-eslint"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "./backend/.venv/bin/python",
+        "python.testing.pytestEnabled": true,
+        "editor.formatOnSave": true
+      }
+    }
+  },
+
+  "remoteEnv": {
+    "DEMO_MODE": "true",
+    "DATABASE_URL": "postgresql+asyncpg://agenthq:agenthq_dev_password@postgres:5432/agenthq",
+    "REDIS_URL": "redis://redis:6379/0",
+    "CELERY_BROKER_URL": "redis://redis:6379/1"
+  }
+}

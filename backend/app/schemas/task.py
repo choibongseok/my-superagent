@@ -125,3 +125,76 @@ class TaskPreviewResponse(BaseModel):
         default=None,
         description="If this preview was modified, the original prompt before modification.",
     )
+
+
+# ── Pre-Run Reliability Gate (#261) ───────────────────────────────────
+
+
+class PreRunReliabilityRequest(BaseModel):
+    """Payload used to run a pre-run reliability check before execution."""
+
+    task_type: TaskType
+    prompt: str = Field(..., min_length=1, max_length=10000)
+    task_metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional task payload metadata used by heuristic checks.",
+    )
+    context: str = Field(
+        default="task",
+        description="Execution context: task | chain | schedule",
+    )
+    chain_id: Optional[UUID] = Field(default=None)
+    schedule_id: Optional[UUID] = Field(default=None)
+
+
+class ReliabilityGateCheck(BaseModel):
+    """One validation item in the reliability pre-flight response."""
+
+    id: str
+    name: str
+    status: str
+    message: str
+    suggested_action: str | None = None
+    suggested_path: str | None = None
+
+
+class PreRunReliabilityResponse(BaseModel):
+    """Structured output for #261 Pre-Run Reliability Gate."""
+
+    task_type: TaskType
+    reliability_score: int
+    failure_probability: float
+    risk_level: str
+    go_no_go: bool
+    recent_failures: int
+    repeat_failure_count: int
+    checks: list[ReliabilityGateCheck]
+    recommendations: list[str]
+    can_execute_immediately: bool
+
+
+# ── Smart Exit Hints (#260) ─────────────────────────────────────────────
+
+
+class SmartExitHintAction(BaseModel):
+    """Action card for Smart Exit Hints."""
+
+    id: str
+    label: str
+    path: str
+    method: str = Field(default="GET", description="HTTP method for action")
+    description: str | None = None
+    enabled: bool = True
+    requires_input: bool = False
+    # Optional deep link to open the same action in a web/mobile client.
+    deep_link: str | None = None
+
+
+class SmartExitHintsResponse(BaseModel):
+    """Response for POST-completion / fail-fast follow-up recommendations."""
+
+    task_id: UUID
+    task_type: str
+    status: str
+    next_focus: str
+    actions: list[SmartExitHintAction]

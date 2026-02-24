@@ -457,10 +457,13 @@ async def status(
 @router.get("/health/llm")
 async def llm_fallback_status():
     """Return configured LLM providers and fallback chain status."""
-    providers = get_fallback_status()
+    status = get_fallback_status()
+    demo_mode = status.pop("demo_mode", False)
+    providers = status  # remaining keys are provider dicts
     configured = [name for name, info in providers.items() if info["configured"]]
     return {
         "fallback_enabled": len(configured) > 1,
         "chain": configured,
         "providers": providers,
+        "demo_mode": demo_mode,
     }

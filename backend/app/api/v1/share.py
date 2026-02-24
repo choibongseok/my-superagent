@@ -38,6 +38,58 @@ from app.models.task import Task, TaskStatus
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# Share rendering helpers — OG/SMO preview support (#214)
+TASK_TYPE_LABELS = {
+    "docs": "문서",
+    "sheets": "스프레드시트",
+    "slides": "슬라이드",
+    "research": "리서치",
+}
+TASK_SHARE_OG_IMAGES = {
+    "docs": "https://agenthq.io/og-preview/docs.png",
+    "sheets": "https://agenthq.io/og-preview/sheets.png",
+    "slides": "https://agenthq.io/og-preview/slides.png",
+    "research": "https://agenthq.io/og-preview/research.png",
+}
+TASK_OG_DEFAULT_IMAGE = "https://agenthq.io/og-preview/default.png"
+
+
+def _share_og_image(task_type: str) -> str:
+    return TASK_SHARE_OG_IMAGES.get(task_type, TASK_OG_DEFAULT_IMAGE)
+
+
+def _build_share_meta_tags(
+    task_type: str,
+    title: str,
+    prompt: str,
+    request: Request,
+) -> str:
+    """Build meta tags for social preview cards used by Slack/Teams/X/LinkedIn."""
+    safe_type = TASK_TYPE_LABELS.get(task_type, "작업")
+    safe_title = html_module.escape(title.strip() or f"AgentHQ {safe_type}")
+    safe_prompt = html_module.escape((prompt or "").strip()[:150])
+
+    base_desc = f"{safe_type} 자동화 결과: {safe_prompt}" if safe_prompt else f"{safe_type} 자동화 결과"
+    if len(base_desc) > 160:
+        base_desc = base_desc[:157] + "..."
+
+    share_url = str(request.url).split("?")[0]
+    share_image = _share_og_image(task_type)
+
+    return f"""  <meta property="og:title" content="{safe_title} — AgentHQ">
+  <meta property="og:description" content="{base_desc}">
+  <meta property="og:image" content="{share_image}">
+  <meta property="og:url" content="{share_url}">
+  <meta property="og:type" content="article">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{safe_title} — AgentHQ">
+  <meta name="twitter:description" content="{base_desc}">
+  <meta name="twitter:image" content="{share_image}">
+  <meta name="twitter:url" content="{share_url}">
+"""
+
+
+
 # ---------------------------------------------------------------------------
 # HTML templates
 # ---------------------------------------------------------------------------
@@ -47,7 +99,7 @@ VIEWER_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{title} — AgentHQ</title>
+{meta_tags}  <title>{title} — AgentHQ</title>
   <style>
     body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
            max-width: 800px; margin: 0 auto; padding: 2rem; color: #1a1a1a; }}
@@ -691,14 +743,16 @@ async def view_shared_task(
             )
 
     # Build display content
-    task_type_labels = {"docs": "문서", "sheets": "스프레드시트", "slides": "슬라이드", "research": "리서치"}
-    type_label = task_type_labels.get(
-        str(task.task_type.value if hasattr(task.task_type, "value") else task.task_type), "문서"
+    type_label = TASK_TYPE_LABELS.get(
+        str(task.task_type.value if hasattr(task.task_type, "value") else task.task_type),
+        "작업",
     )
+    task_type = str(task.task_type.value if hasattr(task.task_type, "value") else task.task_type).lower()
 
     result_data = task.result or {}
     result_text = result_data.get("content") or result_data.get("summary") or str(result_data)[:2000]
-    title = result_data.get("title") or f"AgentHQ {type_label}"
+    raw_title = result_data.get("title") or f"AgentHQ {type_label}"
+    raw_prompt = task.prompt or ""
 
     # #228 Quality Score Badge
     qa = await _get_qa_for_task(task.id, db)
@@ -707,8 +761,8 @@ async def view_shared_task(
         payload = {
             "id": str(task.id),
             "type": str(task.task_type),
-            "prompt": task.prompt,
-            "title": title,
+            "prompt": raw_prompt,
+            "title": raw_title,
             "result": result_data,
             "document_url": task.document_url,
         }
@@ -718,9 +772,15 @@ async def view_shared_task(
         return JSONResponse(payload)
 
     html = VIEWER_HTML.format(
-        title=title,
-        prompt=task.prompt[:300] + ("…" if len(task.prompt) > 300 else ""),
-        result_text=result_text[:3000],
+        meta_tags=_build_share_meta_tags(
+            task_type=task_type,
+            title=raw_title,
+            prompt=raw_prompt,
+            request=request,
+        ),
+        title=html_module.escape(raw_title),
+        prompt=html_module.escape(raw_prompt[:300] + ("…" if len(raw_prompt) > 300 else "")),
+        result_text=html_module.escape(result_text[:3000]),
         token=share_token,
         qa_badge=_qa_badge_html(qa),
     )
