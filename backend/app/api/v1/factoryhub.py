@@ -8,17 +8,18 @@ FactoryHub Integration API
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Header, BackgroundTasks
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import Optional, Dict, Any
 from datetime import datetime, UTC
 import httpx
 import logging
 
-from app.db.session import get_db
+from app.database import get_db
 from app.models.user import User
 from app.models.task import Task
-from app.core.security import get_current_user
-from app.tasks.celery_app import celery_app
+from app.api.dependencies import get_current_user
+from app.agents.celery_app import celery_app
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -105,7 +106,7 @@ async def validate_factoryhub_token(
 async def receive_factoryhub_event(
     event: FactoryHubEvent,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     _: bool = Depends(validate_factoryhub_token)
 ):
     """
@@ -119,7 +120,8 @@ async def receive_factoryhub_event(
     
     if event.event_type == "task.create":
         # User 조회 (FactoryHub user_id → AgentHQ user_id 매핑)
-        user = db.query(User).filter(User.id == event.user_id).first()
+        result = await db.execute(select(User).where(User.id == event.user_id))
+        user = result.scalar_one_or_none()
         if not user:
             logger.error(f"User not found: {event.user_id}")
             raise HTTPException(status_code=404, detail="User not found")
@@ -138,8 +140,8 @@ async def receive_factoryhub_event(
             }
         )
         db.add(task)
-        db.commit()
-        db.refresh(task)
+        await db.commit()
+        await db.refresh(task)
         
         logger.info(f"Created task {task.id} from FactoryHub event")
         
@@ -183,7 +185,7 @@ async def receive_factoryhub_event(
 
 @router.get("/status", response_model=IntegrationStatus)
 async def get_integration_status(
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -194,9 +196,10 @@ async def get_integration_status(
     - 현재 실행 중인 task 수
     """
     # FactoryHub에서 온 task 통계
-    factory_tasks = db.query(Task).filter(
-        Task.metadata["source"].astext == "factoryhub"
-    ).all()
+    result = await db.execute(
+        select(Task).where(Task.metadata["source"].astext == "factoryhub")
+    )
+    factory_tasks = result.scalars().all()
     
     active_tasks = [t for t in factory_tasks if t.status in ["pending", "running"]]
     
@@ -223,41 +226,43 @@ async def _schedule_callback(task_id: str, callback_url: str, factory_task_id: O
     여기서는 간단히 비동기 HTTP 호출로 구현
     """
     import asyncio
+    from sqlalchemy import select
+    from app.database import AsyncSessionLocal
     
     # Task 완료 대기 (최대 5분)
     max_wait = 300  # seconds
     check_interval = 5  # seconds
     elapsed = 0
     
-    from app.db.session import SessionLocal
-    
     while elapsed < max_wait:
         await asyncio.sleep(check_interval)
         elapsed += check_interval
         
         # DB에서 task 상태 체크
-        db = SessionLocal()
-        try:
-            task = db.query(Task).filter(Task.id == task_id).first()
-            if not task:
-                logger.error(f"Task {task_id} not found for callback")
-                return
-            
-            if task.status in ["done", "failed"]:
-                # Task 완료 → 콜백 전송
-                callback_data = FactoryHubCallback(
-                    task_id=task_id,
-                    factory_task_id=factory_task_id,
-                    status=task.status,
-                    result=task.result if task.status == "done" else None,
-                    error=task.error if task.status == "failed" else None,
-                    metadata=task.metadata or {}
-                )
+        async with AsyncSessionLocal()() as db:
+            try:
+                result = await db.execute(select(Task).where(Task.id == task_id))
+                task = result.scalar_one_or_none()
                 
-                await _send_callback(callback_url, callback_data)
-                return
-        finally:
-            db.close()
+                if not task:
+                    logger.error(f"Task {task_id} not found for callback")
+                    return
+                
+                if task.status in ["done", "failed"]:
+                    # Task 완료 → 콜백 전송
+                    callback_data = FactoryHubCallback(
+                        task_id=task_id,
+                        factory_task_id=factory_task_id,
+                        status=task.status,
+                        result=task.result if task.status == "done" else None,
+                        error=task.error if task.status == "failed" else None,
+                        metadata=task.metadata or {}
+                    )
+                    
+                    await _send_callback(callback_url, callback_data)
+                    return
+            except Exception as e:
+                logger.error(f"Error checking task status: {e}")
     
     logger.warning(f"Task {task_id} timeout waiting for completion (callback not sent)")
 
@@ -288,7 +293,7 @@ async def _send_callback(callback_url: str, data: FactoryHubCallback):
 @router.post("/webhook/task-complete")
 async def task_complete_webhook(
     task_id: str,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     _: bool = Depends(validate_factoryhub_token)
 ):
     """
@@ -297,7 +302,8 @@ async def task_complete_webhook(
     실제로는 Task 완료 시 자동으로 FactoryHub로 콜백을 보내지만,
     FactoryHub가 직접 이 엔드포인트를 polling할 수도 있음
     """
-    task = db.query(Task).filter(Task.id == task_id).first()
+    result = await db.execute(select(Task).where(Task.id == task_id))
+    task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
