@@ -1,19 +1,27 @@
 # my-superagent 작업 목록
 
-> 마지막 업데이트: 2026-02-24 (22:04 KST)
+> 마지막 업데이트: 2026-02-24 (20:22 UTC)
 > 담당: superagent-developer
 
 ## 🔥 긴급 (P4 - FactoryHub 통합 준비)
 
-### 1️⃣ FactoryHub Manifest 작성
-- [ ] **파일**: `manifests/ai-agent.json` (신규 생성)
-- [ ] **내용**:
+### 1️⃣ FactoryHub Manifest 작성 ✅
+- [x] **파일**: `manifests/ai-agent.json` (신규 생성)
+- [x] **내용**:
   - Service metadata (name, version, description)
   - API endpoints (OpenAPI 기반)
   - Health check endpoint (`/health`)
   - Dependencies (PostgreSQL, Redis)
   - Environment variables 명세
-- [ ] **완료 기준**: FactoryHub Go 백엔드에서 manifest 파싱 가능
+  - Authentication (JWT + Google OAuth 2.0)
+  - Capabilities (agents: docs, sheets, slides, orchestrator)
+  - Resource limits & scaling configuration
+  - Event integration (incoming/outgoing events)
+  - Monitoring & health checks
+- [x] **완료 기준**: FactoryHub Go 백엔드에서 manifest 파싱 가능
+- [x] **추가 파일**: `manifests/README.md` (통합 가이드)
+- **완료 시각**: 2026-02-24 20:22 UTC
+- **Commit**: `feat: Add FactoryHub integration manifest`
 
 ### 2️⃣ FactoryHub Go 코드 연동
 - [ ] **파일**: `backend/app/api/v1/factoryhub.py` (신규 생성)

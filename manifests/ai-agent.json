@@ -1,0 +1,300 @@
+{
+  "$schema": "https://factoryhub.dev/schemas/service-manifest.json",
+  "apiVersion": "v1",
+  "kind": "AIService",
+  "metadata": {
+    "name": "agenthq",
+    "displayName": "AgentHQ",
+    "version": "0.4.0",
+    "description": "Google Workspace AI automation platform with multi-agent orchestration",
+    "tags": [
+      "ai",
+      "google-workspace",
+      "automation",
+      "llm",
+      "multi-agent"
+    ],
+    "maintainers": [
+      {
+        "name": "AgentHQ Team",
+        "email": "dev@agenthq.ai"
+      }
+    ],
+    "repository": "https://github.com/choibongseok/my-superagent",
+    "documentation": "https://github.com/choibongseok/my-superagent/blob/main/docs/API.md"
+  },
+  "spec": {
+    "runtime": {
+      "type": "docker-compose",
+      "compose_file": "docker-compose.yml",
+      "services": [
+        "backend",
+        "celery-worker",
+        "postgres",
+        "redis"
+      ]
+    },
+    "endpoints": {
+      "api": {
+        "url": "http://localhost:8000",
+        "openapi": "/openapi.json",
+        "swagger": "/docs",
+        "health": "/health"
+      },
+      "factoryhub": {
+        "callback": "/api/v1/factoryhub/callback",
+        "status": "/api/v1/factoryhub/status"
+      }
+    },
+    "authentication": {
+      "type": "jwt",
+      "flows": [
+        "google-oauth2"
+      ],
+      "endpoints": {
+        "login": "/api/v1/auth/login",
+        "callback": "/api/v1/auth/callback",
+        "refresh": "/api/v1/auth/refresh"
+      }
+    },
+    "capabilities": {
+      "agents": [
+        {
+          "name": "docs",
+          "type": "google-docs",
+          "operations": [
+            "create",
+            "edit",
+            "summarize",
+            "research"
+          ]
+        },
+        {
+          "name": "sheets",
+          "type": "google-sheets",
+          "operations": [
+            "create",
+            "analyze",
+            "visualize"
+          ]
+        },
+        {
+          "name": "slides",
+          "type": "google-slides",
+          "operations": [
+            "create",
+            "edit",
+            "template"
+          ]
+        },
+        {
+          "name": "orchestrator",
+          "type": "multi-agent",
+          "operations": [
+            "complex-task",
+            "planning",
+            "coordination"
+          ]
+        }
+      ],
+      "features": [
+        "memory-system",
+        "vector-search",
+        "real-time-websocket",
+        "webhook-integration",
+        "multi-tenancy",
+        "cost-tracking"
+      ]
+    },
+    "dependencies": {
+      "services": [
+        {
+          "name": "postgres",
+          "version": ">=14",
+          "required": true,
+          "extensions": [
+            "pgvector"
+          ]
+        },
+        {
+          "name": "redis",
+          "version": ">=7",
+          "required": true
+        }
+      ],
+      "external_apis": [
+        {
+          "name": "google-workspace",
+          "scopes": [
+            "https://www.googleapis.com/auth/documents",
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/presentations",
+            "https://www.googleapis.com/auth/drive.file"
+          ]
+        },
+        {
+          "name": "anthropic-claude",
+          "required": true
+        },
+        {
+          "name": "openai",
+          "required": false
+        }
+      ]
+    },
+    "configuration": {
+      "environment": [
+        {
+          "name": "DATABASE_URL",
+          "description": "PostgreSQL connection string with pgvector extension",
+          "required": true,
+          "secret": true
+        },
+        {
+          "name": "REDIS_URL",
+          "description": "Redis connection string for Celery broker",
+          "required": true,
+          "secret": true
+        },
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "description": "Anthropic Claude API key for LLM operations",
+          "required": true,
+          "secret": true
+        },
+        {
+          "name": "GOOGLE_CLIENT_ID",
+          "description": "Google OAuth 2.0 client ID",
+          "required": true,
+          "secret": false
+        },
+        {
+          "name": "GOOGLE_CLIENT_SECRET",
+          "description": "Google OAuth 2.0 client secret",
+          "required": true,
+          "secret": true
+        },
+        {
+          "name": "JWT_SECRET",
+          "description": "Secret key for JWT token signing",
+          "required": true,
+          "secret": true
+        },
+        {
+          "name": "OPENAI_API_KEY",
+          "description": "OpenAI API key for fallback LLM operations",
+          "required": false,
+          "secret": true
+        },
+        {
+          "name": "FACTORYHUB_TOKEN",
+          "description": "Authentication token for FactoryHub integration",
+          "required": false,
+          "secret": true
+        }
+      ]
+    },
+    "resources": {
+      "limits": {
+        "cpu": "2000m",
+        "memory": "4Gi",
+        "storage": "10Gi"
+      },
+      "requests": {
+        "cpu": "500m",
+        "memory": "1Gi",
+        "storage": "5Gi"
+      }
+    },
+    "monitoring": {
+      "health_check": {
+        "endpoint": "/health",
+        "interval": "30s",
+        "timeout": "10s",
+        "retries": 3
+      },
+      "metrics": {
+        "enabled": true,
+        "endpoints": [
+          "/metrics",
+          "/api/v1/analytics/token-usage",
+          "/api/v1/analytics/cost-breakdown"
+        ]
+      },
+      "logging": {
+        "level": "INFO",
+        "format": "json"
+      }
+    },
+    "scaling": {
+      "type": "horizontal",
+      "min_replicas": 1,
+      "max_replicas": 10,
+      "target_cpu_percent": 70,
+      "target_memory_percent": 80
+    }
+  },
+  "integration": {
+    "factoryhub": {
+      "version": "v1",
+      "events": {
+        "incoming": [
+          {
+            "name": "task.create",
+            "description": "Create a new AI task from FactoryHub",
+            "schema": {
+              "agent_type": "string",
+              "prompt": "string",
+              "workspace_id": "string",
+              "metadata": "object"
+            }
+          },
+          {
+            "name": "task.cancel",
+            "description": "Cancel a running task",
+            "schema": {
+              "task_id": "string"
+            }
+          }
+        ],
+        "outgoing": [
+          {
+            "name": "task.completed",
+            "description": "Task execution completed successfully",
+            "schema": {
+              "task_id": "string",
+              "result": "object",
+              "duration_ms": "number"
+            }
+          },
+          {
+            "name": "task.failed",
+            "description": "Task execution failed",
+            "schema": {
+              "task_id": "string",
+              "error": "string",
+              "retry_available": "boolean"
+            }
+          },
+          {
+            "name": "task.progress",
+            "description": "Task execution progress update",
+            "schema": {
+              "task_id": "string",
+              "progress_percent": "number",
+              "message": "string"
+            }
+          }
+        ]
+      },
+      "webhook": {
+        "url_template": "${FACTORYHUB_WEBHOOK_URL}",
+        "authentication": "bearer",
+        "headers": {
+          "X-AgentHQ-Source": "agenthq",
+          "X-AgentHQ-Version": "0.4.0"
+        }
+      }
+    }
+  }
+}
