@@ -54,16 +54,72 @@
 
 ## 🟡 다음 (P5 - 테스트 & 문서화)
 
-- [ ] **E2E 테스트 커버리지 확대 (계속)** — 더 많은 통합 테스트
-  - 실제 DB 통합 테스트 (PostgreSQL fixtures)
-  - Agent 실행 E2E (Celery worker 통합)
-  - 더 많은 API 엔드포인트 커버
-  - 목표: 70% 커버리지 (현재: 21% → 진행 중)
+### 🔴 우선순위 1: E2E 테스트 커버리지 확대 (21% → 70%)
 
-- [ ] **API 문서 자동화** — OpenAPI/Swagger 문서 정리
-  - `/openapi.json` export 검증
-  - Swagger UI 개선
-  - 모든 엔드포인트에 description/examples 추가
+- [ ] **Agent 실행 E2E 테스트** (고우선순위)
+  - 파일: `backend/tests/test_agent_e2e.py` (신규 생성)
+  - 테스트 대상:
+    - `DocsAgent.run()` — 실제 Google Docs 생성/편집
+    - `SheetsAgent.run()` — 실제 Sheets 읽기/쓰기
+    - `SlidesAgent.run()` — 실제 Slides 생성
+    - `Orchestrator.execute()` — 멀티 에이전트 협업
+  - Celery worker mock 또는 실제 통합
+  - 완료 기준: 각 에이전트당 3개 이상 테스트, 총 12+ 테스트 추가
+
+- [ ] **Memory System E2E 테스트**
+  - 파일: `backend/tests/test_memory_e2e.py` (신규 생성)
+  - 테스트 대상:
+    - `MemoryManager.save_conversation()`
+    - `MemoryManager.search_similar_tasks()`
+    - pgvector 임베딩 검색
+    - Timeline API (`GET /api/v1/memory/timeline`)
+  - 완료 기준: 벡터 검색 정확도 테스트 포함, 8+ 테스트 추가
+
+- [ ] **API 엔드포인트 통합 테스트 확장**
+  - 파일: `backend/tests/test_api_v1_extended.py` (신규 생성)
+  - 미커버 엔드포인트:
+    - `/api/v1/tasks/{id}/retry`
+    - `/api/v1/tasks/{id}/cancel`
+    - `/api/v1/memory/search`
+    - `/api/v1/webhooks/drive/watch`
+  - 완료 기준: 15+ 엔드포인트 추가 커버, HTTP 4xx/5xx 에러 케이스 포함
+
+- [ ] **에러 핸들링 & Edge Case 테스트**
+  - 파일: `backend/tests/test_error_handling.py` (신규 생성)
+  - 테스트 시나리오:
+    - Google API rate limit 처리
+    - Invalid OAuth token 처리
+    - Network timeout 시뮬레이션
+    - DB connection pool exhaustion
+  - 완료 기준: 10+ failure scenario 테스트
+
+### 🔴 우선순위 2: API 문서 자동화
+
+- [ ] **OpenAPI 스펙 검증 & 개선**
+  - 파일: `backend/app/main.py` 수정
+  - 작업:
+    - FastAPI `openapi_schema` 커스터마이징
+    - 모든 엔드포인트에 `summary`, `description`, `response_model` 추가
+    - Example 데이터 추가 (`openapi_examples`)
+  - 엔드포인트: `GET /openapi.json` export 검증
+  - 완료 기준: `/openapi.json` 다운로드 → Swagger Editor 검증 통과
+
+- [ ] **Swagger UI 개선**
+  - 파일: `backend/app/main.py` 수정
+  - 작업:
+    - Swagger UI 테마 커스터마이징
+    - Try-it-out 기본 활성화
+    - Authentication UI 개선 (JWT bearer)
+  - 완료 기준: `/docs` 접속 시 professional UI 확인
+
+- [ ] **API 문서 페이지 작성**
+  - 파일: `docs/API.md` (신규 생성)
+  - 내용:
+    - 인증 플로우 설명
+    - 주요 엔드포인트 사용 예제
+    - Rate limiting, pagination 가이드
+    - Webhook 설정 가이드
+  - 완료 기준: 외부 개발자가 문서만으로 통합 가능한 수준
 
 ## 🟢 이후 (P5 - 고급 기능)
 

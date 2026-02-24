@@ -61,13 +61,64 @@
 - [x] Memory timeline API (#243)
 - [x] Semantic search endpoint
 
-### P3-B: 웹훅 & 알림 ✅ (부분 완료)
+### P3-B: 웹훅 & 알림 ✅
 - [x] WebSocket 실시간 업데이트
 - [x] Slack 알림 플러그인
-- [ ] Google Drive 변경 감지 웹훅 (TODO)
-- [ ] 자동 트리거 (새 파일 업로드 → 자동 요약) (TODO)
+- [x] Google Drive 변경 감지 웹훅
+- [x] 자동 트리거 (새 파일 업로드 → 자동 요약)
 
-## 🏁 Phase 4 — FactoryHub 흡수
+## 🏁 Phase 4 — FactoryHub 흡수 준비
 - [ ] OpenAPI 스펙 정리 (`/openapi.json` export)
 - [ ] FactoryHub manifest `manifests/ai-agent.json` 작성
 - [ ] FactoryHub Go 코드에서 my-superagent API 호출
+
+## 💡 Phase 5 — 아키텍처 고도화 (신규)
+
+### P5-A: 마이크로서비스 전환 준비
+- [ ] **서비스 분리 설계**
+  - Auth Service (독립 인증 서버)
+  - Agent Service (LLM 처리 전용)
+  - Task Service (작업 관리 전용)
+  - Gateway API (통합 라우터)
+  
+- [ ] **gRPC API 추가**
+  - FactoryHub Go 백엔드와 고성능 통신
+  - Protocol Buffers 스키마 정의 (`proto/agent.proto`)
+  - Bi-directional streaming 지원 (실시간 진행 상태)
+  
+- [ ] **이벤트 기반 아키텍처**
+  - RabbitMQ 또는 Kafka 도입 검토
+  - Event-driven task execution
+  - 비동기 알림 시스템 (Webhook → Event Bus)
+
+### P5-B: 엔터프라이즈 기능
+- [ ] **멀티 테넌시** (Organization/Workspace 개념)
+  - Organization model + RBAC
+  - Per-tenant 리소스 격리
+  - Billing/quota 관리
+  
+- [ ] **감사 로그 (Audit Trail)**
+  - 모든 API 호출 기록
+  - 데이터 변경 이력 추적
+  - Compliance 대응 (GDPR, SOC2)
+  
+- [ ] **LLM 비용 최적화**
+  - Token usage analytics dashboard
+  - Model routing (cheap vs expensive models)
+  - Caching layer (semantic deduplication)
+
+### P5-C: AI 고도화
+- [ ] **Multi-modal 지원**
+  - 이미지 분석 (Google Vision API)
+  - 음성 → 텍스트 (Whisper API)
+  - 동영상 자막 생성
+  
+- [ ] **RAG (Retrieval-Augmented Generation)**
+  - 사용자별 knowledge base
+  - Pinecone 또는 Weaviate 통합
+  - 문서 자동 임베딩
+  
+- [ ] **Agent Fine-tuning**
+  - 사용자 피드백 기반 모델 학습
+  - Few-shot learning examples 축적
+  - Custom prompt templates per user
