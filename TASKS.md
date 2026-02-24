@@ -31,6 +31,13 @@
 
 ## 🟢 완료 (P5 - 테스트 & 최적화 진행중)
 
+- [x] **🐛 Bug Fix: datetime.utcnow() Deprecation** — Python 3.12+ 호환성 ✅
+  - **Commit**: `971449db` (2026-02-24)
+  - 10개 파일에서 36개 deprecated 호출 수정
+  - `datetime.utcnow()` → `datetime.now(UTC)` 전환
+  - 영향받은 파일: API (analytics, workspaces), agents (research, task_planner), memory (conversation, manager, vector_store), core (security), models (workspace_invitation), services (streak_service)
+  - 상세 문서: `docs/daily-review/2026-02-24-bugfix-datetime-utcnow.md`
+
 - [x] **Google Drive 웹훅** — Google Drive 변경 감지 자동화 ✅
   - `backend/app/api/v1/webhooks.py` 구현 완료
   - Drive API push notifications 완전 구현
