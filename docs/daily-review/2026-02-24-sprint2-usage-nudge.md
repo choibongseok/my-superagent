@@ -23,3 +23,10 @@
 - 변경 파일:
   - `backend/app/tasks/nudge_email.py`
   - `docs/daily-review/2026-02-24-sprint2-usage-nudge.md`
+
+## ✅ 2026-02-24 새 반영 (Implementer 재확인)
+- `backend/app/tasks/nudge_email.py`를 재정비해 `nudge_email_count`가 `NULL`/비정상 값일 때도 0으로 정규화하도록 보강.
+- 주간 쿼터 계산 로직은 유지하면서, 주 경계 초기화 동작은 그대로 확인.
+- 실행 검증:
+  - `python -m pytest -q backend/tests/tasks/test_nudge_email.py --maxfail=1 --no-cov`
+  - **24 passed**

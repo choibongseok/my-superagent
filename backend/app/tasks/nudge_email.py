@@ -1,10 +1,7 @@
 """Celery task: Usage nudge emails for inactive users.
 
-Detects users who have not created a task in the past 7 days and sends
-re-engagement emails. Weekly quota is enforced via ``nudge_email_count``
-(with reset at the start of each UTC week).
-
-Schedule: daily at 09:00 UTC (registered in celery_app.conf.beat_schedule).
+Detect users who haven't created a task in 7 days and send a re-engagement
+email, with at most 2 nudges per user per UTC week.
 """
 
 from __future__ import annotations
@@ -27,6 +24,26 @@ MAX_NUDGE_EMAILS_PER_WEEK = 2
 INACTIVITY_DAYS = 7
 
 _APP_FRONTEND_URL = settings.FRONTEND_URL.rstrip("/")
+
+
+def _coerce_nudge_count(user) -> int:
+    """Return a safe integer counter and normalize invalid values on the user."""
+    count = getattr(user, "nudge_email_count", 0)
+    if count is None:
+        user.nudge_email_count = 0
+        return 0
+
+    try:
+        count = int(count)
+    except (TypeError, ValueError):
+        user.nudge_email_count = 0
+        return 0
+
+    if count < 0:
+        count = 0
+        user.nudge_email_count = 0
+
+    return count
 
 
 def _build_nudge_html(user_full_name: str | None) -> str:
@@ -119,6 +136,7 @@ def _utc_week_start(value: datetime) -> datetime:
     """Return the Monday 00:00 UTC boundary containing *value*."""
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
+
     return value - timedelta(
         days=value.weekday(),
         hours=value.hour,
@@ -128,11 +146,8 @@ def _utc_week_start(value: datetime) -> datetime:
     )
 
 
-def _normalize_for_weekly_quota(
-    user,
-    now_week_start: datetime,
-) -> bool:
-    """Reset ``nudge_email_count`` when the user is in a new UTC week.
+def _normalize_for_weekly_quota(user, now_week_start: datetime) -> bool:
+    """Reset ``nudge_email_count`` when a new UTC week starts.
 
     Returns ``True`` when the counter was reset.
     """
@@ -154,7 +169,7 @@ def send_nudge_emails(self):
     """Detect inactive users and send re-engagement emails.
 
     A user is considered inactive when their ``last_task_created_at`` is
-    more than ``INACTIVITY_DAYS`` days ago (or ``NULL``, meaning they never
+    more than ``INACTIVITY_DAYS`` days ago (or ``NULL`` meaning they never
     created a task). Weekly quota is capped by ``MAX_NUDGE_EMAILS_PER_WEEK``.
     """
 
@@ -168,8 +183,6 @@ def send_nudge_emails(self):
         week_start = _utc_week_start(now)
 
         async with AsyncSessionLocal()() as session:
-            # Query inactive, active users. ``nudge_email_count`` resets below if
-            # the UTC week boundary changed.
             result = await session.execute(
                 select(User).where(
                     and_(
@@ -187,6 +200,7 @@ def send_nudge_emails(self):
             failed_count = 0
 
             for user in inactive_users:
+                _coerce_nudge_count(user)
                 _normalize_for_weekly_quota(user, week_start)
 
                 if user.nudge_email_count >= MAX_NUDGE_EMAILS_PER_WEEK:
@@ -205,6 +219,7 @@ def send_nudge_emails(self):
                         html_body=_build_nudge_html(user.full_name),
                         text_body=_build_nudge_text(user.full_name),
                     )
+
                     if success:
                         user.nudge_email_count += 1
                         sent_count += 1
@@ -219,6 +234,7 @@ def send_nudge_emails(self):
                             "Nudge email skipped/failed for %s (email disabled?)",
                             user.email,
                         )
+
                 except Exception as exc:  # noqa: BLE001
                     failed_count += 1
                     logger.error(
