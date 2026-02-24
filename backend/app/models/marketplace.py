@@ -5,8 +5,7 @@ Marketplace Models — Template sharing, discovery, and installation
 from datetime import datetime, timezone
 from typing import Optional, List
 import uuid
-from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, DateTime, Enum as SQLEnum, UniqueConstraint, Index, JSON
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, DateTime, Enum as SQLEnum, UniqueConstraint, Index, JSON, Uuid
 from sqlalchemy.orm import relationship
 import enum
 
@@ -31,7 +30,7 @@ class MarketplaceTemplate(Base):
     """
     __tablename__ = "marketplace_templates"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     # Template metadata
     name = Column(String(200), nullable=False)
@@ -45,7 +44,7 @@ class MarketplaceTemplate(Base):
     config = Column(JSON, nullable=True)  # Additional configuration
     
     # Creator
-    creator_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    creator_id = Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     creator_name = Column(String(200), nullable=True)  # Cached for display
     
     # Visibility and status
@@ -96,14 +95,14 @@ class TemplateInstall(Base):
     """
     __tablename__ = "template_installs"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     # References
-    template_id = Column(UUID(as_uuid=True), ForeignKey("marketplace_templates.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    template_id = Column(Uuid(as_uuid=True), ForeignKey("marketplace_templates.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     
     # Installation metadata
-    workspace_id = Column(UUID(as_uuid=True), nullable=True)  # If user has workspaces
+    workspace_id = Column(Uuid(as_uuid=True), nullable=True)  # If user has workspaces
     installed_name = Column(String(200), nullable=True)  # Custom name given by user
     customizations = Column(JSON, nullable=True)  # User customizations to the template
     
@@ -137,11 +136,11 @@ class TemplateRating(Base):
     """
     __tablename__ = "marketplace_template_ratings"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     # References
-    template_id = Column(UUID(as_uuid=True), ForeignKey("marketplace_templates.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    template_id = Column(Uuid(as_uuid=True), ForeignKey("marketplace_templates.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     
     # Rating data
     rating = Column(Integer, nullable=False)  # 1-5 stars

@@ -94,7 +94,6 @@ class TestModelPricing:
             )
 
 
-@pytest.mark.asyncio
 class TestCostTrackerDB:
     """Test CostTracker database operations."""
     
@@ -110,12 +109,12 @@ class TestCostTrackerDB:
             "completion_tokens": 500,
         }
     
-    async def test_track_usage_creates_record(self, async_db_session, sample_usage_data):
+    def test_track_usage_creates_record(self, db_session, sample_usage_data):
         """Test that track_usage creates a TokenUsage record."""
         from app.models.token_usage import TokenUsage
         
         usage = CostTracker.track_usage(
-            db=async_db_session.sync_session,
+            db=db_session,
             **sample_usage_data
         )
         
@@ -129,13 +128,13 @@ class TestCostTrackerDB:
         assert usage.total_tokens == 1500
         assert usage.cost_usd > 0
     
-    async def test_get_user_usage_aggregates_correctly(
-        self, async_db_session, sample_usage_data
+    def test_get_user_usage_aggregates_correctly(
+        self, db_session, sample_usage_data
     ):
         """Test that get_user_usage returns correct aggregations."""
         # Create multiple usage records
         CostTracker.track_usage(
-            db=async_db_session.sync_session,
+            db=db_session,
             **sample_usage_data
         )
         
@@ -143,13 +142,13 @@ class TestCostTrackerDB:
         sample_usage_data["prompt_tokens"] = 2000
         sample_usage_data["completion_tokens"] = 1000
         CostTracker.track_usage(
-            db=async_db_session.sync_session,
+            db=db_session,
             **sample_usage_data
         )
         
         # Get aggregated stats
         stats = CostTracker.get_user_usage(
-            db=async_db_session.sync_session,
+            db=db_session,
             user_id=sample_usage_data["user_id"]
         )
         
@@ -160,12 +159,12 @@ class TestCostTrackerDB:
         assert stats["statistics"]["total_tokens"] == 4500
         assert stats["statistics"]["total_cost_usd"] > 0
     
-    async def test_get_user_usage_with_date_filter(
-        self, async_db_session, sample_usage_data
+    def test_get_user_usage_with_date_filter(
+        self, db_session, sample_usage_data
     ):
         """Test that get_user_usage respects date filters."""
         CostTracker.track_usage(
-            db=async_db_session.sync_session,
+            db=db_session,
             **sample_usage_data
         )
         
@@ -174,7 +173,7 @@ class TestCostTrackerDB:
         next_week = datetime.utcnow() + timedelta(days=7)
         
         stats = CostTracker.get_user_usage(
-            db=async_db_session.sync_session,
+            db=db_session,
             user_id=sample_usage_data["user_id"],
             start_date=tomorrow,
             end_date=next_week
@@ -183,13 +182,13 @@ class TestCostTrackerDB:
         assert stats["statistics"]["request_count"] == 0
         assert stats["statistics"]["total_tokens"] == 0
     
-    async def test_get_cost_breakdown_by_model(
-        self, async_db_session, sample_usage_data
+    def test_get_cost_breakdown_by_model(
+        self, db_session, sample_usage_data
     ):
         """Test cost breakdown grouped by model."""
         # Create usage for Claude
         CostTracker.track_usage(
-            db=async_db_session.sync_session,
+            db=db_session,
             **sample_usage_data
         )
         
@@ -198,13 +197,13 @@ class TestCostTrackerDB:
         sample_usage_data["model"] = "gpt-4"
         sample_usage_data["provider"] = "openai"
         CostTracker.track_usage(
-            db=async_db_session.sync_session,
+            db=db_session,
             **sample_usage_data
         )
         
         # Get breakdown
         breakdown = CostTracker.get_cost_breakdown(
-            db=async_db_session.sync_session,
+            db=db_session,
             user_id=sample_usage_data["user_id"],
             group_by="model"
         )
@@ -214,17 +213,17 @@ class TestCostTrackerDB:
         assert "claude-3-5-sonnet-20241022" in models
         assert "gpt-4" in models
     
-    async def test_check_budget_alert_under_budget(
-        self, async_db_session, sample_usage_data
+    def test_check_budget_alert_under_budget(
+        self, db_session, sample_usage_data
     ):
         """Test budget alert when under budget."""
         CostTracker.track_usage(
-            db=async_db_session.sync_session,
+            db=db_session,
             **sample_usage_data
         )
         
         is_over_budget, alert_info = CostTracker.check_budget_alert(
-            db=async_db_session.sync_session,
+            db=db_session,
             user_id=sample_usage_data["user_id"],
             budget_limit_usd=100.0,
             period_days=30
@@ -235,18 +234,18 @@ class TestCostTrackerDB:
         assert alert_info["remaining_budget_usd"] > 0
         assert alert_info["utilization_percent"] < 100
     
-    async def test_check_budget_alert_over_budget(
-        self, async_db_session, sample_usage_data
+    def test_check_budget_alert_over_budget(
+        self, db_session, sample_usage_data
     ):
         """Test budget alert when over budget."""
         CostTracker.track_usage(
-            db=async_db_session.sync_session,
+            db=db_session,
             **sample_usage_data
         )
         
         # Set very low budget
         is_over_budget, alert_info = CostTracker.check_budget_alert(
-            db=async_db_session.sync_session,
+            db=db_session,
             user_id=sample_usage_data["user_id"],
             budget_limit_usd=0.001,
             period_days=30
@@ -258,11 +257,10 @@ class TestCostTrackerDB:
         assert alert_info["utilization_percent"] >= 100
 
 
-@pytest.mark.asyncio
 class TestTokenUsageModel:
     """Test TokenUsage model relationships."""
     
-    async def test_token_usage_task_relationship(self, async_db_session):
+    def test_token_usage_task_relationship(self, db_session):
         """Test TokenUsage -> Task relationship."""
         from app.models.task import Task, TaskStatus, TaskType
         from app.models.token_usage import TokenUsage
@@ -275,7 +273,7 @@ class TestTokenUsageModel:
             email="test@example.com",
             google_id="test-google-id",
         )
-        async_db_session.sync_session.add(user)
+        db_session.add(user)
         
         # Create task
         task = Task(
@@ -285,8 +283,8 @@ class TestTokenUsageModel:
             task_type=TaskType.DOCS,
             status=TaskStatus.PENDING,
         )
-        async_db_session.sync_session.add(task)
-        async_db_session.sync_session.commit()
+        db_session.add(task)
+        db_session.commit()
         
         # Create token usage
         usage = TokenUsage(
@@ -301,8 +299,8 @@ class TestTokenUsageModel:
             cost_usd=0.0105,
             created_at=datetime.utcnow()
         )
-        async_db_session.sync_session.add(usage)
-        async_db_session.sync_session.commit()
+        db_session.add(usage)
+        db_session.commit()
         
         # Verify relationship
         assert usage.task_id == str(task.id)

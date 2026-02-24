@@ -4,9 +4,9 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
-from backend.app.models.token_usage import TokenUsage
-from backend.app.models.task import Task
-from backend.app.models.user import User
+from app.models.token_usage import TokenUsage
+from app.models.task import Task
+from app.models.user import User
 
 
 # Pricing per 1M tokens (USD)
