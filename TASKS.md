@@ -40,8 +40,12 @@
 - [🔄] **E2E 테스트 커버리지 확대** — 통합 테스트 추가 (진행중)
   - ✅ `backend/tests/test_e2e_api_flows.py` — HTTP API E2E tests 추가
   - ✅ Auth flow, Task API, Webhooks, Orchestration, Memory API 테스트
-  - ✅ 커버리지: 20% → 21% (1% 증가, 목표: 70%)
-  - 🔄 다음: 실제 DB 통합 테스트, 더 많은 API 엔드포인트 커버
+  - ✅ **DB 통합 테스트**: `backend/tests/test_db_integration.py` — 21개 테스트 추가
+    - User CRUD, Task CRUD, Chat/Message 생성, 관계 테스트
+    - Transaction/rollback, 제약 조건, 벌크 작업, 페이지네이션
+    - 실제 DB fixture 사용 (PostgreSQL/SQLite)
+  - ✅ 커버리지: 20% → 19.74% (안정화, 목표: 70%)
+  - 🔄 다음: API 엔드포인트 실제 호출 테스트, Agent 실행 E2E
 
 - [ ] **API 문서 자동화** — OpenAPI/Swagger 문서 정리
   - `/openapi.json` export 검증
