@@ -4,10 +4,10 @@ Marketplace Models — Template sharing, discovery, and installation
 
 from datetime import datetime, timezone
 from typing import Optional, List
-from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, DateTime, Enum as SQLEnum, UniqueConstraint, Index
-from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 import uuid
+from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, DateTime, Enum as SQLEnum, UniqueConstraint, Index
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
 import enum
 
 from app.core.database import Base
@@ -135,7 +135,7 @@ class TemplateRating(Base):
     """
     User ratings and reviews for marketplace templates
     """
-    __tablename__ = "template_ratings"
+    __tablename__ = "marketplace_template_ratings"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
