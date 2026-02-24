@@ -1165,4 +1165,147 @@ async def get_cost_and_trust_dashboard(
     )
 
 
+# ============================================================================
+# Token Usage Tracking Endpoints (Phase 5)
+# ============================================================================
+
+class TokenUsageResponse(BaseModel):
+    """Token usage statistics response."""
+    user_id: UUID
+    period: Dict[str, str]
+    model_filter: Optional[str] = None
+    statistics: Dict[str, Any]
+
+
+class CostBreakdownResponse(BaseModel):
+    """Cost breakdown response."""
+    breakdown: List[Dict[str, Any]]
+    group_by: str
+
+
+class BudgetAlertResponse(BaseModel):
+    """Budget alert check response."""
+    user_id: UUID
+    budget_limit_usd: float
+    period_days: int
+    current_cost_usd: float
+    remaining_budget_usd: float
+    utilization_percent: float
+    is_over_budget: bool
+
+
+@router.get(
+    "/token-usage",
+    response_model=TokenUsageResponse,
+    summary="Get token usage statistics",
+    description="Retrieve aggregated token usage and cost statistics for the current user."
+)
+async def get_token_usage(
+    start_date: Optional[datetime] = Query(None, description="Start date (default: 30 days ago)"),
+    end_date: Optional[datetime] = Query(None, description="End date (default: now)"),
+    model_filter: Optional[str] = Query(None, description="Filter by model name"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get token usage statistics for the current user.
+    
+    Returns aggregated metrics including:
+    - Request count
+    - Total prompt/completion/total tokens
+    - Total cost in USD
+    """
+    from app.services.cost_tracker import CostTracker
+    
+    # Convert AsyncSession to sync session for CostTracker
+    # (CostTracker uses sync SQLAlchemy queries)
+    sync_db = db.sync_session
+    
+    stats = CostTracker.get_user_usage(
+        db=sync_db,
+        user_id=str(current_user.id),
+        start_date=start_date,
+        end_date=end_date,
+        model_filter=model_filter
+    )
+    
+    return TokenUsageResponse(**stats)
+
+
+@router.get(
+    "/cost-breakdown",
+    response_model=CostBreakdownResponse,
+    summary="Get cost breakdown",
+    description="Get cost breakdown grouped by model or date."
+)
+async def get_cost_breakdown(
+    start_date: Optional[datetime] = Query(None, description="Start date (default: 30 days ago)"),
+    end_date: Optional[datetime] = Query(None, description="End date (default: now)"),
+    group_by: str = Query("model", description="Group by 'model' or 'date'"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get cost breakdown grouped by model or date.
+    
+    Returns list of breakdown records with:
+    - Group identifier (model name or date)
+    - Request count
+    - Total tokens
+    - Total cost in USD
+    """
+    from app.services.cost_tracker import CostTracker
+    
+    if group_by not in ["model", "date"]:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="group_by must be 'model' or 'date'")
+    
+    sync_db = db.sync_session
+    
+    breakdown = CostTracker.get_cost_breakdown(
+        db=sync_db,
+        user_id=str(current_user.id),
+        start_date=start_date,
+        end_date=end_date,
+        group_by=group_by
+    )
+    
+    return CostBreakdownResponse(breakdown=breakdown, group_by=group_by)
+
+
+@router.post(
+    "/budget-alert",
+    response_model=BudgetAlertResponse,
+    summary="Check budget alert",
+    description="Check if user has exceeded budget limit."
+)
+async def check_budget_alert(
+    budget_limit_usd: float = Query(..., description="Budget limit in USD"),
+    period_days: int = Query(30, description="Period in days (default: 30)"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Check if user has exceeded budget limit.
+    
+    Returns:
+    - Current cost
+    - Remaining budget
+    - Utilization percentage
+    - Alert flag
+    """
+    from app.services.cost_tracker import CostTracker
+    
+    sync_db = db.sync_session
+    
+    is_over_budget, alert_info = CostTracker.check_budget_alert(
+        db=sync_db,
+        user_id=str(current_user.id),
+        budget_limit_usd=budget_limit_usd,
+        period_days=period_days
+    )
+    
+    return BudgetAlertResponse(**alert_info)
+
+
 __all__ = ["router"]

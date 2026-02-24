@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from app.models.workspace import Workspace
     from app.models.workspace_member import WorkspaceMember
     from app.models.marketplace import MarketplaceTemplate, TemplateInstall, TemplateRating
+    from app.models.token_usage import TokenUsage
 
 
 class User(Base, TimestampMixin):
@@ -82,6 +83,11 @@ class User(Base, TimestampMixin):
     )
     template_ratings: Mapped[List["TemplateRating"]] = relationship(
         "TemplateRating", back_populates="user", cascade="all, delete-orphan"
+    )
+
+    # Token usage relationships
+    token_usages: Mapped[List["TokenUsage"]] = relationship(
+        "TokenUsage", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

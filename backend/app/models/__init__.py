@@ -23,6 +23,7 @@ from app.models.onboarding import OnboardingProgress, OnboardingStep, UseCase
 from app.models.webhook import Webhook, WebhookEvent
 from app.models.task_chain import TaskChain, ChainStatus, ChainStep, StepStatus
 from app.models.scheduled_task import ScheduledTask, ScheduleType
+from app.models.token_usage import TokenUsage
 
 __all__ = [
     "Base",
@@ -60,4 +61,5 @@ __all__ = [
     "StepStatus",
     "ScheduledTask",
     "ScheduleType",
+    "TokenUsage",
 ]

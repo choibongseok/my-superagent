@@ -332,6 +332,26 @@ def update_task_status(
                 task.result = result
                 task.error_message = None
                 task.completed_at = now
+                
+                # Track token usage if available
+                if result and isinstance(result, dict) and result.get("token_usage"):
+                    try:
+                        from app.services.cost_tracker import CostTracker
+                        
+                        token_usage = result["token_usage"]
+                        CostTracker.track_usage(
+                            db=session.sync_session,
+                            task_id=task_id,
+                            user_id=str(task.user_id),
+                            model=token_usage.get("model", "unknown"),
+                            provider=token_usage.get("provider", "unknown"),
+                            prompt_tokens=token_usage.get("prompt_tokens", 0),
+                            completion_tokens=token_usage.get("completion_tokens", 0),
+                        )
+                        logger.info(f"Tracked token usage for task {task_id}: {token_usage}")
+                    except Exception as e:
+                        logger.warning(f"Failed to track token usage for task {task_id}: {e}")
+                        
             elif status == "failed":
                 task.status = TaskStatus.FAILED
                 task.error_message = error

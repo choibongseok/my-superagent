@@ -318,6 +318,56 @@ class BaseAgent(ABC):
 
         logger.info(f"{self.__class__.__name__} initialized with {len(self.tools)} tools")
 
+    def _extract_token_usage(self, result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Extract token usage from LLM response.
+        
+        Args:
+            result: AgentExecutor result dictionary
+            
+        Returns:
+            Token usage dict or None if not available
+        """
+        try:
+            # Try to extract from intermediate steps (tool calls may have usage info)
+            intermediate_steps = result.get("intermediate_steps", [])
+            
+            total_prompt_tokens = 0
+            total_completion_tokens = 0
+            
+            for step in intermediate_steps:
+                if isinstance(step, tuple) and len(step) == 2:
+                    action, observation = step
+                    
+                    # Check if observation has usage info (from LLM calls)
+                    if hasattr(observation, "response_metadata"):
+                        metadata = observation.response_metadata
+                        usage = metadata.get("usage", {})
+                        
+                        total_prompt_tokens += usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
+                        total_completion_tokens += usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+            
+            # Also check the final output for usage info
+            if "response_metadata" in result:
+                usage = result["response_metadata"].get("usage", {})
+                total_prompt_tokens += usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
+                total_completion_tokens += usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+            
+            if total_prompt_tokens > 0 or total_completion_tokens > 0:
+                return {
+                    "prompt_tokens": total_prompt_tokens,
+                    "completion_tokens": total_completion_tokens,
+                    "total_tokens": total_prompt_tokens + total_completion_tokens,
+                    "model": self._llm_model,
+                    "provider": self._llm_provider,
+                }
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Failed to extract token usage: {e}")
+            return None
+
     async def run(
         self,
         prompt: str,
@@ -331,7 +381,7 @@ class BaseAgent(ABC):
             context: Optional additional context
 
         Returns:
-            Result dictionary with output, intermediate_steps, and success flag
+            Result dictionary with output, intermediate_steps, token_usage, and success flag
         """
         if not self.agent_executor:
             self.initialize_agent()
@@ -365,10 +415,14 @@ class BaseAgent(ABC):
             
             # Add AI message to memory
             self.add_ai_message(output)
+            
+            # Extract token usage
+            token_usage = self._extract_token_usage(result)
 
             return {
                 "output": output,
                 "intermediate_steps": result.get("intermediate_steps", []),
+                "token_usage": token_usage,
                 "success": True,
             }
 
@@ -385,6 +439,7 @@ class BaseAgent(ABC):
             return {
                 "output": None,
                 "error": str(e),
+                "token_usage": None,
                 "success": False,
             }
 

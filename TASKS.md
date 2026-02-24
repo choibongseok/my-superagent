@@ -41,20 +41,25 @@
 
 ## 🚀 우선순위 높음 (P5 - 핵심 기능)
 
-### 3️⃣ LLM 비용 추적 (Token Usage Tracking)
-- [ ] **파일**: `backend/app/services/cost_tracker.py` (신규 생성)
-- [ ] **모델**: `backend/app/models/token_usage.py` (신규 생성)
+### 3️⃣ LLM 비용 추적 (Token Usage Tracking) ✅
+- [x] **파일**: `backend/app/services/cost_tracker.py` (완성)
+- [x] **모델**: `backend/app/models/token_usage.py` (완성)
   - `TokenUsage` 테이블: task_id, model, prompt_tokens, completion_tokens, cost_usd, timestamp
-- [ ] **엔드포인트**:
+- [x] **엔드포인트**:
   - `GET /api/v1/analytics/token-usage` — 사용량 통계 (user_id, date range, model filter)
   - `GET /api/v1/analytics/cost-breakdown` — 비용 분석 (per user, per workspace)
   - `POST /api/v1/analytics/budget-alert` — 예산 초과 알림 설정
-- [ ] **작업**:
-  - BaseAgent에 token counting 훅 추가 (`_track_llm_call()`)
+- [x] **작업**:
+  - BaseAgent에 token counting 훅 추가 (`_extract_token_usage()`)
   - Claude/OpenAI API response에서 usage 파싱
   - Cost calculation (Claude: $3/$15 per 1M tokens, GPT-4: $30/$60)
   - Dashboard용 데이터 aggregation (daily/monthly)
-- [ ] **완료 기준**: 모든 LLM 호출 후 token_usage 테이블에 기록, API로 조회 가능
+  - Celery task에서 token usage 자동 기록
+- [x] **DB Migration**: `alembic/versions/b7f2875b65c2_add_token_usage_tracking.py`
+- [x] **테스트**: `backend/tests/test_cost_tracking.py` (완성)
+- **완료 기준**: ✅ 모든 LLM 호출 후 token_usage 테이블에 기록, API로 조회 가능
+- **완료 시각**: 2026-02-24 21:56 UTC
+- **Commit**: 예정
 
 ### 4️⃣ 주기적 태스크 스케줄링 (Cron-style Tasks)
 - [ ] **파일**: `backend/app/api/v1/schedules.py` (신규 생성)
