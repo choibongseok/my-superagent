@@ -29,18 +29,20 @@
 - [x] **메모리 시스템** — `backend/app/memory/` 완성
   - 대화 이력 (PostgreSQL), 벡터 검색 (pgvector), timeline API
 
-## 🔴 즉시 (P4 - 통합 & 최적화)
+## 🟢 완료 (P4 - 통합 & 최적화)
 
-- [ ] **Google Drive 웹훅** — Google Drive 변경 감지 자동화
-  - `backend/app/api/v1/webhooks.py` 생성
-  - Drive API push notifications 구현
-  - 파일 업로드 → 자동 요약 트리거
+- [x] **Google Drive 웹훅** — Google Drive 변경 감지 자동화 ✅
+  - `backend/app/api/v1/webhooks.py` 구현 완료
+  - Drive API push notifications 완전 구현
+  - 파일 업로드 → 자동 요약 트리거 작동
+  - **테스트**: `backend/tests/test_webhooks.py` 완성
 
-- [ ] **E2E 테스트 커버리지** — 통합 테스트 확대
-  - `backend/tests/e2e/` 디렉토리 생성
-  - Auth flow E2E 테스트
-  - Task creation → execution → completion 시나리오
-  - 목표: 80% 이상 커버리지
+## 🔴 즉시 (P5 - 테스트 & 문서화)
+
+- [ ] **E2E 테스트 커버리지 확대** — 통합 테스트 추가
+  - Webhook E2E 테스트 (실제 Drive 변경 시뮬레이션)
+  - Auth flow → Task execution E2E
+  - 목표: 70% 이상 커버리지 (현재 21%)
 
 - [ ] **API 문서 자동화** — OpenAPI/Swagger 문서 정리
   - `/openapi.json` export 검증
