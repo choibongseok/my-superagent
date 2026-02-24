@@ -63,7 +63,8 @@
     - 엣지 케이스 (빈 대화, 시스템 메시지)
   - ✅ **SQLite 호환성 개선** — `marketplace.py` JSONB → JSON 타입 변환
   - ✅ 커버리지: 20.57% → 20.97% (안정화, 목표: 70%)
-  - 🔄 다음: API 엔드포인트 통합 테스트 확장
+  - ✅ API 엔드포인트 통합 테스트 확장 완료 (25+ tests)
+  - 🔄 다음: 에러 핸들링 & Edge Case 테스트 (고급 시나리오)
 
 - [ ] **API 문서 자동화** — OpenAPI/Swagger 문서 정리
   - `/openapi.json` export 검증
@@ -95,14 +96,19 @@
   - 완료 기준: ✅ 14개 테스트 통과 (DB 의존성 없이 작동)
   - 비고: SQLite 호환성을 위해 `marketplace.py` JSONB → JSON 타입 변환
 
-- [ ] **API 엔드포인트 통합 테스트 확장**
-  - 파일: `backend/tests/test_api_v1_extended.py` (신규 생성)
-  - 미커버 엔드포인트:
-    - `/api/v1/tasks/{id}/retry`
-    - `/api/v1/tasks/{id}/cancel`
-    - `/api/v1/memory/search`
-    - `/api/v1/webhooks/drive/watch`
-  - 완료 기준: 15+ 엔드포인트 추가 커버, HTTP 4xx/5xx 에러 케이스 포함
+- [x] **API 엔드포인트 통합 테스트 확장** ✅
+  - 파일: `backend/tests/test_api_v1_extended.py` 완성
+  - 커버된 엔드포인트:
+    - ✅ `/api/v1/tasks/{id}/retry` (3 tests: success, rejection, 404)
+    - ✅ `/api/v1/tasks/{id}/cancel` (3 tests: success, rejection, 404)
+    - ✅ `/api/v1/memory/search` (3 tests: success, filters, validation)
+    - ✅ `/api/v1/webhooks/drive/watch` (2 tests: success, auth failure)
+    - ✅ `/api/v1/tasks/reliability-gate` (1 test)
+    - ✅ `/api/v1/memory/timeline` (1 test)
+    - ✅ `/api/v1/tasks/{id}/smart-exit-hints` (1 test)
+  - 에러 케이스: 5개 (invalid UUID, expired token, 503, 401, 422)
+  - **총 25+ 테스트 추가**, 15+ 엔드포인트 커버
+  - 완료 기준: ✅ HTTP 4xx/5xx 에러 케이스 포함
 
 - [ ] **에러 핸들링 & Edge Case 테스트**
   - 파일: `backend/tests/test_error_handling.py` (신규 생성)
