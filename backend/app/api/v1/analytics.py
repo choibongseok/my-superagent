@@ -69,6 +69,50 @@ class TaskTrend(BaseModel):
     avg_duration_seconds: float
 
 
+class CostTrustTaskCard(BaseModel):
+    """Task-level cost and trust snapshot for transparent execution insights."""
+
+    task_id: UUID
+    task_type: str
+    status: str
+    prompt: str
+    created_at: datetime
+    completed_at: datetime | None = None
+    duration_seconds: float | None = None
+    estimated_cost_usd: float = 0.0
+    actual_cost_usd: float = 0.0
+    estimated_tokens: int = 0
+    actual_tokens: int = 0
+    retry_depth: int = 0
+    trust_score: float | None = None
+    model: str | None = None
+
+
+class CostTrustDashboard(BaseModel):
+    """Cost + trust dashboard for task execution transparency."""
+
+    period_start: str
+    period_end: str
+    time_range_hours: int
+    total_tasks: int
+    completed_tasks: int
+    failed_tasks: int
+    cancelled_tasks: int
+    total_estimated_cost_usd: float
+    total_actual_cost_usd: float
+    total_estimated_tokens: int
+    total_actual_tokens: int
+    avg_completion_time_seconds: float
+    average_trust_score: float | None
+    retry_tasks: int
+    retry_rate: float
+    budget_limit_usd: float | None = None
+    projected_monthly_cost_usd: float | None = None
+    budget_used_pct: float | None = None
+    budget_status: str | None = None
+    cards: list[CostTrustTaskCard]
+
+
 
 def _truncate_text(value: str, max_length: int) -> str:
     """Normalize and truncate free-form prompt/result text for cards."""
@@ -168,6 +212,88 @@ def _failure_category(task: Task) -> str | None:
     except Exception:
         return None
 
+
+def _meta_dict(value: Any) -> dict[str, Any]:
+    """Return a dict for task/task-result metadata payloads."""
+    return value if isinstance(value, dict) else {}
+
+
+def _extract_float(value: Any, keys: tuple[str, ...], default: float = 0.0) -> float:
+    """Pick the first float-convertible value for the given keys."""
+    for key in keys:
+        if key in value and value[key] is not None:
+            try:
+                return float(value[key])
+            except (TypeError, ValueError):
+                continue
+    return default
+
+
+def _extract_int(value: Any, keys: tuple[str, ...], default: int = 0) -> int:
+    """Pick the first int-convertible value for the given keys."""
+    for key in keys:
+        if key in value and value[key] is not None:
+            try:
+                return int(value[key])
+            except (TypeError, ValueError):
+                continue
+    return default
+
+
+def _build_task_cost_snapshot(task: Task) -> dict[str, Any]:
+    """Build a stable cost/trust metadata snapshot for a single task."""
+    metadata = _meta_dict(getattr(task, "task_metadata", None))
+    result = _meta_dict(getattr(task, "result", None))
+    result_meta = _meta_dict(result.get("metadata", {}))
+
+    model = (
+        metadata.get("model")
+        or metadata.get("llm_model")
+        or result.get("model")
+        or result_meta.get("model")
+        or result_meta.get("llm_model")
+    )
+
+    return {
+        "estimated_cost_usd": _extract_float(
+            {**metadata, **result},
+            ("estimated_cost_usd", "estimated_cost", "cost_estimate", "estimated_spend_usd"),
+            0.0,
+        ),
+        "actual_cost_usd": _extract_float(
+            {**metadata, **result},
+            ("actual_cost_usd", "actual_cost", "final_cost_usd", "spent_usd"),
+            0.0,
+        ),
+        "estimated_tokens": _extract_int(
+            {**metadata, **result},
+            ("estimated_tokens", "estimated_token_count", "token_estimate"),
+            0,
+        ),
+        "actual_tokens": _extract_int(
+            {**metadata, **result},
+            ("actual_tokens", "token_count", "tokens"),
+            0,
+        ),
+        "retry_depth": max(0, _extract_int(metadata, ("retry_depth", "retry_count"), 0)),
+        "model": model,
+    }
+
+
+async def _build_qa_score_map(db: AsyncSession, tasks: list[Task]) -> dict[UUID, float]:
+    """Build latest QA score per task (if available)."""
+    from app.models.qa_result import QAResult
+
+    if not tasks:
+        return {}
+
+    task_ids = [t.id for t in tasks]
+    qa_query = select(QAResult.task_id, func.avg(QAResult.overall_score)).where(
+        QAResult.task_id.in_(task_ids)
+    ).group_by(QAResult.task_id)
+
+    rows = (await db.execute(qa_query)).all()
+    return {row[0]: round(float(row[1]), 2) for row in rows if row[1] is not None}
 
 
 @router.get("/performance", response_model=PerformanceMetrics)
@@ -754,34 +880,207 @@ async def get_cost_breakdown(
 ):
     """
     Get LLM cost breakdown.
-    
-    **Note:** This is a placeholder implementation. Full integration with
-    LangFuse API will be implemented in the next phase.
-    
-    **Future features:**
-    - Real-time LangFuse trace data
-    - Model-specific pricing
-    - Token usage tracking
-    - Cost optimization suggestions
+
+    This endpoint now returns heuristic cost estimates captured at task-creation time,
+    grouped by task type and model.
     """
-    # Placeholder implementation
-    logger.info(f"Cost breakdown requested for user {current_user.id}")
-    
+    time_threshold = datetime.utcnow() - timedelta(hours=time_range_hours)
+    query = select(Task).where(
+        and_(
+            Task.user_id == current_user.id,
+            Task.created_at >= time_threshold,
+        )
+    )
+    result = await db.execute(query)
+    tasks = result.scalars().all()
+
+    by_agent: Dict[str, float] = {
+        "research": 0.0,
+        "docs": 0.0,
+        "sheets": 0.0,
+        "slides": 0.0,
+    }
+    by_model: Dict[str, float] = {
+        "gpt-4-turbo-preview": 0.0,
+        "gpt-3.5-turbo": 0.0,
+        "unknown": 0.0,
+    }
+    by_date: Dict[str, float] = defaultdict(float)
+    total_cost = 0.0
+
+    for task in tasks:
+        snapshot = _build_task_cost_snapshot(task)
+
+        # Prefer concrete actual_cost for billing visibility when present,
+        # otherwise fall back to estimated cost from preview planning.
+        cost = snapshot["actual_cost_usd"] or snapshot["estimated_cost_usd"]
+        if cost <= 0:
+            continue
+
+        total_cost += cost
+        agent_key = _safe_task_type(task.task_type)
+        by_agent[agent_key] = by_agent.get(agent_key, 0.0) + cost
+
+        model = snapshot.get("model") or "unknown"
+        by_model[model] = by_model.get(model, 0.0) + cost
+
+        day_key = task.created_at.strftime("%Y-%m-%d")
+        by_date[day_key] += cost
+
+    logger.info(f"Cost breakdown calculated for user {current_user.id}: ${round(total_cost, 4)}")
+
     return CostBreakdown(
-        total_cost_usd=0.0,
-        by_agent={
-            "research": 0.0,
-            "docs": 0.0,
-            "sheets": 0.0,
-            "slides": 0.0,
+        total_cost_usd=round(total_cost, 4),
+        by_agent={k: round(v, 4) for k, v in by_agent.items()},
+        by_model={k: round(v, 4) for k, v in by_model.items()},
+        by_date={k: round(v, 4) for k, v in by_date.items()} or {
+            datetime.utcnow().strftime('%Y-%m-%d'): 0.0
         },
-        by_model={
-            "gpt-4-turbo-preview": 0.0,
-            "gpt-3.5-turbo": 0.0,
-        },
-        by_date={
-            datetime.utcnow().strftime('%Y-%m-%d'): 0.0,
-        },
+    )
+
+
+def _budget_status(total_cost: float, monthly_budget_usd: float | None, observed_hours: int) -> tuple[float | None, float | None, str | None]:
+    if monthly_budget_usd is None:
+        return None, None, None
+
+    if observed_hours <= 0:
+        return None, None, None
+
+    projected_monthly_cost = round((total_cost / observed_hours) * 24 * 30, 4)
+    used_pct = round((projected_monthly_cost / monthly_budget_usd) * 100, 2)
+
+    if used_pct >= 100:
+        status = "exceeded"
+    elif used_pct >= 85:
+        status = "warning"
+    else:
+        status = "ok"
+
+    return projected_monthly_cost, used_pct, status
+
+
+@router.get("/cost-trust", response_model=CostTrustDashboard)
+async def get_cost_and_trust_dashboard(
+    current_user: User = Depends(get_current_user),
+    time_range_hours: int = Query(168, ge=1, le=720, description="Observation window in hours"),
+    monthly_budget_usd: float | None = Query(default=None, ge=0.0, description="Optional monthly budget for projection alerts"),
+    limit: int = Query(default=25, ge=1, le=100, description="Recent task cards to include"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Cost & trust dashboard for transparent execution governance.
+
+    Returns task-level cost snapshots, trust scores, retry counts and optional
+    monthly budget pressure indicator.
+    """
+    period_end = datetime.utcnow()
+    period_start = period_end - timedelta(hours=time_range_hours)
+
+    query = (
+        select(Task)
+        .where(
+            and_(
+                Task.user_id == current_user.id,
+                Task.created_at >= period_start,
+            )
+        )
+        .order_by(Task.created_at.desc())
+    )
+    result = await db.execute(query)
+    tasks = result.scalars().all()
+
+    qa_scores = await _build_qa_score_map(db, tasks)
+
+    total_estimated_cost = 0.0
+    total_actual_cost = 0.0
+    total_estimated_tokens = 0
+    total_actual_tokens = 0
+    durations = []
+    retry_count = 0
+    trust_scores = []
+
+    cards: list[CostTrustTaskCard] = []
+
+    for task in tasks:
+        snapshot = _build_task_cost_snapshot(task)
+        cost_est = snapshot["estimated_cost_usd"]
+        cost_actual = snapshot["actual_cost_usd"]
+        tokens_est = snapshot["estimated_tokens"]
+        tokens_actual = snapshot["actual_tokens"]
+
+        duration_seconds = None
+        if task.completed_at:
+            duration_seconds = (task.completed_at - task.created_at).total_seconds()
+            durations.append(duration_seconds)
+
+        trust_score = qa_scores.get(task.id)
+        if trust_score is not None:
+            trust_scores.append(trust_score)
+
+        total_estimated_cost += cost_est
+        total_actual_cost += cost_actual
+        total_estimated_tokens += tokens_est
+        total_actual_tokens += tokens_actual
+
+        if snapshot["retry_depth"] > 0:
+            retry_count += 1
+
+        cards.append(
+            CostTrustTaskCard(
+                task_id=task.id,
+                task_type=_safe_task_type(task.task_type),
+                status=_safe_status(task.status),
+                prompt=_truncate_text(task.prompt, 120),
+                created_at=task.created_at,
+                completed_at=task.completed_at,
+                duration_seconds=duration_seconds,
+                estimated_cost_usd=round(cost_est, 4),
+                actual_cost_usd=round(cost_actual, 4),
+                estimated_tokens=tokens_est,
+                actual_tokens=tokens_actual,
+                retry_depth=snapshot["retry_depth"],
+                trust_score=trust_score,
+                model=snapshot["model"],
+            )
+        )
+
+    cards = sorted(cards, key=lambda c: c.created_at, reverse=True)[:limit]
+    total_cost_for_budget = total_actual_cost if total_actual_cost > 0 else total_estimated_cost
+    avg_duration = (sum(durations) / len(durations)) if durations else 0.0
+    avg_trust = (sum(trust_scores) / len(trust_scores)) if trust_scores else None
+    retry_rate = round((retry_count / len(tasks)) * 100, 2) if tasks else 0.0
+
+    observed_hours = max(int((period_end - period_start).total_seconds() // 3600), 1)
+    projected_cost, budget_pct, budget_status = _budget_status(
+        total_cost_for_budget,
+        monthly_budget_usd,
+        observed_hours,
+    )
+
+    failed_count = sum(1 for t in tasks if t.status == TaskStatus.FAILED)
+    cancelled_count = sum(1 for t in tasks if t.status == TaskStatus.CANCELLED)
+
+    return CostTrustDashboard(
+        period_start=period_start.isoformat(),
+        period_end=period_end.isoformat(),
+        time_range_hours=time_range_hours,
+        total_tasks=len(tasks),
+        completed_tasks=sum(1 for t in tasks if t.status == TaskStatus.COMPLETED),
+        failed_tasks=failed_count,
+        cancelled_tasks=cancelled_count,
+        total_estimated_cost_usd=round(total_estimated_cost, 4),
+        total_actual_cost_usd=round(total_actual_cost, 4),
+        total_estimated_tokens=total_estimated_tokens,
+        total_actual_tokens=total_actual_tokens,
+        avg_completion_time_seconds=round(avg_duration, 2),
+        average_trust_score=round(avg_trust, 2) if avg_trust is not None else None,
+        retry_tasks=retry_count,
+        retry_rate=retry_rate,
+        budget_limit_usd=monthly_budget_usd,
+        projected_monthly_cost_usd=projected_cost,
+        budget_used_pct=budget_pct,
+        budget_status=budget_status,
+        cards=cards,
     )
 
 
