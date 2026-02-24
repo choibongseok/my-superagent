@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import QAResult, Task, TaskStatus, TaskType, User
+
+
+pytestmark = pytest.mark.asyncio
 
 
 @pytest_asyncio.fixture

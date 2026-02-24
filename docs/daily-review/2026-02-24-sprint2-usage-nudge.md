@@ -39,3 +39,12 @@
   - `nudge_email_week_start` 주간 쿼터 초기화 로직을 동일 동작 범위에서 정리.
 - 주석/타입 힌트를 정리해 유지보수성을 소폭 개선.
 - 검증은 기존 회귀가 유지된 상태로 진행.
+
+## ✅ 2026-02-24 추가 버그 수정 (BugFixer)
+- 원인 분석: `backend/tests/models/test_qa_result.py`의 `async` 테스트들이 `pytest.mark.asyncio`/`asyncio_mode=auto`가 적용되지 않은 경로(루트에서 직접 `pytest` 실행)에서 `Async def ... not natively supported`로 실패.
+- 최소 수정:
+  - 테스트 모듈에 `pytestmark = pytest.mark.asyncio` 추가
+  - `import pytest` 추가
+- 검증:
+  - `pytest -q backend/tests/models/test_qa_result.py --no-cov`
+  - **7 passed**
