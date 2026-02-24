@@ -23,6 +23,12 @@ MAX_NUDGE_EMAILS_PER_WEEK = 2
 # Days of inactivity before sending a nudge
 INACTIVITY_DAYS = 7
 
+# Keep a dedicated helper for explicitness and to keep the check near the
+# configuration that governs the nudge cadence.
+def _has_reached_weekly_cap(count: int) -> bool:
+    """Return True when weekly quota should block a nudge for this user."""
+    return count >= MAX_NUDGE_EMAILS_PER_WEEK
+
 _APP_FRONTEND_URL = settings.FRONTEND_URL.rstrip("/")
 
 
@@ -205,7 +211,7 @@ def send_nudge_emails(self) -> dict[str, int]:
                 _coerce_nudge_count(user)
                 _normalize_for_weekly_quota(user, week_start)
 
-                if user.nudge_email_count >= MAX_NUDGE_EMAILS_PER_WEEK:
+                if _has_reached_weekly_cap(user.nudge_email_count):
                     logger.info(
                         "Nudge skip for %s: weekly quota already reached (%d/%d)",
                         user.email,
