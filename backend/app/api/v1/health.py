@@ -258,6 +258,23 @@ def _derive_overall_status(summary: dict[str, int]) -> str:
     return "operational"
 
 
+@router.get("/health")
+async def health_check(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    """
+    Simple health check endpoint.
+    
+    Returns basic health status including environment info and timestamp.
+    """
+    from app.core.config import settings
+    
+    return {
+        "status": "healthy",
+        "environment": settings.ENVIRONMENT,
+        "timestamp": _current_timestamp_utc(),
+        "uptime_seconds": round(_uptime_seconds(), 3),
+    }
+
+
 @router.get("/ping")
 async def ping(
     include_uptime: bool = Query(

@@ -22,7 +22,7 @@ from app.schemas.orchestrator import (
     ProgressResponse,
 )
 
-router = APIRouter()
+router = APIRouter(tags=["orchestrator"])
 logger = logging.getLogger(__name__)
 
 

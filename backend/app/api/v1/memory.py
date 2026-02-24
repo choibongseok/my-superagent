@@ -24,7 +24,7 @@ from app.api.dependencies import get_current_user
 from app.memory.manager import MemoryManager
 from app.models.user import User
 
-router = APIRouter(prefix="/memory")
+router = APIRouter(prefix="/memory", tags=["memory"])
 logger = logging.getLogger(__name__)
 
 

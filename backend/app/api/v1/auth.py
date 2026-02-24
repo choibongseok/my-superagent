@@ -28,7 +28,7 @@ from app.schemas.auth import (
     UserInfo,
 )
 
-router = APIRouter()
+router = APIRouter(tags=["auth"])
 
 
 def get_google_oauth_flow():

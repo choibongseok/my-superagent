@@ -35,7 +35,7 @@ from app.models.user import User
 from app.models.task import TaskType
 from app.schemas.task import TaskCreate
 
-router = APIRouter(prefix="/webhooks")
+router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger(__name__)
 
 

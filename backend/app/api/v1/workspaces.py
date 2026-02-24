@@ -38,7 +38,7 @@ from app.schemas.workspace import (
     WorkspaceUpdate,
 )
 
-router = APIRouter()
+router = APIRouter(tags=["workspaces"])
 
 
 # ============================================================================

@@ -33,7 +33,7 @@ from app.schemas.task import (
     TaskPreviewStep,
 )
 
-router = APIRouter()
+router = APIRouter(tags=["tasks"])
 logger = logging.getLogger(__name__)
 
 TASK_TITLE_DEFAULTS = {
