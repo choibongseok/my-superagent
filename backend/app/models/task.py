@@ -42,6 +42,11 @@ class Task(Base, TimestampMixin):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    workspace_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="SET NULL"), 
+        nullable=True, 
+        index=True
+    )
 
     # Task details
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
@@ -88,6 +93,9 @@ class Task(Base, TimestampMixin):
         Index("ix_tasks_user_status", "user_id", "status"),
         Index("ix_tasks_user_type", "user_id", "task_type"),
         Index("ix_tasks_status_created", "status", "created_at"),
+        Index("ix_tasks_workspace_id", "workspace_id"),
+        Index("ix_tasks_workspace_user", "workspace_id", "user_id"),
+        Index("ix_tasks_workspace_status", "workspace_id", "status"),
     )
 
     # Relationships

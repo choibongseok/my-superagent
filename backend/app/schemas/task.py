@@ -15,6 +15,10 @@ class TaskCreate(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=5000)
     task_type: TaskType
     metadata: Optional[Dict[str, Any]] = None
+    workspace_id: Optional[UUID] = Field(
+        default=None,
+        description="Workspace ID for multi-tenancy. If not provided, task is personal."
+    )
 
 
 class TaskUpdate(BaseModel):
@@ -32,6 +36,7 @@ class TaskInDB(BaseModel):
 
     id: UUID
     user_id: UUID
+    workspace_id: Optional[UUID] = None
     prompt: str
     task_type: TaskType
     status: TaskStatus

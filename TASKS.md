@@ -168,12 +168,20 @@
   - 완료 기준: ✅ 외부 개발자가 문서만으로 통합 가능한 수준
   - **문서 크기**: 11.7KB, 600+ lines of comprehensive documentation
 
-## 🟢 이후 (P5 - 고급 기능)
+## 🟢 완료 (P5 - 고급 기능)
 
-- [ ] **멀티 테넌시** — 조직/팀 단위 관리
-  - Organization model 추가
-  - Team-based access control
-  - Workspace 개념 도입
+- [x] **멀티 테넌시** — 조직/팀 단위 관리 ✅
+  - ✅ Workspace 모델 (이미 구현되어 있었음)
+  - ✅ WorkspaceMember + RBAC (owner, admin, member, viewer)
+  - ✅ WorkspaceInvitation (초대 시스템)
+  - ✅ Task/Chat에 workspace_id 추가 (리소스 격리)
+  - ✅ Task API에 workspace filtering 추가
+  - ✅ DB migration (add_workspace_id_to_tasks)
+  - ✅ 멀티 테넌시 테스트 (5 tests)
+  - **Commit**: `feat: Complete multi-tenancy with workspace isolation for tasks/chats`
+  - **완료 시각**: 2026-02-24
+
+## 🟢 이후 (P5 - 고급 기능)
 
 - [ ] **비용 추적** — LLM 사용량 모니터링
   - Token usage tracking per task

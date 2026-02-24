@@ -55,6 +55,7 @@ def _build_task_kwargs(
     prompt: str,
     task_type: TaskType | str,
     metadata: dict | None,
+    workspace_id: UUID | None = None,
 ) -> dict:
     """Build Task model kwargs with explicit task metadata mapping."""
     return {
@@ -63,6 +64,7 @@ def _build_task_kwargs(
         "task_type": task_type,
         "status": TaskStatus.PENDING,
         "task_metadata": metadata,
+        "workspace_id": workspace_id,
     }
 
 
@@ -435,12 +437,31 @@ async def create_task(
     Returns:
         Task: Created task
     """
+    # Verify workspace membership if workspace_id is provided
+    if task_data.workspace_id:
+        from app.models.workspace_member import WorkspaceMember
+        
+        member_result = await db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == task_data.workspace_id,
+                WorkspaceMember.user_id == current_user.id
+            )
+        )
+        member = member_result.scalar_one_or_none()
+        
+        if not member:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not a member of this workspace"
+            )
+    
     # Create task
     task_kwargs = _build_task_kwargs(
         user_id=current_user.id,
         prompt=task_data.prompt,
         task_type=task_data.task_type,
         metadata=task_data.metadata,
+        workspace_id=task_data.workspace_id,
     )
     task = TaskModel(**task_kwargs)
     
@@ -816,6 +837,7 @@ async def list_tasks(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: TaskStatus | None = None,
+    workspace_id: UUID | None = Query(None, description="Filter by workspace"),
 ):
     """
     List user tasks.
@@ -826,6 +848,7 @@ async def list_tasks(
         page: Page number
         page_size: Items per page
         status: Filter by status
+        workspace_id: Filter by workspace (optional)
         
     Returns:
         TaskList: List of tasks with pagination
@@ -835,6 +858,26 @@ async def list_tasks(
     
     if status:
         query = query.where(TaskModel.status == status)
+    
+    if workspace_id is not None:
+        # Verify workspace membership
+        from app.models.workspace_member import WorkspaceMember
+        
+        member_result = await db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == workspace_id,
+                WorkspaceMember.user_id == current_user.id
+            )
+        )
+        member = member_result.scalar_one_or_none()
+        
+        if not member:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not a member of this workspace"
+            )
+        
+        query = query.where(TaskModel.workspace_id == workspace_id)
     
     query = query.order_by(TaskModel.created_at.desc())
     
