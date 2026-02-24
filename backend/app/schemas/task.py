@@ -53,6 +53,11 @@ class TaskInDB(BaseModel):
     expires_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+    completed_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    progress_percentage: Optional[int] = None
+    progress_message: Optional[str] = None
+    progress_steps: Optional[Dict[str, Any]] = None
 
     model_config = {"from_attributes": True}
 
@@ -203,3 +208,31 @@ class SmartExitHintsResponse(BaseModel):
     status: str
     next_focus: str
     actions: list[SmartExitHintAction]
+
+
+# ── Task Progress Tracking (#Phase5-RealTime) ──────────────────────────
+
+
+class TaskProgressUpdate(BaseModel):
+    """Schema for updating task progress."""
+    
+    progress_percentage: Optional[int] = Field(
+        None, ge=0, le=100, description="Progress percentage (0-100)"
+    )
+    progress_message: Optional[str] = Field(
+        None, max_length=500, description="Human-readable progress message"
+    )
+    progress_steps: Optional[Dict[str, Any]] = Field(
+        None, description="Structured progress steps (e.g., {step: 1, total: 5, current: 'Researching'})"
+    )
+
+
+class TaskProgressResponse(BaseModel):
+    """Response after progress update."""
+    
+    task_id: UUID
+    status: TaskStatus
+    progress_percentage: Optional[int]
+    progress_message: Optional[str]
+    progress_steps: Optional[Dict[str, Any]]
+    updated_at: datetime

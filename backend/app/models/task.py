@@ -77,6 +77,14 @@ class Task(Base, TimestampMixin):
     completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
+    started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
+    # Progress tracking for real-time updates
+    progress_percentage: Mapped[Optional[int]] = mapped_column(nullable=True, default=None)
+    progress_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    progress_steps: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     # Public share token (generated on demand via POST /tasks/{id}/share)
     share_token: Mapped[Optional[UUID]] = mapped_column(

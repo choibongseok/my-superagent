@@ -31,6 +31,8 @@ from app.schemas.task import (
     TaskPreviewRequest,
     TaskPreviewResponse,
     TaskPreviewStep,
+    TaskProgressUpdate,
+    TaskProgressResponse,
 )
 
 router = APIRouter(tags=["tasks"])
@@ -1336,6 +1338,72 @@ async def get_resume_template(
     }
 
     return resume_payload
+
+
+@router.post("/{task_id}/progress", response_model=TaskProgressResponse)
+async def update_task_progress(
+    task_id: UUID,
+    progress: TaskProgressUpdate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """
+    Update task progress and broadcast via WebSocket.
+    
+    Phase 5: Real-time progress updates for Chain Guardian Console / Chain Progress Dock
+    
+    Args:
+        task_id: Task ID
+        progress: Progress update data
+        current_user: Authenticated user
+        db: Database session
+    
+    Returns:
+        TaskProgressResponse with updated progress
+    """
+    task = await _get_task_with_access_check(task_id, current_user, db)
+    
+    # Only allow progress updates on active tasks
+    if task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot update progress on {task.status.value} task",
+        )
+    
+    # Update progress fields
+    if progress.progress_percentage is not None:
+        task.progress_percentage = progress.progress_percentage
+    if progress.progress_message is not None:
+        task.progress_message = progress.progress_message
+    if progress.progress_steps is not None:
+        task.progress_steps = progress.progress_steps
+    
+    # Set started_at if not already set and progress > 0
+    if task.started_at is None and task.progress_percentage and task.progress_percentage > 0:
+        task.started_at = datetime.now(timezone.utc)
+    
+    await db.commit()
+    await db.refresh(task)
+    
+    # Emit WebSocket event for real-time updates
+    await ws_manager.task_progress(
+        user_id=current_user.id,
+        task_id=task.id,
+        progress_percentage=task.progress_percentage,
+        progress_message=task.progress_message or "",
+        progress_steps=task.progress_steps or {},
+    )
+    
+    logger.info(f"Task {task_id} progress updated: {task.progress_percentage}%")
+    
+    return TaskProgressResponse(
+        task_id=task.id,
+        status=task.status,
+        progress_percentage=task.progress_percentage,
+        progress_message=task.progress_message,
+        progress_steps=task.progress_steps,
+        updated_at=task.updated_at,
+    )
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
