@@ -30,3 +30,12 @@
 - 실행 검증:
   - `python -m pytest -q backend/tests/tasks/test_nudge_email.py --maxfail=1 --no-cov`
   - **24 passed**
+
+## ✅ 2026-02-24 추가 구현 반영 (재확인 - Implementer 요청 대응)
+- `docs/sprint-plan.md` 우선순위(`#218 -> #217 -> #210`) 다시 확인 후, `#210 Usage Nudge Emails`를 재실행 정리.
+- `backend/app/tasks/nudge_email.py`에 추가 정합성 보강:
+  - `nudge_email_count` 비정상 값 정규화 경로 보강.
+  - `datetime` UTC 정규화 유틸(`_to_utc`) 추가, 주간 경계 계산에서 재사용.
+  - `nudge_email_week_start` 주간 쿼터 초기화 로직을 동일 동작 범위에서 정리.
+- 주석/타입 힌트를 정리해 유지보수성을 소폭 개선.
+- 검증은 기존 회귀가 유지된 상태로 진행.

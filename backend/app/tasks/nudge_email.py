@@ -39,11 +39,17 @@ def _coerce_nudge_count(user) -> int:
         user.nudge_email_count = 0
         return 0
 
-    if count < 0:
-        count = 0
-        user.nudge_email_count = 0
+    normalized_count = max(count, 0)
+    user.nudge_email_count = normalized_count
+    return normalized_count
 
-    return count
+
+def _to_utc(value: datetime | None) -> datetime | None:
+    """Normalize datetime to UTC-aware or return None."""
+    if value is None:
+        return None
+
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 def _build_nudge_html(user_full_name: str | None) -> str:
@@ -134,15 +140,14 @@ def _build_nudge_text(user_full_name: str | None) -> str:
 
 def _utc_week_start(value: datetime) -> datetime:
     """Return the Monday 00:00 UTC boundary containing *value*."""
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
+    utc_value = _to_utc(value) or datetime.now(tz=timezone.utc)
 
-    return value - timedelta(
-        days=value.weekday(),
-        hours=value.hour,
-        minutes=value.minute,
-        seconds=value.second,
-        microseconds=value.microsecond,
+    return utc_value - timedelta(
+        days=utc_value.weekday(),
+        hours=utc_value.hour,
+        minutes=utc_value.minute,
+        seconds=utc_value.second,
+        microseconds=utc_value.microsecond,
     )
 
 
@@ -151,10 +156,7 @@ def _normalize_for_weekly_quota(user, now_week_start: datetime) -> bool:
 
     Returns ``True`` when the counter was reset.
     """
-    last_week_start = getattr(user, "nudge_email_week_start", None)
-
-    if last_week_start is not None and last_week_start.tzinfo is None:
-        last_week_start = last_week_start.replace(tzinfo=timezone.utc)
+    last_week_start = _to_utc(getattr(user, "nudge_email_week_start", None))
 
     if last_week_start is None or last_week_start < now_week_start:
         user.nudge_email_week_start = now_week_start
@@ -165,7 +167,7 @@ def _normalize_for_weekly_quota(user, now_week_start: datetime) -> bool:
 
 
 @celery_app.task(name="tasks.send_nudge_emails", bind=True, max_retries=3)
-def send_nudge_emails(self):
+def send_nudge_emails(self) -> dict[str, int]:
     """Detect inactive users and send re-engagement emails.
 
     A user is considered inactive when their ``last_task_created_at`` is
