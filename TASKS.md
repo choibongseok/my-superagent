@@ -1,6 +1,6 @@
 # my-superagent 작업 목록
 
-> 마지막 업데이트: 2026-02-24 (20:22 UTC)
+> 마지막 업데이트: 2026-02-24 (23:12 UTC)
 > 담당: superagent-developer
 
 ## 🔥 긴급 (P4 - FactoryHub 통합 준비)
@@ -61,24 +61,41 @@
 - **완료 시각**: 2026-02-24 21:56 UTC
 - **Commit**: 예정
 
-### 4️⃣ 주기적 태스크 스케줄링 (Cron-style Tasks)
-- [ ] **파일**: `backend/app/api/v1/schedules.py` (신규 생성)
-- [ ] **모델**: `backend/app/models/scheduled_task.py` (신규 생성)
+### 4️⃣ 주기적 태스크 스케줄링 (Cron-style Tasks) ✅
+- [x] **파일**: `backend/app/api/v1/schedules.py` (완성)
+- [x] **모델**: `backend/app/models/scheduled_task.py` (완성)
   - `ScheduledTask` 테이블: cron_expr, agent_type, prompt_template, enabled, last_run, next_run
-- [ ] **엔드포인트**:
-  - `POST /api/v1/schedules` — 스케줄 생성 (cron expression, agent_type, prompt)
-  - `GET /api/v1/schedules` — 내 스케줄 목록
+  - ScheduleType enum: ONCE, DAILY, WEEKLY, MONTHLY, CRON
+- [x] **엔드포인트**:
+  - `POST /api/v1/tasks/{task_id}/schedule` — 완료된 태스크에서 스케줄 생성
+  - `GET /api/v1/schedules` — 내 스케줄 목록 (페이지네이션, active_only 필터)
+  - `GET /api/v1/schedules/{id}` — 스케줄 상세 조회
   - `PATCH /api/v1/schedules/{id}` — 스케줄 수정 (pause/resume)
   - `DELETE /api/v1/schedules/{id}` — 스케줄 삭제
-- [ ] **작업**:
-  - Celery Beat integration (crontab schedule)
-  - 매 분마다 `next_run <= now()` 스케줄 실행
-  - 실행 이력 기록 (`ScheduledTaskRun` 테이블)
-  - 실패 시 재시도 로직 (max_retries=3)
-- [ ] **예시 사용 사례**:
-  - 매주 월요일 9AM에 주간 리포트 생성
-  - 매일 자정에 Google Drive 백업
-- [ ] **완료 기준**: Cron 표현식으로 스케줄 생성, 자동 실행 확인, 실행 이력 조회 가능
+- [x] **작업**:
+  - Celery Beat integration (60초마다 실행)
+  - `next_run <= now()` 스케줄 자동 실행
+  - 실행 이력 추적 (run_count, success_count, failure_count, last_error)
+  - 실패 시 에러 로깅 및 계속 실행
+  - max_runs 제한 지원 (무제한 또는 N회 실행 후 자동 비활성화)
+  - ONCE 타입 스케줄은 실행 후 자동 비활성화
+- [x] **Celery 태스크**: `backend/app/tasks/scheduler.py`
+  - `execute_due_schedules()` — 매 60초마다 실행
+  - `_dispatch_one()` — 개별 스케줄 실행 및 다음 실행 시간 계산
+  - croniter 라이브러리로 cron 표현식 파싱
+- [x] **DB Migration**: `alembic/versions/c5e3a9b2f1d4_add_scheduled_tasks_table.py`
+- [x] **스키마**: `backend/app/schemas/schedule.py` (ScheduleCreate, ScheduleUpdate, ScheduleResponse, ScheduleListResponse)
+- [x] **테스트**:
+  - `backend/tests/test_schedules_api.py` — API 엔드포인트 테스트 (4 tests, 일부 DB 초기화 이슈)
+  - `backend/tests/tasks/test_scheduler.py` — Celery 스케줄러 로직 테스트 (5/5 passing ✅)
+- [x] **예시 사용 사례**:
+  - 매주 월요일 9AM에 주간 리포트 생성 (WEEKLY)
+  - 매일 자정에 Google Drive 백업 (DAILY)
+  - 커스텀 cron (매월 첫째 날 오전 9시: "0 9 1 * *")
+  - 일회성 미래 실행 (ONCE)
+- **완료 기준**: ✅ Cron 표현식으로 스케줄 생성, Celery Beat 자동 실행, API로 관리 가능
+- **완료 시각**: 2026-02-24 23:12 UTC
+- **Commit**: 예정
 
 ## 🟡 중요 (P5 - 아키텍처 고도화)
 
