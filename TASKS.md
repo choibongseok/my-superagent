@@ -29,7 +29,7 @@
 - [x] **메모리 시스템** — `backend/app/memory/` 완성
   - 대화 이력 (PostgreSQL), 벡터 검색 (pgvector), timeline API
 
-## 🟢 완료 (P4 - 통합 & 최적화)
+## 🟢 완료 (P5 - 테스트 & 최적화 진행중)
 
 - [x] **Google Drive 웹훅** — Google Drive 변경 감지 자동화 ✅
   - `backend/app/api/v1/webhooks.py` 구현 완료
@@ -37,19 +37,31 @@
   - 파일 업로드 → 자동 요약 트리거 작동
   - **테스트**: `backend/tests/test_webhooks.py` 완성
 
-## 🔴 즉시 (P5 - 테스트 & 문서화)
-
-- [ ] **E2E 테스트 커버리지 확대** — 통합 테스트 추가
-  - Webhook E2E 테스트 (실제 Drive 변경 시뮬레이션)
-  - Auth flow → Task execution E2E
-  - 목표: 70% 이상 커버리지 (현재 21%)
+- [🔄] **E2E 테스트 커버리지 확대** — 통합 테스트 추가 (진행중)
+  - ✅ `backend/tests/test_e2e_api_flows.py` — HTTP API E2E tests 추가
+  - ✅ Auth flow, Task API, Webhooks, Orchestration, Memory API 테스트
+  - ✅ 커버리지: 20% → 21% (1% 증가, 목표: 70%)
+  - 🔄 다음: 실제 DB 통합 테스트, 더 많은 API 엔드포인트 커버
 
 - [ ] **API 문서 자동화** — OpenAPI/Swagger 문서 정리
   - `/openapi.json` export 검증
   - Swagger UI 개선
   - 모든 엔드포인트에 description/examples 추가
 
-## 🟡 다음 (P5 - 고급 기능)
+## 🟡 다음 (P5 - 테스트 & 문서화)
+
+- [ ] **E2E 테스트 커버리지 확대 (계속)** — 더 많은 통합 테스트
+  - 실제 DB 통합 테스트 (PostgreSQL fixtures)
+  - Agent 실행 E2E (Celery worker 통합)
+  - 더 많은 API 엔드포인트 커버
+  - 목표: 70% 커버리지 (현재: 21% → 진행 중)
+
+- [ ] **API 문서 자동화** — OpenAPI/Swagger 문서 정리
+  - `/openapi.json` export 검증
+  - Swagger UI 개선
+  - 모든 엔드포인트에 description/examples 추가
+
+## 🟢 이후 (P5 - 고급 기능)
 
 - [ ] **멀티 테넌시** — 조직/팀 단위 관리
   - Organization model 추가
