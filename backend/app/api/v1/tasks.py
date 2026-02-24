@@ -445,6 +445,11 @@ async def create_task(
     task = TaskModel(**task_kwargs)
     
     db.add(task)
+    
+    # Update user's last task created timestamp for activity tracking
+    from datetime import datetime, timezone
+    current_user.last_task_created_at = datetime.now(timezone.utc)
+    
     await db.commit()
     await db.refresh(task)
     
@@ -1007,6 +1012,11 @@ async def retry_task(
     retry_task_obj = TaskModel(**task_kwargs)
 
     db.add(retry_task_obj)
+    
+    # Update user's last task created timestamp for activity tracking
+    from datetime import datetime, timezone
+    current_user.last_task_created_at = datetime.now(timezone.utc)
+    
     await db.commit()
     await db.refresh(retry_task_obj)
 

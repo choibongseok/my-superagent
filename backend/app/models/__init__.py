@@ -15,6 +15,8 @@ from app.models.prompt import SharedPrompt
 from app.models.qa_result import QAResult
 from app.models.onboarding import OnboardingProgress, OnboardingStep, UseCase
 from app.models.webhook import Webhook, WebhookEvent
+from app.models.task_chain import TaskChain, ChainStatus, ChainStep, StepStatus
+from app.models.scheduled_task import ScheduledTask, ScheduleType
 
 __all__ = [
     "Base",
@@ -42,4 +44,10 @@ __all__ = [
     "OnboardingProgress",
     "OnboardingStep",
     "UseCase",
+    "TaskChain",
+    "ChainStatus",
+    "ChainStep",
+    "StepStatus",
+    "ScheduledTask",
+    "ScheduleType",
 ]
