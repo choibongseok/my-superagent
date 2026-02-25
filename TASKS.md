@@ -312,20 +312,25 @@
   - **완료 시각**: 2026-02-25 04:02 UTC
 
 - [🔄] **Chats API 테스트** 🚧 WIP (2026-02-25) 🆕
-  - **파일**: `backend/tests/api/test_chats_api.py` (541 lines, 30+ tests)
+  - **파일**: `backend/tests/api/test_chats_api.py` (25 tests, ~550 lines)
   - **테스트 대상**:
     - ✅ POST /api/v1/chats — 채팅 생성 (3 tests)
     - ✅ GET /api/v1/chats — 채팅 목록 조회 (5 tests: 페이지네이션, user isolation)
     - ✅ GET /api/v1/chats/{id} — 채팅 상세 조회 (6 tests: with messages, not found, wrong user)
     - ✅ PATCH /api/v1/chats/{id} — 채팅 업데이트 (6 tests)
     - ✅ DELETE /api/v1/chats/{id} — 채팅 삭제 (5 tests: cascade delete)
-    - ✅ Edge cases — 정렬, 긴 제목, 특수 문자 (3 tests)
-  - **상태**: 🔄 **WIP - Authentication mocking 수정 필요**
-    - 현재 문제: async_client 사용 시 403 Forbidden 발생
-    - 해결 방법: sync TestClient + Authorization header 패턴으로 변경 (test_api_v1_extended.py 참고)
-  - **예상 커버리지 개선**: `app/api/v1/chats.py` 0% → 85%+
-  - **Commit**: `16410b4e` (2026-02-25 04:22 UTC)
-  - **TODO**: Fix auth pattern, ensure tests pass, re-run coverage
+    - ✅ Edge cases — 긴 제목, 특수 문자 (2 tests)
+  - **상태**: 🔄 **WIP - DB fixture 수정 필요**
+    - ✅ Import 에러 수정: `recovery.py`에서 `app.core.auth` → `app.api.dependencies`
+    - ✅ 테스트 재작성: Mock 패턴 → Real test DB with JWT auth
+    - 🚧 현재 문제: `db` fixture가 per-test 격리 DB 생성, 하지만 FastAPI app은 shared global engine 사용
+    - 해결 방법: Shared test DB에 사용자 생성, 또는 app의 DB dependency를 per-test DB로 override
+  - **예상 커버리지 개선**: `app/api/v1/chats.py` 39% → 85%+
+  - **Commit**: `9eb4c990` (2026-02-25 05:35 UTC)
+  - **TODO**: 
+    - Fix DB fixture issue (use shared test engine or override dependency)
+    - Ensure all 25 tests pass
+    - Re-run coverage
 
 ### 🟢 완료: API 문서 자동화 (2026-02-24) ✅
 
