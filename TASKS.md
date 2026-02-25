@@ -244,6 +244,27 @@
   - 완료 기준: ✅ 7 tests passing, validates error handling patterns
   - 비고: 실제 구현과 일치하는 테스트만 유지, 나머지는 skip으로 문서화
 
+- [x] **Orchestrator 고급 테스트 (파싱, 검증, 실행)** ✅ 🆕
+  - **파일**: `backend/tests/agents/test_orchestrator_advanced.py` 완성 (50+ tests)
+  - **테스트 클래스**:
+    - ✅ `TestLLMContentNormalization` — LLM 응답 정규화 (7 tests)
+    - ✅ `TestJSONPayloadExtraction` — Markdown/JSON 추출 (4 tests)
+    - ✅ `TestTaskNormalization` — Task 검증 및 정규화 (13 tests)
+    - ✅ `TestDependencyValidation` — 순환 의존성, 중복 ID, 누락 참조 (6 tests)
+    - ✅ `TestTaskPlanParsing` — 다양한 형식의 플랜 파싱 (9 tests)
+    - ✅ `TestAgentTaskClass` — AgentTask 클래스 (2 tests)
+    - ✅ `TestOrchestratorHelpers` — 헬퍼 메서드 (6 tests)
+    - ✅ `TestOrchestratorExecution` — 비동기 실행 테스트 (5 tests, mock 기반)
+  - **커버된 메서드**:
+    - `_normalize_llm_content`, `_extract_json_payload`
+    - `_normalize_task_entries`, `_validate_task_dependencies`
+    - `_parse_task_plan`, `_looks_like_task_list`, `_looks_like_task_mapping`
+    - `_coerce_raw_tasks`, `execute_task`, `execute_tasks`
+  - **완료 기준**: ✅ 50+ tests covering core orchestrator logic
+  - **커버리지 개선**: `app/agents/orchestrator.py` 15% → (예상 60%+)
+  - **Commit**: `6001b0a4` (2026-02-25)
+  - **완료 시각**: 2026-02-25 02:00 UTC
+
 ### 🟢 완료: API 문서 자동화 (2026-02-24) ✅
 
 - [x] **OpenAPI 스펙 검증 & 개선** ✅
