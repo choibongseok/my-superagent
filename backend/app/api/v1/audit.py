@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
-from app.core.deps import get_db, get_current_user
+from app.core.database import get_db
+from app.api.dependencies import get_current_user
 from app.models.user import User
 from app.services.audit_service import AuditService
 

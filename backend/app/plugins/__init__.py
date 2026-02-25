@@ -1,27 +1,21 @@
-"""Plugin system for AgentHQ.
+"""
+Plugin System for my-superagent
 
-This module provides a flexible plugin system for extending AgentHQ with:
-- Custom agents
-- Custom tools
-- Third-party integrations
-- Custom UI components
+Extensible architecture for integrating external tools and services.
+
+Supported plugins:
+- Notion: Page/database CRUD, search
+- Jira (future)
+- Confluence (future)
 """
 
-from app.plugins.base import (
-    AgentPlugin,
-    BasePlugin,
-    IntegrationPlugin,
-    PluginManifest,
-    ToolPlugin,
-)
-from app.plugins.manager import PluginManager, get_plugin_manager
+from .base import Plugin, PluginConfig, PluginRegistry, registry
+from .notion_plugin import NotionPlugin
 
 __all__ = [
-    "BasePlugin",
-    "PluginManifest",
-    "AgentPlugin",
-    "ToolPlugin",
-    "IntegrationPlugin",
-    "PluginManager",
-    "get_plugin_manager",
+    "Plugin",
+    "PluginConfig",
+    "PluginRegistry",
+    "registry",
+    "NotionPlugin",
 ]

@@ -330,9 +330,32 @@
 
 ## 🟢 이후 (P6 - 확장)
 
-- [ ] **플러그인 시스템** — 외부 도구 통합
-  - Notion, Jira, Confluence 연동
-  - 커스텀 에이전트 플러그인 API
+- [x] **플러그인 시스템** — 외부 도구 통합 ✅
+  - ✅ **기본 아키텍처**: `app/plugins/base.py` 완성
+    - Abstract Plugin class, PluginConfig, PluginRegistry
+    - Plugin lifecycle management (register, enable/disable)
+  - ✅ **Notion 통합**: `app/plugins/notion_plugin.py` 완성
+    - Authentication with Notion API
+    - Capabilities: create_page, search, query_database, append_blocks, get_page, update_page
+    - Error handling & rate limiting support
+  - ✅ **API 엔드포인트**: `app/api/v1/plugins.py` 완성
+    - `GET /api/v1/plugins` — List available plugins
+    - `POST /api/v1/plugins/{name}/configure` — Configure plugin with API key
+    - `GET /api/v1/plugins/{name}/status` — Check connection status
+    - `POST /api/v1/plugins/{name}/action` — Execute plugin actions
+  - ✅ **테스트**: `backend/tests/test_plugins.py` 완성 (20+ tests)
+    - Base plugin architecture tests
+    - Notion plugin functionality tests
+    - API endpoint tests
+    - Error handling tests
+  - ✅ **문서**: `docs/PLUGINS.md` 완성
+    - API usage guide, Python SDK examples
+    - Agent integration examples
+    - Adding new plugins guide
+  - ✅ **의존성**: `notion-client==2.2.1` 추가
+  - **완료 시각**: 2026-02-25 00:15 UTC
+  - **Commit**: 예정
+  - 🔮 **미래 플러그인**: Jira, Confluence, Slack, Linear, GitHub, Salesforce
 
 - [ ] **FactoryHub 통합 준비** (선택적)
   - OpenAPI manifest 작성
