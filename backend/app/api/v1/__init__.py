@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, health, tasks, chats, messages, workspaces, templates, orchestrator, analytics, share, dev, prompts, qa, webhooks, onboarding, streaks, schedules, chains, memory, marketplace, factoryhub, audit, plugins
+from app.api.v1 import auth, health, tasks, chats, messages, workspaces, templates, orchestrator, analytics, share, dev, prompts, qa, webhooks, onboarding, streaks, schedules, chains, memory, marketplace, factoryhub, audit, plugins, recovery
 api_router = APIRouter()
 
 # Include sub-routers
@@ -29,3 +29,4 @@ api_router.include_router(marketplace.router, tags=["marketplace"])  # Template 
 api_router.include_router(factoryhub.router, prefix="/factoryhub", tags=["factoryhub"])  # FactoryHub Integration
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])  # Audit Trail (Compliance)
 api_router.include_router(plugins.router, tags=["plugins"])  # Plugin System (Notion, Jira, etc.)
+api_router.include_router(recovery.router, tags=["recovery"])  # Reliability Landing Page (#276)

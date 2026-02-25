@@ -13,6 +13,7 @@ from app.models.base import Base, TimestampMixin
 if TYPE_CHECKING:
     from app.models.qa_result import QAResult
     from app.models.token_usage import TokenUsage
+    from app.models.recovery_suggestion import RecoverySuggestion
 
 
 class TaskStatus(str, Enum):
@@ -113,6 +114,10 @@ class Task(Base, TimestampMixin):
     
     token_usages: Mapped[list["TokenUsage"]] = relationship(
         "TokenUsage", back_populates="task", cascade="all, delete-orphan"
+    )
+    
+    recovery_suggestions: Mapped[list["RecoverySuggestion"]] = relationship(
+        "RecoverySuggestion", back_populates="task", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
