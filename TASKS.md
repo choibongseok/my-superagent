@@ -311,6 +311,22 @@
   - **Commit**: `93de88d4` (2026-02-25)
   - **완료 시각**: 2026-02-25 04:02 UTC
 
+- [🔄] **Chats API 테스트** 🚧 WIP (2026-02-25) 🆕
+  - **파일**: `backend/tests/api/test_chats_api.py` (541 lines, 30+ tests)
+  - **테스트 대상**:
+    - ✅ POST /api/v1/chats — 채팅 생성 (3 tests)
+    - ✅ GET /api/v1/chats — 채팅 목록 조회 (5 tests: 페이지네이션, user isolation)
+    - ✅ GET /api/v1/chats/{id} — 채팅 상세 조회 (6 tests: with messages, not found, wrong user)
+    - ✅ PATCH /api/v1/chats/{id} — 채팅 업데이트 (6 tests)
+    - ✅ DELETE /api/v1/chats/{id} — 채팅 삭제 (5 tests: cascade delete)
+    - ✅ Edge cases — 정렬, 긴 제목, 특수 문자 (3 tests)
+  - **상태**: 🔄 **WIP - Authentication mocking 수정 필요**
+    - 현재 문제: async_client 사용 시 403 Forbidden 발생
+    - 해결 방법: sync TestClient + Authorization header 패턴으로 변경 (test_api_v1_extended.py 참고)
+  - **예상 커버리지 개선**: `app/api/v1/chats.py` 0% → 85%+
+  - **Commit**: `16410b4e` (2026-02-25 04:22 UTC)
+  - **TODO**: Fix auth pattern, ensure tests pass, re-run coverage
+
 ### 🟢 완료: API 문서 자동화 (2026-02-24) ✅
 
 - [x] **OpenAPI 스펙 검증 & 개선** ✅
@@ -464,6 +480,7 @@
 - ✅ Prompts API (14 tests)
 - ✅ Analytics API (28 tests)
 - ✅ **Webhook Service (25 tests, 100% coverage!)** 🆕
+- 🔄 **Chats API (30+ tests, WIP - auth fixes needed)** 🆕
 
 ### 완료된 문서화:
 - ✅ OpenAPI 스펙 개선
@@ -471,10 +488,19 @@
 - ✅ API.md 작성 (600+ lines)
 - ✅ PLUGINS.md 작성
 
-**📊 테스트 커버리지**: 20.57% → 21.85% → **22.24%** (목표: 70%, 계속 진행중)
+**📊 테스트 커버리지**: 20.57% → 21.85% → 22.24% → **22.64%** (목표: 70%, 계속 진행중)
 
 **🚀 다음 단계**:
+- ✅ **Chats API 테스트 수정** (WIP → 완료)
+  - Authorization header 패턴으로 변경
+  - sync TestClient 사용
+  - test_api_v1_extended.py 참고
 - 추가 E2E 테스트 작성 (커버리지 70% 목표)
-- 낮은 커버리지 모듈 우선 타겟 (security.py, async_runner.py, cache.py 등)
+- 낮은 커버리지 모듈 우선 타겟:
+  - **api/v1/auth.py** (19% coverage) — 인증 API 테스트 🔥 우선순위 높음
+  - **api/v1/memory.py** — 메모리 API 테스트
+  - **api/v1/orchestrator.py** — 오케스트레이터 API 테스트
+  - services/cache.py (0%) — 캐싱 서비스 테스트
+  - services/cost_tracker.py (0%) — 비용 추적 테스트
 - CI/CD 파이프라인 개선
 - 프로덕션 배포 준비
