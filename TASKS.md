@@ -279,6 +279,15 @@
   - **Commit**: 예정 (2026-02-25)
   - **완료 시각**: 2026-02-25 02:55 UTC
 
+
+- [🔄] **Analytics API 테스트** 🆕
+  - **파일**: `backend/tests/test_analytics_api.py` 기본 구조 완성 (11개 테스트 클래스, 23개 테스트 메서드)
+  - **테스트 대상**: Performance metrics, Agent statistics, Task trends, Dashboard summary, Weekly ROI, Token usage, Cost breakdown, Budget alerts, Outcome ring, Cost & trust
+  - **현재 상태**: 테스트 구조 완성, async/sync fixture 호환성 이슈로 실행 대기
+  - **다음 단계**: prompts_api.py 패턴으로 async 버전으로 재작성 필요
+  - **예상 커버리지 개선**: `app/api/v1/analytics.py` 35% → 60%+
+  - **Commit**: 예정 (2026-02-25)
+  - **완료 시각**: (진행 중 - 리팩토링 필요)
 ### 🟢 완료: API 문서 자동화 (2026-02-24) ✅
 
 - [x] **OpenAPI 스펙 검증 & 개선** ✅
