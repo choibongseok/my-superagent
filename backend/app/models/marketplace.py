@@ -67,7 +67,7 @@ class MarketplaceTemplate(Base):
     # Relationships
     creator = relationship("User", back_populates="marketplace_templates")
     installs = relationship("TemplateInstall", back_populates="template", cascade="all, delete-orphan")
-    ratings = relationship("TemplateRating", back_populates="template", cascade="all, delete-orphan")
+    ratings = relationship("MarketplaceRating", back_populates="template", cascade="all, delete-orphan")
     
     # Indexes
     __table_args__ = (
@@ -130,7 +130,7 @@ class TemplateInstall(Base):
     )
 
 
-class TemplateRating(Base):
+class MarketplaceRating(Base):
     """
     User ratings and reviews for marketplace templates
     """

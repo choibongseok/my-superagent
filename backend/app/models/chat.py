@@ -28,8 +28,7 @@ class Chat(Base, TimestampMixin):
     workspace_id: Mapped[Optional[UUID]] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("workspaces.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True
+        nullable=True
     )
 
     # Relationships

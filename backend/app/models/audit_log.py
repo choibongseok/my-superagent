@@ -2,7 +2,7 @@
 Audit Log Model - Track all API calls and data changes for compliance
 """
 from datetime import datetime, UTC
-from sqlalchemy import Column, String, Integer, Text, JSON, Index
+from sqlalchemy import Column, String, Integer, Text, JSON, Index, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 from app.core.database import Base
 import uuid
@@ -52,7 +52,7 @@ class AuditLog(Base):
     
     # Timestamp
     created_at = Column(
-        "created_at",
+        DateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(UTC),
         index=True

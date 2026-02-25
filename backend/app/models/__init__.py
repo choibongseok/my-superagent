@@ -11,7 +11,7 @@ from app.models.template import Template, TemplateRating
 from app.models.marketplace import (
     MarketplaceTemplate,
     TemplateInstall,
-    TemplateRating as MarketplaceTemplateRating,
+    MarketplaceRating,
     TemplateCategory,
 )
 from app.models.workspace import Workspace
@@ -42,7 +42,7 @@ __all__ = [
     "TemplateRating",
     "MarketplaceTemplate",
     "TemplateInstall",
-    "MarketplaceTemplateRating",
+    "MarketplaceRating",
     "TemplateCategory",
     "Workspace",
     "WorkspaceMember",

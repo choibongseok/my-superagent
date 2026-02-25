@@ -45,8 +45,7 @@ class Task(Base, TimestampMixin):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
     workspace_id: Mapped[Optional[UUID]] = mapped_column(
         ForeignKey("workspaces.id", ondelete="SET NULL"), 
-        nullable=True, 
-        index=True
+        nullable=True
     )
 
     # Task details

@@ -17,7 +17,7 @@ from app.models.user import User
 from app.models.marketplace import (
     MarketplaceTemplate,
     TemplateInstall,
-    TemplateRating,
+    MarketplaceRating,
     TemplateCategory,
 )
 from app.schemas.marketplace import (
@@ -320,9 +320,9 @@ async def rate_template(
         )
     
     # Check for existing rating
-    existing_query = select(TemplateRating).where(
-        TemplateRating.template_id == template_id,
-        TemplateRating.user_id == current_user.id,
+    existing_query = select(MarketplaceRating).where(
+        MarketplaceRating.template_id == template_id,
+        MarketplaceRating.user_id == current_user.id,
     )
     
     result = await db.execute(existing_query)
@@ -336,7 +336,7 @@ async def rate_template(
         rating = existing_rating
     else:
         # Create new rating
-        rating = TemplateRating(
+        rating = MarketplaceRating(
             template_id=template_id,
             user_id=current_user.id,
             rating=rating_data.rating,
@@ -364,12 +364,12 @@ async def list_template_ratings(
     List ratings and reviews for a template
     """
     query = (
-        select(TemplateRating)
+        select(MarketplaceRating)
         .where(
-            TemplateRating.template_id == template_id,
-            TemplateRating.is_deleted == False,
+            MarketplaceRating.template_id == template_id,
+            MarketplaceRating.is_deleted == False,
         )
-        .order_by(desc(TemplateRating.helpful_count), desc(TemplateRating.created_at))
+        .order_by(desc(MarketplaceRating.helpful_count), desc(MarketplaceRating.created_at))
         .limit(limit)
     )
     
@@ -507,7 +507,7 @@ async def get_marketplace_stats(
     
     total_ratings_result = await db.execute(
         select(func.count()).select_from(TemplateRating).where(
-            TemplateRating.is_deleted == False
+            MarketplaceRating.is_deleted == False
         )
     )
     total_ratings = total_ratings_result.scalar() or 0

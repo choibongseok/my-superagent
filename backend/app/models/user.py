@@ -81,8 +81,8 @@ class User(Base, TimestampMixin):
     template_installs: Mapped[List["TemplateInstall"]] = relationship(
         "TemplateInstall", back_populates="user", cascade="all, delete-orphan"
     )
-    template_ratings: Mapped[List["TemplateRating"]] = relationship(
-        "TemplateRating", back_populates="user", cascade="all, delete-orphan"
+    template_ratings: Mapped[List["MarketplaceRating"]] = relationship(
+        "MarketplaceRating", back_populates="user", cascade="all, delete-orphan"
     )
 
     # Token usage relationships

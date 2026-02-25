@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import (  # noqa: E402
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.pool import StaticPool  # noqa: E402
+from sqlalchemy.pool import StaticPool, NullPool  # noqa: E402
 
 from app.core.database import Base, get_db, reset_engine, inject_engine  # noqa: E402
 from app.main import app  # noqa: E402
@@ -76,13 +76,32 @@ async def _drop_tables() -> None:
 @pytest_asyncio.fixture
 async def db() -> AsyncGenerator[AsyncSession, None]:
     """Provide a clean async DB session per test; rolls back after each test."""
-    await _create_tables()
-    async with TestAsyncSessionLocal() as session:
+    # Use NullPool + unique database name per test to avoid schema conflicts
+    import uuid
+    db_name = f"file:testdb_{uuid.uuid4().hex}?mode=memory&cache=shared"
+    test_engine_local = create_async_engine(
+        f"sqlite+aiosqlite:///{db_name}",
+        connect_args={"check_same_thread": False, "uri": True},
+        poolclass=NullPool,
+    )
+    TestSessionLocal = async_sessionmaker(
+        test_engine_local,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+    
+    # Create tables for this test
+    async with test_engine_local.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    async with TestSessionLocal() as session:
         try:
             yield session
         finally:
             await session.rollback()
-    await _drop_tables()
+    
+    # Clean up
+    await test_engine_local.dispose()
 
 
 # ── Sync-style fixture for legacy tests ──────────────────────────────────────
