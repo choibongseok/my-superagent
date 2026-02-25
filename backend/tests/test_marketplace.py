@@ -6,7 +6,7 @@ import pytest
 from uuid import uuid4
 from datetime import datetime, timezone
 
-from app.models.marketplace import MarketplaceTemplate, TemplateInstall, TemplateRating, TemplateCategory
+from app.models.marketplace import MarketplaceTemplate, TemplateInstall, MarketplaceRating, TemplateCategory
 
 
 @pytest.fixture

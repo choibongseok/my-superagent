@@ -12,7 +12,7 @@ from app.services.audit_service import AuditService
 from app.services.cost_tracker import CostTracker
 from app.models.task import Task, TaskStatus
 from app.models.user import User
-from app.models.audit_log import AuditLog, EventType, ActionType, ResourceType
+from app.models.audit_log import AuditLog
 from app.models.token_usage import TokenUsage
 
 
@@ -40,9 +40,9 @@ class TestAuditServiceIntegration:
         ).all()
         
         assert len(logs) == 1
-        assert logs[0].event_type == EventType.API_CALL.value
-        assert logs[0].action == ActionType.CREATE.value
-        assert logs[0].resource_type == ResourceType.TASK.value
+        assert logs[0].event_type == "api_call"
+        assert logs[0].action == "create"
+        assert logs[0].resource_type == "task"
         
     def test_log_data_change(self, db_session):
         """Test data change logging with before/after"""
@@ -55,9 +55,9 @@ class TestAuditServiceIntegration:
         audit_service = AuditService(db_session)
         audit_service.log_data_change(
             user_id=user_id,
-            resource_type=ResourceType.TASK,
+            resource_type="task",
             resource_id=task_id,
-            action=ActionType.UPDATE,
+            action="update",
             before_data=before_data,
             after_data=after_data
         )
