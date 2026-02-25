@@ -5,16 +5,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 import httpx
 
-from app.plugins.base import IntegrationPlugin, PluginManifest
+from app.plugins.base import Plugin, PluginConfig, PluginType
 
 logger = logging.getLogger(__name__)
 
 
-class Plugin(IntegrationPlugin):
+class SlackNotifierPlugin(Plugin):
     """Slack notification plugin that posts messages through incoming webhooks."""
 
     RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
@@ -25,25 +25,36 @@ class Plugin(IntegrationPlugin):
         "error": "🚨 ERROR",
     }
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, webhook_url: str, **config_overrides):
         """Initialize Slack notifier plugin."""
+        config = PluginConfig(
+            name="slack_notifier",
+            display_name="Slack Notifier",
+            type=PluginType.COMMUNICATION,
+            config={
+                "webhook_url": webhook_url,
+                "request_timeout_seconds": config_overrides.get("request_timeout_seconds", 10.0),
+                "max_retries": config_overrides.get("max_retries", 2),
+                "retry_backoff_seconds": config_overrides.get("retry_backoff_seconds", 0.5),
+                **config_overrides
+            }
+        )
         super().__init__(config)
-        self.webhook_url = self._normalize_webhook_url(config.get("slack_webhook_url"))
+        self.webhook_url = self._normalize_webhook_url(webhook_url)
         self.request_timeout_seconds = self._normalize_positive_float(
-            config.get("request_timeout_seconds", 10.0),
+            config.config.get("request_timeout_seconds", 10.0),
             field_name="request_timeout_seconds",
             allow_zero=False,
         )
         self.max_retries = self._normalize_non_negative_int(
-            config.get("max_retries", 2),
+            config.config.get("max_retries", 2),
             field_name="max_retries",
         )
         self.retry_backoff_seconds = self._normalize_positive_float(
-            config.get("retry_backoff_seconds", 0.5),
+            config.config.get("retry_backoff_seconds", 0.5),
             field_name="retry_backoff_seconds",
             allow_zero=True,
         )
-        self.authenticated = False
 
     @staticmethod
     def _normalize_webhook_url(value: Any) -> str | None:
@@ -225,12 +236,58 @@ class Plugin(IntegrationPlugin):
 
         return payload
 
-    async def initialize(self) -> None:
-        """Initialize Slack client."""
+    async def authenticate(self) -> bool:
+        """Authenticate with Slack (webhook integrations don't require explicit auth)."""
         if not self.webhook_url:
             raise ValueError("slack_webhook_url is required in config")
+        logger.info("Slack notifier plugin authenticated")
+        return True
 
-        logger.info("Slack notifier plugin initialized")
+    async def test_connection(self) -> Dict[str, Any]:
+        """Test the Slack webhook connection."""
+        if not self.webhook_url:
+            return {
+                "connected": False,
+                "message": "No webhook URL configured",
+                "details": {}
+            }
+        
+        try:
+            # Send a simple test message
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.webhook_url,
+                    json={"text": "Connection test from AgentHQ"},
+                    timeout=self.request_timeout_seconds,
+                )
+                
+                if response.status_code == 200:
+                    return {
+                        "connected": True,
+                        "message": "Connection successful",
+                        "details": {"status_code": 200}
+                    }
+                else:
+                    return {
+                        "connected": False,
+                        "message": f"Connection failed with status {response.status_code}",
+                        "details": {"status_code": response.status_code}
+                    }
+        except Exception as e:
+            return {
+                "connected": False,
+                "message": f"Connection error: {str(e)}",
+                "details": {}
+            }
+
+    async def get_capabilities(self) -> List[str]:
+        """Return list of supported operations."""
+        return [
+            "send_notification",
+            "send_with_context",
+            "send_threaded",
+            "send_with_severity"
+        ]
 
     async def _sleep_before_retry(self, attempt: int) -> None:
         """Sleep using exponential backoff before retrying transient failures."""
@@ -239,7 +296,7 @@ class Plugin(IntegrationPlugin):
 
         await asyncio.sleep(self.retry_backoff_seconds * (2**attempt))
 
-    async def execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+    async def send_notification(self, inputs: dict[str, Any]) -> dict[str, Any]:
         """Send Slack notification with optional retries and rich context."""
         payload = self._build_payload(inputs)
 
@@ -321,44 +378,3 @@ class Plugin(IntegrationPlugin):
             "message": "Notification failed",
             "attempts": attempts,
         }
-
-    def get_manifest(self) -> PluginManifest:
-        """Get plugin manifest."""
-        return PluginManifest(
-            name="SlackNotifier",
-            version="1.1.0",
-            description="Send Slack notifications with retries, severity labels, and structured context",
-            author="AgentHQ",
-            permissions=["network.http"],
-            config_schema={
-                "slack_webhook_url": "string (required, Slack incoming webhook URL)",
-                "request_timeout_seconds": "number (optional, request timeout in seconds, default: 10)",
-                "max_retries": "integer (optional, number of retry attempts for transient failures, default: 2)",
-                "retry_backoff_seconds": "number (optional, base backoff before retries, default: 0.5)",
-            },
-            inputs={
-                "message": "string (required)",
-                "title": "string (optional)",
-                "severity": "string (optional: info|success|warning|error)",
-                "context": "object (optional, key/value metadata rendered in Slack fields)",
-                "channel": "string (optional, webhook default channel override)",
-                "thread_ts": "string (optional, thread timestamp to reply in thread)",
-                "username": "string (optional)",
-                "icon_emoji": "string (optional)",
-            },
-            outputs={
-                "success": "boolean",
-                "message": "string",
-                "status_code": "integer (optional)",
-                "attempts": "integer",
-            },
-        )
-
-    async def authenticate(self, credentials: dict[str, Any]) -> bool:
-        """Authenticate with Slack (webhook integrations don't require explicit auth)."""
-        self.authenticated = True
-        return True
-
-    async def sync_data(self, direction: str) -> dict[str, Any]:
-        """Sync data (not applicable for notification plugin)."""
-        return {}
