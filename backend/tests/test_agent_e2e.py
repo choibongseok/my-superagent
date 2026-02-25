@@ -147,8 +147,8 @@ Final content..."""
         # Assertions
         assert outline is not None
         assert len(outline) > 0
-        assert any("Main Title" in item.get("text", "") for item in outline)
-        assert any("Section 1" in item.get("text", "") for item in outline)
+        assert any("Main Title" in item.get("title", "") for item in outline)
+        assert any("Section 1" in item.get("title", "") for item in outline)
 
 
 @pytest.mark.asyncio
