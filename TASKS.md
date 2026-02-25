@@ -1,6 +1,6 @@
 # my-superagent 작업 목록
 
-> 마지막 업데이트: 2026-02-24 (23:40 UTC)
+> 마지막 업데이트: 2026-02-25 (01:52 UTC)
 > 담당: superagent-developer
 
 ## 🔥 긴급 (P4 - FactoryHub 통합 준비)
@@ -172,6 +172,15 @@
   - ✅ Auth flow, Task API, Webhooks, Orchestration, Memory API 테스트
   - ✅ Agent E2E tests — DocsAgent, SheetsAgent, SlidesAgent 기본 테스트
   - ✅ **Memory System E2E 테스트** — `backend/tests/test_memory_e2e_simple.py` 완성 (14 tests)
+  - ✅ **Service Integration Tests** — `backend/tests/test_service_integration.py` 완성 (10 tests) 🆕
+    - Audit logging, cost tracking, task workflows
+    - Workspace collaboration, scheduled tasks
+    - Mock-based service layer testing
+    - **Commit**: `fcd53aa1` (2026-02-25)
+  - ✅ **SQLite 호환성 개선** — `marketplace.py` JSONB → JSON 타입 변환
+  - ✅ 커버리지: 20.57% → 21.85% → **목표: 70%** (진행중)
+  - ✅ API 엔드포인트 통합 테스트 확장 완료 (25+ tests)
+  - 🔄 다음: 추가 API 테스트, Agent 고급 시나리오, 에러 케이스 확장
     - MemoryManager 기본 기능 (초기화, 대화 추가, 컨텍스트 조회)
     - 여러 대화 턴 처리, 메시지 제한, 대화 초기화
     - 메타데이터 및 상태 export
