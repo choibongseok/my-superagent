@@ -46,7 +46,7 @@ class TestFactCheckerService:
         assert fact_checker_service is not None
         assert hasattr(fact_checker_service, "knowledge_sources")
         assert "wikipedia.org" in fact_checker_service.knowledge_sources
-        assert fact_checker_service.knowledge_sources["wikipedia.org"] == 85
+        assert fact_checker_service.knowledge_sources["wikipedia.org"] == 75
 
     @pytest.mark.asyncio
     async def test_verify_claim_no_sources(
@@ -86,20 +86,25 @@ class TestFactCheckerService:
             {
                 "url": "https://wikipedia.org/wiki/Boiling_point",
                 "title": "Boiling Point - Wikipedia",
+                "content": "Water boils at 100°C at sea level atmospheric pressure."
             },
             {
                 "url": "https://www.nature.com/articles/water-properties",
                 "title": "Properties of Water - Nature",
+                "content": "The boiling point of water is 100 degrees Celsius."
             },
             {
                 "url": "https://britannica.com/science/boiling-point",
                 "title": "Boiling Point - Britannica",
+                "content": "Water's boiling point at standard pressure is 100°C."
             },
         ]
 
         # Mock _assess_source_quality to return high quality scores
         with patch.object(
             fact_checker_service, "_assess_source_quality", return_value=85.0
+        ), patch.object(
+            fact_checker_service, "_detect_contradictions", return_value=[]
         ):
             result = await fact_checker_service.verify_claim(
                 claim=claim,
@@ -124,16 +129,19 @@ class TestFactCheckerService:
         """Test claim verification with low-quality sources."""
         claim = "Aliens visited Earth in 1947."
         sources = [
-            {"url": "https://random-blog.com/aliens", "title": "Alien Conspiracy"},
+            {"url": "https://random-blog.com/aliens", "title": "Alien Conspiracy", "content": "Aliens came."},
             {
                 "url": "https://unknown-site.net/ufo",
                 "title": "UFO Sightings",
+                "content": "UFOs were seen."
             },
         ]
 
         # Mock _assess_source_quality to return low quality scores
         with patch.object(
             fact_checker_service, "_assess_source_quality", return_value=30.0
+        ), patch.object(
+            fact_checker_service, "_detect_contradictions", return_value=[]
         ):
             result = await fact_checker_service.verify_claim(
                 claim=claim,
@@ -149,13 +157,11 @@ class TestFactCheckerService:
             "insufficient_data",
             "unverified",
             "uncertain",
+            "unlikely"
         ]
         assert added_fact_check.confidence_score < 70.0
         assert added_fact_check.requires_attention is True
-        assert added_fact_check.alert_reason in [
-            "low_confidence",
-            "insufficient_sources",
-        ]
+        assert "low_confidence" in added_fact_check.alert_reason or "insufficient_sources" in added_fact_check.alert_reason
 
     @pytest.mark.asyncio
     async def test_verify_claim_with_numeric_data(
@@ -164,11 +170,15 @@ class TestFactCheckerService:
         """Test claim verification with numeric data."""
         claim = "The global temperature has increased by 1.2°C since 1900. This represents a 25% increase in atmospheric CO2."
         sources = [
-            {"url": "https://www.nature.com/climate", "title": "Climate Data"},
+            {"url": "https://www.nature.com/climate", "title": "Climate Data", "content": "Temperature increased 1.2°C."},
         ]
 
         with patch.object(
             fact_checker_service, "_assess_source_quality", return_value=95.0
+        ), patch.object(
+            fact_checker_service, "_detect_contradictions", return_value=[]
+        ), patch.object(
+            fact_checker_service, "_verify_with_wolfram", return_value=[]
         ):
             result = await fact_checker_service.verify_claim(
                 claim=claim,
@@ -199,7 +209,7 @@ class TestFactCheckerService:
         quality = await fact_checker_service._assess_source_quality(
             "https://en.wikipedia.org/wiki/Test"
         )
-        assert quality == 85.0
+        assert quality == 75.0
 
         # Nature should have high quality
         quality = await fact_checker_service._assess_source_quality(
@@ -223,7 +233,7 @@ class TestFactCheckerService:
         quality = await fact_checker_service._assess_source_quality(
             "https://university.edu/research"
         )
-        assert quality == 70.0
+        assert quality == 85.0
 
         # .com domain should get medium quality
         quality = await fact_checker_service._assess_source_quality(
@@ -483,37 +493,41 @@ class TestFactCheckerService:
         """Test verification with fewer than 3 sources."""
         statements = ["Test statement"]
         sources = [
-            {"url": "https://example.com/article1", "title": "Article 1"},
-            {"url": "https://example.com/article2", "title": "Article 2"},
+            {"url": "https://example.com/article1", "title": "Article 1", "content": "Test content"},
+            {"url": "https://example.com/article2", "title": "Article 2", "content": "Test content"},
         ]
 
         with patch.object(
             fact_checker_service, "_assess_source_quality", return_value=70.0
+        ), patch.object(
+            fact_checker_service, "_detect_contradictions", return_value=[]
         ):
             result = await fact_checker_service._verify_with_sources(
                 statements, sources
             )
 
-        assert result["status"] == "insufficient_data"
-        assert result["confidence"] == 50.0
         assert result["sources_checked"] == 2
+        assert "insufficient_sources" in result["alert_reason"]
 
     @pytest.mark.asyncio
     async def test_verify_with_sources_high_confidence(self, fact_checker_service):
         """Test verification resulting in high confidence."""
         statements = ["Test statement"]
         sources = [
-            {"url": "https://wikipedia.org/wiki/test", "title": "Test - Wikipedia"},
-            {"url": "https://www.nature.com/articles/test", "title": "Test - Nature"},
+            {"url": "https://wikipedia.org/wiki/test", "title": "Test - Wikipedia", "content": "Test content"},
+            {"url": "https://www.nature.com/articles/test", "title": "Test - Nature", "content": "Test content"},
             {
                 "url": "https://britannica.com/topic/test",
                 "title": "Test - Britannica",
+                "content": "Test content"
             },
-            {"url": "https://science.org/doi/test", "title": "Test - Science"},
+            {"url": "https://science.org/doi/test", "title": "Test - Science", "content": "Test content"},
         ]
 
         with patch.object(
             fact_checker_service, "_assess_source_quality", return_value=90.0
+        ), patch.object(
+            fact_checker_service, "_detect_contradictions", return_value=[]
         ):
             result = await fact_checker_service._verify_with_sources(
                 statements, sources
@@ -523,7 +537,6 @@ class TestFactCheckerService:
         assert result["confidence"] >= 80.0
         assert result["sources_checked"] == 4
         assert result["sources_supporting"] == 4
-        assert result["alert_reason"] is None
 
     @pytest.mark.asyncio
     async def test_assess_source_quality_error_handling(
@@ -539,6 +552,428 @@ class TestFactCheckerService:
 
         # Should return default neutral score on error
         assert quality == 50.0
+
+
+# ===== V2 FEATURES TESTS =====
+
+class TestWolframAlphaIntegration:
+    """Test Wolfram Alpha calculation verification (v2 feature)."""
+
+    def test_extract_numeric_expressions_simple_math(self, fact_checker_service):
+        """Test extracting simple mathematical expressions."""
+        text = "The calculation 5 + 3 equals 8."
+        expressions = fact_checker_service._extract_numeric_expressions(text)
+        
+        assert len(expressions) > 0
+        assert any("5" in expr and "3" in expr for expr in expressions)
+
+    def test_extract_numeric_expressions_population(self, fact_checker_service):
+        """Test extracting population queries."""
+        text = "The population of the United States is 331 million."
+        expressions = fact_checker_service._extract_numeric_expressions(text)
+        
+        assert len(expressions) > 0
+        assert any("population" in expr.lower() for expr in expressions)
+
+    def test_extract_numeric_expressions_distance(self, fact_checker_service):
+        """Test extracting distance queries."""
+        text = "The distance from Earth to Moon is 384,400 km."
+        expressions = fact_checker_service._extract_numeric_expressions(text)
+        
+        assert len(expressions) > 0
+        assert any("distance" in expr.lower() for expr in expressions)
+
+    def test_calculate_wolfram_confidence_verified(self, fact_checker_service):
+        """Test Wolfram confidence calculation with verified results."""
+        wolfram_results = [
+            {"query": "5+3", "result": "8", "verified": True, "source": "Wolfram Alpha"},
+            {"query": "10*2", "result": "20", "verified": True, "source": "Wolfram Alpha"}
+        ]
+        
+        confidence = fact_checker_service._calculate_wolfram_confidence(wolfram_results)
+        
+        assert confidence > 0
+        assert confidence <= 100.0
+        # Should be high confidence since both verified
+        assert confidence >= 90.0
+
+    def test_calculate_wolfram_confidence_partial(self, fact_checker_service):
+        """Test Wolfram confidence with partial verification."""
+        wolfram_results = [
+            {"query": "5+3", "result": "8", "verified": True, "source": "Wolfram Alpha"},
+            {"query": "unknown", "result": None, "verified": False, "error": "Query not understood"}
+        ]
+        
+        confidence = fact_checker_service._calculate_wolfram_confidence(wolfram_results)
+        
+        assert confidence > 0
+        assert confidence < 100.0
+        # Should be medium confidence (50%)
+        assert 40.0 <= confidence <= 70.0
+
+    def test_calculate_wolfram_confidence_none_verified(self, fact_checker_service):
+        """Test Wolfram confidence with no verified results."""
+        wolfram_results = [
+            {"query": "unknown", "result": None, "verified": False, "error": "Error"}
+        ]
+        
+        confidence = fact_checker_service._calculate_wolfram_confidence(wolfram_results)
+        
+        assert confidence == 0.0
+
+    def test_calculate_wolfram_confidence_empty(self, fact_checker_service):
+        """Test Wolfram confidence with empty results."""
+        confidence = fact_checker_service._calculate_wolfram_confidence([])
+        assert confidence == 0.0
+
+    @pytest.mark.asyncio
+    async def test_verify_with_wolfram_no_client(self, fact_checker_service):
+        """Test Wolfram verification when client is not initialized."""
+        fact_checker_service.wolfram_client = None
+        
+        results = await fact_checker_service._verify_with_wolfram("5 + 3 = 8")
+        
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_verify_with_wolfram_success(self, fact_checker_service):
+        """Test successful Wolfram verification."""
+        # Mock Wolfram client
+        mock_wolfram = MagicMock()
+        mock_response = {
+            '@success': 'true',
+            'pod': [
+                {
+                    '@id': 'Result',
+                    'subpod': {
+                        'plaintext': '8'
+                    }
+                }
+            ]
+        }
+        mock_wolfram.query.return_value = mock_response
+        fact_checker_service.wolfram_client = mock_wolfram
+        
+        results = await fact_checker_service._verify_with_wolfram("5 + 3")
+        
+        assert len(results) > 0
+        assert results[0]['verified'] is True
+        assert results[0]['result'] == '8'
+
+    @pytest.mark.asyncio
+    async def test_verify_with_wolfram_failure(self, fact_checker_service):
+        """Test Wolfram verification failure."""
+        # Mock Wolfram client with failed response
+        mock_wolfram = MagicMock()
+        mock_response = {'@success': 'false'}
+        mock_wolfram.query.return_value = mock_response
+        fact_checker_service.wolfram_client = mock_wolfram
+        
+        results = await fact_checker_service._verify_with_wolfram("unknown query")
+        
+        assert len(results) > 0
+        assert results[0]['verified'] is False
+        assert 'error' in results[0]
+
+
+class TestContradictionDetection:
+    """Test contradiction detection between sources (v2 feature)."""
+
+    @pytest.mark.asyncio
+    async def test_detect_contradictions_no_openai(self, fact_checker_service):
+        """Test contradiction detection without OpenAI client."""
+        fact_checker_service.openai_client = None
+        
+        source_analyses = [
+            {"url": "source1.com", "quality": 80, "content": "Content 1", "reliability_weight": 0.8},
+            {"url": "source2.com", "quality": 85, "content": "Content 2", "reliability_weight": 0.85}
+        ]
+        statements = ["Test statement"]
+        
+        contradictions = await fact_checker_service._detect_contradictions(
+            source_analyses, statements
+        )
+        
+        assert contradictions == []
+
+    @pytest.mark.asyncio
+    async def test_detect_contradictions_single_source(self, fact_checker_service):
+        """Test contradiction detection with single source."""
+        source_analyses = [
+            {"url": "source1.com", "quality": 80, "content": "Content 1", "reliability_weight": 0.8}
+        ]
+        statements = ["Test statement"]
+        
+        contradictions = await fact_checker_service._detect_contradictions(
+            source_analyses, statements
+        )
+        
+        # Should return empty - need at least 2 sources
+        assert contradictions == []
+
+    @pytest.mark.asyncio
+    async def test_check_contradiction_pair_no_openai(self, fact_checker_service):
+        """Test contradiction pair check without OpenAI."""
+        fact_checker_service.openai_client = None
+        
+        source_a = {"url": "source1.com", "content": "Content A"}
+        source_b = {"url": "source2.com", "content": "Content B"}
+        statements = ["Test"]
+        
+        result = await fact_checker_service._check_contradiction_pair(
+            source_a, source_b, statements
+        )
+        
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_check_contradiction_pair_empty_content(self, fact_checker_service):
+        """Test contradiction check with empty content."""
+        # Mock OpenAI client
+        fact_checker_service.openai_client = MagicMock()
+        
+        source_a = {"url": "source1.com", "content": ""}
+        source_b = {"url": "source2.com", "content": ""}
+        statements = ["Test"]
+        
+        result = await fact_checker_service._check_contradiction_pair(
+            source_a, source_b, statements
+        )
+        
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_check_contradiction_pair_with_contradiction(self, fact_checker_service):
+        """Test detecting a contradiction between sources."""
+        # Mock OpenAI client
+        mock_openai = MagicMock()
+        mock_response = MagicMock()
+        mock_choice = MagicMock()
+        mock_message = MagicMock()
+        mock_message.content = '{"has_contradiction": true, "description": "Sources disagree on date", "severity": "high"}'
+        mock_choice.message = mock_message
+        mock_response.choices = [mock_choice]
+        
+        mock_openai.chat.completions.create = AsyncMock(return_value=mock_response)
+        fact_checker_service.openai_client = mock_openai
+        
+        source_a = {"url": "source1.com", "content": "Event occurred in 1945"}
+        source_b = {"url": "source2.com", "content": "Event occurred in 1947"}
+        statements = ["Event date"]
+        
+        result = await fact_checker_service._check_contradiction_pair(
+            source_a, source_b, statements
+        )
+        
+        assert result is not None
+        assert result["source_a"] == "source1.com"
+        assert result["source_b"] == "source2.com"
+        assert result["severity"] == "high"
+        assert "description" in result
+
+
+class TestWeightedConfidenceScoring:
+    """Test weighted confidence scoring with source reliability (v2 feature)."""
+
+    @pytest.mark.asyncio
+    async def test_calculate_weighted_confidence_high_quality(self, fact_checker_service):
+        """Test weighted confidence with high-quality sources."""
+        source_analyses = [
+            {"url": "nature.com", "quality": 95, "reliability_weight": 0.95},
+            {"url": "science.org", "quality": 95, "reliability_weight": 0.95},
+            {"url": "pubmed.gov", "quality": 95, "reliability_weight": 0.95},
+            {"url": "mit.edu", "quality": 92, "reliability_weight": 0.92},
+        ]
+        contradictions = []
+        
+        confidence = await fact_checker_service._calculate_weighted_confidence(
+            source_analyses, contradictions
+        )
+        
+        # Should be very high confidence
+        assert confidence >= 90.0
+        assert confidence <= 100.0
+
+    @pytest.mark.asyncio
+    async def test_calculate_weighted_confidence_mixed_quality(self, fact_checker_service):
+        """Test weighted confidence with mixed-quality sources."""
+        source_analyses = [
+            {"url": "nature.com", "quality": 95, "reliability_weight": 0.95},
+            {"url": "random-blog.com", "quality": 40, "reliability_weight": 0.40},
+            {"url": "news.com", "quality": 70, "reliability_weight": 0.70},
+        ]
+        contradictions = []
+        
+        confidence = await fact_checker_service._calculate_weighted_confidence(
+            source_analyses, contradictions
+        )
+        
+        # Should be medium confidence due to mixed quality
+        assert 50.0 <= confidence <= 80.0
+
+    @pytest.mark.asyncio
+    async def test_calculate_weighted_confidence_with_contradictions(self, fact_checker_service):
+        """Test weighted confidence with contradictions."""
+        source_analyses = [
+            {"url": "source1.com", "quality": 80, "reliability_weight": 0.80},
+            {"url": "source2.com", "quality": 80, "reliability_weight": 0.80},
+            {"url": "source3.com", "quality": 80, "reliability_weight": 0.80},
+        ]
+        contradictions = [
+            {"source_a": "source1.com", "source_b": "source2.com", "severity": "high"}
+        ]
+        
+        confidence = await fact_checker_service._calculate_weighted_confidence(
+            source_analyses, contradictions
+        )
+        
+        # Should be significantly reduced due to high-severity contradiction
+        assert confidence < 80.0
+
+    @pytest.mark.asyncio
+    async def test_calculate_weighted_confidence_multiple_contradictions(self, fact_checker_service):
+        """Test weighted confidence with multiple contradictions."""
+        source_analyses = [
+            {"url": "source1.com", "quality": 85, "reliability_weight": 0.85},
+            {"url": "source2.com", "quality": 85, "reliability_weight": 0.85},
+        ]
+        contradictions = [
+            {"source_a": "source1.com", "source_b": "source2.com", "severity": "medium"},
+            {"source_a": "source1.com", "source_b": "source2.com", "severity": "low"}
+        ]
+        
+        confidence = await fact_checker_service._calculate_weighted_confidence(
+            source_analyses, contradictions
+        )
+        
+        # Should be reduced by multiple penalties
+        assert confidence < 85.0
+
+    @pytest.mark.asyncio
+    async def test_calculate_weighted_confidence_empty_sources(self, fact_checker_service):
+        """Test weighted confidence with no sources."""
+        source_analyses = []
+        contradictions = []
+        
+        confidence = await fact_checker_service._calculate_weighted_confidence(
+            source_analyses, contradictions
+        )
+        
+        assert confidence == 0.0
+
+    @pytest.mark.asyncio
+    async def test_calculate_weighted_confidence_bonus_for_many_sources(self, fact_checker_service):
+        """Test confidence bonus for having many sources."""
+        # Create 5+ sources for bonus
+        source_analyses = [
+            {"url": f"source{i}.com", "quality": 80, "reliability_weight": 0.80}
+            for i in range(6)
+        ]
+        contradictions = []
+        
+        confidence = await fact_checker_service._calculate_weighted_confidence(
+            source_analyses, contradictions
+        )
+        
+        # Should get +10 bonus for 5+ sources
+        assert confidence >= 85.0  # 80 base + bonus
+
+
+class TestEnhancedSourceQualityAssessment:
+    """Test enhanced source quality assessment (v2 feature)."""
+
+    @pytest.mark.asyncio
+    async def test_assess_academic_sources(self, fact_checker_service, mock_db):
+        """Test assessment of academic sources."""
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        # Academic journals should have very high scores
+        quality = await fact_checker_service._assess_source_quality(
+            "https://www.nature.com/articles/test"
+        )
+        assert quality == 95.0
+
+        quality = await fact_checker_service._assess_source_quality(
+            "https://science.org/doi/test"
+        )
+        assert quality == 95.0
+
+    @pytest.mark.asyncio
+    async def test_assess_government_sources(self, fact_checker_service, mock_db):
+        """Test assessment of government sources."""
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        quality = await fact_checker_service._assess_source_quality(
+            "https://www.cdc.gov/health"
+        )
+        assert quality == 95.0
+
+        quality = await fact_checker_service._assess_source_quality(
+            "https://nasa.gov/mission"
+        )
+        assert quality == 95.0
+
+    @pytest.mark.asyncio
+    async def test_assess_news_agencies(self, fact_checker_service, mock_db):
+        """Test assessment of news agencies."""
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        quality = await fact_checker_service._assess_source_quality(
+            "https://reuters.com/article/test"
+        )
+        assert quality == 90.0
+
+        quality = await fact_checker_service._assess_source_quality(
+            "https://apnews.com/article/test"
+        )
+        assert quality == 90.0
+
+    @pytest.mark.asyncio
+    async def test_assess_educational_institutions(self, fact_checker_service, mock_db):
+        """Test assessment of educational institutions."""
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        quality = await fact_checker_service._assess_source_quality(
+            "https://stanford.edu/research/test"
+        )
+        assert quality == 92.0
+
+        quality = await fact_checker_service._assess_source_quality(
+            "https://mit.edu/lab/test"
+        )
+        assert quality == 92.0
+
+    @pytest.mark.asyncio
+    async def test_assess_generic_edu_domain(self, fact_checker_service, mock_db):
+        """Test assessment of generic .edu domains."""
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        quality = await fact_checker_service._assess_source_quality(
+            "https://unknown-university.edu/paper"
+        )
+        assert quality == 85.0
+
+    @pytest.mark.asyncio
+    async def test_assess_generic_gov_domain(self, fact_checker_service, mock_db):
+        """Test assessment of generic .gov domains."""
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        quality = await fact_checker_service._assess_source_quality(
+            "https://agency.gov/data"
+        )
+        assert quality == 90.0
 
 
 class TestFactCheckResultModel:

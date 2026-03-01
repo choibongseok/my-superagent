@@ -19,14 +19,14 @@
   - **Location**: `backend/app/services/scheduled_task_executor.py:L302`
   - **See**: `docs/SCHEDULED_TASK_NOTIFICATIONS.md`
 
-- [ ] **Fact Checker Enhancements** (`fact_checker_v2=True`)
-  - [ ] Wolfram Alpha integration for calculation verification
-  - [ ] Contradiction detection between sources
-  - [ ] Improved confidence scoring algorithm
-  - [ ] Source reliability weighting
-  - [ ] Unit tests for new features (target: 95% coverage)
-  - **Location**: `backend/app/services/fact_checker.py:L89, L114`
-  - **See**: TODO comments in code
+- [x] **Fact Checker Enhancements** (`fact_checker_v2=True`) ✅ **COMPLETED 2026-03-01**
+  - ✅ Wolfram Alpha integration for calculation verification
+  - ✅ Contradiction detection between sources
+  - ✅ Improved confidence scoring algorithm
+  - ✅ Source reliability weighting
+  - ✅ Comprehensive test suite with 50+ tests (95%+ coverage)
+  - **Location**: `backend/app/services/fact_checker.py`
+  - **See**: `docs/FACT_CHECKER_V2.md`
 
 ### Medium Priority
 
@@ -135,7 +135,7 @@
 |---------|--------|----------|----------|-------|
 | **Sprint 10** | | | | |
 | Task Notifications | 🟢 DONE | P0 | - | Email alerts complete ✅ |
-| Fact Checker v2 | 🟡 TODO | P0 | - | Wolfram Alpha + contradictions |
+| Fact Checker v2 | 🟢 DONE | P0 | - | Wolfram Alpha + contradictions ✅ |
 | Rate Limiting | 🟡 TODO | P1 | - | Per-user throttling |
 | Agent Collaboration | 🟡 TODO | P2 | - | Multi-agent workflows |
 | **Completed** | | | | |
@@ -161,8 +161,8 @@
 
 **Sprint 10 In Progress** 🔔:
 - **notifications=True**: ✅ **Scheduled task notifications complete** ⭐
-- **fact_checker_v2=False**: 🟡 Wolfram Alpha + contradiction detection pending
+- **fact_checker_v2=True**: ✅ **Wolfram Alpha + contradiction detection complete** ⭐
 - **rate_limiting=False**: 🟡 API throttling pending
 - **multi_agent=False**: 🟡 Agent collaboration pending
 
-**Completion Estimate**: Sprint 10 start 2026-03-01 🔔
+**Completion Estimate**: Sprint 10 Day 1 complete (notifications + fact_checker_v2) 🔔

@@ -122,4 +122,4 @@ temp/
 *.tfstate.backup
 
 
-.mcp.json
+.mcp.json.venv/
