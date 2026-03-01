@@ -7,6 +7,7 @@ asynchronous processing of agent tasks (research, docs, sheets, slides).
 import logging
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.async_runner import run_async
 from app.core.config import settings
@@ -34,6 +35,14 @@ celery_app.conf.update(
     worker_max_tasks_per_child=1000,
     task_acks_late=True,
     task_reject_on_worker_lost=True,
+    beat_schedule={
+        # Send usage nudge emails daily at 9:00 AM UTC
+        "send-usage-nudge-emails": {
+            "task": "tasks.send_usage_nudge_emails",
+            "schedule": crontab(hour=9, minute=0),  # 9:00 AM UTC daily
+            "args": (7,),  # 7 days of inactivity
+        },
+    },
 )
 
 
