@@ -47,7 +47,7 @@
   - ✅ Budget Tracking documentation
   - ✅ API documentation for new endpoints
   - ✅ Add developer onboarding guide ✅ **COMPLETED 2026-03-01**
-  - [ ] Architecture diagrams update
+  - ✅ Architecture diagrams update ✅ **COMPLETED 2026-03-01**
 
 ### Low Priority
 
@@ -86,7 +86,7 @@
 | Sheets Advanced | 🟢 DONE | P1 | - | Sprint 8 complete |
 | Claude Integration | 🟢 DONE | P0 | - | Sprint 6 complete |
 | OAuth Enhancements | 🟢 DONE | P0 | - | Sprint 7 complete |
-| Docs Maintenance | 🟡 TODO | P1 | - | Keep updated |
+| Docs Maintenance | 🟢 DONE | P1 | - | Architecture diagrams complete |
 | Budget Tracking | 🟢 DONE | P0 | - | Sprint 5 |
 | Fact Checking | 🟢 DONE | P1 | - | Needs migration |
 | Smart Scheduling | 🟢 DONE | P1 | - | Sprint 4 |
@@ -97,7 +97,7 @@
 
 - **claude=True**: ✅ Anthropic Claude models fully supported (Opus, Sonnet, Haiku)
 - **oauth=True**: ✅ Enhanced OAuth with token rotation, multi-provider, encryption
-- **docs=True**: Docs Agent fully implemented
+- **docs=True**: ✅ Docs Agent + comprehensive architecture diagrams
 - **sheets=True**: ✅ **Advanced Sheets Agent with formulas, pivot tables, conditional formatting** ⭐
 
 **Completion Estimate**: Sprint 8 complete 2026-03-01
