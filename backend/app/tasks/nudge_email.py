@@ -16,7 +16,6 @@ from typing import List
 from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import selectinload
 
 from app.agents.celery_app import celery_app
 from app.core.async_runner import run_async
@@ -31,12 +30,12 @@ logger = logging.getLogger(__name__)
 
 async def _can_send_nudge_email(user_id: UUID) -> bool:
     """Check if user can receive a nudge email (max 2 per week).
-    
+
     Queries database to count emails sent to user this week.
-    
+
     Args:
         user_id: User UUID
-        
+
     Returns:
         True if user can receive email, False otherwise
     """
@@ -49,7 +48,7 @@ async def _can_send_nudge_email(user_id: UUID) -> bool:
         seconds=now.second,
         microseconds=now.microsecond
     )
-    
+
     async with AsyncSessionLocal() as session:
         # Count emails sent to user this week
         query = select(func.count(NudgeEmailLog.id)).where(
@@ -59,14 +58,14 @@ async def _can_send_nudge_email(user_id: UUID) -> bool:
         )
         result = await session.execute(query)
         count = result.scalar()
-        
+
         logger.debug(f"User {user_id} has received {count} nudge emails this week")
         return count < 2
 
 
 async def _record_nudge_email(user_id: UUID, success: bool, error_message: str = None) -> None:
     """Record that a nudge email was sent to user in database.
-    
+
     Args:
         user_id: User UUID
         success: Whether email was sent successfully
@@ -82,23 +81,23 @@ async def _record_nudge_email(user_id: UUID, success: bool, error_message: str =
         )
         session.add(log_entry)
         await session.commit()
-        
+
         logger.info(f"Recorded nudge email for user {user_id} (success={success})")
 
 
 async def _get_inactive_users(days: int = 7) -> List[User]:
     """Get users who haven't created tasks in the last N days.
-    
+
     Args:
         days: Number of days to consider inactive (default: 7)
-        
+
     Returns:
         List of inactive User objects
     """
     async with AsyncSessionLocal() as session:
         # Cutoff date (7 days ago)
         cutoff_date = datetime.utcnow() - timedelta(days=days)
-        
+
         # Subquery: Get each user's most recent task creation date
         subquery = (
             select(
@@ -108,38 +107,38 @@ async def _get_inactive_users(days: int = 7) -> List[User]:
             .group_by(Task.user_id)
             .subquery()
         )
-        
+
         # Main query: Get active users with last task before cutoff
         # OR users with no tasks at all
         query = (
             select(User)
             .outerjoin(subquery, User.id == subquery.c.user_id)
             .where(
-                User.is_active == True,
+                User.is_active.is_(True),
                 # Either no tasks OR last task before cutoff
-                (subquery.c.last_task_at == None) | 
+                (subquery.c.last_task_at.is_(None)) |
                 (subquery.c.last_task_at < cutoff_date)
             )
         )
-        
+
         result = await session.execute(query)
         users = result.scalars().all()
-        
+
         logger.info(f"Found {len(users)} inactive users (>{days} days)")
         return list(users)
 
 
 def _send_nudge_email(user: User) -> bool:
     """Send a nudge email to an inactive user.
-    
+
     Args:
         user: User object to send email to
-        
+
     Returns:
         True if email sent successfully, False otherwise
     """
     subject = "We miss you at AgentHQ! 🚀"
-    
+
     text_body = f"""
 Hi {user.full_name or 'there'}!
 
@@ -162,7 +161,7 @@ The AgentHQ Team
 ---
 AgentHQ - AI-Powered Workspace Automation
 """
-    
+
     html_body = f"""
 <!DOCTYPE html>
 <html>
@@ -256,12 +255,12 @@ AgentHQ - AI-Powered Workspace Automation
             <div class="emoji">👋</div>
             <h1>We Miss You!</h1>
         </div>
-        
+
         <div class="content">
             <p class="greeting">Hi {user.full_name or 'there'}!</p>
-            
+
             <p>We noticed you haven't used <strong>AgentHQ</strong> in a while. We've been busy adding new features and improvements, and we'd love for you to check them out!</p>
-            
+
             <div class="features">
                 <h3>✨ What's New:</h3>
                 <ul>
@@ -271,17 +270,17 @@ AgentHQ - AI-Powered Workspace Automation
                     <li><strong>Enhanced memory</strong> - Agents remember your preferences</li>
                 </ul>
             </div>
-            
+
             <div class="cta">
                 <a href="https://app.agenthq.com" class="button">Get Back to Work 🚀</a>
             </div>
-            
+
             <p style="color: #6b7280; font-size: 14px; text-align: center;">
                 Have feedback or questions? Just reply to this email.<br>
                 We're here to help!
             </p>
         </div>
-        
+
         <div class="footer">
             <p style="margin: 0;"><strong>AgentHQ</strong></p>
             <p style="margin: 5px 0 0 0;">AI-Powered Workspace Automation</p>
@@ -290,7 +289,7 @@ AgentHQ - AI-Powered Workspace Automation
 </body>
 </html>
 """
-    
+
     return email_service.send_email(
         to_email=user.email,
         subject=subject,
@@ -302,15 +301,15 @@ AgentHQ - AI-Powered Workspace Automation
 @celery_app.task(name="tasks.send_usage_nudge_emails", bind=True)
 def send_usage_nudge_emails(self, days_inactive: int = 7) -> dict:
     """Send nudge emails to users inactive for N days.
-    
+
     This task runs periodically (e.g., daily via cron) to:
     1. Find users who haven't created tasks in the last 7 days
     2. Check weekly email limit (max 2 per user per week) from database
     3. Send personalized nudge emails
-    
+
     Args:
         days_inactive: Number of days of inactivity to trigger email (default: 7)
-        
+
     Returns:
         dict: Summary of results
             - total_inactive: Number of inactive users found
@@ -320,69 +319,71 @@ def send_usage_nudge_emails(self, days_inactive: int = 7) -> dict:
     """
     try:
         logger.info(f"Starting usage nudge email task (inactive >{days_inactive} days)")
-        
+
         # Get inactive users (async operation)
         async def _get_users():
             return await _get_inactive_users(days=days_inactive)
-        
+
         inactive_users = run_async(_get_users)
-        
+
         total_inactive = len(inactive_users)
         emails_sent = 0
         emails_skipped = 0
         errors = []
-        
+
         for user in inactive_users:
             # Check weekly limit (async operation)
             async def _check_limit():
                 return await _can_send_nudge_email(user.id)
-            
+
             can_send = run_async(_check_limit)
-            
+
             if not can_send:
                 logger.info(f"Skipping user {user.email} - weekly limit reached (2/week)")
                 emails_skipped += 1
                 continue
-            
+
             # Send email
             try:
                 success = _send_nudge_email(user)
-                
+
                 # Record email send in database (async operation)
                 async def _record():
                     await _record_nudge_email(
-                        user.id, 
+                        user.id,
                         success=success,
                         error_message=None if success else "SMTP send failed"
                     )
-                
+
                 run_async(_record)
-                
+
                 if success:
                     emails_sent += 1
                     logger.info(f"✅ Sent nudge email to {user.email}")
                 else:
                     errors.append(f"Failed to send email to {user.email}")
                     logger.error(f"❌ Failed to send email to {user.email}")
-                    
+
             except Exception as e:
                 error_msg = f"Error sending to {user.email}: {str(e)}"
                 errors.append(error_msg)
                 logger.error(error_msg)
-                
+
                 # Record failed attempt in database
+                error_str = str(e)[:512]  # Capture error for nested function
+
                 async def _record_error():
                     await _record_nudge_email(
                         user.id,
                         success=False,
-                        error_message=str(e)[:512]  # Truncate to field limit
+                        error_message=error_str
                     )
-                
+
                 try:
                     run_async(_record_error)
                 except Exception as record_err:
                     logger.error(f"Failed to record error: {record_err}")
-        
+
         result = {
             "status": "completed",
             "total_inactive": total_inactive,
@@ -390,14 +391,14 @@ def send_usage_nudge_emails(self, days_inactive: int = 7) -> dict:
             "emails_skipped": emails_skipped,
             "errors": errors,
         }
-        
+
         logger.info(
             f"Nudge email task completed: {emails_sent} sent, "
             f"{emails_skipped} skipped, {len(errors)} errors"
         )
-        
+
         return result
-        
+
     except Exception as e:
         error_msg = f"Critical error in nudge email task: {str(e)}"
         logger.error(error_msg)
@@ -415,10 +416,10 @@ def send_usage_nudge_emails(self, days_inactive: int = 7) -> dict:
 @celery_app.task(name="tasks.test_nudge_email")
 def test_nudge_email(user_email: str) -> dict:
     """Test task to send a single nudge email (for development/testing).
-    
+
     Args:
         user_email: Email address to send test email to
-        
+
     Returns:
         dict: Result status
     """
@@ -429,17 +430,17 @@ def test_nudge_email(user_email: str) -> dict:
                     select(User).where(User.email == user_email)
                 )
                 return result.scalar_one_or_none()
-        
+
         user = run_async(_get_user)
-        
+
         if not user:
             return {
                 "status": "failed",
                 "error": f"User not found: {user_email}"
             }
-        
+
         success = _send_nudge_email(user)
-        
+
         # Record test email in database
         async def _record():
             await _record_nudge_email(
@@ -447,9 +448,9 @@ def test_nudge_email(user_email: str) -> dict:
                 success=success,
                 error_message=None if success else "SMTP send failed"
             )
-        
+
         run_async(_record)
-        
+
         if success:
             return {
                 "status": "success",
@@ -460,7 +461,7 @@ def test_nudge_email(user_email: str) -> dict:
                 "status": "failed",
                 "error": f"Failed to send email to {user_email}"
             }
-            
+
     except Exception as e:
         return {
             "status": "failed",
