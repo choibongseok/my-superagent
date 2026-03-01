@@ -70,6 +70,17 @@ class Settings(BaseSettings):
         "https://www.googleapis.com/auth/presentations,"
         "https://www.googleapis.com/auth/drive.file"
     )
+    
+    # GitHub OAuth
+    GITHUB_CLIENT_ID: str = Field(default="")
+    GITHUB_CLIENT_SECRET: str = Field(default="")
+    GITHUB_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/github/callback"
+    
+    # Microsoft OAuth
+    MICROSOFT_CLIENT_ID: str = Field(default="")
+    MICROSOFT_CLIENT_SECRET: str = Field(default="")
+    MICROSOFT_TENANT_ID: str = Field(default="common")  # "common" for multi-tenant
+    MICROSOFT_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/microsoft/callback"
 
     # OpenAI
     OPENAI_API_KEY: str = Field(default="")

@@ -42,6 +42,11 @@ celery_app.conf.update(
             "schedule": crontab(hour=9, minute=0),  # 9:00 AM UTC daily
             "args": (7,),  # 7 days of inactivity
         },
+        # Clean up expired OAuth tokens daily at 2:00 AM UTC
+        "cleanup-expired-oauth-tokens": {
+            "task": "oauth.cleanup_expired_tokens",
+            "schedule": crontab(hour=2, minute=0),  # 2:00 AM UTC daily
+        },
     },
 )
 

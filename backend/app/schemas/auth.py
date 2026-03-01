@@ -66,6 +66,29 @@ class GuestAuth(BaseModel):
     name: str = "Guest"
 
 
+class GitHubCallback(BaseModel):
+    """GitHub OAuth callback schema."""
+
+    code: str
+    state: Optional[str] = None
+
+
+class MicrosoftCallback(BaseModel):
+    """Microsoft OAuth callback schema."""
+
+    code: str
+    state: Optional[str] = None
+
+
+class OAuthProviderInfo(BaseModel):
+    """OAuth provider information."""
+
+    provider: str
+    connected: bool
+    email: Optional[str] = None
+    last_used: Optional[str] = None
+
+
 class UserResponse(BaseModel):
     """User response schema."""
 

@@ -21,11 +21,14 @@
   - ✅ Documentation complete
   - **See**: `docs/CLAUDE_INTEGRATION.md`
 
-- [ ] **Enhanced OAuth Features** (`oauth=False`)
-  - Implement OAuth refresh token rotation
-  - Add multi-provider support (GitHub, Microsoft)
-  - Complete mobile OAuth backend integration
-  - Add OAuth token encryption at rest
+- [x] **Enhanced OAuth Features** (`oauth=True`) ✅ **COMPLETED 2026-03-01**
+  - ✅ Implement OAuth refresh token rotation
+  - ✅ Add multi-provider support (GitHub, Microsoft)
+  - ✅ Complete mobile OAuth backend integration
+  - ✅ Add OAuth token encryption at rest
+  - ✅ Automatic reuse detection for security
+  - ✅ Celery task for token cleanup
+  - **See**: `docs/ENHANCED_OAUTH.md`
 
 ### Medium Priority
 
@@ -74,7 +77,7 @@
 | Feature | Status | Priority | Assignee | Notes |
 |---------|--------|----------|----------|-------|
 | Claude Integration | 🟢 DONE | P0 | - | Sprint 6 complete |
-| OAuth Enhancements | 🔴 TODO | P0 | - | Security critical |
+| OAuth Enhancements | 🟢 DONE | P0 | - | Sprint 7 complete |
 | Sheets Advanced | 🟡 IN PROGRESS | P1 | - | Basic impl done |
 | Docs Maintenance | 🟢 DONE | P1 | - | Keep updated |
 | Budget Tracking | 🟢 DONE | P0 | - | Sprint 5 |
@@ -86,8 +89,8 @@
 ## 📝 Notes
 
 - **claude=True**: ✅ Anthropic Claude models fully supported (Opus, Sonnet, Haiku)
-- **oauth=False**: Basic Google OAuth works, needs enhancements
+- **oauth=True**: ✅ Enhanced OAuth with token rotation, multi-provider, encryption
 - **docs=True**: Docs Agent fully implemented
 - **sheets=False**: Basic Sheets Agent exists (512 lines), needs advanced features
 
-**Completion Estimate**: Sprint 6 target = 2026-03-08
+**Completion Estimate**: Sprint 7 target = 2026-03-08
