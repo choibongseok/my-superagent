@@ -79,5 +79,8 @@ class Task(Base, TimestampMixin):
         Index("ix_tasks_status_created", "status", "created_at"),
     )
 
+    # Relationships
+    fact_checks = relationship("FactCheckResult", back_populates="task")
+
     def __repr__(self) -> str:
         return f"<Task(id={self.id}, type={self.task_type}, status={self.status})>"

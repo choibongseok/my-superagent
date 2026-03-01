@@ -52,10 +52,10 @@
 ### Low Priority
 
 - [ ] **Testing Coverage**
-  - Unit tests for Fact Checking service
-  - Integration tests for Budget Tracking
-  - E2E tests for Sheets/Slides agents
-  - Load testing for Celery workers
+  - [x] Unit tests for Fact Checking service ✅ **COMPLETED 2026-03-01**
+  - [ ] Integration tests for Budget Tracking
+  - [ ] E2E tests for Sheets/Slides agents
+  - [ ] Load testing for Celery workers
 
 - [ ] **Performance Optimization**
   - Redis caching for frequent queries
