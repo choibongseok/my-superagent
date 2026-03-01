@@ -4,7 +4,7 @@ import asyncio
 import logging
 from celery import Task
 
-from app.agents.celery_app import celery as celery_app
+from app.agents.celery_app import celery_app
 from app.services.scheduled_task_executor import ScheduledTaskExecutor
 
 logger = logging.getLogger(__name__)
