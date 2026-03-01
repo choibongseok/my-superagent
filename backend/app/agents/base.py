@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
@@ -51,13 +51,13 @@ class BaseAgent(ABC):
         class MyAgent(BaseAgent):
             def _get_metadata(self):
                 return {"agent_type": "custom"}
-            
+
             def _create_tools(self):
                 return [MyTool()]
-            
+
             def _create_prompt(self):
                 return ChatPromptTemplate.from_messages([...])
-        
+
         agent = MyAgent(user_id="user123", session_id="sess456")
         result = await agent.run("Do something")
     """
@@ -120,17 +120,15 @@ class BaseAgent(ABC):
             return None
 
         try:
-            from langfuse.callback import CallbackHandler
-            
             handler = CallbackHandler(
                 user_id=self.user_id,
                 session_id=self.session_id,
                 metadata=self._get_metadata(),
             )
-            
+
             logger.debug(f"LangFuse handler initialized for session {self.session_id}")
             return handler
-        
+
         except Exception as e:
             logger.warning(f"Failed to initialize LangFuse handler: {e}")
             return None
@@ -151,7 +149,7 @@ class BaseAgent(ABC):
             vector_top_k=5,
             llm=self.llm if hasattr(self, 'llm') else None,
         )
-        
+
         logger.debug(f"MemoryManager initialized for session {self.session_id}")
         return memory
 
@@ -249,7 +247,7 @@ class BaseAgent(ABC):
 
         # FIXED: Create executor with memory.langchain_memory for chat_history
         callbacks = [self.langfuse_handler] if self.langfuse_handler else []
-        
+
         self.agent_executor = AgentExecutor(
             agent=agent,
             tools=self.tools,
@@ -294,7 +292,7 @@ class BaseAgent(ABC):
 
             # Run agent
             callbacks = [self.langfuse_handler] if self.langfuse_handler else []
-            
+
             result = await self.agent_executor.ainvoke(
                 agent_input,
                 config={
@@ -308,7 +306,7 @@ class BaseAgent(ABC):
 
             # Extract output
             output = result.get("output", "")
-            
+
             # Add AI message to memory
             self.add_ai_message(output)
 
@@ -320,12 +318,12 @@ class BaseAgent(ABC):
 
         except Exception as e:
             logger.error(f"Agent execution failed: {e}", exc_info=True)
-            
+
             # Flush LangFuse traces
             if self.langfuse_handler:
                 try:
                     self.langfuse_handler.flush()
-                except:
+                except Exception:
                     pass
 
             return {

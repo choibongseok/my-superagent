@@ -7,16 +7,13 @@ semantic similarity search across conversation history.
 import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime
-import json
 
 from langchain.memory import VectorStoreRetrieverMemory
 from langchain_community.vectorstores import PGVector
 from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_core.documents import Document
-from sqlalchemy import text
 
 from app.core.config import settings
-from app.core.database import engine
 
 logger = logging.getLogger(__name__)
 
