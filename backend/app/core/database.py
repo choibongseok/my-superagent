@@ -1,6 +1,6 @@
 """Database configuration and session management."""
 
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -54,3 +54,30 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             raise
         finally:
             await session.close()
+
+
+class get_db_context:
+    """
+    Context manager for getting database session outside of FastAPI dependency injection.
+    
+    Usage:
+        async with get_db_context() as db:
+            # Use db session
+    """
+    
+    def __init__(self):
+        self.session: Optional[AsyncSession] = None
+    
+    async def __aenter__(self) -> AsyncSession:
+        """Enter context and create session."""
+        self.session = AsyncSessionLocal()
+        return self.session
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Exit context and close session."""
+        if self.session:
+            if exc_type:
+                await self.session.rollback()
+            else:
+                await self.session.commit()
+            await self.session.close()

@@ -35,6 +35,16 @@ class Settings(BaseSettings):
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 10
 
+    @field_validator("DATABASE_URL", mode="after")
+    @classmethod
+    def fix_database_url(cls, v: str) -> str:
+        """Convert postgres:// to postgresql+asyncpg:// for SQLAlchemy async."""
+        if v.startswith("postgres://"):
+            return v.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
+
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_MAX_CONNECTIONS: int = 50

@@ -106,7 +106,7 @@ class BudgetAlert(Base):
     
     # Metadata
     message = Column(String, nullable=True)
-    metadata = Column(JSON, nullable=True)
+    alert_metadata = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     
     # Relationships
@@ -144,7 +144,7 @@ class CostRecord(Base):
     cost_usd = Column(Float, nullable=False)
     
     # Metadata
-    metadata = Column(JSON, nullable=True)
+    cost_metadata = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     
     # Relationships
