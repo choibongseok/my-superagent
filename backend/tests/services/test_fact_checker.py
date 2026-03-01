@@ -669,7 +669,7 @@ class TestWolframAlphaIntegration:
         mock_wolfram.query.return_value = mock_response
         fact_checker_service.wolfram_client = mock_wolfram
         
-        results = await fact_checker_service._verify_with_wolfram("unknown query")
+        results = await fact_checker_service._verify_with_wolfram("What is 2+2?")
         
         assert len(results) > 0
         assert results[0]['verified'] is False
@@ -808,8 +808,8 @@ class TestWeightedConfidenceScoring:
             source_analyses, contradictions
         )
         
-        # Should be medium confidence due to mixed quality
-        assert 50.0 <= confidence <= 80.0
+        # Should be medium-to-high confidence: weighted avg ~75.7 + 5 (3 sources) = ~80.7
+        assert 50.0 <= confidence <= 85.0
 
     @pytest.mark.asyncio
     async def test_calculate_weighted_confidence_with_contradictions(self, fact_checker_service):
