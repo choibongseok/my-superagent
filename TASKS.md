@@ -45,7 +45,7 @@
   - ✅ Enhanced OAuth documentation
   - ✅ Sheets Advanced Features documentation
   - ✅ Budget Tracking documentation
-  - [ ] API documentation for new endpoints
+  - ✅ API documentation for new endpoints
   - [ ] Add developer onboarding guide
   - [ ] Architecture diagrams update
 
