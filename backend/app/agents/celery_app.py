@@ -282,34 +282,6 @@ def process_slides_task(
             llm_provider=llm_provider,
             model=llm_model,
         )
-        prompt: Presentation generation prompt
-        user_id: User ID for context
-        title: Presentation title
-
-    Returns:
-        dict: Task result with presentation URL
-    """
-    try:
-        from app.agents.slides_agent import SlidesAgent
-        from app.services.google_auth import get_user_credentials
-
-        logger.info(f"Starting slides task {task_id}")
-
-        # Retrieve user credentials from database (async operation)
-        credentials = run_async(get_user_credentials, user_id)
-
-        if not credentials:
-            raise ValueError(
-                f"User {user_id} has no Google credentials. "
-                "Please authenticate via Google OAuth first."
-            )
-
-        # Create agent instance with real credentials
-        agent = SlidesAgent(
-            user_id=user_id,
-            session_id=task_id,
-            credentials=credentials,
-        )
 
         # Generate presentation (async method - must await)
         result = run_async(agent.run, prompt)

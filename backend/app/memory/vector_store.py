@@ -10,8 +10,8 @@ from datetime import datetime
 import json
 
 from langchain.memory import VectorStoreRetrieverMemory
-from langchain.vectorstores import PGVector
-from langchain.embeddings import OpenAIEmbeddings
+from langchain_community.vectorstores import PGVector
+from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_core.documents import Document
 from sqlalchemy import text
 
