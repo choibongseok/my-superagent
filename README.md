@@ -111,19 +111,49 @@
   - 8개 통합 테스트 시나리오
 - Metadata 및 inputs 저장
 
-#### 6. Enterprise Features
+#### 6. Advanced LLM Integration (Sprint 6 ✅)
+- **Multi-Model Support**:
+  - OpenAI GPT-4 / GPT-4o
+  - **Anthropic Claude** (Opus, Sonnet 4.5, Haiku) - 완전 지원
+  - Per-agent model selection
+  - Automatic fallback handling
+- **Budget Tracking & Alerts** (Sprint 5 ✅):
+  - Real-time LLM cost monitoring (OpenAI + Claude)
+  - User/Project budget limits with alerts
+  - Celery task for daily budget monitoring
+  - Cost projection & usage analytics
+- **Fact Checking Service** (375 라인):
+  - Multi-source verification
+  - Wikipedia + Britannica integration
+  - Confidence scoring (0-100)
+  - Verification metadata tracking
+
+#### 7. Enhanced Security & OAuth (Sprint 7 ✅)
+- **OAuth Token Management**:
+  - Automatic refresh token rotation
+  - Multi-provider support (Google, GitHub, Microsoft)
+  - Token encryption at rest (Fernet)
+  - Reuse detection for security
+  - Celery task for token cleanup (90-day expiry)
+- **보안 강화**: 
+  - 9개 메서드에서 `eval()` 제거 (코드 인젝션 방지)
+  - JWT 기반 인증 (access + refresh tokens)
+  - Google ID token 검증
+
+#### 8. Enterprise Automation
 - **Multi-agent orchestration**: 복잡한 작업 자동 분배 및 조율
 - **Celery 비동기 Task Queue**: 자동 큐잉 + 실시간 상태 동기화
+- **Celery Beat Scheduling** (Sprint 4 ✅):
+  - Periodic task scheduling (daily/weekly/custom)
+  - Usage nudge emails (weekly inactive users)
+  - Budget monitoring automation
+  - Token cleanup automation
 - **LocalCache 서비스**: 성능 최적화 + 오프라인 지원
 - **Email Service** (389 라인 구현):
   - SMTP 기반 workspace invitation
   - 프로페셔널한 HTML 템플릿 (반응형 디자인)
   - Plain text fallback
   - 8개 테스트 시나리오
-- **보안 강화**: 
-  - 9개 메서드에서 `eval()` 제거 (코드 인젝션 방지)
-  - JWT 기반 인증 (access + refresh tokens)
-  - Google ID token 검증
 - **WebSocket 재연결 로직**: 네트워크 단절 후 자동 복구
 - **25+ E2E 통합 테스트**: full workflow + multi-agent orchestration
 
@@ -169,10 +199,11 @@
 
 | Category          | Technologies                                           |
 | ----------------- | ------------------------------------------------------ |
-| **Backend**       | FastAPI, Celery, PostgreSQL (+PGVector), Redis         |
-| **Agent System**  | LangChain, OpenAI GPT-4, Anthropic Claude              |
+| **Backend**       | FastAPI, Celery, Celery Beat, PostgreSQL (+PGVector), Redis |
+| **Agent System**  | LangChain, OpenAI GPT-4/GPT-4o, Anthropic Claude (Opus/Sonnet/Haiku) |
 | **Memory**        | ConversationMemory, VectorStoreMemory (PGVector)       |
-| **Observability** | LangFuse (LLM tracing, cost tracking)                  |
+| **Observability** | LangFuse (LLM tracing, cost tracking, budget alerts)   |
+| **Security**      | JWT auth, OAuth token encryption (Fernet), Google ID validation |
 | **Desktop**       | Tauri 1.5+, React 18, TypeScript, Tailwind CSS         |
 | **Mobile**        | Flutter 3.16+, Dart                                    |
 | **Infrastructure**| Docker, Cloud Run, GCS, Terraform                      |
@@ -352,14 +383,27 @@ ANTHROPIC_API_KEY=sk-ant-...
 LANGCHAIN_TRACING_V2=true
 LANGCHAIN_PROJECT=agenthq
 
-# LangFuse (LLM Observability)
+# LangFuse (LLM Observability & Budget Tracking)
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_HOST=https://cloud.langfuse.com
 
+# OAuth Token Encryption (Fernet)
+OAUTH_ENCRYPTION_KEY=your-fernet-key-here  # Generate with cryptography.fernet.Fernet.generate_key()
+
+# Budget Alerts (Sprint 5)
+BUDGET_ALERT_THRESHOLD=0.8  # Alert at 80% of budget
+BUDGET_CHECK_INTERVAL=86400  # Daily (seconds)
+
 # Database & Cache
 DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/agenthq
 REDIS_URL=redis://localhost:6379/0
+
+# SMTP Email (for alerts & invitations)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
 
 # App Settings
 DEBUG=true
@@ -510,36 +554,59 @@ flutter build ipa --release
 
 ## 🚧 Development Status
 
-**Current Sprint**: 6주 스프린트 **95% 완료** ✅ | **Status**: Production Ready
+**Current Sprint**: Sprint 8 Complete ✅ | **Status**: Production Ready
 
 **Completed**:
 - ✅ **Phase 1**: Core API, OAuth, Database, Task Queue
 - ✅ **Phase 2**: LangChain integration, Memory system, Citation tracking
 - ✅ **Phase 3**: Modern Chat UI (4-column layout, Dark mode, Guest mode)
 - ✅ **Phase 3-1**: Mobile Client (Flutter) - iOS/Android apps with OAuth + Offline Mode
+- ✅ **Sprint 2**: Usage Nudge Emails (2026-02-26)
+- ✅ **Sprint 3**: Enhanced Docs Agent
+- ✅ **Sprint 4**: Smart Scheduling with Celery Beat
+- ✅ **Sprint 5**: LLM Cost Tracking & Budget Alerts (2026-03-01)
+- ✅ **Sprint 6**: Claude/Anthropic Integration (2026-03-01)
+- ✅ **Sprint 7**: Enhanced OAuth with Token Rotation & Encryption (2026-03-01)
+- ✅ **Sprint 8**: Sheets Advanced Features - Formulas, Pivot Tables, Conditional Formatting (2026-03-01)
 
-**6주 스프린트 주요 성과** (2026-02-12 완료):
-- ✅ **10개 Critical 버그 수정** (서비스 중단 방지)
-  - Agent memory connection
-  - Google API authentication
-  - Security: `eval()` 제거 (9개 메서드)
-  - WebSocket reconnection
-  - Celery async processing
-- ✅ **7개 핵심 기능 구현**
-  - Sheets/Slides advanced features (520+ lines)
-  - Mobile OAuth backend
-  - Mobile Offline Mode (533 lines)
-  - Template-Task integration
-  - Weather Tool OpenWeatherMap 통합
-- ✅ **25+ E2E 통합 테스트** (870 lines)
-- ✅ **36개 의미 있는 커밋** (5,000+ 라인 코드)
+**Sprint 5-8 주요 성과** (2026-03-01):
+- ✅ **Multi-Model LLM Support**
+  - Anthropic Claude (Opus, Sonnet 4.5, Haiku) 완전 통합
+  - Per-agent model selection
+  - Budget tracking for all models (OpenAI + Claude)
+- ✅ **Budget Management System**
+  - Real-time cost monitoring
+  - User/Project budget limits & alerts
+  - Daily monitoring via Celery Beat
+  - Cost projection & analytics
+- ✅ **Enhanced OAuth Security**
+  - Automatic refresh token rotation
+  - Multi-provider support (Google, GitHub, Microsoft)
+  - Token encryption at rest (Fernet)
+  - Reuse detection & automatic cleanup
+- ✅ **Sheets Agent Advanced Features** (520+ lines)
+  - Formulas: SUM, AVERAGE, VLOOKUP, etc.
+  - Pivot tables & data analysis
+  - Conditional formatting
+  - Data validation & named ranges
+- ✅ **Fact Checking Service** (375 lines)
+  - Multi-source verification
+  - Confidence scoring
+  - Wikipedia + Britannica integration
+- ✅ **Celery Beat Automation**
+  - Usage nudge emails (weekly)
+  - Budget monitoring (daily)
+  - Token cleanup (daily)
 
-**Remaining (5%)**:
-- ⏳ README 업데이트 (진행 중)
-- 📍 API 문서 업데이트
-- 📍 Frontend integration 최종 검토 (선택)
+**Remaining Documentation Tasks**:
+- 📍 API documentation for new endpoints (Sprint 6-8)
+- 📍 Developer onboarding guide
+- 📍 Architecture diagrams update
 
-📋 **Sprint Report**: [docs/SPRINT_COMPLETION_REPORT.md](docs/SPRINT_COMPLETION_REPORT.md)
+📋 **Sprint Reports**: 
+- [Sprint 8 Completion](docs/SPRINT_8_COMPLETION.md)
+- [Sprint 7 Completion](docs/SPRINT_7_COMPLETION.md)
+- [Sprint 6 Completion](docs/SPRINT_6_COMPLETION.md)
 
 ---
 
@@ -555,6 +622,13 @@ flutter build ipa --release
 - **[🧠 PHASE_2_IMPLEMENTATION.md](docs/PHASE_2_IMPLEMENTATION.md)** - Memory & Citation 시스템
 - **[🔗 LANGCHAIN_GUIDE.md](docs/LANGCHAIN_GUIDE.md)** - LangChain 개념 및 구현 패턴
 - **[📊 LANGFUSE_SETUP.md](docs/LANGFUSE_SETUP.md)** - LangFuse 모니터링 시스템
+
+### Feature Documentation (Sprint 5-8)
+- **[🤖 CLAUDE_INTEGRATION.md](docs/CLAUDE_INTEGRATION.md)** - Anthropic Claude 통합 (Sprint 6)
+- **[🔐 ENHANCED_OAUTH.md](docs/ENHANCED_OAUTH.md)** - OAuth Token Rotation & Encryption (Sprint 7)
+- **[📊 SHEETS_ADVANCED_FEATURES.md](docs/SHEETS_ADVANCED_FEATURES.md)** - Sheets Advanced (Sprint 8)
+- **[💰 BUDGET_TRACKING.md](docs/BUDGET_TRACKING.md)** - LLM Cost & Budget Management (Sprint 5)
+- **[✅ FACT_CHECKING.md](docs/FACT_CHECKING.md)** - Multi-source Fact Verification
 
 ### Quick References
 - **Backend API**: http://localhost:8000/docs (Swagger UI)
