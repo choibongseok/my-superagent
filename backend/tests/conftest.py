@@ -39,5 +39,16 @@ async def db(setup_database):
 @pytest.fixture
 def client():
     """Create test client"""
-    with TestClient(app) as test_client:
+    # Override database dependency with test database
+    from app.core.database import get_db
+    
+    async def override_get_db():
+        async with AsyncSessionLocal() as session:
+            yield session
+    
+    app.dependency_overrides[get_db] = override_get_db
+    
+    with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
+    
+    app.dependency_overrides.clear()
