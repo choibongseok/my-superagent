@@ -1,11 +1,117 @@
 # 📋 AgentHQ Task Tracker
 
-> **Last Updated**: 2026-03-01 (Sprint 10 Planning)  
-> **Current Sprint**: Sprint 10 🔔
+> **Last Updated**: 2026-03-01 (Sprint 10 → Sprint 11 Planning)  
+> **Current Sprint**: Sprint 10 Complete ✅ | Sprint 11 Starting 🚀
 
 ---
 
-## 🎯 Sprint 10 Priorities (IN PROGRESS)
+## 🎯 Sprint 11 Priorities (NEXT UP 🚀)
+
+### High Priority: API Rate Limiting
+
+- [ ] **Rate Limiter Middleware** (`rate_limiting=True`) 🎯 **P0**
+  - [ ] Create `backend/app/middleware/rate_limiter.py`
+    - FastAPI middleware class
+    - Redis backend for distributed limiting
+    - Sliding window algorithm
+    - Rate limit headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset
+  - [ ] Add `RateLimitConfig` to `backend/app/core/config.py`
+    - Default limits: 100 req/min per user, 1000 req/hour
+    - Per-endpoint overrides: `/api/v1/tasks/create` → 10/min
+    - Admin bypass flag
+  - [ ] Create Redis client wrapper: `backend/app/core/redis_rate_limiter.py`
+    - `check_rate_limit(user_id, endpoint, limit)` → bool
+    - `get_remaining_quota(user_id, endpoint)` → int
+    - Atomic increment with TTL
+  - **Completion**: All public endpoints protected, 429 errors with Retry-After header
+
+- [ ] **Admin Rate Limit Management** 🎯 **P0**
+  - [ ] API endpoints: `backend/app/api/v1/admin/rate_limits.py`
+    - `GET /api/v1/admin/rate-limits` - List all user quotas
+    - `POST /api/v1/admin/rate-limits/{user_id}/override` - Set custom limit
+    - `DELETE /api/v1/admin/rate-limits/{user_id}/override` - Remove override
+  - [ ] Database schema: `backend/app/models/rate_limit_override.py`
+    - `user_id`, `endpoint_pattern`, `custom_limit`, `expires_at`
+  - [ ] Migration: `alembic revision --autogenerate -m "Add rate limit overrides"`
+  - **Completion**: Admins can grant temporary high quotas for VIP users
+
+- [ ] **Rate Limiting Tests** 🎯 **P1**
+  - [ ] Unit tests: `tests/middleware/test_rate_limiter.py`
+    - Test sliding window accuracy
+    - Test Redis failure fallback (allow requests if Redis down)
+    - Test concurrent request handling
+    - Test rate limit header correctness
+  - [ ] Integration tests: `tests/api/test_rate_limiting_integration.py`
+    - Simulate 200 requests in 1 minute (expect 100 success, 100 throttled)
+    - Test admin override flow
+    - Test per-endpoint limits
+  - **Completion**: 20+ test scenarios, 90%+ coverage
+
+### High Priority: Agent Collaboration Foundation
+
+- [ ] **Agent Coordinator Service** (`multi_agent=True`) 🎯 **P0**
+  - [ ] Create `backend/app/agents/coordinator.py`
+    - `AgentCoordinator` class with workflow execution
+    - `WorkflowDefinition` schema (steps, dependencies, error handling)
+    - `execute_workflow(workflow_id, inputs)` → WorkflowResult
+  - [ ] Agent communication protocol: `backend/app/agents/protocols.py`
+    - `AgentMessage` dataclass (sender, receiver, payload, metadata)
+    - `AgentResponse` dataclass (status, result, next_agent)
+    - Redis Pub/Sub for async agent messaging
+  - [ ] Update agents to support delegation:
+    - `backend/app/agents/research_agent.py` - Add `can_delegate` flag
+    - `backend/app/agents/sheets_agent.py` - Accept input from other agents
+    - `backend/app/agents/docs_agent.py` - Accept structured data input
+  - **Completion**: Coordinator can chain 2+ agents with shared context
+
+- [ ] **Multi-Agent Workflows** 🎯 **P0**
+  - [ ] Create 3 example workflows: `backend/app/workflows/`
+    - `research_to_sheets.py`: Web search → Extract data → Create spreadsheet
+    - `research_to_docs.py`: Research topic → Generate report with citations
+    - `full_pipeline.py`: Research → Sheets → Slides (full presentation)
+  - [ ] Workflow status tracking: `backend/app/models/workflow_execution.py`
+    - `workflow_id`, `status` (pending/running/completed/failed), `current_step`, `results`
+    - Migration: `alembic revision -m "Add workflow execution tracking"`
+  - [ ] API endpoints: `backend/app/api/v1/workflows.py`
+    - `POST /api/v1/workflows/execute` - Start workflow
+    - `GET /api/v1/workflows/{workflow_id}/status` - Check progress
+    - `GET /api/v1/workflows` - List available workflows
+  - **Completion**: 3 working workflows, E2E tests for each
+
+- [ ] **Workflow Testing** 🎯 **P1**
+  - [ ] Integration tests: `tests/workflows/test_multi_agent_workflows.py`
+    - Test research_to_sheets workflow (mock LLM, verify sheet creation)
+    - Test error handling (if agent 1 fails, workflow stops gracefully)
+    - Test context passing between agents
+  - [ ] Performance tests: Measure workflow latency vs sequential tasks
+  - **Completion**: All workflows tested, <30s end-to-end execution
+
+### Medium Priority
+
+- [ ] **API Versioning Strategy** 🎯 **P2**
+  - [ ] Create `backend/app/api/v2/` directory
+  - [ ] Add version negotiation middleware: `backend/app/middleware/api_version.py`
+    - Support header: `X-API-Version: v2`
+    - Fallback to v1 if header missing
+  - [ ] Deprecation policy: `docs/API_DEPRECATION.md`
+  - **Completion**: v2 endpoints available, v1 still functional
+
+- [ ] **Monitoring Dashboard** (`monitoring=True`) 🎯 **P2**
+  - [ ] Real-time agent status monitoring
+  - [ ] Performance metrics visualization
+  - [ ] Error tracking and alerting
+  - [ ] Integration with existing budget tracking
+
+### Low Priority
+
+- [ ] **Voice Interface Prototype** 🎯 **P3**
+  - [ ] Whisper integration for speech-to-task
+  - [ ] TTS for agent responses
+  - [ ] Proof of concept in mobile app
+
+---
+
+## ✅ Sprint 10 Completed (2026-03-01)
 
 ### High Priority
 
@@ -28,27 +134,39 @@
   - **Location**: `backend/app/services/fact_checker.py`
   - **See**: `docs/FACT_CHECKER_V2.md`
 
-### Medium Priority
+---
 
-- [ ] **API Rate Limiting** (`rate_limiting=True`)
-  - [ ] Implement per-user rate limits
-  - [ ] Per-endpoint throttling
-  - [ ] Redis-based rate limit store
-  - [ ] Admin override capabilities
+## 💡 Sprint 12-13: FactoryHub Integration Planning (CONCEPT)
 
-- [ ] **Agent Collaboration** (`multi_agent=True`)
-  - [ ] Enable agents to call other agents
-  - [ ] Shared context between agents
-  - [ ] Workflow orchestration
-  - [ ] Example: Research agent → Sheets agent pipeline
+### Research & Design Phase
 
-### Low Priority
+- [ ] **FactoryHub Architecture Design** 🎯 **P2**
+  - [ ] Document universal task executor architecture
+  - [ ] Design pluggable backend system (Python, Node.js, Docker)
+  - [ ] Resource quota management design
+  - [ ] Create `docs/FACTORYHUB_INTEGRATION.md`
+  - **Completion**: Architecture doc approved by team
 
-- [ ] **Monitoring Dashboard** (`monitoring=True`)
-  - [ ] Real-time agent status monitoring
-  - [ ] Performance metrics visualization
-  - [ ] Error tracking and alerting
-  - [ ] Integration with existing budget tracking
+- [ ] **Non-LLM Task Types** 🎯 **P2**
+  - [ ] Define task type schema: `backend/app/models/task_type.py`
+    - `LLMTask` (existing agents)
+    - `ScriptTask` (Python/Node.js execution)
+    - `APITask` (external API calls)
+    - `DataTransformTask` (ETL operations)
+  - [ ] Prototype 2 non-LLM tasks:
+    - CSV to JSON converter
+    - GitHub repo cloner
+  - **Completion**: 2 working non-LLM task examples
+
+- [ ] **External Tool Integration Framework** 🎯 **P3**
+  - [ ] Design webhook trigger system
+  - [ ] GitHub Actions integration spec
+  - [ ] Zapier/Make.com compatibility layer design
+  - **Completion**: Integration framework documented
+
+---
+
+## 🎯 Sprint 6 Priorities (COMPLETED)
 
 ---
 
