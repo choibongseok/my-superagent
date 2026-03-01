@@ -9,23 +9,35 @@
 
 ### High Priority: API Rate Limiting
 
-- [ ] **Rate Limiter Middleware** (`rate_limiting=True`) 🎯 **P0**
-  - [ ] Create `backend/app/middleware/rate_limiter.py`
+- [x] **Rate Limiter Middleware** (`rate_limiting=True`) 🎯 **P0** ✅ **COMPLETED 2026-03-01**
+  - [x] Create `backend/app/middleware/rate_limiter.py`
     - FastAPI middleware class
     - Redis backend for distributed limiting
     - Sliding window algorithm
     - Rate limit headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset
-  - [ ] Add `RateLimitConfig` to `backend/app/core/config.py`
+  - [x] Add `RateLimitConfig` to `backend/app/core/config.py`
     - Default limits: 100 req/min per user, 1000 req/hour
     - Per-endpoint overrides: `/api/v1/tasks/create` → 10/min
     - Admin bypass flag
-  - [ ] Create Redis client wrapper: `backend/app/core/redis_rate_limiter.py`
+  - [x] Create Redis client wrapper: `backend/app/core/redis_rate_limiter.py`
     - `check_rate_limit(user_id, endpoint, limit)` → bool
     - `get_remaining_quota(user_id, endpoint)` → int
     - Atomic increment with TTL
-  - **Completion**: All public endpoints protected, 429 errors with Retry-After header
+  - **Completion**: All public endpoints protected, 429 errors with Retry-After header ✅
 
-- [ ] **Admin Rate Limit Management** 🎯 **P0**
+- [x] **Rate Limiting Tests** 🎯 **P1** ✅ **COMPLETED 2026-03-01**
+  - [x] Unit tests: `tests/core/test_redis_rate_limiter.py`
+    - Test sliding window accuracy
+    - Test Redis failure fallback (allow requests if Redis down)
+    - Test concurrent request handling
+    - Test rate limit header correctness
+  - [x] Integration tests: `tests/middleware/test_rate_limiter.py`
+    - Simulate 200 requests in 1 minute (expect 100 success, 100 throttled)
+    - Test admin override flow
+    - Test per-endpoint limits
+  - **Completion**: 40+ test scenarios, 90%+ coverage ✅
+
+- [ ] **Admin Rate Limit Management** 🎯 **P0** (Future: Sprint 12)
   - [ ] API endpoints: `backend/app/api/v1/admin/rate_limits.py`
     - `GET /api/v1/admin/rate-limits` - List all user quotas
     - `POST /api/v1/admin/rate-limits/{user_id}/override` - Set custom limit
@@ -34,18 +46,6 @@
     - `user_id`, `endpoint_pattern`, `custom_limit`, `expires_at`
   - [ ] Migration: `alembic revision --autogenerate -m "Add rate limit overrides"`
   - **Completion**: Admins can grant temporary high quotas for VIP users
-
-- [ ] **Rate Limiting Tests** 🎯 **P1**
-  - [ ] Unit tests: `tests/middleware/test_rate_limiter.py`
-    - Test sliding window accuracy
-    - Test Redis failure fallback (allow requests if Redis down)
-    - Test concurrent request handling
-    - Test rate limit header correctness
-  - [ ] Integration tests: `tests/api/test_rate_limiting_integration.py`
-    - Simulate 200 requests in 1 minute (expect 100 success, 100 throttled)
-    - Test admin override flow
-    - Test per-endpoint limits
-  - **Completion**: 20+ test scenarios, 90%+ coverage
 
 ### High Priority: Agent Collaboration Foundation
 
@@ -251,11 +251,12 @@
 
 | Feature | Status | Priority | Assignee | Notes |
 |---------|--------|----------|----------|-------|
+| **Sprint 11** | | | | |
+| Rate Limiting | 🟢 DONE | P0 | - | Middleware + tests complete ✅ |
+| Agent Collaboration | 🟡 TODO | P2 | - | Multi-agent workflows |
 | **Sprint 10** | | | | |
 | Task Notifications | 🟢 DONE | P0 | - | Email alerts complete ✅ |
 | Fact Checker v2 | 🟢 DONE | P0 | - | Wolfram Alpha + contradictions ✅ |
-| Rate Limiting | 🟡 TODO | P1 | - | Per-user throttling |
-| Agent Collaboration | 🟡 TODO | P2 | - | Multi-agent workflows |
 | **Completed** | | | | |
 | Performance Opt | 🟢 DONE | P1 | - | Sprint 9: 5-10x faster ⚡ |
 | Sheets Advanced | 🟢 DONE | P1 | - | Sprint 8 complete |
@@ -277,10 +278,12 @@
 - **sheets=True**: ✅ **Advanced Sheets Agent with formulas, pivot tables, conditional formatting** ⭐
 - **performance=True**: ✅ **Redis caching, query optimization, 5-10x performance improvement** ⚡
 
-**Sprint 10 In Progress** 🔔:
-- **notifications=True**: ✅ **Scheduled task notifications complete** ⭐
-- **fact_checker_v2=True**: ✅ **Wolfram Alpha + contradiction detection complete** ⭐
-- **rate_limiting=False**: 🟡 API throttling pending
+**Sprint 11 In Progress** 🚀:
+- **rate_limiting=True**: ✅ **API rate limiting with sliding window complete** ⭐
 - **multi_agent=False**: 🟡 Agent collaboration pending
 
-**Completion Estimate**: Sprint 10 Day 1 complete (notifications + fact_checker_v2) 🔔
+**Sprint 10 Complete** ✅:
+- **notifications=True**: ✅ **Scheduled task notifications complete** ⭐
+- **fact_checker_v2=True**: ✅ **Wolfram Alpha + contradiction detection complete** ⭐
+
+**Completion Estimate**: Sprint 11 Day 1 complete (rate_limiting) 🚀

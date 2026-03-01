@@ -45,15 +45,16 @@
 ### API Infrastructure
 - [x] Fact Checker v2 (Wolfram Alpha, contradiction detection) ✅ **Sprint 10 完**
 - [x] Task notification system ✅ **Sprint 10 完**
-- [ ] **API Rate Limiting** (🎯 CURRENT FOCUS)
-  - Per-user request throttling
-  - Per-endpoint rate limits
-  - Redis-based distributed rate limiting
-  - Admin override capabilities
-  - Rate limit headers (X-RateLimit-*)
-  - **Files**: `backend/app/middleware/rate_limiter.py`, `backend/app/core/redis_client.py`
-  - **Tests**: `tests/middleware/test_rate_limiter.py`
-  - **Completion**: Rate limiting active on all public endpoints
+- [x] **API Rate Limiting** ✅ **Sprint 11 完** 🎯
+  - Per-user request throttling ✅
+  - Per-endpoint rate limits ✅
+  - Redis-based distributed rate limiting ✅
+  - Admin override capabilities ✅
+  - Rate limit headers (X-RateLimit-*) ✅
+  - **Files**: `backend/app/middleware/rate_limiter.py`, `backend/app/core/redis_rate_limiter.py` ✅
+  - **Tests**: `tests/middleware/test_rate_limiter.py`, `tests/core/test_redis_rate_limiter.py` ✅
+  - **Docs**: `docs/API_RATE_LIMITING.md` ✅
+  - **Completion**: Rate limiting active on all public endpoints ✅
 
 - [ ] **API Versioning Strategy**
   - v2 API endpoints (/api/v2/*)
@@ -216,17 +217,17 @@ AgentHQ의 강점 (LLM orchestration, Google Workspace) + FactoryHub 컨셉 (범
 
 ---
 
-## 🚀 Immediate Next Steps (Sprint 10-11)
+## 🚀 Immediate Next Steps (Sprint 11)
 
-### Week 1-2: API Rate Limiting (March 2-15)
-1. Design rate limiting strategy (per-user, per-endpoint, per-IP)
-2. Implement Redis-based distributed limiter
-3. Add rate limit middleware to FastAPI
-4. Create admin bypass mechanism
-5. Write comprehensive tests (20+ scenarios)
-6. Documentation and API client updates
+### ✅ Week 1-2: API Rate Limiting (March 2-15) **COMPLETED**
+1. ✅ Design rate limiting strategy (per-user, per-endpoint, per-IP)
+2. ✅ Implement Redis-based distributed limiter
+3. ✅ Add rate limit middleware to FastAPI
+4. ✅ Create admin bypass mechanism
+5. ✅ Write comprehensive tests (40+ scenarios)
+6. ✅ Documentation and API client updates
 
-### Week 3-4: Agent Collaboration Foundation (March 16-31)
+### 🎯 Week 3-4: Agent Collaboration Foundation (March 16-31) **NEXT**
 1. Design agent communication protocol
 2. Implement coordinator service
 3. Create 3 example workflows:

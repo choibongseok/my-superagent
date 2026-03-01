@@ -7,15 +7,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from redis import Redis
 
 from app.api.v1 import api_router
 from app.core.cache import cache
 from app.core.config import settings
 from app.core.database import engine
 from app.core.metrics import init_metrics, metrics_app
+from app.core.redis_rate_limiter import init_rate_limiter
 from app.middleware.cache import CacheMiddleware
 from app.middleware.metrics import MetricsMiddleware
-from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.rate_limiter import RateLimitMiddleware
 from app.models.base import Base
 
 # Configure logging
@@ -46,8 +48,19 @@ async def lifespan(app: FastAPI):
     try:
         await cache.connect()
         logger.info("Redis cache connected")
+        
+        # Initialize rate limiter with Redis client
+        if settings.RATE_LIMIT_ENABLED:
+            # Create synchronous Redis client for rate limiter
+            redis_client = Redis.from_url(
+                settings.REDIS_URL,
+                max_connections=settings.REDIS_MAX_CONNECTIONS,
+                decode_responses=False
+            )
+            init_rate_limiter(redis_client)
+            logger.info("Rate limiter initialized")
     except Exception as e:
-        logger.warning(f"Redis connection failed: {e}. Continuing without cache.")
+        logger.warning(f"Redis connection failed: {e}. Continuing without cache/rate limiting.")
 
     yield
 
@@ -90,10 +103,8 @@ if settings.ENABLE_METRICS:
     app.add_middleware(MetricsMiddleware)
 
 # Add rate limiting middleware
-app.add_middleware(
-    RateLimitMiddleware,
-    requests_per_minute=settings.RATE_LIMIT_PER_MINUTE,
-)
+if settings.RATE_LIMIT_ENABLED:
+    app.add_middleware(RateLimitMiddleware)
 
 # Add cache middleware
 app.add_middleware(CacheMiddleware, cache_ttl=settings.REDIS_DEFAULT_TTL)

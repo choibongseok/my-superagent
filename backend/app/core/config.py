@@ -101,8 +101,17 @@ class Settings(BaseSettings):
     CORS_ALLOW_CREDENTIALS: bool = True
 
     # Rate Limiting
-    RATE_LIMIT_PER_MINUTE: int = 60
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_PER_MINUTE: int = 100
     RATE_LIMIT_PER_HOUR: int = 1000
+    
+    # Per-endpoint rate limits (overrides)
+    RATE_LIMIT_TASKS_CREATE: int = 10  # /api/v1/tasks/create -> 10/min
+    RATE_LIMIT_RESEARCH: int = 20  # /api/v1/agents/research -> 20/min
+    RATE_LIMIT_DOCS: int = 15  # /api/v1/agents/docs -> 15/min
+    RATE_LIMIT_SHEETS: int = 15  # /api/v1/agents/sheets -> 15/min
+    RATE_LIMIT_SLIDES: int = 10  # /api/v1/agents/slides -> 10/min
+    RATE_LIMIT_FACT_CHECK: int = 30  # /api/v1/fact-check -> 30/min
 
     # Task Queue
     TASK_MAX_RETRIES: int = 3
