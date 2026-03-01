@@ -291,11 +291,76 @@ class ScheduledTaskExecutor:
         await db.commit()
         await db.refresh(execution)
         
-        # TODO: Send notification if enabled
-        # if scheduled_task.notify_on_completion:
-        #     await send_completion_notification(scheduled_task, execution)
+        # Send notification if enabled
+        if scheduled_task.notify_on_completion:
+            try:
+                await ScheduledTaskExecutor.send_completion_notification(
+                    scheduled_task, execution, db
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to send notification for task {scheduled_task.id}: {e}",
+                    exc_info=True
+                )
         
         return execution
+
+    @staticmethod
+    async def send_completion_notification(
+        scheduled_task: ScheduledTask,
+        execution: ScheduledTaskExecution,
+        db: AsyncSession
+    ) -> None:
+        """
+        Send notification about task completion/failure.
+        
+        Args:
+            scheduled_task: The scheduled task
+            execution: The execution record
+            db: Database session
+        """
+        from app.services.email_service import email_service
+        
+        # Determine recipient email
+        recipient_email = scheduled_task.notification_email
+        if not recipient_email:
+            # Fall back to user's email
+            recipient_email = scheduled_task.user.email
+        
+        if not recipient_email:
+            logger.warning(
+                f"No notification email configured for scheduled task {scheduled_task.id}"
+            )
+            return
+        
+        # Calculate execution time
+        execution_time_seconds = None
+        if execution.completed_at and execution.started_at:
+            execution_time_seconds = (
+                execution.completed_at - execution.started_at
+            ).total_seconds()
+        
+        # Send email
+        success = email_service.send_task_completion_notification(
+            to_email=recipient_email,
+            task_name=scheduled_task.name,
+            task_type=scheduled_task.task_type,
+            success=execution.success,
+            output_data=execution.output_data,
+            error_message=execution.error_message,
+            execution_time_seconds=execution_time_seconds,
+        )
+        
+        if success:
+            logger.info(
+                f"Sent completion notification for task {scheduled_task.name} "
+                f"to {recipient_email}"
+            )
+        else:
+            logger.error(
+                f"Failed to send notification for task {scheduled_task.name} "
+                f"to {recipient_email}"
+            )
 
     @staticmethod
     async def run_scheduler() -> Dict[str, Any]:

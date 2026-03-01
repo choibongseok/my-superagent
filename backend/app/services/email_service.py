@@ -313,6 +313,226 @@ My SuperAgent
 
         return self.send_email(to_email, subject, html_body, text_body)
 
+    def send_task_completion_notification(
+        self,
+        to_email: str,
+        task_name: str,
+        task_type: str,
+        success: bool,
+        output_data: Optional[dict] = None,
+        error_message: Optional[str] = None,
+        execution_time_seconds: Optional[float] = None,
+    ) -> bool:
+        """
+        Send scheduled task completion/failure notification.
+
+        Args:
+            to_email: Recipient email address
+            task_name: Name of the scheduled task
+            task_type: Type of task (research, docs, sheets, slides)
+            success: Whether the task succeeded
+            output_data: Task output (document URLs, etc.)
+            error_message: Error message if failed
+            execution_time_seconds: Task execution duration
+
+        Returns:
+            True if sent successfully
+        """
+        status_emoji = "✅" if success else "❌"
+        status_text = "Completed Successfully" if success else "Failed"
+        status_color = "#10b981" if success else "#ef4444"
+        
+        subject = f"{status_emoji} Scheduled Task {status_text}: {task_name}"
+
+        # Build output section
+        output_section = ""
+        if success and output_data:
+            output_items = []
+            
+            # Extract common output fields
+            if output_data.get("document_url"):
+                output_items.append(
+                    f'<li><strong>Document:</strong> <a href="{output_data["document_url"]}">'
+                    f'{output_data.get("document_title", "View Document")}</a></li>'
+                )
+            if output_data.get("spreadsheet_url"):
+                output_items.append(
+                    f'<li><strong>Spreadsheet:</strong> <a href="{output_data["spreadsheet_url"]}">'
+                    f'{output_data.get("spreadsheet_title", "View Spreadsheet")}</a></li>'
+                )
+            if output_data.get("presentation_url"):
+                output_items.append(
+                    f'<li><strong>Presentation:</strong> <a href="{output_data["presentation_url"]}">'
+                    f'{output_data.get("presentation_title", "View Presentation")}</a></li>'
+                )
+            
+            if output_items:
+                output_section = f"""
+                <div class="output">
+                    <h3>📄 Output</h3>
+                    <ul>
+                        {''.join(output_items)}
+                    </ul>
+                </div>
+                """
+
+        # Build error section
+        error_section = ""
+        if not success and error_message:
+            error_section = f"""
+            <div class="error">
+                <h3>⚠️ Error Details</h3>
+                <pre>{error_message}</pre>
+            </div>
+            """
+
+        # Build execution time section
+        time_section = ""
+        if execution_time_seconds is not None:
+            minutes = int(execution_time_seconds // 60)
+            seconds = int(execution_time_seconds % 60)
+            time_text = (
+                f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
+            )
+            time_section = f"<p><strong>Execution Time:</strong> {time_text}</p>"
+
+        text_body = f"""
+Scheduled Task {status_text}
+
+Task: {task_name}
+Type: {task_type}
+Status: {status_text}
+
+{error_message if error_message else ''}
+
+---
+My SuperAgent
+"""
+
+        html_body = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }}
+        .header {{
+            background: {status_color};
+            color: white;
+            padding: 30px;
+            border-radius: 8px 8px 0 0;
+            text-align: center;
+        }}
+        .header h1 {{
+            margin: 0;
+            font-size: 24px;
+        }}
+        .content {{
+            background: #f9fafb;
+            padding: 30px;
+            border-radius: 0 0 8px 8px;
+        }}
+        .details {{
+            background: white;
+            padding: 20px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid {status_color};
+        }}
+        .details p {{
+            margin: 8px 0;
+        }}
+        .output {{
+            background: white;
+            padding: 20px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid #3b82f6;
+        }}
+        .output h3 {{
+            margin-top: 0;
+            color: #3b82f6;
+        }}
+        .output ul {{
+            margin: 10px 0;
+            padding-left: 20px;
+        }}
+        .output li {{
+            margin: 5px 0;
+        }}
+        .error {{
+            background: #fef2f2;
+            padding: 20px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid #ef4444;
+        }}
+        .error h3 {{
+            margin-top: 0;
+            color: #ef4444;
+        }}
+        .error pre {{
+            background: white;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 13px;
+            margin: 10px 0 0 0;
+        }}
+        .footer {{
+            text-align: center;
+            color: #6b7280;
+            font-size: 14px;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+        }}
+        .badge {{
+            display: inline-block;
+            background: #e5e7eb;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #374151;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{status_emoji} Scheduled Task {status_text}</h1>
+    </div>
+    <div class="content">
+        <div class="details">
+            <p><strong>Task:</strong> {task_name}</p>
+            <p><strong>Type:</strong> <span class="badge">{task_type}</span></p>
+            <p><strong>Status:</strong> {status_text}</p>
+            {time_section}
+        </div>
+        
+        {output_section}
+        {error_section}
+        
+        <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+            This is an automated notification from your scheduled task system.
+        </p>
+    </div>
+    <div class="footer">
+        <p>My SuperAgent - AI-Powered Workspace Automation</p>
+    </div>
+</body>
+</html>
+"""
+
+        return self.send_email(to_email, subject, html_body, text_body)
+
 
 # Global email service instance
 email_service = EmailService()

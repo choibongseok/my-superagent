@@ -1,11 +1,57 @@
 # 📋 AgentHQ Task Tracker
 
-> **Last Updated**: 2026-03-01 (Sprint 9 Complete)  
-> **Current Sprint**: Sprint 9 ⚡
+> **Last Updated**: 2026-03-01 (Sprint 10 Planning)  
+> **Current Sprint**: Sprint 10 🔔
 
 ---
 
-## 🎯 Sprint 6 Priorities
+## 🎯 Sprint 10 Priorities (NEW)
+
+### High Priority
+
+- [ ] **Scheduled Task Notifications** (`notifications=True`)
+  - [ ] Implement notification system for scheduled tasks
+  - [ ] Email notifications for task completion/failure
+  - [ ] In-app notification support
+  - [ ] Configurable notification preferences per user
+  - [ ] Integration with Celery Beat scheduler
+  - **Location**: `backend/app/services/scheduled_task_executor.py:L45`
+  - **See**: TODO comment in code
+
+- [ ] **Fact Checker Enhancements** (`fact_checker_v2=True`)
+  - [ ] Wolfram Alpha integration for calculation verification
+  - [ ] Contradiction detection between sources
+  - [ ] Improved confidence scoring algorithm
+  - [ ] Source reliability weighting
+  - [ ] Unit tests for new features (target: 95% coverage)
+  - **Location**: `backend/app/services/fact_checker.py:L89, L114`
+  - **See**: TODO comments in code
+
+### Medium Priority
+
+- [ ] **API Rate Limiting** (`rate_limiting=True`)
+  - [ ] Implement per-user rate limits
+  - [ ] Per-endpoint throttling
+  - [ ] Redis-based rate limit store
+  - [ ] Admin override capabilities
+
+- [ ] **Agent Collaboration** (`multi_agent=True`)
+  - [ ] Enable agents to call other agents
+  - [ ] Shared context between agents
+  - [ ] Workflow orchestration
+  - [ ] Example: Research agent → Sheets agent pipeline
+
+### Low Priority
+
+- [ ] **Monitoring Dashboard** (`monitoring=True`)
+  - [ ] Real-time agent status monitoring
+  - [ ] Performance metrics visualization
+  - [ ] Error tracking and alerting
+  - [ ] Integration with existing budget tracking
+
+---
+
+## 🎯 Sprint 6 Priorities (COMPLETED)
 
 ### High Priority
 
@@ -86,6 +132,12 @@
 
 | Feature | Status | Priority | Assignee | Notes |
 |---------|--------|----------|----------|-------|
+| **Sprint 10** | | | | |
+| Task Notifications | 🟡 TODO | P0 | - | Scheduled task alerts |
+| Fact Checker v2 | 🟡 TODO | P0 | - | Wolfram Alpha + contradictions |
+| Rate Limiting | 🟡 TODO | P1 | - | Per-user throttling |
+| Agent Collaboration | 🟡 TODO | P2 | - | Multi-agent workflows |
+| **Completed** | | | | |
 | Performance Opt | 🟢 DONE | P1 | - | Sprint 9: 5-10x faster ⚡ |
 | Sheets Advanced | 🟢 DONE | P1 | - | Sprint 8 complete |
 | Claude Integration | 🟢 DONE | P0 | - | Sprint 6 complete |
@@ -99,10 +151,17 @@
 
 ## 📝 Notes
 
+**Sprint 9 Complete** ✅:
 - **claude=True**: ✅ Anthropic Claude models fully supported (Opus, Sonnet, Haiku)
 - **oauth=True**: ✅ Enhanced OAuth with token rotation, multi-provider, encryption
 - **docs=True**: ✅ Docs Agent + comprehensive architecture diagrams
 - **sheets=True**: ✅ **Advanced Sheets Agent with formulas, pivot tables, conditional formatting** ⭐
 - **performance=True**: ✅ **Redis caching, query optimization, 5-10x performance improvement** ⚡
 
-**Completion Estimate**: Sprint 9 complete 2026-03-01 ⚡
+**Sprint 10 In Progress** 🔔:
+- **notifications=False**: 🟡 Scheduled task notifications pending
+- **fact_checker_v2=False**: 🟡 Wolfram Alpha + contradiction detection pending
+- **rate_limiting=False**: 🟡 API throttling pending
+- **multi_agent=False**: 🟡 Agent collaboration pending
+
+**Completion Estimate**: Sprint 10 start 2026-03-01 🔔
