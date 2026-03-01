@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, health, tasks, chats, messages, workspaces,templates,orchestrator, analytics
+from app.api.v1 import auth, health, tasks, chats, messages, workspaces,templates,orchestrator, analytics, scheduled_tasks
 api_router = APIRouter()
 
 # Include sub-routers
@@ -15,3 +15,4 @@ api_router.include_router(workspaces.router, prefix="/workspaces", tags=["worksp
 api_router.include_router(orchestrator.router, prefix="/orchestrator", tags=["orchestrator"])
 api_router.include_router(templates.router, prefix="/templates", tags=["templates"])
 api_router.include_router(analytics.router, tags=["analytics"])
+api_router.include_router(scheduled_tasks.router, prefix="/scheduled-tasks", tags=["scheduled-tasks"])

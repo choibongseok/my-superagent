@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.workspace import Workspace
     from app.models.workspace_member import WorkspaceMember
     from app.models.nudge_email_log import NudgeEmailLog
+    from app.models.scheduled_task import ScheduledTask
 
 
 class User(Base, TimestampMixin):
@@ -54,6 +55,11 @@ class User(Base, TimestampMixin):
     # Nudge email logs
     nudge_email_logs: Mapped[List["NudgeEmailLog"]] = relationship(
         "NudgeEmailLog", back_populates="user", cascade="all, delete-orphan"
+    )
+    
+    # Scheduled tasks
+    scheduled_tasks: Mapped[List["ScheduledTask"]] = relationship(
+        "ScheduledTask", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
