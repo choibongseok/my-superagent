@@ -38,13 +38,22 @@ celery_app.conf.update(
 
 
 @celery_app.task(name="agents.process_research_task", bind=True, max_retries=3)
-def process_research_task(self, task_id: str, prompt: str, user_id: str):
+def process_research_task(
+    self,
+    task_id: str,
+    prompt: str,
+    user_id: str,
+    llm_provider: str = "openai",
+    llm_model: str = "gpt-4-turbo-preview",
+):
     """Process research task asynchronously.
 
     Args:
         task_id: UUID of the task
         prompt: Research prompt
         user_id: User ID for context
+        llm_provider: LLM provider (openai or anthropic)
+        llm_model: Model name
 
     Returns:
         dict: Task result with research findings
@@ -52,12 +61,16 @@ def process_research_task(self, task_id: str, prompt: str, user_id: str):
     try:
         from app.agents.research_agent import ResearchAgent
 
-        logger.info(f"Starting research task {task_id}")
+        logger.info(
+            f"Starting research task {task_id} with {llm_provider}/{llm_model}"
+        )
 
-        # Create agent instance
+        # Create agent instance with specified provider/model
         agent = ResearchAgent(
             user_id=user_id,
             session_id=task_id,
+            llm_provider=llm_provider,
+            model=llm_model,
         )
 
         # Execute research (async method - must await)
@@ -88,6 +101,8 @@ def process_docs_task(
     prompt: str,
     user_id: str,
     title: str = "Untitled Document",
+    llm_provider: str = "openai",
+    llm_model: str = "gpt-4-turbo-preview",
 ):
     """Process Google Docs generation task asynchronously.
 
@@ -96,6 +111,8 @@ def process_docs_task(
         prompt: Document generation prompt
         user_id: User ID for context
         title: Document title
+        llm_provider: LLM provider (openai or anthropic)
+        llm_model: Model name
 
     Returns:
         dict: Task result with document URL
@@ -104,7 +121,9 @@ def process_docs_task(
         from app.agents.docs_agent import DocsAgent
         from app.services.google_auth import get_user_credentials
 
-        logger.info(f"Starting docs task {task_id}")
+        logger.info(
+            f"Starting docs task {task_id} with {llm_provider}/{llm_model}"
+        )
 
         # Retrieve user credentials from database (async operation)
         credentials = run_async(get_user_credentials, user_id)
@@ -115,11 +134,13 @@ def process_docs_task(
                 "Please authenticate via Google OAuth first."
             )
 
-        # Create agent instance with real credentials
+        # Create agent instance with real credentials and specified model
         agent = DocsAgent(
             user_id=user_id,
             session_id=task_id,
             credentials=credentials,
+            llm_provider=llm_provider,
+            model=llm_model,
         )
 
         # Generate document (async method - must await)
@@ -152,6 +173,8 @@ def process_sheets_task(
     prompt: str,
     user_id: str,
     title: str = "Untitled Spreadsheet",
+    llm_provider: str = "openai",
+    llm_model: str = "gpt-4-turbo-preview",
 ):
     """Process Google Sheets generation task asynchronously.
 
@@ -160,6 +183,8 @@ def process_sheets_task(
         prompt: Spreadsheet generation prompt
         user_id: User ID for context
         title: Spreadsheet title
+        llm_provider: LLM provider (openai or anthropic)
+        llm_model: Model name
 
     Returns:
         dict: Task result with spreadsheet URL
@@ -168,7 +193,9 @@ def process_sheets_task(
         from app.agents.sheets_agent import SheetsAgent
         from app.services.google_auth import get_user_credentials
 
-        logger.info(f"Starting sheets task {task_id}")
+        logger.info(
+            f"Starting sheets task {task_id} with {llm_provider}/{llm_model}"
+        )
 
         # Retrieve user credentials from database (async operation)
         credentials = run_async(get_user_credentials, user_id)
@@ -179,11 +206,13 @@ def process_sheets_task(
                 "Please authenticate via Google OAuth first."
             )
 
-        # Create agent instance with real credentials
+        # Create agent instance with real credentials and specified model
         agent = SheetsAgent(
             user_id=user_id,
             session_id=task_id,
             credentials=credentials,
+            llm_provider=llm_provider,
+            model=llm_model,
         )
 
         # Generate spreadsheet (async method - must await)
@@ -212,11 +241,47 @@ def process_slides_task(
     prompt: str,
     user_id: str,
     title: str = "Untitled Presentation",
+    llm_provider: str = "openai",
+    llm_model: str = "gpt-4-turbo-preview",
 ):
     """Process Google Slides generation task asynchronously.
 
     Args:
         task_id: UUID of the task
+        prompt: Presentation generation prompt
+        user_id: User ID for context
+        title: Presentation title
+        llm_provider: LLM provider (openai or anthropic)
+        llm_model: Model name
+
+    Returns:
+        dict: Task result with presentation URL
+    """
+    try:
+        from app.agents.slides_agent import SlidesAgent
+        from app.services.google_auth import get_user_credentials
+
+        logger.info(
+            f"Starting slides task {task_id} with {llm_provider}/{llm_model}"
+        )
+
+        # Retrieve user credentials from database (async operation)
+        credentials = run_async(get_user_credentials, user_id)
+
+        if not credentials:
+            raise ValueError(
+                f"User {user_id} has no Google credentials. "
+                "Please authenticate via Google OAuth first."
+            )
+
+        # Create agent instance with real credentials and specified model
+        agent = SlidesAgent(
+            user_id=user_id,
+            session_id=task_id,
+            credentials=credentials,
+            llm_provider=llm_provider,
+            model=llm_model,
+        )
         prompt: Presentation generation prompt
         user_id: User ID for context
         title: Presentation title

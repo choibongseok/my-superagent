@@ -15,6 +15,11 @@ class TaskCreate(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=5000)
     task_type: TaskType
     metadata: Optional[Dict[str, Any]] = None
+    llm_provider: str = Field(default="openai", pattern="^(openai|anthropic)$")
+    llm_model: str = Field(
+        default="gpt-4-turbo-preview",
+        description="Model name (e.g., gpt-4-turbo-preview, claude-3-opus-20240229)"
+    )
 
 
 class TaskUpdate(BaseModel):
@@ -41,6 +46,8 @@ class TaskInDB(BaseModel):
     document_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     celery_task_id: Optional[str] = None
+    llm_provider: str = "openai"
+    llm_model: str = "gpt-4-turbo-preview"
     created_at: datetime
     updated_at: datetime
 

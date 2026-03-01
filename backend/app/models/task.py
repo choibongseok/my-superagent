@@ -52,6 +52,14 @@ class Task(Base, TimestampMixin):
     result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # LLM Configuration (for Claude/OpenAI selection)
+    llm_provider: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="openai"
+    )
+    llm_model: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="gpt-4-turbo-preview"
+    )
+
     # Google Drive links
     document_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     document_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

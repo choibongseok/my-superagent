@@ -42,7 +42,9 @@ async def create_task(
         prompt=task_data.prompt,
         task_type=task_data.task_type,
         status=TaskStatus.PENDING,
-        metadata=task_data.metadata,
+        task_metadata=task_data.metadata,
+        llm_provider=task_data.llm_provider,
+        llm_model=task_data.llm_model,
     )
     
     db.add(task)
@@ -63,22 +65,22 @@ async def create_task(
         
         if task_data.task_type == "research":
             celery_task = process_research_task.apply_async(
-                args=[task_id_str, task_data.prompt, user_id_str]
+                args=[task_id_str, task_data.prompt, user_id_str, task_data.llm_provider, task_data.llm_model]
             )
         elif task_data.task_type == "docs":
             title = task_data.metadata.get("title", "Untitled Document") if task_data.metadata else "Untitled Document"
             celery_task = process_docs_task.apply_async(
-                args=[task_id_str, task_data.prompt, user_id_str, title]
+                args=[task_id_str, task_data.prompt, user_id_str, title, task_data.llm_provider, task_data.llm_model]
             )
         elif task_data.task_type == "sheets":
             title = task_data.metadata.get("title", "Untitled Spreadsheet") if task_data.metadata else "Untitled Spreadsheet"
             celery_task = process_sheets_task.apply_async(
-                args=[task_id_str, task_data.prompt, user_id_str, title]
+                args=[task_id_str, task_data.prompt, user_id_str, title, task_data.llm_provider, task_data.llm_model]
             )
         elif task_data.task_type == "slides":
             title = task_data.metadata.get("title", "Untitled Presentation") if task_data.metadata else "Untitled Presentation"
             celery_task = process_slides_task.apply_async(
-                args=[task_id_str, task_data.prompt, user_id_str, title]
+                args=[task_id_str, task_data.prompt, user_id_str, title, task_data.llm_provider, task_data.llm_model]
             )
         else:
             raise HTTPException(
