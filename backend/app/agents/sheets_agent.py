@@ -54,7 +54,7 @@ class SheetsAgent(BaseAgent):
     def _get_metadata(self) -> Dict[str, Any]:
         return {
             "agent_type": "sheets",
-            "version": "1.0",
+            "version": "2.0",
             "status": "active",
             "capabilities": [
                 "create_spreadsheet",
@@ -62,7 +62,12 @@ class SheetsAgent(BaseAgent):
                 "write_data",
                 "format_cells",
                 "create_chart",
-                "share_sheet"
+                "share_sheet",
+                "conditional_formatting",
+                "data_validation",
+                "formulas",
+                "pivot_tables",
+                "named_ranges"
             ]
         }
 
@@ -447,6 +452,435 @@ class SheetsAgent(BaseAgent):
                 logger.error(f"Failed to create chart: {e}")
                 return f"Error creating chart: {str(e)}"
         
+        def add_conditional_formatting(
+            spreadsheet_id: str,
+            range_name: str,
+            condition_type: str,
+            threshold: Optional[float] = None,
+            color_hex: str = "#FF0000"
+        ) -> str:
+            """
+            Apply conditional formatting to a range.
+            
+            Args:
+                spreadsheet_id: Spreadsheet ID
+                range_name: Range to format (e.g., 'Sheet1!A1:B10')
+                condition_type: Type of condition (GREATER_THAN, LESS_THAN, BETWEEN, TEXT_CONTAINS, etc.)
+                threshold: Threshold value for number conditions
+                color_hex: Hex color code for formatting
+                
+            Returns:
+                Success message
+            """
+            if not self.sheets_service:
+                return "Error: Google Sheets API not initialized. Missing credentials."
+            
+            try:
+                logger.info(f"Adding conditional formatting to {range_name}")
+                
+                # Get sheet info
+                sheet = self.sheets_service.spreadsheets().get(
+                    spreadsheetId=spreadsheet_id
+                ).execute()
+                
+                # Parse range
+                parts = range_name.split('!')
+                sheet_name = parts[0] if len(parts) > 1 else sheet['sheets'][0]['properties']['title']
+                
+                # Find sheet ID
+                sheet_id = None
+                for s in sheet['sheets']:
+                    if s['properties']['title'] == sheet_name:
+                        sheet_id = s['properties']['sheetId']
+                        break
+                
+                if sheet_id is None:
+                    return f"Error: Sheet '{sheet_name}' not found"
+                
+                # Parse RGB from hex
+                color_hex = color_hex.lstrip('#')
+                r = int(color_hex[0:2], 16) / 255.0
+                g = int(color_hex[2:4], 16) / 255.0
+                b = int(color_hex[4:6], 16) / 255.0
+                
+                # Build condition based on type
+                condition_map = {
+                    "greater_than": "NUMBER_GREATER",
+                    "less_than": "NUMBER_LESS",
+                    "between": "NUMBER_BETWEEN",
+                    "text_contains": "TEXT_CONTAINS",
+                    "not_empty": "NOT_BLANK",
+                }
+                
+                api_condition_type = condition_map.get(condition_type.lower(), condition_type.upper())
+                
+                # Build conditional format rule
+                rule = {
+                    "addConditionalFormatRule": {
+                        "rule": {
+                            "ranges": [{
+                                "sheetId": sheet_id,
+                                "startRowIndex": 0,
+                                "endRowIndex": 100,
+                                "startColumnIndex": 0,
+                                "endColumnIndex": 10
+                            }],
+                            "booleanRule": {
+                                "condition": {
+                                    "type": api_condition_type,
+                                },
+                                "format": {
+                                    "backgroundColor": {
+                                        "red": r,
+                                        "green": g,
+                                        "blue": b
+                                    }
+                                }
+                            }
+                        },
+                        "index": 0
+                    }
+                }
+                
+                # Add threshold value if provided
+                if threshold is not None and api_condition_type in ["NUMBER_GREATER", "NUMBER_LESS"]:
+                    rule["addConditionalFormatRule"]["rule"]["booleanRule"]["condition"]["values"] = [
+                        {"userEnteredValue": str(threshold)}
+                    ]
+                
+                # Apply rule
+                self.sheets_service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={"requests": [rule]}
+                ).execute()
+                
+                logger.info(f"Applied conditional formatting to {range_name}")
+                return f"Successfully applied {condition_type} conditional formatting to {range_name}"
+                
+            except Exception as e:
+                logger.error(f"Failed to add conditional formatting: {e}")
+                return f"Error adding conditional formatting: {str(e)}"
+        
+        def add_data_validation(
+            spreadsheet_id: str,
+            range_name: str,
+            validation_type: str,
+            values: Optional[List[str]] = None,
+            min_value: Optional[float] = None,
+            max_value: Optional[float] = None
+        ) -> str:
+            """
+            Add data validation to a range.
+            
+            Args:
+                spreadsheet_id: Spreadsheet ID
+                range_name: Range to validate (e.g., 'Sheet1!A1:A10')
+                validation_type: Type of validation (LIST, NUMBER_BETWEEN, DATE_AFTER, etc.)
+                values: List of valid values (for LIST type)
+                min_value: Minimum value (for NUMBER_BETWEEN)
+                max_value: Maximum value (for NUMBER_BETWEEN)
+                
+            Returns:
+                Success message
+            """
+            if not self.sheets_service:
+                return "Error: Google Sheets API not initialized. Missing credentials."
+            
+            try:
+                logger.info(f"Adding data validation to {range_name}")
+                
+                # Get sheet info
+                sheet = self.sheets_service.spreadsheets().get(
+                    spreadsheetId=spreadsheet_id
+                ).execute()
+                
+                # Parse range
+                parts = range_name.split('!')
+                sheet_name = parts[0] if len(parts) > 1 else sheet['sheets'][0]['properties']['title']
+                
+                # Find sheet ID
+                sheet_id = None
+                for s in sheet['sheets']:
+                    if s['properties']['title'] == sheet_name:
+                        sheet_id = s['properties']['sheetId']
+                        break
+                
+                if sheet_id is None:
+                    return f"Error: Sheet '{sheet_name}' not found"
+                
+                # Build validation rule
+                validation_rule = {
+                    "setDataValidation": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": 0,
+                            "endRowIndex": 100,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 1
+                        },
+                        "rule": {
+                            "condition": {
+                                "type": validation_type.upper(),
+                            },
+                            "showCustomUi": True,
+                            "strict": True
+                        }
+                    }
+                }
+                
+                # Add values for LIST type
+                if validation_type.upper() == "ONE_OF_LIST" and values:
+                    validation_rule["setDataValidation"]["rule"]["condition"]["values"] = [
+                        {"userEnteredValue": val} for val in values
+                    ]
+                
+                # Add range for NUMBER_BETWEEN
+                if validation_type.upper() == "NUMBER_BETWEEN" and min_value is not None and max_value is not None:
+                    validation_rule["setDataValidation"]["rule"]["condition"]["values"] = [
+                        {"userEnteredValue": str(min_value)},
+                        {"userEnteredValue": str(max_value)}
+                    ]
+                
+                # Apply validation
+                self.sheets_service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={"requests": [validation_rule]}
+                ).execute()
+                
+                logger.info(f"Applied data validation to {range_name}")
+                return f"Successfully applied {validation_type} data validation to {range_name}"
+                
+            except Exception as e:
+                logger.error(f"Failed to add data validation: {e}")
+                return f"Error adding data validation: {str(e)}"
+        
+        def insert_formula(
+            spreadsheet_id: str,
+            cell_range: str,
+            formula: str
+        ) -> str:
+            """
+            Insert a formula into a cell or range.
+            
+            Args:
+                spreadsheet_id: Spreadsheet ID
+                cell_range: Cell or range to insert formula (e.g., 'Sheet1!C1')
+                formula: Formula to insert (e.g., '=SUM(A1:A10)', '=AVERAGE(B:B)', '=VLOOKUP(A2, A:B, 2, FALSE)')
+                
+            Returns:
+                Success message with formula result preview
+            """
+            if not self.sheets_service:
+                return "Error: Google Sheets API not initialized. Missing credentials."
+            
+            try:
+                logger.info(f"Inserting formula '{formula}' into {cell_range}")
+                
+                # Ensure formula starts with =
+                if not formula.startswith('='):
+                    formula = '=' + formula
+                
+                # Write formula
+                body = {
+                    "values": [[formula]]
+                }
+                
+                self.sheets_service.spreadsheets().values().update(
+                    spreadsheetId=spreadsheet_id,
+                    range=cell_range,
+                    valueInputOption="USER_ENTERED",
+                    body=body
+                ).execute()
+                
+                # Read back the calculated value
+                result = self.sheets_service.spreadsheets().values().get(
+                    spreadsheetId=spreadsheet_id,
+                    range=cell_range,
+                    valueRenderOption="FORMATTED_VALUE"
+                ).execute()
+                
+                calculated_value = result.get("values", [[""]])[0][0] if result.get("values") else "N/A"
+                
+                logger.info(f"Inserted formula into {cell_range}, result: {calculated_value}")
+                return f"Successfully inserted formula '{formula}' into {cell_range}\nCalculated value: {calculated_value}"
+                
+            except Exception as e:
+                logger.error(f"Failed to insert formula: {e}")
+                return f"Error inserting formula: {str(e)}"
+        
+        def create_pivot_table(
+            spreadsheet_id: str,
+            source_range: str,
+            pivot_sheet_id: int,
+            rows: List[str],
+            values: List[str],
+            value_function: str = "SUM"
+        ) -> str:
+            """
+            Create a pivot table from source data.
+            
+            Args:
+                spreadsheet_id: Spreadsheet ID
+                source_range: Source data range (e.g., 'Sheet1!A1:D100')
+                pivot_sheet_id: Sheet ID where pivot table will be placed
+                rows: Column letters for row grouping (e.g., ['A', 'B'])
+                values: Column letters for values (e.g., ['C', 'D'])
+                value_function: Aggregation function (SUM, AVERAGE, COUNT, etc.)
+                
+            Returns:
+                Success message with pivot table location
+            """
+            if not self.sheets_service:
+                return "Error: Google Sheets API not initialized. Missing credentials."
+            
+            try:
+                logger.info(f"Creating pivot table from {source_range}")
+                
+                # Get sheet info
+                sheet = self.sheets_service.spreadsheets().get(
+                    spreadsheetId=spreadsheet_id
+                ).execute()
+                
+                # Parse source range
+                parts = source_range.split('!')
+                source_sheet_name = parts[0] if len(parts) > 1 else sheet['sheets'][0]['properties']['title']
+                
+                # Find source sheet ID
+                source_sheet_id = None
+                for s in sheet['sheets']:
+                    if s['properties']['title'] == source_sheet_name:
+                        source_sheet_id = s['properties']['sheetId']
+                        break
+                
+                if source_sheet_id is None:
+                    return f"Error: Sheet '{source_sheet_name}' not found"
+                
+                # Build pivot table request
+                pivot_request = {
+                    "updateCells": {
+                        "rows": [{
+                            "values": [{
+                                "pivotTable": {
+                                    "source": {
+                                        "sheetId": source_sheet_id,
+                                        "startRowIndex": 0,
+                                        "endRowIndex": 100,
+                                        "startColumnIndex": 0,
+                                        "endColumnIndex": 10
+                                    },
+                                    "rows": [
+                                        {
+                                            "sourceColumnOffset": ord(col.upper()) - ord('A'),
+                                            "showTotals": True,
+                                            "sortOrder": "ASCENDING"
+                                        }
+                                        for col in rows
+                                    ],
+                                    "values": [
+                                        {
+                                            "summarizeFunction": value_function.upper(),
+                                            "sourceColumnOffset": ord(col.upper()) - ord('A')
+                                        }
+                                        for col in values
+                                    ],
+                                    "valueLayout": "HORIZONTAL"
+                                }
+                            }]
+                        }],
+                        "fields": "pivotTable",
+                        "start": {
+                            "sheetId": pivot_sheet_id,
+                            "rowIndex": 0,
+                            "columnIndex": 0
+                        }
+                    }
+                }
+                
+                # Apply pivot table
+                self.sheets_service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={"requests": [pivot_request]}
+                ).execute()
+                
+                logger.info(f"Created pivot table from {source_range}")
+                return f"Successfully created pivot table from {source_range}\nRows: {', '.join(rows)}, Values: {', '.join(values)} ({value_function})"
+                
+            except Exception as e:
+                logger.error(f"Failed to create pivot table: {e}")
+                return f"Error creating pivot table: {str(e)}"
+        
+        def create_named_range(
+            spreadsheet_id: str,
+            range_name_label: str,
+            range_address: str
+        ) -> str:
+            """
+            Create a named range for easy reference in formulas.
+            
+            Args:
+                spreadsheet_id: Spreadsheet ID
+                range_name_label: Name for the range (e.g., 'SalesData', 'Totals')
+                range_address: Range address (e.g., 'Sheet1!A1:B10')
+                
+            Returns:
+                Success message with named range ID
+            """
+            if not self.sheets_service:
+                return "Error: Google Sheets API not initialized. Missing credentials."
+            
+            try:
+                logger.info(f"Creating named range '{range_name_label}' for {range_address}")
+                
+                # Get sheet info
+                sheet = self.sheets_service.spreadsheets().get(
+                    spreadsheetId=spreadsheet_id
+                ).execute()
+                
+                # Parse range
+                parts = range_address.split('!')
+                sheet_name = parts[0] if len(parts) > 1 else sheet['sheets'][0]['properties']['title']
+                
+                # Find sheet ID
+                sheet_id = None
+                for s in sheet['sheets']:
+                    if s['properties']['title'] == sheet_name:
+                        sheet_id = s['properties']['sheetId']
+                        break
+                
+                if sheet_id is None:
+                    return f"Error: Sheet '{sheet_name}' not found"
+                
+                # Create named range request
+                named_range_request = {
+                    "addNamedRange": {
+                        "namedRange": {
+                            "name": range_name_label,
+                            "range": {
+                                "sheetId": sheet_id,
+                                "startRowIndex": 0,
+                                "endRowIndex": 100,
+                                "startColumnIndex": 0,
+                                "endColumnIndex": 10
+                            }
+                        }
+                    }
+                }
+                
+                # Apply named range
+                response = self.sheets_service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={"requests": [named_range_request]}
+                ).execute()
+                
+                named_range_id = response.get("replies", [{}])[0].get("addNamedRange", {}).get("namedRange", {}).get("namedRangeId")
+                
+                logger.info(f"Created named range '{range_name_label}' - ID: {named_range_id}")
+                return f"Successfully created named range '{range_name_label}' for {range_address}\nID: {named_range_id}\nUse in formulas like: =SUM({range_name_label})"
+                
+            except Exception as e:
+                logger.error(f"Failed to create named range: {e}")
+                return f"Error creating named range: {str(e)}"
+        
         return [
             Tool(
                 name="create_spreadsheet",
@@ -472,6 +906,31 @@ class SheetsAgent(BaseAgent):
                 name="create_chart",
                 description="Create a chart from data in a spreadsheet",
                 func=lambda args: create_chart(**json.loads(args) if isinstance(args, str) else args)
+            ),
+            Tool(
+                name="add_conditional_formatting",
+                description="Apply conditional formatting rules to a range (highlight cells based on conditions)",
+                func=lambda args: add_conditional_formatting(**json.loads(args) if isinstance(args, str) else args)
+            ),
+            Tool(
+                name="add_data_validation",
+                description="Add data validation to restrict cell input (dropdown lists, number ranges, dates)",
+                func=lambda args: add_data_validation(**json.loads(args) if isinstance(args, str) else args)
+            ),
+            Tool(
+                name="insert_formula",
+                description="Insert formulas like SUM, AVERAGE, VLOOKUP, IF, etc. into cells",
+                func=lambda args: insert_formula(**json.loads(args) if isinstance(args, str) else args)
+            ),
+            Tool(
+                name="create_pivot_table",
+                description="Create pivot tables for data analysis and aggregation",
+                func=lambda args: create_pivot_table(**json.loads(args) if isinstance(args, str) else args)
+            ),
+            Tool(
+                name="create_named_range",
+                description="Create named ranges for easy reference in formulas",
+                func=lambda args: create_named_range(**json.loads(args) if isinstance(args, str) else args)
             )
         ]
 
@@ -484,12 +943,22 @@ Your capabilities include:
 - Applying formatting and styles
 - Creating charts and visualizations
 - Data analysis and manipulation
+- Advanced conditional formatting
+- Data validation and input restrictions
+- Formula insertion (SUM, AVERAGE, VLOOKUP, IF, COUNT, etc.)
+- Pivot table creation for data aggregation
+- Named ranges for reusable formulas
 
 When working with spreadsheets:
 1. Always validate input data before writing
 2. Use clear range notation (e.g., 'Sheet1!A1:B10')
 3. Provide helpful summaries of operations performed
 4. Suggest best practices for data organization
+5. Use formulas to automate calculations
+6. Apply conditional formatting to highlight important data
+7. Use data validation to prevent input errors
+8. Create pivot tables for complex data analysis
+9. Use named ranges for better formula readability
 
 Current tools available:
 - create_spreadsheet: Create new spreadsheets
@@ -497,6 +966,11 @@ Current tools available:
 - read_data: Read data from ranges
 - format_cells: Apply cell formatting
 - create_chart: Generate charts from data
+- add_conditional_formatting: Highlight cells based on conditions
+- add_data_validation: Restrict cell input with rules
+- insert_formula: Add formulas (SUM, AVERAGE, VLOOKUP, etc.)
+- create_pivot_table: Create pivot tables for aggregation
+- create_named_range: Name ranges for formula reuse
 
 Respond in a clear, professional manner and always confirm successful operations."""
 
