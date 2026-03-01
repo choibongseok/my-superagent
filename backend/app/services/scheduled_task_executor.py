@@ -157,17 +157,17 @@ class ScheduledTaskExecutor:
         
         Args:
             db: Database session
-            
+
         Returns:
             List of scheduled tasks due for execution
         """
         now = datetime.utcnow()
-        
+
         query = select(ScheduledTask).where(
-            ScheduledTask.is_active == True,
+            ScheduledTask.is_active.is_(True),
             ScheduledTask.next_run_at <= now
         )
-        
+
         result = await db.execute(query)
         return list(result.scalars().all())
 

@@ -259,9 +259,9 @@ class TemplateService:
         """
         # Base query: public templates or user's own templates
         query = select(Template).where(
-            or_(Template.is_public == True, Template.author_id == user_id)
+            or_(Template.is_public.is_(True), Template.author_id == user_id)
             if user_id
-            else Template.is_public == True
+            else Template.is_public.is_(True)
         )
 
         # Apply filters

@@ -236,20 +236,20 @@ class OAuthService:
         """
         # Delete tokens that are expired or revoked more than 30 days ago
         cutoff_date = datetime.utcnow() - timedelta(days=30)
-        
+
         result = await db.execute(
             select(RefreshToken).where(
                 or_(
                     RefreshToken.expires_at < datetime.utcnow(),
-                    (RefreshToken.is_revoked == True) & (RefreshToken.revoked_at < cutoff_date),
+                    (RefreshToken.is_revoked.is_(True)) & (RefreshToken.revoked_at < cutoff_date),
                 )
             )
         )
         tokens = result.scalars().all()
-        
+
         for token in tokens:
             await db.delete(token)
-        
+
         await db.commit()
         return len(tokens)
     
