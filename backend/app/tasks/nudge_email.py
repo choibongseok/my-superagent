@@ -6,7 +6,7 @@ who haven't created tasks in the last 7 days.
 Features:
 - Detect users inactive for 7+ days (based on last task created_at)
 - Send personalized nudge emails
-- Limit to max 2 emails per user per week
+- Limit to max 2 emails per user per week (persistent in database)
 - Async database queries with SQLAlchemy
 """
 
@@ -23,58 +23,67 @@ from app.core.async_runner import run_async
 from app.core.database import AsyncSessionLocal
 from app.models.task import Task
 from app.models.user import User
+from app.models.nudge_email_log import NudgeEmailLog
 from app.services.email_service import email_service
 
 logger = logging.getLogger(__name__)
 
 
-# In-memory tracking for weekly email limits
-# TODO: Replace with database table (NudgeEmailLog) for persistence
-# Format: {user_id: [timestamp1, timestamp2, ...]}
-_weekly_nudge_tracker: dict[str, List[datetime]] = {}
-
-
-def _can_send_nudge_email(user_id: str) -> bool:
+async def _can_send_nudge_email(user_id: UUID) -> bool:
     """Check if user can receive a nudge email (max 2 per week).
     
+    Queries database to count emails sent to user this week.
+    
     Args:
-        user_id: User UUID string
+        user_id: User UUID
         
     Returns:
         True if user can receive email, False otherwise
     """
-    # Get week start (Monday 00:00)
+    # Get week start (Monday 00:00 UTC)
     now = datetime.utcnow()
-    week_start = now - timedelta(days=now.weekday(), hours=now.hour, 
-                                  minutes=now.minute, seconds=now.second,
-                                  microseconds=now.microsecond)
+    week_start = now - timedelta(
+        days=now.weekday(),
+        hours=now.hour,
+        minutes=now.minute,
+        seconds=now.second,
+        microseconds=now.microsecond
+    )
     
-    # Get user's nudge history
-    if user_id not in _weekly_nudge_tracker:
-        _weekly_nudge_tracker[user_id] = []
-    
-    # Clean old entries (older than current week)
-    _weekly_nudge_tracker[user_id] = [
-        ts for ts in _weekly_nudge_tracker[user_id]
-        if ts >= week_start
-    ]
-    
-    # Check if under limit (2 per week)
-    return len(_weekly_nudge_tracker[user_id]) < 2
+    async with AsyncSessionLocal() as session:
+        # Count emails sent to user this week
+        query = select(func.count(NudgeEmailLog.id)).where(
+            NudgeEmailLog.user_id == user_id,
+            NudgeEmailLog.sent_at >= week_start,
+            NudgeEmailLog.email_type == "usage_nudge"
+        )
+        result = await session.execute(query)
+        count = result.scalar()
+        
+        logger.debug(f"User {user_id} has received {count} nudge emails this week")
+        return count < 2
 
 
-def _record_nudge_email(user_id: str) -> None:
-    """Record that a nudge email was sent to user.
+async def _record_nudge_email(user_id: UUID, success: bool, error_message: str = None) -> None:
+    """Record that a nudge email was sent to user in database.
     
     Args:
-        user_id: User UUID string
+        user_id: User UUID
+        success: Whether email was sent successfully
+        error_message: Error message if email failed (optional)
     """
-    if user_id not in _weekly_nudge_tracker:
-        _weekly_nudge_tracker[user_id] = []
-    
-    _weekly_nudge_tracker[user_id].append(datetime.utcnow())
-    logger.info(f"Recorded nudge email for user {user_id}. "
-                f"Count this week: {len(_weekly_nudge_tracker[user_id])}")
+    async with AsyncSessionLocal() as session:
+        log_entry = NudgeEmailLog(
+            user_id=user_id,
+            email_type="usage_nudge",
+            sent_at=datetime.utcnow(),
+            success=success,
+            error_message=error_message
+        )
+        session.add(log_entry)
+        await session.commit()
+        
+        logger.info(f"Recorded nudge email for user {user_id} (success={success})")
 
 
 async def _get_inactive_users(days: int = 7) -> List[User]:
@@ -296,7 +305,7 @@ def send_usage_nudge_emails(self, days_inactive: int = 7) -> dict:
     
     This task runs periodically (e.g., daily via cron) to:
     1. Find users who haven't created tasks in the last 7 days
-    2. Check weekly email limit (max 2 per user per week)
+    2. Check weekly email limit (max 2 per user per week) from database
     3. Send personalized nudge emails
     
     Args:
@@ -324,10 +333,13 @@ def send_usage_nudge_emails(self, days_inactive: int = 7) -> dict:
         errors = []
         
         for user in inactive_users:
-            user_id_str = str(user.id)
+            # Check weekly limit (async operation)
+            async def _check_limit():
+                return await _can_send_nudge_email(user.id)
             
-            # Check weekly limit
-            if not _can_send_nudge_email(user_id_str):
+            can_send = run_async(_check_limit)
+            
+            if not can_send:
                 logger.info(f"Skipping user {user.email} - weekly limit reached (2/week)")
                 emails_skipped += 1
                 continue
@@ -335,17 +347,41 @@ def send_usage_nudge_emails(self, days_inactive: int = 7) -> dict:
             # Send email
             try:
                 success = _send_nudge_email(user)
+                
+                # Record email send in database (async operation)
+                async def _record():
+                    await _record_nudge_email(
+                        user.id, 
+                        success=success,
+                        error_message=None if success else "SMTP send failed"
+                    )
+                
+                run_async(_record)
+                
                 if success:
-                    _record_nudge_email(user_id_str)
                     emails_sent += 1
                     logger.info(f"✅ Sent nudge email to {user.email}")
                 else:
                     errors.append(f"Failed to send email to {user.email}")
                     logger.error(f"❌ Failed to send email to {user.email}")
+                    
             except Exception as e:
                 error_msg = f"Error sending to {user.email}: {str(e)}"
                 errors.append(error_msg)
                 logger.error(error_msg)
+                
+                # Record failed attempt in database
+                async def _record_error():
+                    await _record_nudge_email(
+                        user.id,
+                        success=False,
+                        error_message=str(e)[:512]  # Truncate to field limit
+                    )
+                
+                try:
+                    run_async(_record_error)
+                except Exception as record_err:
+                    logger.error(f"Failed to record error: {record_err}")
         
         result = {
             "status": "completed",
@@ -403,6 +439,16 @@ def test_nudge_email(user_email: str) -> dict:
             }
         
         success = _send_nudge_email(user)
+        
+        # Record test email in database
+        async def _record():
+            await _record_nudge_email(
+                user.id,
+                success=success,
+                error_message=None if success else "SMTP send failed"
+            )
+        
+        run_async(_record)
         
         if success:
             return {

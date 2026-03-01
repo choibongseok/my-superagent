@@ -10,6 +10,7 @@ from app.models.template import Template, TemplateRating
 from app.models.workspace import Workspace
 from app.models.workspace_member import MemberRole, WorkspaceMember
 from app.models.workspace_invitation import InvitationStatus, WorkspaceInvitation
+from app.models.nudge_email_log import NudgeEmailLog
 
 __all__ = [
     "Base",
@@ -29,4 +30,5 @@ __all__ = [
     "MemberRole",
     "WorkspaceInvitation",
     "InvitationStatus",
+    "NudgeEmailLog",
 ]
