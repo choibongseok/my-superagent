@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     auth, health, tasks, chats, messages, workspaces, templates,
-    orchestrator, analytics, scheduled_tasks, budget, workflows
+    orchestrator, analytics, scheduled_tasks, budget, workflows, monitoring
 )
 from app.api.v1.admin import rate_limits as admin_rate_limits
 
@@ -23,6 +23,7 @@ api_router.include_router(analytics.router, tags=["analytics"])
 api_router.include_router(scheduled_tasks.router, prefix="/scheduled-tasks", tags=["scheduled-tasks"])
 api_router.include_router(budget.router, tags=["budget"])
 api_router.include_router(workflows.router, tags=["workflows"])
+api_router.include_router(monitoring.router, tags=["monitoring"])
 
 # Admin routes
 api_router.include_router(admin_rate_limits.router, prefix="/admin/rate-limits", tags=["admin", "rate-limits"])
