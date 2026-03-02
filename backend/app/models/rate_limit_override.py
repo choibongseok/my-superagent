@@ -2,11 +2,13 @@
 
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import relationship
 
-from backend.app.models.base import Base
+from app.models.base import Base
 
 
 class RateLimitOverride(Base):
@@ -20,7 +22,7 @@ class RateLimitOverride(Base):
     __tablename__ = "rate_limit_overrides"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     endpoint_pattern = Column(
         String(255), 
         nullable=False,
@@ -38,7 +40,7 @@ class RateLimitOverride(Base):
     )
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     created_by = Column(
-        Integer,
+        PGUUID(as_uuid=True),
         ForeignKey("users.id"),
         nullable=False,
         comment="Admin user who created this override"

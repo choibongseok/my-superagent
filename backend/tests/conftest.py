@@ -3,6 +3,7 @@ Pytest configuration and fixtures
 """
 import os
 import pytest
+import asyncio
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
@@ -17,6 +18,14 @@ os.environ.setdefault("LANGFUSE_HOST", "https://cloud.langfuse.com")
 
 from app.main import app
 from app.core.database import get_db, AsyncSessionLocal, engine, Base
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an event loop for the test session."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
 
 
 @pytest.fixture(scope="session")

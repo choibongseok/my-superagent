@@ -10,8 +10,9 @@ from datetime import datetime
 
 from app.core.redis_rate_limiter import get_rate_limiter
 from app.core.config import settings
-from app.core.database import SessionLocal
+from app.core.database import AsyncSessionLocal
 from app.models.rate_limit_override import RateLimitOverride
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         endpoint = request.url.path
         
         # Check for admin override in database
-        override_limit = self._get_override_limit(user_id, endpoint)
+        override_limit = await self._get_override_limit(user_id, endpoint)
         if override_limit:
             limit_config = {"limit": override_limit, "window": 60}
             logger.info(f"Using override limit {override_limit} for user {user_id} on {endpoint}")
@@ -180,7 +181,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         
         return False
     
-    def _get_override_limit(self, user_id: str, endpoint: str) -> Optional[int]:
+    async def _get_override_limit(self, user_id: str, endpoint: str) -> Optional[int]:
         """
         Check database for admin-configured rate limit overrides.
         
@@ -196,21 +197,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return None
         
         try:
-            db = SessionLocal()
-            
-            # Query for active overrides that match this user and endpoint
-            overrides = db.query(RateLimitOverride).filter(
-                RateLimitOverride.user_id == user_id
-            ).all()
-            
-            # Check each override to see if it matches and is active
-            for override in overrides:
-                if override.is_active() and override.matches_endpoint(endpoint):
-                    db.close()
-                    return override.custom_limit
-            
-            db.close()
-            return None
+            async with AsyncSessionLocal() as db:
+                # Query for active overrides that match this user and endpoint
+                result = await db.execute(
+                    select(RateLimitOverride).filter(
+                        RateLimitOverride.user_id == user_id
+                    )
+                )
+                overrides = result.scalars().all()
+                
+                # Check each override to see if it matches and is active
+                for override in overrides:
+                    if override.is_active() and override.matches_endpoint(endpoint):
+                        return override.custom_limit
+                
+                return None
             
         except Exception as e:
             logger.warning(f"Error checking rate limit override: {e}")

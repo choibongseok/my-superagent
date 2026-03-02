@@ -9,12 +9,14 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from redis import Redis
 
-from app.api.v1 import api_router
+from app.api.v1 import api_router as api_router_v1
+from app.api.v2 import api_router as api_router_v2
 from app.core.cache import cache
 from app.core.config import settings
 from app.core.database import engine
 from app.core.metrics import init_metrics, metrics_app
 from app.core.redis_rate_limiter import init_rate_limiter
+from app.middleware.api_version import APIVersionMiddleware
 from app.middleware.cache import CacheMiddleware
 from app.middleware.metrics import MetricsMiddleware
 from app.middleware.rate_limiter import RateLimitMiddleware
@@ -102,6 +104,9 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 if settings.ENABLE_METRICS:
     app.add_middleware(MetricsMiddleware)
 
+# Add API version negotiation middleware
+app.add_middleware(APIVersionMiddleware)
+
 # Add rate limiting middleware
 if settings.RATE_LIMIT_ENABLED:
     app.add_middleware(RateLimitMiddleware)
@@ -113,8 +118,9 @@ app.add_middleware(CacheMiddleware, cache_ttl=settings.REDIS_DEFAULT_TTL)
 if settings.ENABLE_METRICS:
     app.mount("/metrics", metrics_app)
 
-# Include API router
-app.include_router(api_router, prefix="/api/v1")
+# Include API routers
+app.include_router(api_router_v1, prefix="/api/v1")
+app.include_router(api_router_v2, prefix="/api/v2")
 
 
 @app.get("/", tags=["health"])
