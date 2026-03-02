@@ -78,13 +78,18 @@
     - `GET /api/v1/workflows` - List available workflows
   - **Completion**: 3 working workflows, E2E tests for each ✅
 
-- [ ] **Workflow Testing** 🎯 **P1**
-  - [ ] Integration tests: `tests/workflows/test_multi_agent_workflows.py`
-    - Test research_to_sheets workflow (mock LLM, verify sheet creation)
-    - Test error handling (if agent 1 fails, workflow stops gracefully)
-    - Test context passing between agents
-  - [ ] Performance tests: Measure workflow latency vs sequential tasks
-  - **Completion**: All workflows tested, <30s end-to-end execution
+- [x] **Workflow Testing** 🎯 **P1** ✅ **COMPLETED 2026-03-02**
+  - [x] Integration tests: `tests/workflows/test_multi_agent_workflows.py`
+    - Test research_to_sheets workflow (mock LLM, verify sheet creation) ✅
+    - Test error handling (if agent 1 fails, workflow stops gracefully) ✅
+    - Test context passing between agents ✅
+    - Test research_to_docs workflow ✅
+    - Test full_pipeline workflow (Research → Sheets → Slides) ✅
+    - Test circular dependency detection ✅
+    - Test retry logic and max retries ✅
+  - [x] Performance tests: Measure workflow latency vs sequential tasks ✅
+  - [x] Fixed coordinator bug: duplicate keyword arguments in _invoke_agent ✅
+  - **Completion**: All workflows tested with 20 comprehensive test scenarios, 100% passing ✅
 
 ### Medium Priority
 

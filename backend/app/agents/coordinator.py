@@ -247,37 +247,37 @@ class AgentCoordinator:
         # TODO: Implement agent-specific invocation logic
         # For now, assume all agents have a run_async method
         
+        # Build kwargs, avoiding duplicate keys
+        kwargs = dict(message.payload)
+        
         if message.receiver == AgentRole.RESEARCH:
             # Research agent expects: query, user_id
-            return await agent.run_async(
-                query=message.task_description,
-                user_id=user_id,
-                **message.payload,
-            )
+            # Only set query if not already in payload
+            if 'query' not in kwargs:
+                kwargs['query'] = message.task_description
+            kwargs['user_id'] = user_id
+            return await agent.run_async(**kwargs)
         
         elif message.receiver == AgentRole.SHEETS:
-            # Sheets agent expects: spreadsheet_id, data, user_id
-            return await agent.run_async(
-                instruction=message.task_description,
-                user_id=user_id,
-                **message.payload,
-            )
+            # Sheets agent expects: instruction, data, user_id
+            if 'instruction' not in kwargs:
+                kwargs['instruction'] = message.task_description
+            kwargs['user_id'] = user_id
+            return await agent.run_async(**kwargs)
         
         elif message.receiver == AgentRole.DOCS:
-            # Docs agent expects: document_id, content, user_id
-            return await agent.run_async(
-                instruction=message.task_description,
-                user_id=user_id,
-                **message.payload,
-            )
+            # Docs agent expects: instruction, content, user_id
+            if 'instruction' not in kwargs:
+                kwargs['instruction'] = message.task_description
+            kwargs['user_id'] = user_id
+            return await agent.run_async(**kwargs)
         
         elif message.receiver == AgentRole.SLIDES:
-            # Slides agent expects: presentation_id, content, user_id
-            return await agent.run_async(
-                instruction=message.task_description,
-                user_id=user_id,
-                **message.payload,
-            )
+            # Slides agent expects: instruction, content, user_id
+            if 'instruction' not in kwargs:
+                kwargs['instruction'] = message.task_description
+            kwargs['user_id'] = user_id
+            return await agent.run_async(**kwargs)
         
         else:
             raise NotImplementedError(f"Agent {message.receiver.value} not supported")
