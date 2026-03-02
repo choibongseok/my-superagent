@@ -51,20 +51,28 @@
 
 ### High Priority: Advanced OAuth Features
 
-- [ ] **PKCE Implementation** (`pkce=True`) 🎯 **P0**
-  - [ ] Update OAuth flow: `backend/app/api/v1/oauth.py`
-    - Generate code_verifier and code_challenge
-    - Store verifier in Redis (short TTL)
-    - Validate challenge in token exchange
-    - Mobile-friendly flow (no client_secret required)
-  - [ ] Update OAuth models: `backend/app/models/oauth.py`
-    - Add `pkce_enabled` flag per provider
-    - Track PKCE usage in analytics
-  - [ ] Client SDK examples:
-    - iOS Swift PKCE example
-    - Android Kotlin PKCE example
-    - React Native PKCE example
-  - [ ] Documentation: `docs/PKCE_OAUTH_FLOW.md`
+- [x] **PKCE Implementation** (`pkce=True`) 🎯 **P0** ✅ **COMPLETED 2026-03-02**
+  - [x] Update OAuth flow: `backend/app/api/v1/pkce.py` ✅
+    - Generate code_verifier and code_challenge ✅
+    - Store verifier in database (10-minute TTL) ✅
+    - Validate challenge in token exchange ✅
+    - Mobile-friendly flow (no client_secret required) ✅
+  - [x] PKCE service: `backend/app/services/pkce_service.py` ✅
+    - Code verifier generation (128 chars, URL-safe) ✅
+    - Code challenge generation (S256 and plain methods) ✅
+    - Challenge storage and verification ✅
+    - Reuse protection ✅
+  - [x] Database model: `backend/app/models/pkce_challenge.py` ✅
+    - Store challenges with expiration ✅
+    - Track usage and prevent reuse ✅
+  - [x] Migration: `d416ac523d0a_add_pkce_challenges_table.py` ✅
+  - [x] API schemas: `backend/app/schemas/pkce.py` ✅
+  - [x] Comprehensive tests: `tests/api/test_pkce.py` (30+ scenarios) ✅
+  - [x] Client SDK examples: ✅
+    - iOS Swift PKCE example ✅
+    - Android Kotlin PKCE example ✅
+    - React Native PKCE example ✅
+  - [x] Documentation: `docs/PKCE_OAUTH_FLOW.md` ✅
   - **Completion**: Mobile apps can authenticate without client_secret ✅
 
 - [ ] **Device Authorization Flow** (`device_flow=True`) 🎯 **P1**
@@ -470,7 +478,7 @@
 
 **Sprint 16 In Progress** 🔧:
 - **workflow_templates=True**: ✅ **Pre-built workflow library with 5+ templates complete** 📚
-- **pkce=True**: Mobile-friendly OAuth with PKCE (no client_secret) 📱
+- **pkce=True**: ✅ **Mobile-friendly OAuth with PKCE complete (no client_secret)** 📱
 - **device_flow=True**: OAuth for CLI/TV/IoT devices 🖥️
 - **workspace_analytics=True**: Smart workspace organization and cleanup 🗂️
 
@@ -517,3 +525,4 @@
 - api_keys=True ✅
 - non_llm_tasks=True ✅
 - workflow_templates=True ✅
+- pkce=True ✅

@@ -80,9 +80,18 @@
   - **Completion**: Multiple version selection methods, smooth v1→v2 migration path ✅
 
 ### Security Enhancements
-- [ ] **Advanced OAuth Features**
-  - PKCE (Proof Key for Code Exchange) for mobile
-  - Device authorization flow
+- [x] **Advanced OAuth Features - PKCE** ✅ **Sprint 16 Complete**
+  - PKCE (Proof Key for Code Exchange) for mobile ✅
+  - SHA-256 challenge/verifier mechanism ✅
+  - No client_secret required for mobile apps ✅
+  - iOS, Android, React Native examples ✅
+  - **Files**: `backend/app/services/pkce_service.py`, `backend/app/api/v1/pkce.py`, `backend/app/models/pkce_challenge.py` ✅
+  - **Migration**: `d416ac523d0a_add_pkce_challenges_table.py` ✅
+  - **Tests**: `tests/api/test_pkce.py` (30+ tests) ✅
+  - **Docs**: `docs/PKCE_OAUTH_FLOW.md` ✅
+
+- [ ] **Advanced OAuth Features - Remaining**
+  - Device authorization flow (RFC 8628)
   - OAuth scope refinement
   - Token introspection endpoint
 

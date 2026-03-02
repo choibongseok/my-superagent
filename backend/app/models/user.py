@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from app.models.workflow_template import WorkflowTemplate
     from app.models.rate_limit_override import RateLimitOverride
     from app.models.api_key import ApiKey
+    from app.models.pkce_challenge import PKCEChallenge
 
 
 class User(Base, TimestampMixin):
@@ -92,6 +93,11 @@ class User(Base, TimestampMixin):
     # API keys
     api_keys: Mapped[List["ApiKey"]] = relationship(
         "ApiKey", back_populates="user", cascade="all, delete-orphan"
+    )
+    
+    # PKCE challenges
+    pkce_challenges: Mapped[List["PKCEChallenge"]] = relationship(
+        "PKCEChallenge", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
