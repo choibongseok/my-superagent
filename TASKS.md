@@ -1,7 +1,39 @@
 # 📋 AgentHQ Task Tracker
 
-> **Last Updated**: 2026-03-01 (Sprint 10 → Sprint 11 Planning)  
-> **Current Sprint**: Sprint 10 Complete ✅ | Sprint 11 Starting 🚀
+> **Last Updated**: 2026-03-02 (Sprint 14 Complete)  
+> **Current Sprint**: Sprint 14 Complete ✅ | Sprint 15 Planning 🚀
+
+---
+
+## 🎯 Sprint 14 Completed (2026-03-02) ✅
+
+### High Priority: API Key Management System
+
+- [x] **API Key Management** (`api_keys=True`) 🎯 **P0** ✅ **COMPLETED 2026-03-02**
+  - [x] Database models: `backend/app/models/api_key.py`, `backend/app/models/api_key_usage.py`
+    - ApiKey model with SHA-256 hashing
+    - ApiKeyUsage model for tracking
+    - Scopes (read, write, admin)
+    - Expiration and rotation support
+  - [x] Migration: `010_api_key_management.py`
+  - [x] API endpoints: `backend/app/api/v1/api_keys.py`
+    - POST /api-keys - Create new key
+    - GET /api-keys - List user's keys
+    - GET /api-keys/{id} - Get key details
+    - PATCH /api-keys/{id} - Update key
+    - DELETE /api-keys/{id} - Delete key
+    - POST /api-keys/{id}/rotate - Rotate key
+    - GET /api-keys/{id}/stats - Usage statistics
+  - [x] Authentication middleware: `backend/app/middleware/api_key_auth.py`
+    - X-API-Key header support
+    - Dual auth (JWT + API key)
+    - Usage tracking
+    - Scope validation
+  - [x] Updated dependencies: `backend/app/api/dependencies.py`
+    - Support both JWT and API key auth
+  - [x] Comprehensive tests: `tests/api/test_api_keys.py` (20+ scenarios)
+  - [x] Documentation: `docs/API_KEY_MANAGEMENT.md`
+  - **Completion**: Full API key lifecycle with security best practices ✅
 
 ---
 
@@ -256,16 +288,16 @@
 
 ## ✅ Recently Completed
 
+- ✅ Sprint 14: API Key Management (2026-03-02) 🔑
+- ✅ Sprint 13: API Versioning Strategy (2026-03-02)
+- ✅ Sprint 12: Admin Rate Limit Management (2026-03-02)
+- ✅ Sprint 11: API Rate Limiting + Multi-Agent Workflows + Monitoring (2026-03-02) ⚡
+- ✅ Sprint 10: Task Notifications + Fact Checker v2 (2026-03-01)
 - ✅ Sprint 9: Performance Optimization (2026-03-01) ⚡
 - ✅ Sprint 8: Sheets Agent Advanced Features (2026-03-01)
 - ✅ Sprint 7: Enhanced OAuth with token rotation (2026-03-01)
 - ✅ Sprint 6: Claude/Anthropic Integration (2026-03-01)
 - ✅ Sprint 5: LLM Cost Tracking & Budget Alerts (2026-03-01)
-- ✅ Fact Checking System (2026-03-01)
-- ✅ Sprint 4: Smart Scheduling with Celery Beat (2026-03-01)
-- ✅ Sprint 3: Enhanced Docs Agent (2026-03-01)
-- ✅ Sprint 2: Usage Nudge Emails (2026-02-26)
-- ✅ Sprint 1: Critical Bug Fixes (2026-02-12)
 
 ---
 
@@ -273,9 +305,16 @@
 
 | Feature | Status | Priority | Assignee | Notes |
 |---------|--------|----------|----------|-------|
+| **Sprint 14** | | | | |
+| API Key Management | 🟢 DONE | P0 | - | Full lifecycle + usage tracking ✅ |
+| **Sprint 13** | | | | |
+| API Versioning | 🟢 DONE | P2 | - | v2 endpoints + migration path ✅ |
+| **Sprint 12** | | | | |
+| Admin Rate Limits | 🟢 DONE | P0 | - | Per-user overrides ✅ |
 | **Sprint 11** | | | | |
 | Rate Limiting | 🟢 DONE | P0 | - | Middleware + tests complete ✅ |
 | Agent Collaboration | 🟢 DONE | P0 | - | Coordinator + workflows complete ✅ |
+| Monitoring Dashboard | 🟢 DONE | P2 | - | Real-time metrics ✅ |
 | **Sprint 10** | | | | |
 | Task Notifications | 🟢 DONE | P0 | - | Email alerts complete ✅ |
 | Fact Checker v2 | 🟢 DONE | P0 | - | Wolfram Alpha + contradictions ✅ |
@@ -284,21 +323,19 @@
 | Sheets Advanced | 🟢 DONE | P1 | - | Sprint 8 complete |
 | Claude Integration | 🟢 DONE | P0 | - | Sprint 6 complete |
 | OAuth Enhancements | 🟢 DONE | P0 | - | Sprint 7 complete |
-| Docs Maintenance | 🟢 DONE | P1 | - | Architecture diagrams complete |
-| Budget Tracking | 🟢 DONE | P0 | - | Sprint 5 |
-| Fact Checking | 🟢 DONE | P1 | - | Needs migration |
-| Smart Scheduling | 🟢 DONE | P1 | - | Sprint 4 |
 
 ---
 
 ## 📝 Notes
 
-**Sprint 9 Complete** ✅:
-- **claude=True**: ✅ Anthropic Claude models fully supported (Opus, Sonnet, Haiku)
-- **oauth=True**: ✅ Enhanced OAuth with token rotation, multi-provider, encryption
-- **docs=True**: ✅ Docs Agent + comprehensive architecture diagrams
-- **sheets=True**: ✅ **Advanced Sheets Agent with formulas, pivot tables, conditional formatting** ⭐
-- **performance=True**: ✅ **Redis caching, query optimization, 5-10x performance improvement** ⚡
+**Sprint 14 Complete** ✅:
+- **api_keys=True**: ✅ **Full API key management with rotation, scopes, and usage tracking** 🔑
+
+**Sprint 13 Complete** ✅:
+- **api_versioning=True**: ✅ **v2 API endpoints with backward compatibility** ⭐
+
+**Sprint 12 Complete** ✅:
+- **admin_rate_limits=True**: ✅ **Admin can override rate limits per user** ⚡
 
 **Sprint 11 Complete** ✅:
 - **rate_limiting=True**: ✅ **API rate limiting with sliding window complete** ⭐
@@ -309,7 +346,14 @@
 - **notifications=True**: ✅ **Scheduled task notifications complete** ⭐
 - **fact_checker_v2=True**: ✅ **Wolfram Alpha + contradiction detection complete** ⭐
 
-**Completion Estimate**: Sprint 11 COMPLETE (2026-03-02) 🎉
+**Sprint 9 Complete** ✅:
+- **claude=True**: ✅ Anthropic Claude models fully supported (Opus, Sonnet, Haiku)
+- **oauth=True**: ✅ Enhanced OAuth with token rotation, multi-provider, encryption
+- **docs=True**: ✅ Docs Agent + comprehensive architecture diagrams
+- **sheets=True**: ✅ **Advanced Sheets Agent with formulas, pivot tables, conditional formatting** ⭐
+- **performance=True**: ✅ **Redis caching, query optimization, 5-10x performance improvement** ⚡
+
+**Completion Estimate**: Sprint 14 COMPLETE (2026-03-02) 🎉
 
 **Status Summary**:
 - oauth=True ✅
@@ -319,3 +363,6 @@
 - rate_limiting=True ✅
 - multi_agent=True ✅
 - monitoring=True ✅
+- api_versioning=True ✅
+- admin_rate_limits=True ✅
+- api_keys=True ✅

@@ -86,11 +86,18 @@
   - OAuth scope refinement
   - Token introspection endpoint
 
-- [ ] **API Key Management**
-  - Per-user API key generation
-  - Key rotation and expiry
-  - Usage analytics per key
-  - Scoped permissions
+- [x] **API Key Management** ✅ **Sprint 14 Complete**
+  - Per-user API key generation ✅
+  - Key rotation and expiry ✅
+  - Usage analytics per key ✅
+  - Scoped permissions (read, write, admin) ✅
+  - SHA-256 hashing for security ✅
+  - Dual authentication (JWT + API keys) ✅
+  - **Files**: `backend/app/models/api_key.py`, `backend/app/api/v1/api_keys.py`, `backend/app/middleware/api_key_auth.py` ✅
+  - **Migration**: `010_api_key_management.py` ✅
+  - **Tests**: `tests/api/test_api_keys.py` (20+ tests) ✅
+  - **Docs**: `docs/API_KEY_MANAGEMENT.md` ✅
+  - **Completion**: Full API key lifecycle with programmatic access ✅
 
 ---
 

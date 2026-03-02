@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from app.models.budget import UserBudget
     from app.models.workflow_execution import WorkflowExecution
     from app.models.rate_limit_override import RateLimitOverride
+    from app.models.api_key import ApiKey
 
 
 class User(Base, TimestampMixin):
@@ -80,6 +81,11 @@ class User(Base, TimestampMixin):
     rate_limit_overrides: Mapped[List["RateLimitOverride"]] = relationship(
         "RateLimitOverride", foreign_keys="[RateLimitOverride.user_id]", 
         back_populates="user", cascade="all, delete-orphan"
+    )
+    
+    # API keys
+    api_keys: Mapped[List["ApiKey"]] = relationship(
+        "ApiKey", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
