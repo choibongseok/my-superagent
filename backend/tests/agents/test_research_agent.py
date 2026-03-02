@@ -17,9 +17,11 @@ class TestResearchAgentInitialization:
         
         assert agent.user_id == "test_user"
         assert agent.session_id.startswith("research_")
-        assert agent.citations == []
+        assert agent.get_citations() == []
         assert agent.memory is not None
-        assert isinstance(agent.memory, ConversationMemory)
+        # Memory is MemoryManager, not ConversationMemory directly
+        from app.memory.manager import MemoryManager
+        assert isinstance(agent.memory, MemoryManager)
 
     def test_init_with_session(self):
         """Test initialization with custom session ID."""
@@ -76,11 +78,12 @@ class TestResearchAgentMemory:
     """Test memory integration."""
 
     def test_memory_initialization(self):
-        """Test ConversationMemory is initialized."""
+        """Test MemoryManager is initialized."""
         agent = ResearchAgent(user_id="test_user")
         
+        from app.memory.manager import MemoryManager
         assert agent.memory is not None
-        assert isinstance(agent.memory, ConversationMemory)
+        assert isinstance(agent.memory, MemoryManager)
         assert agent.memory.user_id == "test_user"
 
     def test_add_user_message(self):

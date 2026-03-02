@@ -105,27 +105,29 @@ def test_multiple_agents_cached(orchestrator):
 @pytest.mark.asyncio
 async def test_decompose_task_basic(orchestrator):
     """Test task decomposition."""
-    with patch.object(orchestrator.llm, 'ainvoke', new_callable=AsyncMock) as mock_llm:
-        # Mock LLM response
-        mock_response = Mock()
-        mock_response.content = """
-        [
-            {
-                "task_id": "1",
-                "agent_type": "research",
-                "description": "Research the topic",
-                "dependencies": []
-            },
-            {
-                "task_id": "2",
-                "agent_type": "docs",
-                "description": "Write document",
-                "dependencies": ["1"]
-            }
-        ]
-        """
-        mock_llm.return_value = mock_response
-
+    # Create a proper AsyncMock for the LLM
+    mock_llm = AsyncMock()
+    mock_response = Mock()
+    mock_response.content = """
+    [
+        {
+            "task_id": "1",
+            "agent_type": "research",
+            "description": "Research the topic",
+            "dependencies": []
+        },
+        {
+            "task_id": "2",
+            "agent_type": "docs",
+            "description": "Write document",
+            "dependencies": ["1"]
+        }
+    ]
+    """
+    mock_llm.ainvoke.return_value = mock_response
+    
+    # Replace the entire LLM object instead of patching a method
+    with patch.object(orchestrator, 'llm', mock_llm):
         tasks = await orchestrator.decompose_task("Create a research document")
 
         assert len(tasks) == 2

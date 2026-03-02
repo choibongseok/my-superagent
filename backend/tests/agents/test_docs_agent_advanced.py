@@ -268,7 +268,10 @@ class TestGoogleDocsAPIAdvanced:
         """Test apply_formatting method."""
         api, mock_service = docs_api
         
-        mock_service.documents().batchUpdate().execute.return_value = {"success": True}
+        # Create a fresh mock for the chain
+        mock_batch_update = MagicMock()
+        mock_batch_update.execute.return_value = {"success": True}
+        mock_service.documents().batchUpdate.return_value = mock_batch_update
         
         result = api.apply_formatting(
             document_id="doc123",
@@ -280,13 +283,20 @@ class TestGoogleDocsAPIAdvanced:
         )
         
         assert result["success"] is True
+        # Verify batchUpdate was called with correct parameters
         mock_service.documents().batchUpdate.assert_called_once()
+        call_args = mock_service.documents().batchUpdate.call_args
+        assert call_args[1]['documentId'] == 'doc123'
+        assert 'requests' in call_args[1]['body']
 
     def test_apply_named_style(self, docs_api):
         """Test apply_named_style method."""
         api, mock_service = docs_api
         
-        mock_service.documents().batchUpdate().execute.return_value = {"success": True}
+        # Create a fresh mock for the chain
+        mock_batch_update = MagicMock()
+        mock_batch_update.execute.return_value = {"success": True}
+        mock_service.documents().batchUpdate.return_value = mock_batch_update
         
         result = api.apply_named_style(
             document_id="doc123",
@@ -296,7 +306,10 @@ class TestGoogleDocsAPIAdvanced:
         )
         
         assert result["success"] is True
+        # Verify batchUpdate was called with correct parameters
         mock_service.documents().batchUpdate.assert_called_once()
+        call_args = mock_service.documents().batchUpdate.call_args
+        assert call_args[1]['documentId'] == 'doc123'
 
     def test_insert_table(self, docs_api):
         """Test insert_table method."""
@@ -338,7 +351,10 @@ class TestGoogleDocsAPIAdvanced:
         """Test insert_image method."""
         api, mock_service = docs_api
         
-        mock_service.documents().batchUpdate().execute.return_value = {"success": True}
+        # Create a fresh mock for the chain
+        mock_batch_update = MagicMock()
+        mock_batch_update.execute.return_value = {"success": True}
+        mock_service.documents().batchUpdate.return_value = mock_batch_update
         
         result = api.insert_image(
             document_id="doc123",
@@ -350,12 +366,17 @@ class TestGoogleDocsAPIAdvanced:
         
         assert result["success"] is True
         mock_service.documents().batchUpdate.assert_called_once()
+        call_args = mock_service.documents().batchUpdate.call_args
+        assert call_args[1]['documentId'] == 'doc123'
 
     def test_insert_page_break(self, docs_api):
         """Test insert_page_break method."""
         api, mock_service = docs_api
         
-        mock_service.documents().batchUpdate().execute.return_value = {"success": True}
+        # Create a fresh mock for the chain
+        mock_batch_update = MagicMock()
+        mock_batch_update.execute.return_value = {"success": True}
+        mock_service.documents().batchUpdate.return_value = mock_batch_update
         
         result = api.insert_page_break(
             document_id="doc123",
@@ -364,12 +385,17 @@ class TestGoogleDocsAPIAdvanced:
         
         assert result["success"] is True
         mock_service.documents().batchUpdate.assert_called_once()
+        call_args = mock_service.documents().batchUpdate.call_args
+        assert call_args[1]['documentId'] == 'doc123'
 
     def test_create_bullet_list(self, docs_api):
         """Test create_bullet_list method."""
         api, mock_service = docs_api
         
-        mock_service.documents().batchUpdate().execute.return_value = {"success": True}
+        # Create a fresh mock for the chain
+        mock_batch_update = MagicMock()
+        mock_batch_update.execute.return_value = {"success": True}
+        mock_service.documents().batchUpdate.return_value = mock_batch_update
         
         result = api.create_bullet_list(
             document_id="doc123",
@@ -380,6 +406,8 @@ class TestGoogleDocsAPIAdvanced:
         
         assert result["success"] is True
         mock_service.documents().batchUpdate.assert_called_once()
+        call_args = mock_service.documents().batchUpdate.call_args
+        assert call_args[1]['documentId'] == 'doc123'
 
 
 @pytest.mark.integration
