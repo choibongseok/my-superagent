@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from app.models.scheduled_task import ScheduledTask
     from app.models.budget import UserBudget
     from app.models.workflow_execution import WorkflowExecution
+    from app.models.rate_limit_override import RateLimitOverride
 
 
 class User(Base, TimestampMixin):
@@ -37,6 +38,7 @@ class User(Base, TimestampMixin):
         String(512), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(default=True, index=True)
+    is_admin: Mapped[bool] = mapped_column(default=False, index=True)
 
     # Relationships
     chats: Mapped[List["Chat"]] = relationship(
@@ -72,6 +74,12 @@ class User(Base, TimestampMixin):
     # Workflow executions
     workflow_executions: Mapped[List["WorkflowExecution"]] = relationship(
         "WorkflowExecution", back_populates="user", cascade="all, delete-orphan"
+    )
+    
+    # Rate limit overrides
+    rate_limit_overrides: Mapped[List["RateLimitOverride"]] = relationship(
+        "RateLimitOverride", foreign_keys="[RateLimitOverride.user_id]", 
+        back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

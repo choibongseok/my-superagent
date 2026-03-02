@@ -6,15 +6,17 @@ import pytest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
-from app.main import app
-from app.core.database import get_db, AsyncSessionLocal, engine, Base
-
-# Set test environment variables
+# Set test environment variables BEFORE importing app modules
+# Use PostgreSQL test database (supports all features like UUID, pgvector, etc.)
+os.environ["DATABASE_URL"] = "postgresql+asyncpg://agenthq:agenthq_dev_password@localhost:5432/agenthq_test"
 os.environ.setdefault("OPENAI_API_KEY", "test_openai_key_12345")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test_anthropic_key_67890")
 os.environ.setdefault("LANGFUSE_SECRET_KEY", "test_langfuse_secret")
 os.environ.setdefault("LANGFUSE_PUBLIC_KEY", "test_langfuse_public")
 os.environ.setdefault("LANGFUSE_HOST", "https://cloud.langfuse.com")
+
+from app.main import app
+from app.core.database import get_db, AsyncSessionLocal, engine, Base
 
 
 @pytest.fixture(scope="session")

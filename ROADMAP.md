@@ -40,7 +40,7 @@
 
 ## 🔥 Phase 2: API & Security Hardening (IN PROGRESS 🔧)
 
-**Target**: Sprint 10-11 (March 2026)
+**Target**: Sprint 10-12 (March 2026)
 
 ### API Infrastructure
 - [x] Fact Checker v2 (Wolfram Alpha, contradiction detection) ✅ **Sprint 10 完**
@@ -55,6 +55,19 @@
   - **Tests**: `tests/middleware/test_rate_limiter.py`, `tests/core/test_redis_rate_limiter.py` ✅
   - **Docs**: `docs/API_RATE_LIMITING.md` ✅
   - **Completion**: Rate limiting active on all public endpoints ✅
+
+- [x] **Admin Rate Limit Management** ✅ **Sprint 12 完** 🎯
+  - Per-user rate limit overrides ✅
+  - Pattern matching (exact, wildcard, prefix) ✅
+  - Temporary overrides with expiration ✅
+  - Admin CRUD endpoints ✅
+  - Database schema with audit trail ✅
+  - Middleware integration ✅
+  - **Files**: `backend/app/api/v1/admin/rate_limits.py`, `backend/app/models/rate_limit_override.py` ✅
+  - **Migration**: `009_rate_limit_overrides.py` ✅
+  - **Tests**: `tests/admin/test_rate_limit_admin.py` (25+ tests) ✅
+  - **Docs**: `docs/ADMIN_RATE_LIMIT_MANAGEMENT.md` ✅
+  - **Completion**: Admins can grant custom quotas to VIP users ✅
 
 - [ ] **API Versioning Strategy**
   - v2 API endpoints (/api/v2/*)
@@ -217,26 +230,23 @@ AgentHQ의 강점 (LLM orchestration, Google Workspace) + FactoryHub 컨셉 (범
 
 ---
 
-## 🚀 Immediate Next Steps (Sprint 11)
+## 🚀 Immediate Next Steps (Sprint 12-13)
 
-### ✅ Week 1-2: API Rate Limiting (March 2-15) **COMPLETED**
-1. ✅ Design rate limiting strategy (per-user, per-endpoint, per-IP)
-2. ✅ Implement Redis-based distributed limiter
-3. ✅ Add rate limit middleware to FastAPI
-4. ✅ Create admin bypass mechanism
-5. ✅ Write comprehensive tests (40+ scenarios)
-6. ✅ Documentation and API client updates
+### ✅ Week 1: Admin Rate Limit Management (March 2-8) **COMPLETED** ✅
+1. ✅ Design admin rate limit override system
+2. ✅ Implement database schema and model
+3. ✅ Create admin CRUD endpoints
+4. ✅ Update middleware to check database overrides
+5. ✅ Write comprehensive tests (25+ scenarios)
+6. ✅ Documentation complete
 
-### 🎯 Week 3-4: Agent Collaboration Foundation (March 16-31) **NEXT**
-1. Design agent communication protocol
-2. Implement coordinator service
-3. Create 3 example workflows:
-   - Research → Sheets (data extraction → spreadsheet)
-   - Research → Docs (web search → report)
-   - Research → Sheets → Slides (full pipeline)
-4. Add workflow status tracking
-5. Write integration tests
-6. Update API documentation
+### 🎯 Week 2-4: API Versioning Strategy (March 9-31) **NEXT**
+1. Design v2 API endpoints (/api/v2/*)
+2. Implement version negotiation middleware
+3. Create backward compatibility layer
+4. Define deprecation policy
+5. Update documentation for v1 deprecation timeline
+6. Migrate critical endpoints to v2
 
 ---
 

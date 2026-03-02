@@ -6,9 +6,12 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Dict, Optional
 import logging
+from datetime import datetime
 
 from app.core.redis_rate_limiter import get_rate_limiter
 from app.core.config import settings
+from app.core.database import SessionLocal
+from app.models.rate_limit_override import RateLimitOverride
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +82,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         
         # Determine rate limit for this endpoint
         endpoint = request.url.path
-        limit_config = self.ENDPOINT_LIMITS.get(endpoint, self.DEFAULT_LIMITS["default"])
+        
+        # Check for admin override in database
+        override_limit = self._get_override_limit(user_id, endpoint)
+        if override_limit:
+            limit_config = {"limit": override_limit, "window": 60}
+            logger.info(f"Using override limit {override_limit} for user {user_id} on {endpoint}")
+        else:
+            limit_config = self.ENDPOINT_LIMITS.get(endpoint, self.DEFAULT_LIMITS["default"])
         
         # Check minute-level limit
         allowed, remaining, reset_time = limiter.check_rate_limit(
@@ -169,3 +179,39 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 return user.role == "admin"
         
         return False
+    
+    def _get_override_limit(self, user_id: str, endpoint: str) -> Optional[int]:
+        """
+        Check database for admin-configured rate limit overrides.
+        
+        Args:
+            user_id: User identifier
+            endpoint: API endpoint path
+            
+        Returns:
+            Custom rate limit if override exists and is active, None otherwise
+        """
+        # Skip database lookup for anonymous users
+        if user_id.startswith("anon:"):
+            return None
+        
+        try:
+            db = SessionLocal()
+            
+            # Query for active overrides that match this user and endpoint
+            overrides = db.query(RateLimitOverride).filter(
+                RateLimitOverride.user_id == user_id
+            ).all()
+            
+            # Check each override to see if it matches and is active
+            for override in overrides:
+                if override.is_active() and override.matches_endpoint(endpoint):
+                    db.close()
+                    return override.custom_limit
+            
+            db.close()
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Error checking rate limit override: {e}")
+            return None

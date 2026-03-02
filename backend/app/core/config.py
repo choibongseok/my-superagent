@@ -38,11 +38,40 @@ class Settings(BaseSettings):
     @field_validator("DATABASE_URL", mode="after")
     @classmethod
     def fix_database_url(cls, v: str) -> str:
-        """Convert postgres:// to postgresql+asyncpg:// for SQLAlchemy async."""
+        """Convert postgres:// to postgresql+asyncpg:// for SQLAlchemy async.
+        
+        Also strips out psycopg2-specific parameters like sslmode that aren't
+        compatible with asyncpg. For asyncpg, SSL is controlled via connect_args
+        or by using ssl=true/false in the URL.
+        """
+        # First, convert the protocol
         if v.startswith("postgres://"):
-            return v.replace("postgres://", "postgresql+asyncpg://", 1)
+            v = v.replace("postgres://", "postgresql+asyncpg://", 1)
         elif v.startswith("postgresql://"):
-            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+            v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        
+        # Strip out sslmode parameter (psycopg2-specific, not compatible with asyncpg)
+        # asyncpg uses ssl=true/false or ssl=require instead
+        if "?sslmode=" in v:
+            # Extract the sslmode value to potentially convert it
+            import re
+            sslmode_match = re.search(r'[?&]sslmode=([^&]+)', v)
+            if sslmode_match:
+                sslmode_value = sslmode_match.group(1)
+                # Remove the sslmode parameter
+                v = re.sub(r'[?&]sslmode=[^&]+&?', '', v)
+                # Clean up any trailing ? or & 
+                v = re.sub(r'[?&]$', '', v)
+                
+                # Convert to asyncpg SSL format if needed
+                # sslmode=disable -> no ssl parameter needed (default)
+                # sslmode=require -> add ssl=require
+                # sslmode=prefer -> no ssl parameter (asyncpg will try SSL first)
+                if sslmode_value not in ('disable', 'allow', 'prefer'):
+                    # Add asyncpg-compatible SSL parameter
+                    separator = '&' if '?' in v else '?'
+                    v = f"{v}{separator}ssl=require"
+        
         return v
 
     # Redis

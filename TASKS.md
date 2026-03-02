@@ -37,15 +37,21 @@
     - Test per-endpoint limits
   - **Completion**: 40+ test scenarios, 90%+ coverage ✅
 
-- [ ] **Admin Rate Limit Management** 🎯 **P0** (Future: Sprint 12)
-  - [ ] API endpoints: `backend/app/api/v1/admin/rate_limits.py`
+- [x] **Admin Rate Limit Management** 🎯 **P0** ✅ **COMPLETED 2026-03-02**
+  - [x] API endpoints: `backend/app/api/v1/admin/rate_limits.py`
     - `GET /api/v1/admin/rate-limits` - List all user quotas
-    - `POST /api/v1/admin/rate-limits/{user_id}/override` - Set custom limit
-    - `DELETE /api/v1/admin/rate-limits/{user_id}/override` - Remove override
-  - [ ] Database schema: `backend/app/models/rate_limit_override.py`
+    - `POST /api/v1/admin/rate-limits` - Create override
+    - `GET /api/v1/admin/rate-limits/{override_id}` - Get single override
+    - `PATCH /api/v1/admin/rate-limits/{override_id}` - Update override
+    - `DELETE /api/v1/admin/rate-limits/{override_id}` - Remove override
+  - [x] Database schema: `backend/app/models/rate_limit_override.py`
     - `user_id`, `endpoint_pattern`, `custom_limit`, `expires_at`
-  - [ ] Migration: `alembic revision --autogenerate -m "Add rate limit overrides"`
-  - **Completion**: Admins can grant temporary high quotas for VIP users
+  - [x] Migration: `009_rate_limit_overrides.py`
+  - [x] Added `is_admin` field to User model
+  - [x] Updated rate limiter middleware to check database overrides
+  - [x] Comprehensive test suite (25+ tests)
+  - [x] Documentation complete: `docs/ADMIN_RATE_LIMIT_MANAGEMENT.md`
+  - **Completion**: Admins can grant temporary or permanent high quotas for VIP users ✅
 
 ### High Priority: Agent Collaboration Foundation
 
