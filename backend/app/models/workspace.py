@@ -65,8 +65,9 @@ class Workspace(Base, TimestampMixin):
     invitations: Mapped[list["WorkspaceInvitation"]] = relationship(
         "WorkspaceInvitation", back_populates="workspace", cascade="all, delete-orphan"
     )
-    chats: Mapped[list["Chat"]] = relationship("Chat", back_populates="workspace", cascade="all, delete-orphan")
-    tasks: Mapped[list["Task"]] = relationship("Task", back_populates="workspace", cascade="all, delete-orphan")
+    # TODO: Add workspace_id FK to Chat and Task models before enabling these relationships
+    # chats: Mapped[list["Chat"]] = relationship("Chat", back_populates="workspace", cascade="all, delete-orphan")
+    # tasks: Mapped[list["Task"]] = relationship("Task", back_populates="workspace", cascade="all, delete-orphan")
     
     # Statistics (computed)
     last_activity_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
