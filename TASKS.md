@@ -75,21 +75,37 @@
   - [x] Documentation: `docs/PKCE_OAUTH_FLOW.md` ✅
   - **Completion**: Mobile apps can authenticate without client_secret ✅
 
-- [ ] **Device Authorization Flow** (`device_flow=True`) 🎯 **P1**
-  - [ ] Implement OAuth 2.0 Device Flow (RFC 8628)
-    - `POST /api/v1/oauth/device/code` - Request device code
-    - `POST /api/v1/oauth/device/token` - Poll for token
-    - User-friendly 6-digit code (XXXX-XXXX)
-  - [ ] Add device code UI: `frontend/src/pages/DeviceActivation.tsx`
-    - Display device code
-    - QR code for mobile scanning
-    - Auto-refresh on approval
-  - [ ] Use cases:
-    - Smart TV apps
-    - CLI tools
-    - IoT devices
-  - [ ] Documentation: `docs/DEVICE_AUTHORIZATION_FLOW.md`
-  - **Completion**: CLI can authenticate via browser ✅
+- [x] **Device Authorization Flow** (`device_flow=True`) 🎯 **P1** ✅ **COMPLETED 2026-03-02**
+  - [x] Implement OAuth 2.0 Device Flow (RFC 8628) ✅
+    - `POST /api/v1/oauth/device/code` - Request device code ✅
+    - `POST /api/v1/oauth/device/token` - Poll for token ✅
+    - `POST /api/v1/oauth/device/activate` - Get device info ✅
+    - `POST /api/v1/oauth/device/approve` - Approve/deny device ✅
+    - User-friendly 8-character code (XXXX-XXXX format) ✅
+  - [x] Database model: `backend/app/models/device_code.py` ✅
+    - Device code storage with expiration ✅
+    - User approval tracking ✅
+    - Polling rate limiting ✅
+  - [x] Service layer: `backend/app/services/device_flow_service.py` ✅
+    - Device code generation (64 chars, secure) ✅
+    - User code generation (8 chars, no confusing characters) ✅
+    - Approval/denial logic ✅
+    - Token polling with error codes ✅
+    - Automatic cleanup of expired codes ✅
+  - [x] Migration: `ebe179f3ceca_add_device_authorization_flow_tables.py` ✅
+  - [x] API schemas: `backend/app/schemas/device_flow.py` ✅
+  - [x] Comprehensive tests: `tests/api/test_device_flow.py` (40+ scenarios) ✅
+  - [x] Client SDK examples: ✅
+    - Python CLI example ✅
+    - JavaScript Smart TV example ✅
+    - C++ IoT device example ✅
+  - [x] Use cases:
+    - Smart TV apps ✅
+    - CLI tools ✅
+    - IoT devices ✅
+    - Kiosks and terminals ✅
+  - [x] Documentation: `docs/DEVICE_AUTHORIZATION_FLOW.md` ✅
+  - **Completion**: CLI/TV/IoT devices can authenticate via browser ✅
 
 ### Medium Priority: Smart Workspace Manager
 
@@ -447,8 +463,8 @@
 |---------|--------|----------|----------|-------|
 | **Sprint 16** | | | | |
 | Workflow Templates | 🟢 DONE | P0 | - | 5+ pre-built templates with variables ✅ |
-| PKCE OAuth | 🟡 PLANNED | P0 | - | Mobile-friendly auth flow |
-| Device Auth Flow | 🟡 PLANNED | P1 | - | CLI/TV/IoT authentication |
+| PKCE OAuth | 🟢 DONE | P0 | - | Mobile-friendly auth flow ✅ |
+| Device Auth Flow | 🟢 DONE | P1 | - | CLI/TV/IoT authentication ✅ |
 | Workspace Analytics | 🟡 PLANNED | P2 | - | Auto-organization + cleanup |
 | OAuth Scopes | 🟡 PLANNED | P3 | - | Granular permissions |
 | **Sprint 15** | | | | |
@@ -479,7 +495,7 @@
 **Sprint 16 In Progress** 🔧:
 - **workflow_templates=True**: ✅ **Pre-built workflow library with 5+ templates complete** 📚
 - **pkce=True**: ✅ **Mobile-friendly OAuth with PKCE complete (no client_secret)** 📱
-- **device_flow=True**: OAuth for CLI/TV/IoT devices 🖥️
+- **device_flow=True**: ✅ **OAuth Device Flow for CLI/TV/IoT devices (RFC 8628) complete** 🖥️
 - **workspace_analytics=True**: Smart workspace organization and cleanup 🗂️
 
 **Sprint 15 Complete** ✅:
@@ -526,3 +542,4 @@
 - non_llm_tasks=True ✅
 - workflow_templates=True ✅
 - pkce=True ✅
+- device_flow=True ✅

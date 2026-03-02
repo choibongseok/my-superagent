@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     auth, health, tasks, chats, messages, workspaces, templates,
     orchestrator, analytics, scheduled_tasks, budget, workflows, monitoring,
-    api_keys, performance, workflow_templates, pkce
+    api_keys, performance, workflow_templates, pkce, device_flow
 )
 from app.api.v1.admin import rate_limits as admin_rate_limits
 
@@ -15,6 +15,7 @@ api_router = APIRouter()
 api_router.include_router(health.router, tags=["health"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(pkce.router, prefix="/pkce", tags=["pkce", "auth"])
+api_router.include_router(device_flow.router, prefix="/oauth", tags=["oauth", "device-flow"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
 api_router.include_router(chats.router, tags=["chats"])
 api_router.include_router(messages.router, tags=["messages"])
