@@ -16,9 +16,9 @@ security = HTTPBearer(auto_error=False)  # Don't auto-error, we'll check API key
 
 async def get_current_user(
     request: Request,
-    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)] = None,
     x_api_key: Optional[str] = Header(None),
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: AsyncSession = Depends(get_db),
 ) -> User:
     """
     Get current authenticated user from JWT token OR API key.
