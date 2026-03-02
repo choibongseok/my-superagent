@@ -7,6 +7,7 @@ from app.api.v1 import (
     orchestrator, analytics, scheduled_tasks, budget, workflows, monitoring,
     api_keys, performance, workflow_templates, pkce, device_flow
 )
+from app.api.v1 import workspace as workspace_analytics
 from app.api.v1.admin import rate_limits as admin_rate_limits
 
 api_router = APIRouter()
@@ -30,6 +31,7 @@ api_router.include_router(monitoring.router, tags=["monitoring"])
 api_router.include_router(api_keys.router, tags=["api-keys"])
 api_router.include_router(performance.router, tags=["performance"])
 api_router.include_router(workflow_templates.router, tags=["workflow-templates"])
+api_router.include_router(workspace_analytics.router, tags=["workspace-analytics"])
 
 # Admin routes
 api_router.include_router(admin_rate_limits.router, prefix="/admin/rate-limits", tags=["admin", "rate-limits"])

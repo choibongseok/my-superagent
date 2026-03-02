@@ -99,6 +99,16 @@ class User(Base, TimestampMixin):
     pkce_challenges: Mapped[List["PKCEChallenge"]] = relationship(
         "PKCEChallenge", back_populates="user", cascade="all, delete-orphan"
     )
+    
+    # Workspace insights
+    workspace_insights: Mapped[List["WorkspaceInsight"]] = relationship(
+        "WorkspaceInsight", back_populates="user", cascade="all, delete-orphan"
+    )
+    
+    # Workspace cleanup logs
+    workspace_cleanup_logs: Mapped[List["WorkspaceCleanupLog"]] = relationship(
+        "WorkspaceCleanupLog", back_populates="user", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email})>"
