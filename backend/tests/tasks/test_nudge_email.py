@@ -11,7 +11,7 @@ from app.tasks.nudge_email import (
     _get_inactive_users,
     _send_nudge_email,
     send_usage_nudge_emails,
-    test_nudge_email,
+    send_test_nudge_email,
 )
 from app.models.user import User
 from app.models.task import Task
@@ -270,7 +270,7 @@ def test_send_usage_nudge_emails_critical_error(mock_run_async):
 @patch("app.tasks.nudge_email.run_async")
 @patch("app.tasks.nudge_email._send_nudge_email")
 def test_test_nudge_email_success(mock_send_email, mock_run_async, mock_user):
-    """Test the test_nudge_email task."""
+    """Test the send_test_nudge_email task."""
     # Mock async operations
     mock_run_async.side_effect = [
         mock_user,  # _get_user result
@@ -280,7 +280,7 @@ def test_test_nudge_email_success(mock_send_email, mock_run_async, mock_user):
     # Mock email send
     mock_send_email.return_value = True
 
-    result = test_nudge_email(mock_user.email)
+    result = send_test_nudge_email(mock_user.email)
 
     assert result["status"] == "success"
     assert f"Test email sent to {mock_user.email}" in result["message"]
@@ -289,10 +289,10 @@ def test_test_nudge_email_success(mock_send_email, mock_run_async, mock_user):
 
 @patch("app.tasks.nudge_email.run_async")
 def test_test_nudge_email_user_not_found(mock_run_async):
-    """Test test_nudge_email with non-existent user."""
+    """Test send_test_nudge_email with non-existent user."""
     mock_run_async.return_value = None
 
-    result = test_nudge_email("nonexistent@example.com")
+    result = send_test_nudge_email("nonexistent@example.com")
 
     assert result["status"] == "failed"
     assert "User not found" in result["error"]
@@ -301,11 +301,11 @@ def test_test_nudge_email_user_not_found(mock_run_async):
 @patch("app.tasks.nudge_email.run_async")
 @patch("app.tasks.nudge_email._send_nudge_email")
 def test_test_nudge_email_send_failure(mock_send_email, mock_run_async, mock_user):
-    """Test test_nudge_email when email send fails."""
+    """Test send_test_nudge_email when email send fails."""
     mock_run_async.side_effect = [mock_user, None]
     mock_send_email.return_value = False
 
-    result = test_nudge_email(mock_user.email)
+    result = send_test_nudge_email(mock_user.email)
 
     assert result["status"] == "failed"
     assert "Failed to send email" in result["error"]

@@ -413,9 +413,9 @@ def send_usage_nudge_emails(self, days_inactive: int = 7) -> dict:
         }
 
 
-@celery_app.task(name="tasks.test_nudge_email")
-def test_nudge_email(user_email: str) -> dict:
-    """Test task to send a single nudge email (for development/testing).
+@celery_app.task(name="tasks.send_test_nudge_email")
+def send_test_nudge_email(user_email: str) -> dict:
+    """Send a test nudge email (for development/testing).
 
     Args:
         user_email: Email address to send test email to
