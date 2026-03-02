@@ -13,6 +13,11 @@ from app.models.base import Base
 class WorkflowTemplate(Base):
     """Workflow template for multi-agent task execution"""
     __tablename__ = "workflow_templates"
+    __table_args__ = (
+        Index('ix_workflow_templates_created_by_public', 'created_by_id', 'is_public'),
+        Index('ix_workflow_templates_category_public', 'category', 'is_public'),
+        {'extend_existing': True}
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False, index=True)
@@ -37,17 +42,16 @@ class WorkflowTemplate(Base):
     # Relationships
     created_by = relationship("User", back_populates="workflow_templates")
     executions = relationship("WorkflowExecution", back_populates="template", cascade="all, delete-orphan")
-    
-    # Indexes
-    __table_args__ = (
-        Index('ix_workflow_templates_created_by_public', 'created_by_id', 'is_public'),
-        Index('ix_workflow_templates_category_public', 'category', 'is_public'),
-    )
 
 
 class WorkflowExecution(Base):
     """Workflow execution tracking"""
     __tablename__ = "workflow_executions"
+    __table_args__ = (
+        Index('ix_workflow_executions_user_status', 'user_id', 'status'),
+        Index('ix_workflow_executions_started_at', 'started_at'),
+        {'extend_existing': True}
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     workflow_template_id = Column(Integer, ForeignKey("workflow_templates.id"), nullable=False)
@@ -70,9 +74,3 @@ class WorkflowExecution(Base):
     # Relationships
     template = relationship("WorkflowTemplate", back_populates="executions")
     user = relationship("User", back_populates="workflow_executions")
-    
-    # Indexes
-    __table_args__ = (
-        Index('ix_workflow_executions_user_status', 'user_id', 'status'),
-        Index('ix_workflow_executions_started_at', 'started_at'),
-    )
