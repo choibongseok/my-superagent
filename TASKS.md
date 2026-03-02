@@ -1,11 +1,132 @@
 # 📋 AgentHQ Task Tracker
 
-> **Last Updated**: 2026-03-02 (Sprint 14 Complete)  
-> **Current Sprint**: Sprint 14 Complete ✅ | Sprint 15 Planning 🚀
+> **Last Updated**: 2026-03-02 (Sprint 15 Complete → Sprint 16 Planning)  
+> **Current Sprint**: Sprint 16 Planning 🚀
 
 ---
 
-## 🎯 Sprint 14 Completed (2026-03-02) ✅
+## 🎯 Sprint 16 Priorities (NEXT UP 🚀)
+
+**Target**: March 3-9, 2026  
+**Theme**: Workflow Enhancement + Advanced Auth + Smart Workspace
+
+### High Priority: Workflow Templates
+
+- [ ] **Workflow Template System** (`workflow_templates=True`) 🎯 **P0**
+  - [ ] Create `backend/app/models/workflow_template.py`
+    - Template schema: name, description, steps[], variables[], triggers
+    - Versioning support (v1, v2, etc.)
+    - Public/private visibility
+    - Tags and categories
+  - [ ] Migration: `011_workflow_templates.py`
+  - [ ] API endpoints: `backend/app/api/v1/workflow_templates.py`
+    - `GET /api/v1/workflow-templates` - List all templates
+    - `POST /api/v1/workflow-templates` - Create template
+    - `GET /api/v1/workflow-templates/{id}` - Get template details
+    - `POST /api/v1/workflow-templates/{id}/execute` - Run template with variables
+    - `DELETE /api/v1/workflow-templates/{id}` - Delete template
+  - [ ] Create 5+ pre-built templates:
+    - "Weekly Report Generator" (Research → Sheets → Docs)
+    - "Competitor Analysis" (Research → Sheets with charts)
+    - "Meeting Prep" (Calendar → Research → Slides)
+    - "Content Audit" (Drive → Analysis → Sheets)
+    - "Budget Tracker" (Sheets → Analysis → Notifications)
+  - [ ] Template variables: `{{company_name}}`, `{{date_range}}`, `{{topic}}`
+  - [ ] Conditional branching: IF/ELSE steps based on agent results
+  - **Completion**: 5+ working templates with variable substitution ✅
+
+- [ ] **Workflow Template Testing** 🎯 **P1**
+  - [ ] Unit tests: `tests/models/test_workflow_template.py`
+    - Test template validation
+    - Test variable substitution
+    - Test conditional logic
+  - [ ] Integration tests: `tests/workflows/test_workflow_templates.py`
+    - Test each pre-built template end-to-end
+    - Test error handling (missing variables, agent failures)
+    - Test template versioning
+  - **Completion**: 30+ test scenarios, 90%+ coverage ✅
+
+### High Priority: Advanced OAuth Features
+
+- [ ] **PKCE Implementation** (`pkce=True`) 🎯 **P0**
+  - [ ] Update OAuth flow: `backend/app/api/v1/oauth.py`
+    - Generate code_verifier and code_challenge
+    - Store verifier in Redis (short TTL)
+    - Validate challenge in token exchange
+    - Mobile-friendly flow (no client_secret required)
+  - [ ] Update OAuth models: `backend/app/models/oauth.py`
+    - Add `pkce_enabled` flag per provider
+    - Track PKCE usage in analytics
+  - [ ] Client SDK examples:
+    - iOS Swift PKCE example
+    - Android Kotlin PKCE example
+    - React Native PKCE example
+  - [ ] Documentation: `docs/PKCE_OAUTH_FLOW.md`
+  - **Completion**: Mobile apps can authenticate without client_secret ✅
+
+- [ ] **Device Authorization Flow** (`device_flow=True`) 🎯 **P1**
+  - [ ] Implement OAuth 2.0 Device Flow (RFC 8628)
+    - `POST /api/v1/oauth/device/code` - Request device code
+    - `POST /api/v1/oauth/device/token` - Poll for token
+    - User-friendly 6-digit code (XXXX-XXXX)
+  - [ ] Add device code UI: `frontend/src/pages/DeviceActivation.tsx`
+    - Display device code
+    - QR code for mobile scanning
+    - Auto-refresh on approval
+  - [ ] Use cases:
+    - Smart TV apps
+    - CLI tools
+    - IoT devices
+  - [ ] Documentation: `docs/DEVICE_AUTHORIZATION_FLOW.md`
+  - **Completion**: CLI can authenticate via browser ✅
+
+### Medium Priority: Smart Workspace Manager
+
+- [ ] **Workspace Analytics** (`workspace_analytics=True`) 🎯 **P2**
+  - [ ] Create `backend/app/services/workspace_analyzer.py`
+    - Scan user's Drive for file patterns
+    - Detect duplicate files (content hash)
+    - Identify stale files (not accessed in 90+ days)
+    - Analyze storage usage by file type
+  - [ ] API endpoints: `backend/app/api/v1/workspace.py`
+    - `GET /api/v1/workspace/analyze` - Start analysis
+    - `GET /api/v1/workspace/insights` - Get recommendations
+    - `POST /api/v1/workspace/organize` - Auto-organize files
+    - `POST /api/v1/workspace/cleanup` - Move stale files to archive
+  - [ ] Insights dashboard: Show storage breakdown, duplicate files count
+  - [ ] Auto-organization rules:
+    - Move old files to "Archive/{year}" folders
+    - Group by project/client/topic
+    - Create smart folders based on file metadata
+  - **Completion**: Analytics + auto-cleanup working ✅
+
+- [ ] **Workspace Testing** 🎯 **P2**
+  - [ ] Unit tests: `tests/services/test_workspace_analyzer.py`
+    - Test file pattern detection
+    - Test duplicate detection algorithm
+    - Test organization rules
+  - [ ] Integration tests: `tests/api/test_workspace.py`
+    - Test analysis endpoint with mock Drive data
+    - Test cleanup endpoint
+  - **Completion**: 20+ test scenarios ✅
+
+### Low Priority: OAuth Scope Refinement
+
+- [ ] **Granular OAuth Scopes** (`oauth_scopes=True`) 🎯 **P3**
+  - [ ] Define fine-grained scopes:
+    - `docs:read`, `docs:write`, `docs:delete`
+    - `sheets:read`, `sheets:write`, `sheets:delete`
+    - `drive:read`, `drive:write`, `drive:delete`
+    - `calendar:read`, `calendar:write`
+  - [ ] Update OAuth consent screen to show requested scopes
+  - [ ] Implement scope validation in API endpoints
+  - [ ] Allow users to revoke individual scopes
+  - [ ] Documentation: `docs/OAUTH_SCOPES.md`
+  - **Completion**: Users can grant minimal required permissions ✅
+
+---
+
+## 🎯 Sprint 15 Completed (2026-03-02) ✅
 
 ### High Priority: API Key Management System
 
@@ -313,6 +434,12 @@
 
 | Feature | Status | Priority | Assignee | Notes |
 |---------|--------|----------|----------|-------|
+| **Sprint 16** | | | | |
+| Workflow Templates | 🟡 PLANNED | P0 | - | 5+ pre-built templates with variables |
+| PKCE OAuth | 🟡 PLANNED | P0 | - | Mobile-friendly auth flow |
+| Device Auth Flow | 🟡 PLANNED | P1 | - | CLI/TV/IoT authentication |
+| Workspace Analytics | 🟡 PLANNED | P2 | - | Auto-organization + cleanup |
+| OAuth Scopes | 🟡 PLANNED | P3 | - | Granular permissions |
 | **Sprint 15** | | | | |
 | Non-LLM Task Types | 🟢 DONE | P2 | - | CSV↔JSON, GitHub cloner, Script executor ✅ |
 | **Sprint 14** | | | | |
@@ -337,6 +464,12 @@
 ---
 
 ## 📝 Notes
+
+**Sprint 16 Planned** 🚀:
+- **workflow_templates=True**: Pre-built workflow library with 5+ templates 📚
+- **pkce=True**: Mobile-friendly OAuth with PKCE (no client_secret) 📱
+- **device_flow=True**: OAuth for CLI/TV/IoT devices 🖥️
+- **workspace_analytics=True**: Smart workspace organization and cleanup 🗂️
 
 **Sprint 15 Complete** ✅:
 - **non_llm_tasks=True**: ✅ **Non-LLM task types with CSV↔JSON, GitHub cloner, script executor** 🔧

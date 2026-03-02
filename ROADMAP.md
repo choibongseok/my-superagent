@@ -1,6 +1,6 @@
 # 🗺️ AgentHQ Roadmap
 
-> **Last Updated**: 2026-03-01  
+> **Last Updated**: 2026-03-02  
 > **Vision**: 멀티 에이전트 자동화 플랫폼에서 → 범용 자율 작업 실행 허브로 진화
 
 ---
@@ -138,18 +138,36 @@
 
 ---
 
-## 📊 Phase 4: FactoryHub Integration (CONCEPT 💡)
+## 📊 Phase 4: FactoryHub Integration (IN PROGRESS 🔧)
 
-**Target**: Q2 2026 (May-June)
+**Target**: Q2 2026 (May-June)  
+**Status**: Sprint 15 Complete - Foundation Established ✅
 
 ### Vision: AI 작업 실행 통합 플랫폼
 AgentHQ의 강점 (LLM orchestration, Google Workspace) + FactoryHub 컨셉 (범용 작업 실행)을 결합
 
+### Foundation (Sprint 15 - COMPLETED ✅)
+- [x] **Architecture Design** ✅ **Sprint 15 Complete**
+  - Universal task executor architecture documented
+  - Pluggable backend system design (Python, Node.js, Docker)
+  - Resource quota management specification
+  - **File**: `docs/FACTORYHUB_INTEGRATION.md` ✅
+
+- [x] **Non-LLM Task Types** ✅ **Sprint 15 Complete**
+  - DataTransformTask: CSV ↔ JSON converter ✅
+  - ScriptTask: Python/Node.js/Bash execution ✅
+  - GitHubRepoCloner: Shallow clone with branch selection ✅
+  - Resource quotas and timeout protection ✅
+  - **Files**: `backend/app/services/task_executor.py`, `backend/app/models/task_type.py` ✅
+  - **Tests**: 20 comprehensive tests, 100% passing ✅
+  - **Docs**: `docs/NON_LLM_TASK_TYPES.md` ✅
+
 ### Planned Features
-- [ ] **Universal Task Executor**
-  - 비-LLM 작업 지원 (데이터 처리, API 호출, 파일 변환)
-  - Pluggable execution backends (Python, Node.js, Docker containers)
-  - Resource management (CPU, memory, disk quotas)
+- [ ] **Universal Task Executor Enhancement**
+  - 10+ additional task types (file conversion, image processing, etc.)
+  - Docker container execution support
+  - Advanced resource management (CPU, memory limits per task)
+  - Task chaining and dependencies
 
 - [ ] **External Tool Integration**
   - GitHub Actions 통합
@@ -164,10 +182,10 @@ AgentHQ의 강점 (LLM orchestration, Google Workspace) + FactoryHub 컨셉 (범
   - Batch operation support
 
 ### Technical Considerations
-- **Architecture**: Keep LangChain agents separate from generic task execution
-- **Database**: Unified task history table with polymorphic task types
+- **Architecture**: Keep LangChain agents separate from generic task execution ✅
+- **Database**: Unified task history table with polymorphic task types ✅
 - **Naming**: Rebrand as "AgentHQ Factory" or keep separate products?
-- **Migration Path**: Gradual feature rollout, no breaking changes
+- **Migration Path**: Gradual feature rollout, no breaking changes ✅
 
 ---
 
@@ -241,23 +259,35 @@ AgentHQ의 강점 (LLM orchestration, Google Workspace) + FactoryHub 컨셉 (범
 
 ---
 
-## 🚀 Immediate Next Steps (Sprint 12-13)
+## 🚀 Immediate Next Steps (Sprint 16-17)
 
-### ✅ Week 1: Admin Rate Limit Management (March 2-8) **COMPLETED** ✅
-1. ✅ Design admin rate limit override system
-2. ✅ Implement database schema and model
-3. ✅ Create admin CRUD endpoints
-4. ✅ Update middleware to check database overrides
-5. ✅ Write comprehensive tests (25+ scenarios)
-6. ✅ Documentation complete
+### 🎯 Sprint 16: Workflow Enhancement (March 3-9, 2026) **PLANNED**
+1. Design workflow template system with variables
+2. Create 5+ pre-built templates (Weekly Report, Competitor Analysis, etc.)
+3. Implement conditional branching (IF/ELSE logic)
+4. Build template library UI
+5. Comprehensive testing (30+ scenarios)
 
-### 🎯 Week 2-4: API Versioning Strategy (March 9-31) **NEXT**
-1. Design v2 API endpoints (/api/v2/*)
-2. Implement version negotiation middleware
-3. Create backward compatibility layer
-4. Define deprecation policy
-5. Update documentation for v1 deprecation timeline
-6. Migrate critical endpoints to v2
+### 🔐 Sprint 16: Advanced OAuth (March 3-9, 2026) **PLANNED**
+1. Implement PKCE for mobile apps
+2. Add Device Authorization Flow (RFC 8628)
+3. Create client SDK examples (iOS, Android, React Native)
+4. Update OAuth documentation
+5. Test mobile authentication flows
+
+### 🗂️ Sprint 16: Smart Workspace (March 3-9, 2026) **PLANNED**
+1. Build workspace analyzer (duplicate detection, stale files)
+2. Implement auto-organization rules
+3. Create insights dashboard
+4. Add cleanup/archival features
+5. Integration tests with mock Drive data
+
+### ✅ Sprint 15: FactoryHub Foundation (March 1-2, 2026) **COMPLETED** ✅
+1. ✅ Architecture design documentation
+2. ✅ Non-LLM task types (CSV↔JSON, GitHub cloner, Script executor)
+3. ✅ Resource quotas and timeout protection
+4. ✅ 20 comprehensive tests, 100% passing
+5. ✅ Documentation complete
 
 ---
 
@@ -285,6 +315,28 @@ AgentHQ의 강점 (LLM orchestration, Google Workspace) + FactoryHub 컨셉 (범
 
 ## 🎨 Innovation Ideas (Backlog 💭)
 
+### Recently Shipped ✅
+- **AI Insights Dashboard** (Idea #36) ✅ **Shipped 2026-03-02**
+  - Agent performance analytics
+  - Usage trends and patterns
+  - Cost optimization recommendations
+  - Real-time metrics visualization
+  - **See**: Sprint 10 completion
+
+- **Dynamic Performance Tuner** (Idea #45) ✅ **Shipped 2026-03-02**
+  - Automatic resource scaling based on load
+  - Adaptive timeout adjustments
+  - Performance bottleneck detection
+  - Self-healing capabilities
+  - **See**: Sprint 9 optimization work
+
+- **Smart Workspace Manager** 🔄 **In Planning (Sprint 16)**
+  - Intelligent file organization
+  - Context-aware workspace suggestions
+  - Auto-cleanup and archival
+  - Team collaboration features
+  - **See**: `docs/sprint-3-smart-workspace-manager.md`
+
 ### Advanced Features
 - **Voice Interface**: Speech-to-task with Whisper + TTS
 - **Mobile-First Workflows**: Quick actions and templates for mobile
@@ -306,6 +358,86 @@ AgentHQ의 강점 (LLM orchestration, Google Workspace) + FactoryHub 컨셉 (범
 - **Export/Import**: Backup and restore user data
 - **Multi-Language**: i18n support (Korean, English, Japanese)
 
+### 🆕 New Ideas for Consideration
+
+#### Workflow & Collaboration
+- **Workflow Marketplace** 🌟 **HIGH PRIORITY**
+  - Community-contributed workflow templates
+  - Rating and review system
+  - One-click installation
+  - Revenue sharing for premium templates
+  - Use case: Install "Marketing Campaign Automation" template from marketplace
+
+- **WebSocket Live Collaboration**
+  - Real-time multi-user workflow editing
+  - Cursor tracking and presence indicators
+  - Conflict resolution for simultaneous edits
+  - Use case: Team collaborates on complex workflow design
+
+- **Workflow Version Control**
+  - Git-like branching for workflows
+  - Diff view for workflow changes
+  - Rollback to previous versions
+  - Use case: Test workflow changes without affecting production
+
+#### Cost & Performance
+- **Cost Predictor** 🌟 **HIGH PRIORITY**
+  - Estimate LLM costs before task execution
+  - Budget alerts and spending limits
+  - Model recommendation based on task complexity
+  - Use case: "This task will cost ~$0.50 with GPT-4, or $0.10 with Claude Haiku"
+
+- **A/B Testing for Agents**
+  - Compare different agent configurations
+  - Statistical significance testing
+  - Automatic winner selection
+  - Use case: Test GPT-4 vs Claude Sonnet for research quality
+
+- **Intelligent Model Routing**
+  - Auto-select best model for task type
+  - Fallback to cheaper model if quality threshold met
+  - Learning from past task success rates
+  - Use case: Use GPT-4 for complex research, GPT-3.5 for simple formatting
+
+#### Security & Compliance
+- **Audit Trail & Compliance** 🌟 **ENTERPRISE PRIORITY**
+  - Detailed logs of all agent actions
+  - GDPR/CCPA compliance features
+  - Data retention policies
+  - Access control logs
+  - Use case: Enterprise customers need SOC 2 compliance
+
+- **Sensitive Data Detection**
+  - PII scanning in task inputs/outputs
+  - Auto-redaction of sensitive data
+  - Compliance alerts
+  - Use case: Prevent accidental exposure of SSN, credit cards
+
+- **Multi-Factor Authentication**
+  - TOTP (Time-based One-Time Password)
+  - SMS/Email verification
+  - Backup codes
+  - Use case: Enhanced security for enterprise accounts
+
+#### External Integrations
+- **Plugin Marketplace**
+  - Third-party integration plugins
+  - OAuth app directory
+  - Verified publisher badges
+  - Use case: Install "Stripe Billing" plugin for automated invoicing
+
+- **Webhook Builder**
+  - Visual webhook configuration
+  - Request/response transformation
+  - Retry logic and error handling
+  - Use case: Trigger workflow on GitHub push event
+
+- **API Gateway with Rate Plans**
+  - Tiered pricing (Free/Pro/Enterprise)
+  - Per-API-key rate limits
+  - Usage-based billing
+  - Use case: Public API for third-party developers
+
 ---
 
 ## 📝 Notes
@@ -322,4 +454,5 @@ AgentHQ의 강점 (LLM orchestration, Google Workspace) + FactoryHub 컨셉 (범
 - Security-first design
 - Cost-effective architecture
 
-**Last Review**: 2026-03-01 by Planner Agent 🤖
+**Last Review**: 2026-03-02 by Planner Agent 🤖  
+**Sprint 16 Priorities**: Workflow Templates, PKCE OAuth, Smart Workspace Manager
