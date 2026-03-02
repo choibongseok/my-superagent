@@ -1,6 +1,6 @@
 """Chat model."""
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID, uuid4
 from sqlalchemy import String, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -11,6 +11,7 @@ from app.models.base import Base, TimestampMixin
 if TYPE_CHECKING:
     from app.models.user import User
     from app.models.message import Message
+    from app.models.workspace import Workspace
 
 
 class Chat(Base, TimestampMixin):
@@ -23,9 +24,13 @@ class Chat(Base, TimestampMixin):
     user_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
     )
+    workspace_id: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=True, index=True
+    )
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="chats")
+    workspace: Mapped[Optional["Workspace"]] = relationship("Workspace", back_populates="chats")
     messages: Mapped[List["Message"]] = relationship(
         "Message", back_populates="chat", cascade="all, delete-orphan", order_by="Message.created_at"
     )

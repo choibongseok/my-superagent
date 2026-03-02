@@ -1,13 +1,16 @@
 """Task model for agent operations."""
 
 from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import JSON, Enum as SQLEnum, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.workspace import Workspace
 
 
 class TaskStatus(str, Enum):
@@ -38,6 +41,9 @@ class Task(Base, TimestampMixin):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    workspace_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("workspaces.id"), nullable=True, index=True
+    )
 
     # Task details
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
@@ -80,6 +86,7 @@ class Task(Base, TimestampMixin):
     )
 
     # Relationships
+    workspace: Mapped[Optional["Workspace"]] = relationship("Workspace", back_populates="tasks")
     fact_checks = relationship("FactCheckResult", back_populates="task")
 
     def __repr__(self) -> str:
