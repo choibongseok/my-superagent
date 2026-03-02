@@ -6,6 +6,7 @@ from celery import Task
 
 from app.agents.celery_app import celery_app
 from app.services.scheduled_task_executor import ScheduledTaskExecutor
+from app.tasks.nudge_email import send_usage_nudge_emails
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,16 @@ def setup_periodic_tasks(sender, **kwargs):
         name="Check and execute scheduled tasks"
     )
     
+    # Send usage nudge emails daily at 10:00 AM UTC
+    from celery.schedules import crontab
+    sender.add_periodic_task(
+        crontab(hour=10, minute=0),  # Daily at 10:00 AM UTC
+        send_usage_nudge_emails.s(days_inactive=7),
+        name="Send daily usage nudge emails"
+    )
+    
     logger.info("✅ Celery Beat: Scheduled task checker configured (every 1 minute)")
+    logger.info("✅ Celery Beat: Usage nudge emails configured (daily at 10:00 AM UTC)")
 
 
 __all__ = ["run_scheduled_tasks", "setup_periodic_tasks"]
