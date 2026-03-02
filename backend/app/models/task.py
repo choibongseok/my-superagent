@@ -1,10 +1,11 @@
 """Task model for agent operations."""
 
+from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Enum as SQLEnum, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, JSON, Enum as SQLEnum, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -53,6 +54,10 @@ class Task(Base, TimestampMixin):
     status: Mapped[TaskStatus] = mapped_column(
         SQLEnum(TaskStatus, native_enum=False), default=TaskStatus.PENDING, index=True
     )
+    
+    # Timing
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     # Results
     result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)

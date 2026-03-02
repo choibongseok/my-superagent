@@ -5,7 +5,7 @@ import pytest
 from datetime import datetime, timedelta
 from uuid import uuid4
 from app.services.analytics import AnalyticsService
-from app.models.task import Task, TaskStatus
+from app.models.task import Task, TaskStatus, TaskType
 from app.models.user import User
 from sqlalchemy.orm import Session
 
@@ -14,10 +14,10 @@ from sqlalchemy.orm import Session
 def test_user(db: Session):
     """Create a test user"""
     user = User(
-        id=str(uuid4()),
+        id=uuid4(),
         email="test@example.com",
         full_name="Test User",
-        hashed_password="hashed_test_password"
+        google_id="test_google_id_123"
     )
     db.add(user)
     db.commit()
@@ -32,12 +32,11 @@ def test_productivity_summary(db: Session, test_user: User):
     # Create test tasks
     for i in range(10):
         task = Task(
-            id=str(uuid4()),
+            id=uuid4(),
             user_id=test_user.id,
             prompt=f"Test task {i}",
-            task_type="research",
+            task_type=TaskType.RESEARCH,
             status=TaskStatus.COMPLETED,
-            created_at=datetime.utcnow() - timedelta(days=i),
             completed_at=datetime.utcnow() - timedelta(days=i, hours=-1)
         )
         db.add(task)
@@ -63,12 +62,11 @@ def test_cost_insights(db: Session, test_user: User):
     # Create test tasks
     for _ in range(5):
         task = Task(
-            id=str(uuid4()),
+            id=uuid4(),
             user_id=test_user.id,
             prompt="Test task",
-            task_type="docs",
+            task_type=TaskType.DOCS,
             status=TaskStatus.COMPLETED,
-            created_at=datetime.utcnow(),
             completed_at=datetime.utcnow()
         )
         db.add(task)
@@ -94,12 +92,11 @@ def test_ai_recommendations(db: Session, test_user: User):
     for hour in [9, 10, 11, 14, 15]:
         for _ in range(3):
             task = Task(
-                id=str(uuid4()),
+                id=uuid4(),
                 user_id=test_user.id,
                 prompt="Test task",
-                task_type="research",
+                task_type=TaskType.RESEARCH,
                 status=TaskStatus.COMPLETED,
-                created_at=datetime.utcnow().replace(hour=hour, minute=0),
                 completed_at=datetime.utcnow().replace(hour=hour, minute=30)
             )
             db.add(task)
@@ -123,12 +120,11 @@ def test_goal_progress(db: Session, test_user: User):
     # Create 15 completed tasks
     for i in range(15):
         task = Task(
-            id=str(uuid4()),
+            id=uuid4(),
             user_id=test_user.id,
             prompt=f"Test task {i}",
-            task_type="research",
+            task_type=TaskType.RESEARCH,
             status=TaskStatus.COMPLETED,
-            created_at=datetime.utcnow() - timedelta(days=i),
             completed_at=datetime.utcnow() - timedelta(days=i, hours=-1)
         )
         db.add(task)
@@ -153,12 +149,11 @@ def test_streak_calculation(db: Session, test_user: User):
     # Create tasks for 5 consecutive days
     for i in range(5):
         task = Task(
-            id=str(uuid4()),
+            id=uuid4(),
             user_id=test_user.id,
             prompt=f"Test task {i}",
-            task_type="research",
+            task_type=TaskType.RESEARCH,
             status=TaskStatus.COMPLETED,
-            created_at=datetime.utcnow() - timedelta(days=i),
             completed_at=datetime.utcnow() - timedelta(days=i, hours=-1)
         )
         db.add(task)
