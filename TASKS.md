@@ -201,16 +201,23 @@
   - [x] Create `docs/FACTORYHUB_INTEGRATION.md`
   - **Completion**: Architecture doc complete with comprehensive design ✅
 
-- [ ] **Non-LLM Task Types** 🎯 **P2**
-  - [ ] Define task type schema: `backend/app/models/task_type.py`
-    - `LLMTask` (existing agents)
-    - `ScriptTask` (Python/Node.js execution)
-    - `APITask` (external API calls)
-    - `DataTransformTask` (ETL operations)
-  - [ ] Prototype 2 non-LLM tasks:
-    - CSV to JSON converter
-    - GitHub repo cloner
-  - **Completion**: 2 working non-LLM task examples
+- [x] **Non-LLM Task Types** (`non_llm_tasks=True`) 🎯 **P2** ✅ **COMPLETED 2026-03-02**
+  - [x] Define task type schema: `backend/app/models/task_type.py`
+    - LLMTask (existing agents)
+    - ScriptTask (Python/Node.js execution)
+    - APITask (external API calls)
+    - DataTransformTask (ETL operations)
+  - [x] Prototype 2 non-LLM tasks:
+    - CSV to JSON converter ✅
+    - GitHub repo cloner ✅
+  - [x] Task executors: `backend/app/services/task_executor.py`
+    - DataTransformExecutor (CSV ↔ JSON)
+    - ScriptExecutor (Python, Node.js, Bash)
+    - GitHubRepoCloner (shallow clone with branch selection)
+  - [x] Resource quotas and timeout protection
+  - [x] Comprehensive test suite (20 tests, 100% passing)
+  - [x] Documentation: `docs/NON_LLM_TASK_TYPES.md`
+  - **Completion**: 2 working non-LLM task examples with full test coverage ✅
 
 - [ ] **External Tool Integration Framework** 🎯 **P3**
   - [ ] Design webhook trigger system
@@ -288,6 +295,7 @@
 
 ## ✅ Recently Completed
 
+- ✅ Sprint 15: Non-LLM Task Types (2026-03-02) 🔧
 - ✅ Sprint 14: API Key Management (2026-03-02) 🔑
 - ✅ Sprint 13: API Versioning Strategy (2026-03-02)
 - ✅ Sprint 12: Admin Rate Limit Management (2026-03-02)
@@ -305,6 +313,8 @@
 
 | Feature | Status | Priority | Assignee | Notes |
 |---------|--------|----------|----------|-------|
+| **Sprint 15** | | | | |
+| Non-LLM Task Types | 🟢 DONE | P2 | - | CSV↔JSON, GitHub cloner, Script executor ✅ |
 | **Sprint 14** | | | | |
 | API Key Management | 🟢 DONE | P0 | - | Full lifecycle + usage tracking ✅ |
 | **Sprint 13** | | | | |
@@ -327,6 +337,9 @@
 ---
 
 ## 📝 Notes
+
+**Sprint 15 Complete** ✅:
+- **non_llm_tasks=True**: ✅ **Non-LLM task types with CSV↔JSON, GitHub cloner, script executor** 🔧
 
 **Sprint 14 Complete** ✅:
 - **api_keys=True**: ✅ **Full API key management with rotation, scopes, and usage tracking** 🔑
@@ -353,7 +366,7 @@
 - **sheets=True**: ✅ **Advanced Sheets Agent with formulas, pivot tables, conditional formatting** ⭐
 - **performance=True**: ✅ **Redis caching, query optimization, 5-10x performance improvement** ⚡
 
-**Completion Estimate**: Sprint 14 COMPLETE (2026-03-02) 🎉
+**Completion Estimate**: Sprint 15 COMPLETE (2026-03-02) 🎉
 
 **Status Summary**:
 - oauth=True ✅
@@ -366,3 +379,4 @@
 - api_versioning=True ✅
 - admin_rate_limits=True ✅
 - api_keys=True ✅
+- non_llm_tasks=True ✅
