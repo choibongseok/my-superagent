@@ -4,7 +4,7 @@ Multi-agent workflows for common automation tasks.
 This module provides pre-defined workflows that chain multiple agents together.
 """
 
-from backend.app.agents.protocols import (
+from app.agents.protocols import (
     AgentRole,
     WorkflowDefinition,
     WorkflowStep,

@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from redis import Redis
 
-from backend.app.agents.protocols import (
+from app.agents.protocols import (
     AgentMessage,
     AgentResponse,
     AgentRole,
@@ -23,7 +23,7 @@ from backend.app.agents.protocols import (
     WorkflowResult,
     WorkflowStep,
 )
-from backend.app.core.config import settings
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 

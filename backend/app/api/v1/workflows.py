@@ -16,14 +16,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db
+from app.api.dependencies import get_current_user, get_db
 from app.models.user import User
 from app.models.workflow_execution import WorkflowExecution, WorkflowStatus
 from app.workflows import get_workflow, list_workflows
 from app.agents.coordinator import AgentCoordinator
 from app.agents.protocols import MessageStatus
 from app.core.config import settings
-from app.db.session import redis_client
+from app.core.redis import get_redis_client
 
 router = APIRouter()
 
@@ -133,7 +133,7 @@ async def execute_workflow(
         # Initialize coordinator
         # TODO: Get agent registry from dependency injection
         agent_registry = {}  # Placeholder
-        coordinator = AgentCoordinator(redis_client, agent_registry)
+        coordinator = AgentCoordinator(get_redis_client(), agent_registry)
         
         # Execute workflow
         result = await coordinator.execute_workflow(
