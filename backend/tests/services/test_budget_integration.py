@@ -34,9 +34,7 @@ def test_user():
     return User(
         id=uuid4(),
         email="budget_test@example.com",
-        username="budgetuser",
         full_name="Budget Test User",
-        hashed_password="fake_hashed_password",
     )
 
 

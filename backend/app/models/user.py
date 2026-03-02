@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from app.models.scheduled_task import ScheduledTask
     from app.models.budget import UserBudget
     from app.models.workflow_execution import WorkflowExecution
+    from app.models.workflow_template import WorkflowTemplate
     from app.models.rate_limit_override import RateLimitOverride
     from app.models.api_key import ApiKey
 
@@ -75,6 +76,11 @@ class User(Base, TimestampMixin):
     # Workflow executions
     workflow_executions: Mapped[List["WorkflowExecution"]] = relationship(
         "WorkflowExecution", back_populates="user", cascade="all, delete-orphan"
+    )
+    
+    # Workflow templates
+    workflow_templates: Mapped[List["WorkflowTemplate"]] = relationship(
+        "WorkflowTemplate", back_populates="created_by", cascade="all, delete-orphan"
     )
     
     # Rate limit overrides

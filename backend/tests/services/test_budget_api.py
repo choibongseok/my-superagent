@@ -16,9 +16,7 @@ async def test_user(db):
     user = User(
         id=uuid4(),
         email="budget_api_test@example.com",
-        username="budgetapiuser",
         full_name="Budget API Test User",
-        hashed_password="fake_hashed_password",
     )
     db.add(user)
     await db.commit()
