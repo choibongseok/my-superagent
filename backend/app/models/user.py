@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.models.nudge_email_log import NudgeEmailLog
     from app.models.scheduled_task import ScheduledTask
     from app.models.budget import UserBudget
+    from app.models.workflow_execution import WorkflowExecution
 
 
 class User(Base, TimestampMixin):
@@ -66,6 +67,11 @@ class User(Base, TimestampMixin):
     # Budget tracking
     budgets: Mapped[List["UserBudget"]] = relationship(
         "UserBudget", back_populates="user", cascade="all, delete-orphan"
+    )
+    
+    # Workflow executions
+    workflow_executions: Mapped[List["WorkflowExecution"]] = relationship(
+        "WorkflowExecution", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
