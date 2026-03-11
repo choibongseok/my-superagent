@@ -5,7 +5,7 @@ from typing import Optional
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from app.core.config import settings
 
@@ -17,7 +17,7 @@ def _get_fernet_key() -> bytes:
     Returns:
         bytes: Fernet-compatible encryption key
     """
-    kdf = PBKDF2(
+    kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
         salt=b"agenthq_oauth_salt",  # Static salt for key derivation

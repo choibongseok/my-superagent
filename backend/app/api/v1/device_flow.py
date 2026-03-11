@@ -2,9 +2,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from backend.app.api import dependencies
-from backend.app.models.user import User
-from backend.app.schemas.device_flow import (
+from app.api import dependencies
+from app.models.user import User
+from app.schemas.device_flow import (
     DeviceActivationInfo,
     DeviceActivationRequest,
     DeviceApprovalRequest,
@@ -14,7 +14,7 @@ from backend.app.schemas.device_flow import (
     DeviceTokenRequest,
     DeviceTokenResponse,
 )
-from backend.app.services.device_flow_service import DeviceFlowService
+from app.services.device_flow_service import DeviceFlowService
 
 router = APIRouter()
 

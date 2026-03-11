@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, JSON
 from sqlalchemy.orm import relationship
 
-from backend.app.core.database import Base
+from app.core.database import Base
 
 
 class WorkspaceInsight(Base):

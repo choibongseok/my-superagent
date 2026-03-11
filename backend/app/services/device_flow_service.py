@@ -6,10 +6,10 @@ from typing import Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from backend.app.core.config import settings
-from backend.app.models.device_code import DeviceCode
-from backend.app.models.user import User
-from backend.app.services.jwt_service import create_access_token
+from app.core.config import settings
+from app.models.device_code import DeviceCode
+from app.models.user import User
+from app.core.security import create_access_token
 
 
 class DeviceFlowService:

@@ -4,15 +4,15 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from backend.app.api.dependencies import get_current_user, get_db
-from backend.app.models.user import User
-from backend.app.models.workspace_insight import WorkspaceInsight, WorkspaceCleanupLog
-from backend.app.schemas.workspace import (
+from app.api.dependencies import get_current_user, get_db
+from app.models.user import User
+from app.models.workspace_insight import WorkspaceInsight, WorkspaceCleanupLog
+from app.schemas.workspace import (
     WorkspaceInsightResponse,
     WorkspaceCleanupRequest,
     WorkspaceCleanupResponse
 )
-from backend.app.services.workspace_analyzer import WorkspaceAnalyzer
+from app.services.workspace_analyzer import WorkspaceAnalyzer
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 

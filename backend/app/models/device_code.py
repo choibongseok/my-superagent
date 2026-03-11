@@ -1,7 +1,7 @@
 """Device Authorization Flow models (RFC 8628)."""
 from datetime import datetime, timedelta
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
-from backend.app.db.base_class import Base
+from app.core.database import Base
 
 
 class DeviceCode(Base):

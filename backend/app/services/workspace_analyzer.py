@@ -9,9 +9,8 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from sqlalchemy.orm import Session
 
-from backend.app.models.oauth_token import OAuthToken
-from backend.app.models.workspace_insight import WorkspaceInsight, WorkspaceCleanupLog
-from backend.app.core.google_auth import get_google_service
+from app.models.workspace_insight import WorkspaceInsight, WorkspaceCleanupLog
+from app.core.google_auth import get_google_service
 
 logger = logging.getLogger(__name__)
 

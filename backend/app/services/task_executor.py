@@ -17,7 +17,7 @@ from typing import Any, Dict, List
 from datetime import datetime
 import uuid
 
-from backend.app.models.task_type import (
+from app.models.task_type import (
     DataTransformTask,
     ScriptTask,
     APITask,
